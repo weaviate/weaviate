@@ -567,6 +567,7 @@ func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator 
 
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
+	writeStart := time.Now()
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
@@ -577,10 +578,24 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 	}
 
 	if fw.migrator != nil {
+		migrateStart := time.Now()
 		if err := fw.migrator(classTempDir); err != nil {
 			return fmt.Errorf("migrate from pre 1.23: %w", err)
 		}
+		fw.logger.WithFields(logrus.Fields{
+			"action":      "restore_file_migrate",
+			"class_name":  desc.Name,
+			"duration_ms": time.Since(migrateStart).Milliseconds(),
+		}).Debug("restore file migration timing")
 	}
+
+	fw.logger.WithFields(logrus.Fields{
+		"action":      "restore_file_write",
+		"class_name":  desc.Name,
+		"num_shards":  len(desc.Shards),
+		"compressed":  fw.compressed,
+		"duration_ms": time.Since(writeStart).Milliseconds(),
+	}).Debug("restore file write timing")
 
 	return nil
 }
@@ -589,6 +604,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
 func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+	tempFilesStart := time.Now()
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -606,7 +622,15 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			shard := shard
 			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
 		}
-		return eg.Wait()
+		err := eg.Wait()
+		fw.logger.WithFields(logrus.Fields{
+			"action":      "restore_write_temp_files",
+			"class_name":  desc.Name,
+			"num_shards":  len(desc.Shards),
+			"compressed":  false,
+			"duration_ms": time.Since(tempFilesStart).Milliseconds(),
+		}).Debug("restore write temp files timing (uncompressed)")
+		return err
 	}
 
 	// source files are compressed
@@ -623,7 +647,15 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			return err
 		})
 	}
-	return eg.Wait()
+	err = eg.Wait()
+	fw.logger.WithFields(logrus.Fields{
+		"action":      "restore_write_temp_files",
+		"class_name":  desc.Name,
+		"num_chunks":  len(desc.Chunks),
+		"compressed":  true,
+		"duration_ms": time.Since(tempFilesStart).Milliseconds(),
+	}).Debug("restore write temp files timing (compressed)")
+	return err
 }
 
 func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {

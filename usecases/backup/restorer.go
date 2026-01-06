@@ -135,31 +135,77 @@ func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
+	stagingStart := time.Now()
 	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
 	if r.dynUserSourcer != nil && len(desc.UserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
+		userRestoreStart := time.Now()
 		if err := r.dynUserSourcer.Restore(desc.UserBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
+		r.logger.WithFields(logrus.Fields{
+			"action":      "restore_user_data",
+			"backup_id":   desc.ID,
+			"duration_ms": time.Since(userRestoreStart).Milliseconds(),
+		}).Debug("restore user data timing")
 	}
 
 	if r.rbacSourcer != nil && len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+		rbacRestoreStart := time.Now()
 		if err := r.rbacSourcer.Restore(desc.RbacBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
+		r.logger.WithFields(logrus.Fields{
+			"action":      "restore_rbac_data",
+			"backup_id":   desc.ID,
+			"duration_ms": time.Since(rbacRestoreStart).Milliseconds(),
+		}).Debug("restore RBAC data timing")
 	}
 
 	for _, cdesc := range desc.Classes {
+		classStart := time.Now()
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
+		classDuration := time.Since(classStart)
+
+		// Emit metric for per-class staging duration
+		r.observeClassStagingDuration(cdesc.Name, desc.ID, classDuration)
+		r.logger.WithFields(logrus.Fields{
+			"action":      "restore_class_staging",
+			"backup_id":   desc.ID,
+			"class_name":  cdesc.Name,
+			"duration_ms": classDuration.Milliseconds(),
+		}).Debug("restore class staging timing")
+
 		r.logger.WithField("action", "restore").
 			WithField("backup_id", desc.ID).
 			WithField("class", cdesc.Name).Info("successfully restored")
 	}
+
+	// Log total staging duration for this node
+	r.logger.WithFields(logrus.Fields{
+		"action":      "restore_node_staging_complete",
+		"backup_id":   desc.ID,
+		"duration_ms": time.Since(stagingStart).Milliseconds(),
+		"num_classes": len(desc.Classes),
+	}).Debug("restore node staging total timing")
+
 	return nil
+}
+
+// observeClassStagingDuration records per-class staging duration to Prometheus
+func (r *restorer) observeClassStagingDuration(className, backupID string, duration time.Duration) {
+	classLabel := className
+	if monitoring.GetMetrics().Group {
+		classLabel = "n/a"
+	}
+	metric, err := monitoring.GetMetrics().RestoreClassStagingDurations.GetMetricWithLabelValues(classLabel, backupID)
+	if err == nil {
+		metric.Observe(duration.Seconds())
+	}
 }
 
 func getType(myvar interface{}) string {

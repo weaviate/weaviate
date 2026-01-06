@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Op is the kind of a backup operation
@@ -250,7 +251,17 @@ func (c *coordinator) Restore(
 	}
 	c.descriptor = desc.ResetStatus()
 
+	// Time canCommit phase (initiates file staging on all nodes)
+	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req)
+	canCommitDuration := time.Since(canCommitStart)
+	c.observeRestorePhase("can_commit", desc.ID, canCommitDuration)
+	c.log.WithFields(logrus.Fields{
+		"action":      "restore_phase_complete",
+		"phase":       "can_commit",
+		"backup_id":   desc.ID,
+		"duration_ms": canCommitDuration.Milliseconds(),
+	}).Debug("restore phase timing")
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -271,8 +282,31 @@ func (c *coordinator) Restore(
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
+
+		// Time commit polling phase (waits for all nodes to finish staging)
+		commitStart := time.Now()
 		c.commit(ctx, &statusReq, nodes, true)
+		commitDuration := time.Since(commitStart)
+		c.observeRestorePhase("commit_polling", desc.ID, commitDuration)
+		c.log.WithFields(logrus.Fields{
+			"action":      "restore_phase_complete",
+			"phase":       "commit_polling",
+			"backup_id":   desc.ID,
+			"duration_ms": commitDuration.Milliseconds(),
+		}).Debug("restore phase timing")
+
+		// Time schema apply phase (Raft commits for each class)
+		schemaApplyStart := time.Now()
 		c.restoreClasses(ctx, schema, req)
+		schemaApplyDuration := time.Since(schemaApplyStart)
+		c.observeRestorePhase("schema_apply", desc.ID, schemaApplyDuration)
+		c.log.WithFields(logrus.Fields{
+			"action":      "restore_phase_complete",
+			"phase":       "schema_apply",
+			"backup_id":   desc.ID,
+			"duration_ms": schemaApplyDuration.Milliseconds(),
+		}).Debug("restore phase timing")
+
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -286,6 +320,14 @@ func (c *coordinator) Restore(
 	enterrors.GoWrapper(g, c.log)
 
 	return nil
+}
+
+// observeRestorePhase records the duration of a restore phase to Prometheus
+func (c *coordinator) observeRestorePhase(phase, backupID string, duration time.Duration) {
+	metric, err := monitoring.GetMetrics().RestorePhaseDurations.GetMetricWithLabelValues(phase, backupID)
+	if err == nil {
+		metric.Observe(duration.Seconds())
+	}
 }
 
 // restoreClasses attempts to restore all classes.
@@ -307,10 +349,18 @@ func (c *coordinator) restoreClasses(
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
+		classStart := time.Now()
 		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
+		classDuration := time.Since(classStart)
+		c.log.WithFields(logrus.Fields{
+			"action":      "restore_class_schema_apply",
+			"backup_id":   c.descriptor.ID,
+			"class_name":  cls.Name,
+			"duration_ms": classDuration.Milliseconds(),
+		}).Debug("restore class schema apply timing")
 	}
 	if len(errors) > 0 {
 		c.descriptor.Status = backup.Failed

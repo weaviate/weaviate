@@ -75,6 +75,8 @@ type PrometheusMetrics struct {
 	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
 	BackupRestoreDataTransferred        *prometheus.CounterVec
 	BackupStoreDataTransferred          *prometheus.CounterVec
+	RestorePhaseDurations               *prometheus.SummaryVec
+	RestoreClassStagingDurations        *prometheus.SummaryVec
 	FileIOWrites                        *prometheus.SummaryVec
 	FileIOReads                         *prometheus.SummaryVec
 	MmapOperations                      *prometheus.CounterVec
@@ -736,6 +738,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		RestorePhaseDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "restore_phase_duration_seconds",
+			Help: "Duration of each restore phase (can_commit, staging, commit_polling, schema_apply)",
+		}, []string{"phase", "backup_id"}),
+		RestoreClassStagingDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "restore_class_staging_duration_seconds",
+			Help: "Duration of staging files for each class during restore",
+		}, []string{"class_name", "backup_id"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
