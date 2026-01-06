@@ -20,7 +20,7 @@ func TestQueryVectorExtension(t *testing.T) {
 			}
 		}
 		`
-		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.QueryGraphQLOrFatal(t, helper.RootAuth, "", query, nil)
 
 		extensions := result.Extensions
 		require.NotNil(t, extensions)
@@ -50,7 +50,7 @@ func TestQueryVectorExtension(t *testing.T) {
 			}
 		}
 		`
-		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.QueryGraphQLOrFatal(t, helper.RootAuth, "", query, nil)
 
 		extensions := result.Extensions
 		require.NotNil(t, extensions)
