@@ -166,7 +166,7 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	shard, requestID string, obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
+	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj, clusterapi.MethodPut)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
@@ -199,7 +199,7 @@ func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 	shard, requestID string, objects []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objects)
+	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objects, clusterapi.MethodPut)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
