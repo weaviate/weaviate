@@ -66,9 +66,9 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 			err = errors.Wrap(err, "could not persist dimensions")
 			return // Fail the entire initialization
 		}
-
-		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
+		h.quantizer = compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
 		h.Centroids.SetQuantizer(h.quantizer)
+
 		if err = h.persistQuantizationData(); err != nil {
 			err = errors.Wrap(err, "could not persist RQ data")
 			return // Fail the entire initialization
@@ -96,7 +96,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 
 	var v Vector
 
-	compressed := h.quantizer.Encode(vector)
+	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
 	v = NewVector(id, version, compressed)
 
 	targets, _, err := h.RNGSelect(vector, 0)
