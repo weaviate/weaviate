@@ -183,14 +183,16 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 			// don't need to validate non-xref data types
 			continue
 		}
-		if len(prop.DataType) == 1 && prop.DataType[0] == req.Class.Class {
-			// self-references are always allowed
-			continue
-		}
 		for _, dt := range prop.DataType {
-			if s.schema.classExists(dt) {
+			if dt == req.Class.Class {
+				// self-references are always allowed
 				continue
 			}
+			if s.schema.classExists(dt) {
+				// class exists, all good
+				continue
+			}
+			// class does not exist, error out
 			return fmt.Errorf("%w: %w", ErrBadRequest, entSchema.ErrRefToNonexistentClass)
 		}
 
