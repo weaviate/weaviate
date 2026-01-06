@@ -11,8 +11,6 @@ packages:
       replicationFSM:
   github.com/weaviate/weaviate/usecases/replica:
    interfaces:
-      IncomingIndex:
-      IncomingIndexProvider:
       RClient:
       WClient:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
@@ -76,6 +74,9 @@ packages:
   github.com/weaviate/weaviate/cluster/usage:
     interfaces:
       Service:
+  github.com/weaviate/weaviate/adapters/repos/types:
+    interfaces:
+        Indexer:
   github.com/weaviate/weaviate/adapters/repos/db:
     interfaces:
       ShardLike:

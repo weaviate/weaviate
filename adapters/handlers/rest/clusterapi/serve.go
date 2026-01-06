@@ -57,7 +57,7 @@ func NewServer(appState *state.State) *Server {
 
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
-		appState.RemoteReplicaIncoming,
+		appState.DB,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
