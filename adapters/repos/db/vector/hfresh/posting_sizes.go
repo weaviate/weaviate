@@ -18,7 +18,6 @@ import (
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
@@ -56,10 +55,9 @@ func sharedBucketName(id string) string {
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
 type PostingSizes struct {
-	metrics    *Metrics
-	cache      *otter.Cache[uint64, uint32]
-	store      *PostingSizeStore
-	postingIDs *xsync.Map[uint64, struct{}]
+	metrics *Metrics
+	cache   *otter.Cache[uint64, uint32]
+	store   *PostingSizeStore
 }
 
 func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingSizes, error) {
@@ -72,21 +70,10 @@ func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingSizes, err
 		return nil, err
 	}
 
-	postingIDs := xsync.NewMap[uint64, struct{}]()
-	// preload existing posting IDs into the map
-	existingIDs, err := pStore.ListPostingIDs(context.Background())
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to list existing posting IDs")
-	}
-	for _, id := range existingIDs {
-		postingIDs.Store(id, struct{}{})
-	}
-
 	return &PostingSizes{
-		cache:      cache,
-		metrics:    metrics,
-		store:      pStore,
-		postingIDs: postingIDs,
+		cache:   cache,
+		metrics: metrics,
+		store:   pStore,
 	}, nil
 }
 
@@ -119,11 +106,6 @@ func (v *PostingSizes) Set(ctx context.Context, postingID uint64, newSize uint32
 		return err
 	}
 	v.cache.Set(postingID, newSize)
-	if newSize > 0 {
-		v.postingIDs.Store(postingID, struct{}{})
-	} else {
-		v.postingIDs.Delete(postingID)
-	}
 	v.metrics.ObservePostingSize(float64(newSize))
 	return nil
 }
@@ -138,10 +120,6 @@ func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) 
 		}
 	}
 
-	if old == 0 && delta > 0 {
-		v.postingIDs.Store(postingID, struct{}{})
-	}
-
 	newSize := old + delta
 	err = v.store.Set(ctx, postingID, newSize)
 	if err != nil {
@@ -151,16 +129,6 @@ func (v *PostingSizes) Inc(ctx context.Context, postingID uint64, delta uint32) 
 	v.cache.Set(postingID, newSize)
 	v.metrics.ObservePostingSize(float64(newSize))
 	return newSize, nil
-}
-
-// ListPostingIDs returns the list of all posting IDs with non-zero size.
-func (v *PostingSizes) ListPostingIDs(ctx context.Context) ([]uint64, error) {
-	postingIDs := make([]uint64, 0, v.postingIDs.Size())
-	v.postingIDs.Range(func(key uint64, value struct{}) bool {
-		postingIDs = append(postingIDs, key)
-		return true
-	})
-	return postingIDs, nil
 }
 
 // PostingSizeStore is a persistent store for posting sizes.
@@ -200,29 +168,4 @@ func (p *PostingSizeStore) Get(ctx context.Context, postingID uint64) (uint32, e
 func (p *PostingSizeStore) Set(ctx context.Context, postingID uint64, size uint32) error {
 	key := p.key(postingID)
 	return p.bucket.Put(key[:], binary.LittleEndian.AppendUint32(nil, size))
-}
-
-// ListPostingIDs returns a list of all posting IDs stored in the PostingSizeStore.
-func (p *PostingSizeStore) ListPostingIDs(ctx context.Context) ([]uint64, error) {
-	var postingIDs []uint64
-
-	c := p.bucket.Cursor()
-	defer c.Close()
-
-	prefix := []byte{p.keyPrefix}
-	for k, v := c.Seek(prefix); len(k) > 0 && k[0] == p.keyPrefix; k, v = c.Next() {
-		if len(k) != 9 || len(v) != 4 {
-			continue
-		}
-
-		postingID := binary.LittleEndian.Uint64(k[1:])
-		// skip postings with size zero
-		if binary.LittleEndian.Uint32(v) == 0 {
-			continue
-		}
-
-		postingIDs = append(postingIDs, postingID)
-	}
-
-	return postingIDs, nil
 }
