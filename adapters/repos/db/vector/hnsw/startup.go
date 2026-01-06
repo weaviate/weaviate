@@ -262,6 +262,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 }
 
 func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+	h.dims = int32(data.InputDim)
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -305,6 +306,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 }
 
 func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+	h.dims = int32(data.InputDim)
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
