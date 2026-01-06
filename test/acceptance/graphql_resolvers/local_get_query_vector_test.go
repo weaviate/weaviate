@@ -21,19 +21,19 @@ func TestQueryVectorExtension(t *testing.T) {
 		}
 		`
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-		
+
 		extensions := result.Extensions
 		require.NotNil(t, extensions)
-		
+
 		metadata, ok := extensions["metadata"].(map[string]interface{})
 		require.True(t, ok)
-		
+
 		vectorizer, ok := metadata["vectorizer"].(map[string]interface{})
 		require.True(t, ok)
-		
+
 		queryVectors, ok := vectorizer["queryVectors"].(map[string]interface{})
 		require.True(t, ok)
-		
+
 		// Default target vector is empty string key if not named
 		vec, ok := queryVectors[""].([]interface{})
 		require.True(t, ok)
@@ -51,19 +51,19 @@ func TestQueryVectorExtension(t *testing.T) {
 		}
 		`
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-		
+
 		extensions := result.Extensions
 		require.NotNil(t, extensions)
-		
+
 		metadata, ok := extensions["metadata"].(map[string]interface{})
 		require.True(t, ok)
-		
+
 		vectorizer, ok := metadata["vectorizer"].(map[string]interface{})
 		require.True(t, ok)
-		
+
 		queryVectors, ok := vectorizer["queryVectors"].(map[string]interface{})
 		require.True(t, ok)
-		
+
 		vec, ok := queryVectors[""].([]interface{})
 		require.True(t, ok)
 
@@ -71,4 +71,3 @@ func TestQueryVectorExtension(t *testing.T) {
 		assert.InDelta(t, 0.9, vec[1].(float64), 0.0001)
 	})
 }
-
