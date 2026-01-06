@@ -21,6 +21,7 @@ type postingMetadata struct {
 	Version uint32
 }
 
+// PostingMetadataStore is a persistent store for posting metadata.
 type PostingMetadataStore struct {
 	bucket    *lsmkv.Bucket
 	keyPrefix byte
@@ -40,6 +41,7 @@ func (p *PostingMetadataStore) key(postingID uint64) [9]byte {
 	return buf
 }
 
+// Get retrieves the posting metadata for the given posting ID.
 func (p *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*postingMetadata, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
@@ -59,6 +61,7 @@ func (p *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*post
 	return &metadata, nil
 }
 
+// Set adds or replaces the posting metadata for the given posting ID.
 func (p *PostingMetadataStore) Set(ctx context.Context, postingID uint64, metadata *postingMetadata) error {
 	key := p.key(postingID)
 
