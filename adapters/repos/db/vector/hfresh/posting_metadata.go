@@ -10,8 +10,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-// postingMetadata holds various information about a posting.
-type postingMetadata struct {
+// PostingMetadata holds various information about a posting.
+type PostingMetadata struct {
 	// Vectors holds the IDs of the vectors in the posting.
 	Vectors []uint64
 	// Version keeps track of the version of the posting list.
@@ -25,14 +25,14 @@ type postingMetadata struct {
 // PostingMetadata manages various information about postings.
 type PostingMetadataStore struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, *postingMetadata]
+	cache   *otter.Cache[uint64, *PostingMetadata]
 	bucket  *PostingMetadataBucket
 }
 
 func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingMetadataStore, error) {
 	b := NewPostingMetadataBucket(bucket, postingMetadataBucketPrefix)
 
-	cache, err := otter.New(&otter.Options[uint64, *postingMetadata]{
+	cache, err := otter.New(&otter.Options[uint64, *PostingMetadata]{
 		MaximumSize: 100_000,
 	})
 	if err != nil {
@@ -47,8 +47,8 @@ func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingMe
 }
 
 // Get returns the size of the posting with the given ID.
-func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*postingMetadata, error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *postingMetadata](func(ctx context.Context, key uint64) (*postingMetadata, error) {
+func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
+	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
 		m, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
@@ -88,7 +88,7 @@ func (p *PostingMetadataBucket) key(postingID uint64) [9]byte {
 }
 
 // Get retrieves the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*postingMetadata, error) {
+func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
@@ -98,7 +98,7 @@ func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*pos
 		return nil, ErrPostingNotFound
 	}
 
-	var metadata postingMetadata
+	var metadata PostingMetadata
 	err = msgpack.Unmarshal(v, &metadata)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to unmarshal posting metadata for %d", postingID)
@@ -108,7 +108,7 @@ func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*pos
 }
 
 // Set adds or replaces the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metadata *postingMetadata) error {
+func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metadata *PostingMetadata) error {
 	key := p.key(postingID)
 
 	data, err := msgpack.Marshal(metadata)
