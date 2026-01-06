@@ -85,9 +85,9 @@ func TestDynamic(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -146,9 +146,9 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(nil),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(nil),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -229,9 +229,9 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -313,9 +313,9 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -549,7 +549,6 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					}
 					return vec, nil
 				},
-				TempVectorForIDThunk:         TempVectorForIDThunk(vectors),
 				GetViewThunk:                 GetViewThunk,
 				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 				TombstoneCallbacks:           noopCallback,
@@ -710,9 +709,9 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -818,9 +817,9 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -893,9 +892,9 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -967,9 +966,9 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
