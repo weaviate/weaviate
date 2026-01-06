@@ -11,8 +11,8 @@ packages:
       replicationFSM:
   github.com/weaviate/weaviate/usecases/replica:
    interfaces:
-      RemoteIndexIncomingRepo:
-      RemoteIncomingRepo:
+      IncomingIndex:
+      IncomingIndexProvider:
       RClient:
       WClient:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:

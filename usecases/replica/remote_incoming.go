@@ -25,8 +25,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-type RemoteIncomingRepo interface {
-	GetIndexForIncomingReplica(className schema.ClassName) RemoteIndexIncomingRepo
+type IncomingIndexProvider interface {
+	GetIncomingIndex(className schema.ClassName) IncomingIndex
 }
 
 type RemoteIncomingSchema interface {
@@ -34,7 +34,7 @@ type RemoteIncomingSchema interface {
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 }
 
-type RemoteIndexIncomingRepo interface {
+type IncomingIndex interface {
 	// Write endpoints
 	ReplicateObject(ctx context.Context, shardName, requestID string, object *storobj.Object) SimpleResponse
 	ReplicateObjects(ctx context.Context, shardName, requestID string, objects []*storobj.Object, schemaVersion uint64) SimpleResponse
@@ -56,19 +56,19 @@ type RemoteIndexIncomingRepo interface {
 }
 
 type RemoteReplicaIncoming struct {
-	repo   RemoteIncomingRepo
+	repo   IncomingIndexProvider
 	schema RemoteIncomingSchema
 }
 
-func NewRemoteReplicaIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema) *RemoteReplicaIncoming {
+func NewRemoteReplicaIncoming(repo IncomingIndexProvider, schema RemoteIncomingSchema) *RemoteReplicaIncoming {
 	return &RemoteReplicaIncoming{
 		schema: schema,
 		repo:   repo,
 	}
 }
 
-func (rri *RemoteReplicaIncoming) GetIndexForIncomingReplica(className schema.ClassName) RemoteIndexIncomingRepo {
-	return rri.repo.GetIndexForIncomingReplica(className)
+func (rri *RemoteReplicaIncoming) GetIncomingIndex(className schema.ClassName) IncomingIndex {
+	return rri.repo.GetIncomingIndex(className)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateObject(ctx context.Context, indexName,
@@ -195,8 +195,8 @@ func (rri *RemoteReplicaIncoming) WaitForUpdate(ctx context.Context, schemaVersi
 	return rri.schema.WaitForUpdate(ctx, schemaVersion)
 }
 
-func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, indexName string) (RemoteIndexIncomingRepo, *SimpleResponse) {
-	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
+func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, indexName string) (IncomingIndex, *SimpleResponse) {
+	index := rri.repo.GetIncomingIndex(schema.ClassName(indexName))
 	if index == nil {
 		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
 	}
@@ -205,11 +205,11 @@ func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, inde
 
 func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
-) (RemoteIndexIncomingRepo, *SimpleResponse) {
+) (IncomingIndex, *SimpleResponse) {
 	if err := rri.schema.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
 	}
-	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
+	index := rri.repo.GetIncomingIndex(schema.ClassName(indexName))
 	if index == nil {
 		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
 	}

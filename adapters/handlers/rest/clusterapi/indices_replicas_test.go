@@ -34,7 +34,7 @@ import (
 
 func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
-	fakeReplicator := replica.NewMockRemoteIncomingRepo(t)
+	fakeReplicator := replica.NewMockIncomingIndexProvider(t)
 	logger, _ := test.NewNullLogger()
 	indices := clusterapi.NewReplicatedIndices(fakeReplicator, noopAuth, func() bool { return true }, cluster.RequestQueueConfig{}, logger, func() bool { return true })
 	mux := http.NewServeMux()
@@ -186,7 +186,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
-			fakeReplicator := replica.NewMockRemoteIncomingRepo(t)
+			fakeReplicator := replica.NewMockIncomingIndexProvider(t)
 			commitBlock := make(chan struct{})
 			fakeIndexRepo := replica.NewMockRemoteIndexIncomingRepo(t)
 
@@ -195,8 +195,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 				<-commitBlock
 			}).Return(replica.SimpleResponse{})
 
-			// Configure GetIndexForIncomingReplica to return the mock index repo
-			fakeReplicator.On("GetIndexForIncomingReplica", mock.Anything).Return(fakeIndexRepo)
+			fakeReplicator.EXPECT().GetIncomingIndex(mock.Anything).Return(fakeIndexRepo)
 
 			logger, _ := test.NewNullLogger()
 			indices := clusterapi.NewReplicatedIndices(fakeReplicator, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger, func() bool { return true })
@@ -296,7 +295,7 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
-			fakeReplicator := replica.NewMockRemoteIncomingRepo(t)
+			fakeReplicator := replica.NewMockIncomingIndexProvider(t)
 			logger, _ := test.NewNullLogger()
 
 			indices := clusterapi.NewReplicatedIndices(
@@ -368,7 +367,7 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 // during shutdown receive HTTP 503 responses instead of being enqueued or causing errors.
 func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
-	fakeReplicator := replica.NewMockRemoteIncomingRepo(t)
+	fakeReplicator := replica.NewMockIncomingIndexProvider(t)
 	startSignal := make(chan struct{})
 	doneSignal := make(chan struct{})
 	fakeIndexRepo := replica.NewMockRemoteIndexIncomingRepo(t)
@@ -382,8 +381,8 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 		<-doneSignal
 	}).Return(replica.SimpleResponse{})
 
-	// Configure GetIndexForIncomingReplica to return the mock index repo
-	fakeReplicator.On("GetIndexForIncomingReplica", mock.Anything).Return(fakeIndexRepo)
+	// Configure GetIncomingIndex to return the mock index repo
+	fakeReplicator.EXPECT().GetIncomingIndex(mock.Anything).Return(fakeIndexRepo)
 
 	logger, _ := test.NewNullLogger()
 
@@ -477,7 +476,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 
 func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
-	fakeReplicator := replica.NewMockRemoteIncomingRepo(t)
+	fakeReplicator := replica.NewMockIncomingIndexProvider(t)
 	logger, _ := test.NewNullLogger()
 
 	indices := clusterapi.NewReplicatedIndices(
@@ -512,7 +511,7 @@ func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
 func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	// Create a fake replicator that blocks on commit operations
-	fakeReplicator := replica.NewMockRemoteIncomingRepo(t)
+	fakeReplicator := replica.NewMockIncomingIndexProvider(t)
 	startSignal := make(chan struct{})
 	doneSignal := make(chan struct{})
 	fakeIndexRepo := replica.NewMockRemoteIndexIncomingRepo(t)
@@ -526,8 +525,7 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 		<-doneSignal
 	}).Return(replica.SimpleResponse{})
 
-	// Configure GetIndexForIncomingReplica to return the mock index repo
-	fakeReplicator.On("GetIndexForIncomingReplica", mock.Anything).Return(fakeIndexRepo)
+	fakeReplicator.EXPECT().GetIncomingIndex(mock.Anything).Return(fakeIndexRepo)
 
 	logger, _ := test.NewNullLogger()
 
