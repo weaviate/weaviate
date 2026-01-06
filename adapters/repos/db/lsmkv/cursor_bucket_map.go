@@ -16,7 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -181,9 +181,8 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 
 		if c.listCfg.legacyRequireManualSorting {
 			for i := range perSegmentResults {
-				sort.Slice(perSegmentResults[i], func(a, b int) bool {
-					return bytes.Compare(perSegmentResults[i][a].Key,
-						perSegmentResults[i][b].Key) == -1
+				slices.SortFunc(perSegmentResults[i], func(a, b MapPair) int {
+					return bytes.Compare(a.Key, b.Key)
 				})
 			}
 		}

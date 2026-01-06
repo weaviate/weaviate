@@ -12,8 +12,9 @@
 package aggregator
 
 import (
+	"cmp"
 	"math"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -118,8 +119,8 @@ func (a *numericalAggregator) buildPairsFromCounts() {
 		a.pairs = append(a.pairs, floatCountPair{value: value, count: count})
 	}
 
-	sort.Slice(a.pairs, func(x, y int) bool {
-		return a.pairs[x].value < a.pairs[y].value
+	slices.SortFunc(a.pairs, func(x, y floatCountPair) int {
+		return cmp.Compare(x.value, y.value)
 	})
 }
 

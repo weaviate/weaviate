@@ -12,7 +12,8 @@
 package aggregator
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -80,8 +81,8 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 		sc.finalizeGroup(&combined.Groups[i])
 	}
 
-	sort.Slice(combined.Groups, func(a, b int) bool {
-		return combined.Groups[a].Count > combined.Groups[b].Count
+	slices.SortFunc(combined.Groups, func(a, b aggregation.Group) int {
+		return cmp.Compare(b.Count, a.Count)
 	})
 	return &combined
 }
@@ -295,8 +296,8 @@ func (sc *ShardCombiner) mergeRefProp(first, second *aggregation.Reference) {
 }
 
 func (sc *ShardCombiner) finalizeText(combined *aggregation.Text) {
-	sort.Slice(combined.Items, func(a, b int) bool {
-		return combined.Items[a].Occurs > combined.Items[b].Occurs
+	slices.SortFunc(combined.Items, func(a, b aggregation.TextOccurrence) int {
+		return cmp.Compare(b.Occurs, a.Occurs)
 	})
 }
 

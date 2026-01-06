@@ -12,11 +12,12 @@
 package hnsw
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -207,17 +208,17 @@ func getCommitFiles(rootPath, id string, createdAfter int64, fs common.FS) ([]os
 	}
 
 	ec := errorcompounder.New()
-	sort.Slice(files, func(a, b int) bool {
-		ts1, err := asTimeStamp(files[a].Name())
+	slices.SortFunc(files, func(a, b os.DirEntry) int {
+		ts1, err := asTimeStamp(a.Name())
 		if err != nil {
 			ec.Add(err)
 		}
 
-		ts2, err := asTimeStamp(files[b].Name())
+		ts2, err := asTimeStamp(b.Name())
 		if err != nil {
 			ec.Add(err)
 		}
-		return ts1 < ts2
+		return cmp.Compare(ts1, ts2)
 	})
 	if err := ec.ToError(); err != nil {
 		return nil, err
@@ -255,17 +256,17 @@ func getCurrentCommitLogFileName(dirPath string, fs common.FS) (string, bool, er
 	}
 
 	ec := errorcompounder.New()
-	sort.Slice(files, func(a, b int) bool {
-		ts1, err := asTimeStamp(files[a].Name())
+	slices.SortFunc(files, func(a, b os.DirEntry) int {
+		ts1, err := asTimeStamp(a.Name())
 		if err != nil {
 			ec.Add(err)
 		}
 
-		ts2, err := asTimeStamp(files[b].Name())
+		ts2, err := asTimeStamp(b.Name())
 		if err != nil {
 			ec.Add(err)
 		}
-		return ts1 > ts2
+		return cmp.Compare(ts1, ts2)
 	})
 	if err := ec.ToError(); err != nil {
 		return "", false, err

@@ -12,7 +12,8 @@
 package schema
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -146,8 +147,8 @@ func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class
 }
 
 func (r *RefFinder) sortByPathLen(in []filters.Path) []filters.Path {
-	sort.Slice(in, func(i, j int) bool {
-		return len(in[i].Slice()) < len(in[j].Slice())
+	slices.SortFunc(in, func(a, b filters.Path) int {
+		return cmp.Compare(len(a.Slice()), len(b.Slice()))
 	})
 
 	return in

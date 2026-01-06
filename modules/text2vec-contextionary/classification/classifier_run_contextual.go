@@ -12,9 +12,10 @@
 package classification
 
 import (
+	"cmp"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -305,7 +306,9 @@ func (c *contextualItemClassifier) rank(in []*scoredWord) []scoredWord {
 		i++
 	}
 	out := filtered[:i]
-	sort.Slice(out, func(a, b int) bool { return out[a].informationGain > out[b].informationGain })
+	slices.SortFunc(out, func(a, b scoredWord) int {
+		return cmp.Compare(b.informationGain, a.informationGain)
+	})
 	return out
 }
 

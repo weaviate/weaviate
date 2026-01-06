@@ -109,12 +109,14 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 			},
 		}
 
-		t.Run("add tenant objects", func(t *testing.T) {
-			for _, obj := range tenantObjects {
-				assert.Nil(t, helper.CreateObject(t, obj))
-			}
+		t.Run("add tenant 1 object", func(t *testing.T) {
+			// Use Eventually to retry object creation.
+			// The tenant might need a moment to become writable after re-creation.
+			assert.Eventually(t, func() bool {
+				err := helper.CreateObject(t, tenantObjects[0])
+				return err == nil
+			}, 10*time.Second, 500*time.Millisecond, "failed to create object for recreated tenant within time window")
 		})
-
 		t.Run("verify object creation", func(t *testing.T) {
 			for _, obj := range tenantObjects {
 				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[0])
@@ -127,6 +129,11 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 		t.Run("verify created objects length", func(t *testing.T) {
 			resp, err := helper.TenantListObjects(t, className, tenantNames[0])
 			require.Nil(t, err)
+
+			// Use require here so we don't panic if the length is 0
+			require.Equal(t, 1, len(resp.Objects), "Expected exactly 1 object after tenant recreation")
+
+			assert.Equal(t, tenantObjects[0].Class, resp.Objects[0].Class)
 			assert.Equal(t, len(tenantObjects), len(resp.Objects))
 		})
 

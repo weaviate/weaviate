@@ -14,12 +14,13 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"math"
 	"math/rand"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -100,8 +101,8 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 		}
 	}
 
-	sort.Slice(distances, func(a, b int) bool {
-		return distances[a].distance < distances[b].distance
+	slices.SortFunc(distances, func(a, b distanceAndIndex) int {
+		return cmp.Compare(a.distance, b.distance)
 	})
 
 	if len(distances) < k {

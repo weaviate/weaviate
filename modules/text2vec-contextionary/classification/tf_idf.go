@@ -12,9 +12,10 @@
 package classification
 
 import (
+	"cmp"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -113,7 +114,9 @@ func (c *TfIdfCalculator) GetAllTerms(docIndex int) []TermWithTfIdf {
 		}
 	}
 
-	sort.Slice(out, func(a, b int) bool { return out[a].TfIdf > out[b].TfIdf })
+	slices.SortFunc(out, func(a, b TermWithTfIdf) int {
+		return cmp.Compare(b.TfIdf, a.TfIdf)
+	})
 	return c.withRelativeScores(out)
 }
 

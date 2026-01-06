@@ -14,7 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"math"
-	"sort"
+	"slices"
 )
 
 // QuantileKeys returns an approximation of the keys that make up the specified
@@ -60,8 +60,8 @@ func (sg *SegmentGroup) quantileKeys(q int) [][]byte {
 	}
 
 	// re-sort keys
-	sort.Slice(keys, func(i, j int) bool {
-		return bytes.Compare(keys[i], keys[j]) < 0
+	slices.SortFunc(keys, func(a, b []byte) int {
+		return bytes.Compare(a, b)
 	})
 
 	// There could be duplicates if a key was modified in multiple segments, we

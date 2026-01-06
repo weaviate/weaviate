@@ -13,11 +13,12 @@ package cluster
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -269,8 +270,11 @@ func (d *delegate) sortCandidates(names []string) []string {
 	d.RLock()
 	defer d.RUnlock()
 	m := d.Cache
-	sort.Slice(names, func(i, j int) bool {
-		return (m[names[j]].Available >> 25) < (m[names[i]].Available >> 25)
+
+	slices.SortFunc(names, func(a, b string) int {
+		// Bit-shift to compare high-order bits of Availability
+		// using (b, a) order to maintain the original descending sort
+		return cmp.Compare(m[b].Available>>25, m[a].Available>>25)
 	})
 
 	return names

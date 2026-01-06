@@ -12,6 +12,7 @@
 package sharding
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -374,10 +375,7 @@ func (s *State) AllLocalPhysicalShards() []string {
 		}
 	}
 
-	sort.Slice(names, func(a, b int) bool {
-		return names[a] < names[b]
-	})
-
+	slices.Sort(names)
 	return names
 }
 
@@ -573,8 +571,8 @@ func (s *State) initVirtual() {
 		s.Virtual[i] = Virtual{Name: name, Upper: h.Sum64()}
 	}
 
-	sort.Slice(s.Virtual, func(a, b int) bool {
-		return s.Virtual[a].Upper < s.Virtual[b].Upper
+	slices.SortFunc(s.Virtual, func(a, b Virtual) int {
+		return cmp.Compare(a.Upper, b.Upper)
 	})
 
 	for i := range s.Virtual {

@@ -12,10 +12,11 @@
 package rank
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -75,12 +76,12 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 	}
 
 	// sort the list
-	sort.Slice(in, func(i, j int) bool {
-		apI := in[i].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
-		apJ := in[j].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
+	slices.SortFunc(in, func(a, b search.Result) int {
+		apA := a.AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
+		apB := b.AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
 
 		// Sort in descending order, based on Score values
-		return *apI[0].Score > *apJ[0].Score
+		return cmp.Compare(*apB[0].Score, *apA[0].Score)
 	})
 	return in, nil
 }

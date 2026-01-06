@@ -12,12 +12,12 @@
 package authz
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -1167,8 +1167,8 @@ func validateRoleName(name string) error {
 }
 
 func sortByName(roles []*models.Role) {
-	sort.Slice(roles, func(i, j int) bool {
-		return *roles[i].Name < *roles[j].Name
+	slices.SortFunc(roles, func(a, b *models.Role) int {
+		return cmp.Compare(*a.Name, *b.Name)
 	})
 }
 

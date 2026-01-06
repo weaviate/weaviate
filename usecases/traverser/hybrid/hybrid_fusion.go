@@ -12,8 +12,10 @@
 package hybrid
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"math"
+	"slices"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/search"
@@ -65,17 +67,18 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 		i++
 	}
 
-	sort.Slice(sortList, func(i, j int) bool {
-		a_b := float64(sortList[j].Score - sortList[i].Score)
-		if a_b*a_b < 1e-14 {
-			a_b2 := float64(sortList[j].SecondarySortValue - sortList[i].SecondarySortValue)
-			if a_b2*a_b2 < 1e-14 {
-				return sortList[i].ID < sortList[j].ID
-			} else {
-				return sortList[i].SecondarySortValue > sortList[j].SecondarySortValue
+	slices.SortFunc(sortList, func(a, b *search.Result) int {
+		if n := cmp.Compare(b.Score, a.Score); n != 0 {
+			if math.Abs(float64(b.Score-a.Score)) > 1e-14 {
+				return n
 			}
 		}
-		return float64(sortList[i].Score) > float64(sortList[j].Score)
+		if n := cmp.Compare(b.SecondarySortValue, a.SecondarySortValue); n != 0 {
+			if math.Abs(float64(b.SecondarySortValue-a.SecondarySortValue)) > 1e-14 {
+				return n
+			}
+		}
+		return cmp.Compare(a.ID, b.ID)
 	})
 	return sortList
 }
@@ -152,30 +155,28 @@ func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names
 		concat = append(concat, res)
 	}
 	if descending {
-		sort.Slice(concat, func(i, j int) bool {
-			a_b := float64(concat[j].Score - concat[i].Score)
-			if a_b*a_b < 1e-14 {
-				a_b2 := float64(concat[j].SecondarySortValue - concat[i].SecondarySortValue)
-				if a_b2*a_b2 < 1e-14 {
-					return concat[i].ID < concat[j].ID
-				} else {
-					return concat[i].SecondarySortValue > concat[j].SecondarySortValue
-				}
+		slices.SortFunc(concat, func(a, b *search.Result) int {
+			a_b := float64(b.Score - a.Score)
+			if a_b*a_b >= 1e-14 {
+				return cmp.Compare(b.Score, a.Score)
 			}
-			return float64(concat[i].Score) > float64(concat[j].Score)
+			a_b2 := float64(b.SecondarySortValue - a.SecondarySortValue)
+			if a_b2*a_b2 >= 1e-14 {
+				return cmp.Compare(b.SecondarySortValue, a.SecondarySortValue)
+			}
+			return cmp.Compare(a.ID, b.ID) // Reverse this for the 'else' branch
 		})
 	} else {
-		sort.Slice(concat, func(i, j int) bool {
-			a_b := float64(concat[j].Score - concat[i].Score)
-			if a_b*a_b < 1e-14 {
-				a_b2 := float64(concat[j].SecondarySortValue - concat[i].SecondarySortValue)
-				if a_b2*a_b2 < 1e-14 {
-					return concat[i].ID > concat[j].ID
-				} else {
-					return concat[i].SecondarySortValue < concat[j].SecondarySortValue
-				}
+		slices.SortFunc(concat, func(a, b *search.Result) int {
+			a_b := float64(b.Score - a.Score)
+			if a_b*a_b >= 1e-14 {
+				return cmp.Compare(a.Score, b.Score) // Ascending Score
 			}
-			return float64(concat[i].Score) < float64(concat[j].Score)
+			a_b2 := float64(b.SecondarySortValue - a.SecondarySortValue)
+			if a_b2*a_b2 >= 1e-14 {
+				return cmp.Compare(a.SecondarySortValue, b.SecondarySortValue) // Ascending Secondary
+			}
+			return cmp.Compare(b.ID, a.ID) // Reverse ID sort for ascending branch
 		})
 	}
 	return concat

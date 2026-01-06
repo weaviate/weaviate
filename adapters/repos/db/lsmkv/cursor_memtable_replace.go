@@ -13,9 +13,10 @@ package lsmkv
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -90,8 +91,8 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 		sortedSecondaryKeys = append(sortedSecondaryKeys, skey)
 	}
 
-	sort.SliceStable(sortedSecondaryKeys, func(i, j int) bool {
-		return sortedSecondaryKeys[i] <= sortedSecondaryKeys[j]
+	slices.SortStableFunc(sortedSecondaryKeys, func(a, b string) int {
+		return cmp.Compare(a, b)
 	})
 
 	// cursor data is immutable so provide a point in time iteration

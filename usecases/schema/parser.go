@@ -12,10 +12,11 @@
 package schema
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -299,12 +300,12 @@ func (p *Parser) validatePropertiesForUpdate(existing []*models.Property, new []
 		return errPropertiesUpdatedInClassUpdate
 	}
 
-	sort.Slice(existing, func(i, j int) bool {
-		return existing[i].Name < existing[j].Name
+	slices.SortFunc(existing, func(a, b *models.Property) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
-	sort.Slice(new, func(i, j int) bool {
-		return new[i].Name < new[j].Name
+	slices.SortFunc(existing, func(a, b *models.Property) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	for i, prop := range existing {
