@@ -25,11 +25,12 @@ import (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 const (
-	postingSizeBucketPrefix    = 's'
-	postingVersionBucketPrefix = 'l'
-	versionMapBucketPrefix     = 'v'
-	metadataBucketPrefix       = 'm'
-	reassignBucketKey          = "pending_reassignments"
+	postingSizeBucketPrefix     = 's'
+	postingVersionBucketPrefix  = 'l'
+	versionMapBucketPrefix      = 'v'
+	metadataBucketPrefix        = 'm'
+	postingMetadataBucketPrefix = 'p'
+	reassignBucketKey           = "pending_reassignments"
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.

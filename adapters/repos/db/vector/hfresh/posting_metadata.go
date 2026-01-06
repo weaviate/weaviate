@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 
+	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -19,6 +20,51 @@ type postingMetadata struct {
 	// It uses a combination of an LSMKV store for persistence and an in-memory
 	// cache for fast access.
 	Version uint32
+}
+
+// PostingMetadata manages various information about postings.
+type PostingMetadataStore struct {
+	metrics *Metrics
+	cache   *otter.Cache[uint64, *postingMetadata]
+	bucket  *PostingMetadataBucket
+}
+
+func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingMetadataStore, error) {
+	b := NewPostingMetadataBucket(bucket, postingMetadataBucketPrefix)
+
+	cache, err := otter.New(&otter.Options[uint64, *postingMetadata]{
+		MaximumSize: 100_000,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &PostingMetadataStore{
+		cache:   cache,
+		metrics: metrics,
+		bucket:  b,
+	}, nil
+}
+
+// Get returns the size of the posting with the given ID.
+func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*postingMetadata, error) {
+	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *postingMetadata](func(ctx context.Context, key uint64) (*postingMetadata, error) {
+		m, err := v.bucket.Get(ctx, postingID)
+		if err != nil {
+			if errors.Is(err, ErrPostingNotFound) {
+				return nil, otter.ErrNotFound
+			}
+
+			return nil, err
+		}
+
+		return m, nil
+	}))
+	if errors.Is(err, otter.ErrNotFound) {
+		return nil, ErrPostingNotFound
+	}
+
+	return m, err
 }
 
 // PostingMetadataBucket is a persistent store for posting metadata.
