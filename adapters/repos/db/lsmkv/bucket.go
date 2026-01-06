@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -22,7 +23,6 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 
@@ -1092,8 +1092,8 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
 		for i := range entriesPerSegment {
-			sort.Slice(entriesPerSegment[i], func(a, b int) bool {
-				return bytes.Compare(entriesPerSegment[i][a].Key, entriesPerSegment[i][b].Key) == -1
+			slices.SortFunc(entriesPerSegment[i], func(a, b MapPair) int {
+				return bytes.Compare(a.Key, b.Key)
 			})
 		}
 	}
@@ -1880,8 +1880,8 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
 		for i := range segments {
-			sort.Slice(segments[i], func(a, b int) bool {
-				return segments[i][a].Id < segments[i][b].Id
+			slices.SortFunc(segments[i], func(a, b terms.DocPointerWithScore) int {
+				return cmp.Compare(a.Id, b.Id)
 			})
 		}
 	}

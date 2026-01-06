@@ -12,8 +12,9 @@
 package db
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -71,8 +72,8 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 		})
 	}
 
-	sort.Slice(groupDistances, func(i, j int) bool {
-		return groupDistances[i].distance < groupDistances[j].distance
+	slices.SortFunc(groupDistances, func(a, b groupMinDistance) int {
+		return cmp.Compare(a.distance, b.distance)
 	})
 
 	desiredLength := len(groups)
@@ -92,9 +93,10 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 			hits = append(hits, g.Hits...)
 		}
 
-		sort.Slice(hits, func(i, j int) bool {
-			return hits[i]["_additional"].(*additional.GroupHitAdditional).Distance <
-				hits[j]["_additional"].(*additional.GroupHitAdditional).Distance
+		slices.SortFunc(hits, func(a, b map[string]interface{}) int {
+			B := a["_additional"].(*additional.GroupHitAdditional).Distance
+			A := b["_additional"].(*additional.GroupHitAdditional).Distance
+			return cmp.Compare(A, B)
 		})
 
 		if len(hits) > gm.groupBy.ObjectsPerGroup {

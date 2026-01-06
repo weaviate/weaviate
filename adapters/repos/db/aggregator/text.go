@@ -12,7 +12,8 @@
 package aggregator
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -131,21 +132,11 @@ func (a *textAggregator) Res() aggregation.Text {
 	}
 
 	out.Items = a.topPairs
-	sort.SliceStable(out.Items, func(a, b int) bool {
-		countA := out.Items[a].Occurs
-		countB := out.Items[b].Occurs
-
-		if countA != countB {
-			return countA > countB
+	slices.SortStableFunc(out.Items, func(a, b aggregation.TextOccurrence) int {
+		if n := cmp.Compare(b.Occurs, a.Occurs); n != 0 {
+			return n
 		}
-
-		valueA := out.Items[a].Value
-		valueB := out.Items[b].Value
-		if len(valueA) == 0 || len(valueB) == 0 {
-			return false // order doesn't matter in this case, just prevent a panic
-		}
-
-		return valueA[0] < valueB[0]
+		return cmp.Compare(a.Value, b.Value)
 	})
 
 	out.Count = int(a.count)

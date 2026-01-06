@@ -12,7 +12,7 @@
 package interval
 
 import (
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -41,9 +41,7 @@ func NewBackoffTimer(backoffs ...time.Duration) *BackoffTimer {
 	if len(backoffs) == 0 {
 		boff.backoffs = defaultBackoffs
 	} else {
-		sort.Slice(backoffs, func(i, j int) bool {
-			return backoffs[i] < backoffs[j]
-		})
+		slices.Sort(backoffs)
 	}
 	return boff
 }

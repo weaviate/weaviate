@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -78,9 +78,7 @@ func reduceDurationStats(durations []time.Duration) DurationStats {
 		return DurationStats{}
 	}
 
-	sort.Slice(durations, func(i, j int) bool {
-		return durations[i] < durations[j]
-	})
+	slices.Sort(durations)
 
 	total := time.Duration(0)
 	for _, d := range durations {

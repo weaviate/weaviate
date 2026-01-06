@@ -12,10 +12,11 @@
 package replica
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -417,7 +418,9 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 	if len(ms) > 0 { // fetch most recent objects
 		// partition by hostname
-		sort.SliceStable(ms, func(i, j int) bool { return ms[i].S < ms[j].S })
+		slices.SortStableFunc(ms, func(a, b iTuple) int {
+			return cmp.Compare(a.S, b.S)
+		})
 		partitions := make([]int, 0, len(votes))
 		pre := ms[0].S
 		for i, y := range ms {

@@ -12,6 +12,7 @@
 package testinghelpers
 
 import (
+	"cmp"
 	"context"
 	"encoding/binary"
 	"encoding/gob"
@@ -20,7 +21,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -212,8 +213,8 @@ func BruteForce(logger logrus.FieldLogger, vectors [][]float32, query []float32,
 	}
 	distances = withoutDeletes
 
-	sort.Slice(distances, func(a, b int) bool {
-		return distances[a].distance < distances[b].distance
+	slices.SortFunc(distances, func(a, b distanceAndIndex) int {
+		return cmp.Compare(a.distance, b.distance)
 	})
 
 	if len(distances) < k {

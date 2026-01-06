@@ -13,11 +13,12 @@ package lsmkv
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -173,8 +174,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 
 	// force re-sort if any segment was added
 	if recovered {
-		sort.Slice(sg.segments, func(i, j int) bool {
-			return sg.segments[i].getPath() < sg.segments[j].getPath()
+		slices.SortFunc(sg.segments, func(a, b Segment) int {
+			return cmp.Compare(a.getPath(), b.getPath())
 		})
 	}
 

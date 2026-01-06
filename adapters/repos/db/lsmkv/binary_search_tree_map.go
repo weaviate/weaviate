@@ -13,7 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -225,8 +225,8 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 	// use SliceStable so that we keep the insert order on duplicates. This is
 	// important because otherwise we can't dedup them correctly if we don't know
 	// in which order they came in.
-	sort.SliceStable(out, func(a, b int) bool {
-		return bytes.Compare(out[a].Key, out[b].Key) < 0
+	slices.SortStableFunc(out, func(a, b MapPair) int {
+		return bytes.Compare(a.Key, b.Key)
 	})
 
 	// now deduping is as simple as looking one key ahead - if it's the same key

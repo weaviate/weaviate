@@ -12,9 +12,10 @@
 package answer
 
 import (
+	"cmp"
 	"context"
 	"errors"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -108,8 +109,8 @@ func answerMeetsSimilarityThreshold(params interface{}, helper paramsHelper, ans
 
 func (p *AnswerProvider) rerank(in []search.Result) []search.Result {
 	if len(in) > 0 {
-		sort.SliceStable(in, func(i, j int) bool {
-			return p.getAnswerCertainty(in[i]) > p.getAnswerCertainty(in[j])
+		slices.SortStableFunc(in, func(a, b search.Result) int {
+			return cmp.Compare(p.getAnswerCertainty(b), p.getAnswerCertainty(a))
 		})
 	}
 	return in

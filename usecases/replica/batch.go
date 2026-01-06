@@ -12,7 +12,8 @@
 package replica
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -40,8 +41,8 @@ func createBatch(xs []*storobj.Object) IndexedBatch {
 func cluster(bi IndexedBatch) []ShardPart {
 	index := bi.Index
 	data := bi.Data
-	sort.Slice(index, func(i, j int) bool {
-		return data[index[i]].BelongsToShard < data[index[j]].BelongsToShard
+	slices.SortFunc(index, func(a, b int) int {
+		return cmp.Compare(data[a].BelongsToShard, data[b].BelongsToShard)
 	})
 	clusters := make([]ShardPart, 0, 16)
 	// partition

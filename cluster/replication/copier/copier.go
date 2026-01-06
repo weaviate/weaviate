@@ -12,6 +12,7 @@
 package copier
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -450,8 +451,8 @@ func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames
 //	/a/b
 //	/a
 func sortPathsByDepthDescending(paths []string) {
-	sort.Slice(paths, func(i, j int) bool {
-		return depth(paths[i]) > depth(paths[j])
+	slices.SortFunc(paths, func(a, b string) int {
+		return cmp.Compare(depth(b), depth(a))
 	})
 }
 

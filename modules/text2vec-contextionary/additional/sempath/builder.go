@@ -12,10 +12,11 @@
 package sempath
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/danaugrs/go-tsne/tsne"
@@ -259,8 +260,8 @@ func (pb *PathBuilder) buildPath(neighbors []*txt2vecmodels.NearestNeighbor, sea
 }
 
 func (pb *PathBuilder) nearestNeighbors(search []float32, candidates []*txt2vecmodels.NearestNeighbor, length int) []*txt2vecmodels.NearestNeighbor {
-	sort.Slice(candidates, func(a, b int) bool {
-		return pb.distance(candidates[a].Vector, search) < pb.distance(candidates[b].Vector, search)
+	slices.SortFunc(candidates, func(a, b *txt2vecmodels.NearestNeighbor) int {
+		return cmp.Compare(pb.distance(a.Vector, search), pb.distance(b.Vector, search))
 	})
 	return candidates[:length]
 }

@@ -12,9 +12,10 @@
 package db
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/usecases/sharding"
 
@@ -52,8 +53,8 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 		return nil, err
 	}
 
-	sort.Slice(nodeStatuses, func(i, j int) bool {
-		return nodeStatuses[i].Name < nodeStatuses[j].Name
+	slices.SortFunc(nodeStatuses, func(a, b *models.NodeStatus) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 	return nodeStatuses, nil
 }
@@ -298,8 +299,8 @@ func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, erro
 		return nil, err
 	}
 
-	sort.Slice(nodeStatistics, func(i, j int) bool {
-		return nodeStatistics[i].Name < nodeStatistics[j].Name
+	slices.SortFunc(nodeStatistics, func(a, b *models.Statistics) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 	return nodeStatistics, nil
 }

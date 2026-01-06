@@ -12,9 +12,10 @@
 package db
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -258,10 +259,9 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 		return nil, errors.New(msg.String())
 	}
 
-	sort.Slice(found, func(i, j int) bool {
-		return found[i].Dist < found[j].Dist
+	slices.SortFunc(found, func(a, b search.Result) int {
+		return cmp.Compare(a.Dist, b.Dist)
 	})
-
 	// not enriching by refs, as a vector search result cannot provide
 	// SelectProperties
 	return db.getSearchResults(found, offset, limit), nil

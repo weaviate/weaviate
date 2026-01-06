@@ -12,9 +12,10 @@
 package aggregator
 
 import (
+	"cmp"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -209,7 +210,7 @@ func (a *dateAggregator) buildPairsFromCounts() {
 		a.pairs = append(a.pairs, timestampCountPair{value: value, count: count})
 	}
 
-	sort.Slice(a.pairs, func(x, y int) bool {
-		return a.pairs[x].value.epochNano < a.pairs[y].value.epochNano
+	slices.SortFunc(a.pairs, func(x, y timestampCountPair) int {
+		return cmp.Compare(x.value.epochNano, y.value.epochNano)
 	})
 }

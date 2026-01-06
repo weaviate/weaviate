@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
@@ -181,11 +181,11 @@ func (c *compactorMap) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 			}
 
 			if c.requiresSorting {
-				sort.Slice(pairs.left, func(a, b int) bool {
-					return bytes.Compare(pairs.left[a].Key, pairs.left[b].Key) < 0
+				slices.SortFunc(pairs.left, func(a, b MapPair) int {
+					return bytes.Compare(a.Key, b.Key)
 				})
-				sort.Slice(pairs.right, func(a, b int) bool {
-					return bytes.Compare(pairs.right[a].Key, pairs.right[b].Key) < 0
+				slices.SortFunc(pairs.right, func(a, b MapPair) int {
+					return bytes.Compare(a.Key, b.Key)
 				})
 			}
 
