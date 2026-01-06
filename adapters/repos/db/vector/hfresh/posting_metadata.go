@@ -21,20 +21,20 @@ type postingMetadata struct {
 	Version uint32
 }
 
-// PostingMetadataStore is a persistent store for posting metadata.
-type PostingMetadataStore struct {
+// PostingMetadataBucket is a persistent store for posting metadata.
+type PostingMetadataBucket struct {
 	bucket    *lsmkv.Bucket
 	keyPrefix byte
 }
 
-func NewPostingMetadataStore(bucket *lsmkv.Bucket, keyPrefix byte) *PostingMetadataStore {
-	return &PostingMetadataStore{
+func NewPostingMetadataBucket(bucket *lsmkv.Bucket, keyPrefix byte) *PostingMetadataBucket {
+	return &PostingMetadataBucket{
 		bucket:    bucket,
 		keyPrefix: keyPrefix,
 	}
 }
 
-func (p *PostingMetadataStore) key(postingID uint64) [9]byte {
+func (p *PostingMetadataBucket) key(postingID uint64) [9]byte {
 	var buf [9]byte
 	buf[0] = p.keyPrefix
 	binary.LittleEndian.PutUint64(buf[1:], postingID)
@@ -42,7 +42,7 @@ func (p *PostingMetadataStore) key(postingID uint64) [9]byte {
 }
 
 // Get retrieves the posting metadata for the given posting ID.
-func (p *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*postingMetadata, error) {
+func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*postingMetadata, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
@@ -62,7 +62,7 @@ func (p *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*post
 }
 
 // Set adds or replaces the posting metadata for the given posting ID.
-func (p *PostingMetadataStore) Set(ctx context.Context, postingID uint64, metadata *postingMetadata) error {
+func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metadata *postingMetadata) error {
 	key := p.key(postingID)
 
 	data, err := msgpack.Marshal(metadata)
