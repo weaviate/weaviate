@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +17,7 @@ func TestQueryVectorExtension(t *testing.T) {
 	// CreateCountryCityAirportSchema likely creates classes.
 	// Let's defer cleanup.
 	cities.CreateCountryCityAirportSchema(t, "localhost:8080")
-	
+
 	t.Run("Get with nearVector", func(t *testing.T) {
 		query := `
 		{
@@ -46,7 +47,9 @@ func TestQueryVectorExtension(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, 3, len(vec))
 		// We expect [0.9, 0.0, 0.0] approximately
-		assert.InDelta(t, 0.9, vec[0].(float64), 0.0001)
+		val0, err := vec[0].(json.Number).Float64()
+		require.NoError(t, err)
+		assert.InDelta(t, 0.9, val0, 0.0001)
 	})
 
 	t.Run("Explore with nearVector", func(t *testing.T) {
@@ -75,6 +78,8 @@ func TestQueryVectorExtension(t *testing.T) {
 		require.True(t, ok)
 
 		assert.Equal(t, 3, len(vec))
-		assert.InDelta(t, 0.9, vec[1].(float64), 0.0001)
+		val1, err := vec[1].(json.Number).Float64()
+		require.NoError(t, err)
+		assert.InDelta(t, 0.9, val1, 0.0001)
 	})
 }
