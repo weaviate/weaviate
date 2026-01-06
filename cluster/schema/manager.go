@@ -188,7 +188,7 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 			continue
 		}
 		for _, dt := range prop.DataType {
-			if _, ok := s.schema.classes[dt]; ok {
+			if s.schema.classExists(dt) {
 				continue
 			}
 			return fmt.Errorf("%w: %w", ErrBadRequest, entSchema.ErrRefToNonexistentClass)
