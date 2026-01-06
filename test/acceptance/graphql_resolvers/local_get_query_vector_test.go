@@ -7,9 +7,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/cities"
 )
 
 func TestQueryVectorExtension(t *testing.T) {
+	helper.SetupClient("localhost:8080")
+	// Ensure schema is present. We can try to clean it first to be safe, or just overwrite.
+	// CreateCountryCityAirportSchema likely creates classes.
+	// Let's defer cleanup.
+	cities.CreateCountryCityAirportSchema(t, "localhost:8080")
+	
 	t.Run("Get with nearVector", func(t *testing.T) {
 		query := `
 		{
