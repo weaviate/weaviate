@@ -62,6 +62,34 @@ func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*Post
 	return m, err
 }
 
+// SetVectorIDs sets the vector IDs for the posting with the given ID.
+// It assumes the posting has been locked for writing by the caller.
+// It is safe to read concurrently.
+func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	old, err := v.Get(ctx, postingID)
+	if err != nil && err != ErrPostingNotFound {
+		return err
+	}
+
+	metadata := PostingMetadata{
+		Vectors: make([]uint64, len(posting)),
+	}
+	for i, vector := range posting {
+		metadata.Vectors[i] = vector.ID()
+	}
+	if old != nil {
+		metadata.Version = old.Version
+	}
+
+	err = v.bucket.Set(ctx, postingID, &metadata)
+	if err != nil {
+		return err
+	}
+	v.cache.Set(postingID, &metadata)
+
+	return nil
+}
+
 // PostingMetadataBucket is a persistent store for posting metadata.
 type PostingMetadataBucket struct {
 	bucket    *lsmkv.Bucket
