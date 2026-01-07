@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/vmihailenco/msgpack/v5"
@@ -43,24 +42,13 @@ func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingMe
 }
 
 // Get returns the size of the posting with the given ID.
-func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
-		m, err := v.bucket.Get(ctx, postingID)
-		if err != nil {
-			if errors.Is(err, ErrPostingNotFound) {
-				return nil, otter.ErrNotFound
-			}
-
-			return nil, err
-		}
-
-		return m, nil
-	}))
-	if errors.Is(err, otter.ErrNotFound) {
+func (v *PostingMetadataStore) Get(postingID uint64) (*PostingMetadata, error) {
+	m, ok := v.m.Load(postingID)
+	if !ok {
 		return nil, ErrPostingNotFound
 	}
 
-	return m, err
+	return m, nil
 }
 
 // PostingMetadataBucket is a persistent store for posting metadata.
@@ -116,7 +104,7 @@ func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metad
 }
 
 // Set adds or replaces the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) ListAll(ctx context.Context, fn func(*PostingMetadata) error) error {
+func (p *PostingMetadataBucket) Iterate(ctx context.Context, fn func(*PostingMetadata) error) error {
 	keyPrefix := []byte{p.keyPrefix}
 
 	cursor := p.bucket.Cursor()
