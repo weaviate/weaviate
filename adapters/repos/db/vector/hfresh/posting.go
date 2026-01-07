@@ -93,13 +93,14 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	return p, nil
 }
 
-func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
+func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer, centroid []float32) [][]float32 {
 	data := make([][]float32, 0, len(p))
 
 	for _, v := range p {
-		data = append(data, quantizer.Decode(quantizer.FromCompressedBytes(v.Data())))
+		undecoded := quantizer.Decode(quantizer.FromCompressedBytes(v.Data()))
+		vector := undoResidualVector(undecoded, centroid)
+		data = append(data, vector)
 	}
-
 	return data
 }
 

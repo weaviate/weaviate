@@ -90,7 +90,8 @@ type HFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	vectorForId common.VectorForID[float32]
+	vectorForId   common.VectorForID[float32]
+	centroidsLock *common.ShardedRWLocks
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -124,18 +125,19 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	metadata := NewMetadataStore(bucket)
 
 	h := HFresh{
-		id:           cfg.ID,
-		logger:       cfg.Logger.WithField("component", "HFresh"),
-		config:       cfg,
-		scheduler:    cfg.Scheduler,
-		store:        store,
-		metrics:      metrics,
-		PostingStore: postingStore,
-		vectorForId:  cfg.VectorForIDThunk,
-		VersionMap:   versionMap,
-		PostingSizes: postingSizes,
-		Metadata:     metadata,
-		postingLocks: common.NewDefaultShardedRWLocks(),
+		id:            cfg.ID,
+		logger:        cfg.Logger.WithField("component", "HFresh"),
+		config:        cfg,
+		scheduler:     cfg.Scheduler,
+		store:         store,
+		metrics:       metrics,
+		PostingStore:  postingStore,
+		vectorForId:   cfg.VectorForIDThunk,
+		VersionMap:    versionMap,
+		PostingSizes:  postingSizes,
+		Metadata:      metadata,
+		postingLocks:  common.NewDefaultShardedRWLocks(),
+		centroidsLock: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:    visited.NewPool(1, 512, -1),
@@ -166,6 +168,15 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	if err = h.restoreMetadata(); err != nil {
 		h.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+	}
+
+	err = h.store.CreateOrLoadBucket(
+		context.Background(),
+		fmt.Sprintf("hfresh_centroids_%s", h.id),
+		cfg.Store.MakeBucketOptions(lsmkv.StrategyReplace)...,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create or load bucket %s", cfg.ID+"_centroids")
 	}
 
 	return &h, nil
@@ -372,4 +383,52 @@ func (d *deduplicator) done(id uint64) {
 func (d *deduplicator) contains(id uint64) bool {
 	_, exists := d.m.Load(id)
 	return exists
+}
+
+func (h *HFresh) residualVector(vector []float32, centroid []float32) []float32 {
+	residual := make([]float32, len(vector))
+	for i := range vector {
+		residual[i] = vector[i] - centroid[i]
+	}
+	return residual
+}
+
+func undoResidualVector(residual []float32, centroid []float32) []float32 {
+	vector := make([]float32, len(residual))
+	for i := range residual {
+		vector[i] = residual[i] + centroid[i]
+	}
+	return vector
+}
+
+func (h *HFresh) getUncompressedCentroid(id uint64) ([]float32, error) {
+	h.centroidsLock.RLock(id)
+	defer h.centroidsLock.RUnlock(id)
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], id)
+	vec, err := h.store.Bucket(fmt.Sprintf("hfresh_centroids_%s", h.id)).Get(buf[:])
+	if err != nil {
+		return nil, err
+	}
+	if len(vec) == 0 {
+		return nil, errors.New("centroid not found")
+	}
+	return float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)), nil
+}
+
+func (h *HFresh) setUncompressedCentroid(id uint64, centroid []float32) error {
+	h.centroidsLock.Lock(id)
+	defer h.centroidsLock.Unlock(id)
+	centroid = h.normalizeVec(centroid)
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], id)
+	vec := make([]byte, len(centroid)*4)
+	for i := range centroid {
+		binary.LittleEndian.PutUint32(vec[i*4:], math.Float32bits(centroid[i]))
+	}
+	err := h.store.Bucket(fmt.Sprintf("hfresh_centroids_%s", h.id)).Put(buf[:], vec)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set centroid for id %d", id)
+	}
+	return nil
 }

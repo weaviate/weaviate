@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -157,6 +158,10 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
+		err = h.setUncompressedCentroid(postingID, v)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to set uncompressed centroid for posting %d", postingID)
+		}
 		// return the new posting ID
 		targets = NewResultSet(1)
 		targets.data = append(targets.data, Result{ID: postingID, Distance: 0})
@@ -190,6 +195,17 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		h.postingLocks.Unlock(centroidID)
 		return false, nil
 	}
+
+	uncompressedCentroid, _ := h.getUncompressedCentroid(centroidID)
+	unNormalizedVec, _ := h.config.VectorForIDThunk(ctx, vector.ID())
+	fq := h.normalizeVec(unNormalizedVec)
+	if len(fq) != len(uncompressedCentroid) {
+		fmt.Println("centroidID", centroidID)
+		os.Exit(1)
+	}
+	rq := h.residualVector(fq, uncompressedCentroid)
+	compressedRQ := h.quantizer.CompressedBytes(h.quantizer.Encode(rq))
+	vector = NewVector(vector.ID(), vector.Version(), compressedRQ)
 
 	// append the new vector to the existing posting
 	err := h.PostingStore.Append(ctx, centroidID, vector)
