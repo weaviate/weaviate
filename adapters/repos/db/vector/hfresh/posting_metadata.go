@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
@@ -31,6 +32,11 @@ type PostingMetadata struct {
 	// It uses a combination of an LSMKV store for persistence and an in-memory
 	// cache for fast access.
 	Version uint32
+
+	// indicates whether this instance has been invalided
+	// in the cache and can be reused
+	m                sync.Mutex
+	cacheInvalidated bool `msgpack:"-"`
 }
 
 // PostingMetadata manages various information about postings.
@@ -38,6 +44,7 @@ type PostingMetadataStore struct {
 	metrics *Metrics
 	cache   *otter.Cache[uint64, *PostingMetadata]
 	bucket  *PostingMetadataBucket
+	pool    sync.Pool
 }
 
 func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMetadataStore {
@@ -49,11 +56,43 @@ func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMet
 		cache:   cache,
 		metrics: metrics,
 		bucket:  b,
+		pool: sync.Pool{
+			New: func() any {
+				s := make([]uint64, 256)
+				return &s
+			},
+		},
 	}
 }
 
+func (v *PostingMetadataStore) getSliceFromPool(size int, capacity int) *[]uint64 {
+	s := v.pool.Get().(*[]uint64)
+	if cap(*s) < size {
+		if capacity <= 0 {
+			*s = make([]uint64, size)
+		} else {
+			*s = make([]uint64, size, capacity)
+		}
+	}
+	*s = (*s)[:size]
+	return s
+}
+
+func (v *PostingMetadataStore) invalidate(m *PostingMetadata) {
+	if m == nil {
+		return
+	}
+
+	m.m.Lock()
+	if !m.cacheInvalidated {
+		m.cacheInvalidated = true
+	}
+	m.m.Unlock()
+}
+
 // Get returns the size of the posting with the given ID.
-func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
+// The returned function must be called to release the posting back to the pool.
+func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*PostingMetadata, func(), error) {
 	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
 		m, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
@@ -67,19 +106,29 @@ func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*Post
 		return m, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
-		return nil, ErrPostingNotFound
+		return nil, func() {}, ErrPostingNotFound
 	}
 
-	return m, err
+	return m, func() {
+		if m == nil {
+			return
+		}
+		m.m.Lock()
+		if m.cacheInvalidated {
+			v.pool.Put(&m.Vectors)
+		}
+		m.m.Unlock()
+	}, err
 }
 
 // CountVectorIDs returns the number of vector IDs in the posting with the given ID.
 // If the posting does not exist, it returns 0.
 func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
-	m, err := v.Get(ctx, postingID)
+	m, release, err := v.Get(ctx, postingID)
 	if err != nil && err != ErrPostingNotFound {
 		return 0, err
 	}
+	defer release()
 
 	if m == nil {
 		return 0, nil
@@ -90,10 +139,11 @@ func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uin
 
 // GetVersion returns the version of the posting with the given ID.
 func (v *PostingMetadataStore) GetVersion(ctx context.Context, postingID uint64) (uint32, error) {
-	m, err := v.Get(ctx, postingID)
+	m, release, err := v.Get(ctx, postingID)
 	if err != nil && err != ErrPostingNotFound {
 		return 0, err
 	}
+	defer release()
 
 	if m == nil {
 		return 0, nil
@@ -106,13 +156,14 @@ func (v *PostingMetadataStore) GetVersion(ctx context.Context, postingID uint64)
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
-	old, err := v.Get(ctx, postingID)
+	old, release, err := v.Get(ctx, postingID)
 	if err != nil && err != ErrPostingNotFound {
 		return err
 	}
+	defer release()
 
 	metadata := PostingMetadata{
-		Vectors: make([]uint64, len(posting)),
+		Vectors: *v.getSliceFromPool(len(posting), 0),
 	}
 	for i, vector := range posting {
 		metadata.Vectors[i] = vector.ID()
@@ -129,6 +180,8 @@ func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint6
 
 	v.metrics.ObservePostingSize(float64(len(metadata.Vectors)))
 
+	v.invalidate(old)
+
 	return nil
 }
 
@@ -136,15 +189,16 @@ func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint6
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (uint32, error) {
-	old, err := v.Get(ctx, postingID)
+	old, release, err := v.Get(ctx, postingID)
 	if err != nil && err != ErrPostingNotFound {
 		return 0, err
 	}
+	defer release()
 
 	var metadata PostingMetadata
 
 	if old != nil {
-		metadata.Vectors = make([]uint64, len(old.Vectors), len(old.Vectors)+1)
+		metadata.Vectors = *v.getSliceFromPool(len(old.Vectors), len(old.Vectors)+1)
 		copy(metadata.Vectors, old.Vectors)
 		metadata.Version = old.Version
 	}
@@ -159,6 +213,8 @@ func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64
 
 	v.metrics.ObservePostingSize(float64(len(metadata.Vectors)))
 
+	v.invalidate(old)
+
 	return uint32(len(metadata.Vectors)), nil
 }
 
@@ -166,10 +222,11 @@ func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMetadataStore) SetVersion(ctx context.Context, postingID uint64, newVersion uint32) error {
-	old, err := v.Get(ctx, postingID)
+	old, release, err := v.Get(ctx, postingID)
 	if err != nil && err != ErrPostingNotFound {
 		return err
 	}
+	defer release()
 
 	var metadata PostingMetadata
 	if old != nil {
