@@ -145,8 +145,7 @@ func (db *DB) DigestObjects(ctx context.Context, className, shardName string, id
 	return index.DigestObjects(ctx, shardName, ids)
 }
 
-func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string,
-	initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error) {
+func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
