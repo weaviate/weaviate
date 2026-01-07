@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"sync/atomic"
@@ -27,6 +28,34 @@ const (
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
 )
+
+// These constants define the prefixes used in the
+// lsmkv bucket to namespace different types of data.
+const (
+	versionMapBucketPrefix      = 'v'
+	metadataBucketPrefix        = 'm'
+	postingMetadataBucketPrefix = 'p'
+	reassignBucketKey           = "pending_reassignments"
+)
+
+// NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
+// This bucket is used to store metadata in namespaced regions of the bucket.
+func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Bucket, error) {
+	bName := sharedBucketName(indexID)
+	err := store.CreateOrLoadBucket(context.Background(),
+		bName,
+		cfg.MakeBucketOptions(lsmkv.StrategyReplace, lsmkv.WithForceCompaction(true))...,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
+	}
+
+	return store.Bucket(bName), nil
+}
+
+func sharedBucketName(id string) string {
+	return fmt.Sprintf("hfresh_shared_%s", id)
+}
 
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
 type IndexMetadataStore struct {
