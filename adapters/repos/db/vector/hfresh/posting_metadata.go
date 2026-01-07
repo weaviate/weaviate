@@ -125,7 +125,7 @@ func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*Post
 // If the posting does not exist, it returns 0.
 func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
 	m, release, err := v.Get(ctx, postingID)
-	if err != nil && err != ErrPostingNotFound {
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
 	defer release()
@@ -140,7 +140,7 @@ func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uin
 // GetVersion returns the version of the posting with the given ID.
 func (v *PostingMetadataStore) GetVersion(ctx context.Context, postingID uint64) (uint32, error) {
 	m, release, err := v.Get(ctx, postingID)
-	if err != nil && err != ErrPostingNotFound {
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
 	defer release()
@@ -157,7 +157,7 @@ func (v *PostingMetadataStore) GetVersion(ctx context.Context, postingID uint64)
 // It is safe to read the cache concurrently.
 func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
 	old, release, err := v.Get(ctx, postingID)
-	if err != nil && err != ErrPostingNotFound {
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return err
 	}
 	defer release()
@@ -190,7 +190,7 @@ func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint6
 // It is safe to read the cache concurrently.
 func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (uint32, error) {
 	old, release, err := v.Get(ctx, postingID)
-	if err != nil && err != ErrPostingNotFound {
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
 	defer release()
@@ -223,7 +223,7 @@ func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64
 // It is safe to read the cache concurrently.
 func (v *PostingMetadataStore) SetVersion(ctx context.Context, postingID uint64, newVersion uint32) error {
 	old, release, err := v.Get(ctx, postingID)
-	if err != nil && err != ErrPostingNotFound {
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return err
 	}
 	defer release()
