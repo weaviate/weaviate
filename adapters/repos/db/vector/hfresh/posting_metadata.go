@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/binary"
 
+	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
@@ -25,41 +25,41 @@ type PostingMetadata struct {
 // PostingMetadata manages various information about postings.
 type PostingMetadataStore struct {
 	metrics *Metrics
-	m       *xsync.Map[uint64, *PostingMetadata]
+	cache   *otter.Cache[uint64, *PostingMetadata]
 	bucket  *PostingMetadataBucket
 }
 
-func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingMetadataStore, error) {
+func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMetadataStore {
 	b := NewPostingMetadataBucket(bucket, postingMetadataBucketPrefix)
 
-	m := xsync.NewMap[uint64, *PostingMetadata]()
-
-	// preload existing metadata into the in-memory map
-	err := b.Iterate(context.Background(), func(pm *PostingMetadata) error {
-		for _, vecID := range pm.Vectors {
-			m.Store(vecID, pm)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to preload posting metadata")
-	}
+	cache, _ := otter.New[uint64, *PostingMetadata](nil)
 
 	return &PostingMetadataStore{
-		m:       m,
+		cache:   cache,
 		metrics: metrics,
 		bucket:  b,
-	}, nil
+	}
 }
 
 // Get returns the size of the posting with the given ID.
-func (v *PostingMetadataStore) Get(postingID uint64) (*PostingMetadata, error) {
-	m, ok := v.m.Load(postingID)
-	if !ok {
+func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
+	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
+		m, err := v.bucket.Get(ctx, postingID)
+		if err != nil {
+			if errors.Is(err, ErrPostingNotFound) {
+				return nil, otter.ErrNotFound
+			}
+
+			return nil, err
+		}
+
+		return m, nil
+	}))
+	if errors.Is(err, otter.ErrNotFound) {
 		return nil, ErrPostingNotFound
 	}
 
-	return m, nil
+	return m, err
 }
 
 // PostingMetadataBucket is a persistent store for posting metadata.
@@ -112,26 +112,4 @@ func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metad
 	}
 
 	return p.bucket.Put(key[:], data)
-}
-
-// Set adds or replaces the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) Iterate(ctx context.Context, fn func(*PostingMetadata) error) error {
-	keyPrefix := []byte{p.keyPrefix}
-
-	cursor := p.bucket.Cursor()
-	defer cursor.Close()
-
-	for k, v := cursor.Seek(keyPrefix); k != nil && k[0] == p.keyPrefix; k, v = cursor.Next() {
-		var metadata PostingMetadata
-		err := msgpack.Unmarshal(v, &metadata)
-		if err != nil {
-			return errors.Wrapf(err, "failed to unmarshal posting metadata for key %v", k)
-		}
-
-		if err := fn(&metadata); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
