@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"fmt"
+	"strings"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -69,6 +70,24 @@ func NewDefaultUserConfig() UserConfig {
 	var uc UserConfig
 	uc.SetDefaults()
 	return uc
+}
+
+func (u *UserConfig) validate() error {
+	var errMsgs []string
+
+	if u.Distance != vectorIndexCommon.DistanceCosine && u.Distance != vectorIndexCommon.DistanceL2Squared {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"Unsupported distance type '%s', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
+			u.Distance,
+		))
+	}
+
+	if len(errMsgs) > 0 {
+		return fmt.Errorf("invalid hnsw config: %s",
+			strings.Join(errMsgs, ", "))
+	}
+
+	return nil
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -132,5 +151,5 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	// TODO: add quantization config
 
-	return uc, nil
+	return uc, uc.validate()
 }
