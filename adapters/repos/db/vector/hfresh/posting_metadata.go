@@ -128,6 +128,30 @@ func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64
 	return nil
 }
 
+// SetVersion sets the version for the posting with the given ID.
+// It assumes the posting has been locked for writing by the caller.
+// It is safe to read the cache concurrently.
+func (v *PostingMetadataStore) SetVersion(ctx context.Context, postingID uint64, newVersion uint32) error {
+	old, err := v.Get(ctx, postingID)
+	if err != nil && err != ErrPostingNotFound {
+		return err
+	}
+
+	var metadata PostingMetadata
+	if old != nil {
+		metadata.Vectors = old.Vectors // no need to copy, we won't modify
+	}
+	metadata.Version = newVersion
+
+	err = v.bucket.Set(ctx, postingID, &metadata)
+	if err != nil {
+		return err
+	}
+	v.cache.Set(postingID, &metadata)
+
+	return nil
+}
+
 // PostingMetadataBucket is a persistent store for posting metadata.
 type PostingMetadataBucket struct {
 	bucket    *lsmkv.Bucket
