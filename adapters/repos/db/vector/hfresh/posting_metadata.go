@@ -6,6 +6,7 @@ import (
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
@@ -25,22 +26,17 @@ type PostingMetadata struct {
 // PostingMetadata manages various information about postings.
 type PostingMetadataStore struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, *PostingMetadata]
+	m       *xsync.Map[uint64, *PostingMetadata]
 	bucket  *PostingMetadataBucket
 }
 
 func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingMetadataStore, error) {
 	b := NewPostingMetadataBucket(bucket, postingMetadataBucketPrefix)
 
-	cache, err := otter.New(&otter.Options[uint64, *PostingMetadata]{
-		MaximumSize: 100_000,
-	})
-	if err != nil {
-		return nil, err
-	}
+	m := xsync.NewMap[uint64, *PostingMetadata]()
 
 	return &PostingMetadataStore{
-		cache:   cache,
+		m:       m,
 		metrics: metrics,
 		bucket:  b,
 	}, nil
@@ -117,4 +113,26 @@ func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metad
 	}
 
 	return p.bucket.Put(key[:], data)
+}
+
+// Set adds or replaces the posting metadata for the given posting ID.
+func (p *PostingMetadataBucket) ListAll(ctx context.Context, fn func(*PostingMetadata) error) error {
+	keyPrefix := []byte{p.keyPrefix}
+
+	cursor := p.bucket.Cursor()
+	defer cursor.Close()
+
+	for k, v := cursor.Seek(keyPrefix); k != nil && k[0] == p.keyPrefix; k, v = cursor.Next() {
+		var metadata PostingMetadata
+		err := msgpack.Unmarshal(v, &metadata)
+		if err != nil {
+			return errors.Wrapf(err, "failed to unmarshal posting metadata for key %v", k)
+		}
+
+		if err := fn(&metadata); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
