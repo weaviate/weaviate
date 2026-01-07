@@ -64,7 +64,7 @@ func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*Post
 
 // SetVectorIDs sets the vector IDs for the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
-// It is safe to read concurrently.
+// It is safe to read the cache concurrently.
 func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
 	old, err := v.Get(ctx, postingID)
 	if err != nil && err != ErrPostingNotFound {
@@ -87,6 +87,33 @@ func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint6
 	}
 	v.cache.Set(postingID, &metadata)
 
+	return nil
+}
+
+// AddVectorID adds a vector ID to the posting with the given ID.
+// It assumes the posting has been locked for writing by the caller.
+// It is safe to read the cache concurrently.
+func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) error {
+	old, err := v.Get(ctx, postingID)
+	if err != nil && err != ErrPostingNotFound {
+		return err
+	}
+
+	var metadata PostingMetadata
+
+	if old != nil {
+		metadata.Vectors = make([]uint64, len(old.Vectors), len(old.Vectors)+1)
+		copy(metadata.Vectors, old.Vectors)
+		metadata.Version = old.Version
+	}
+	metadata.Vectors = append(metadata.Vectors, vectorID)
+
+	err = v.bucket.Set(ctx, postingID, &metadata)
+	if err != nil {
+		return err
+	}
+
+	v.cache.Set(postingID, &metadata)
 	return nil
 }
 
