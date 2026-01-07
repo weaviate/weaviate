@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"sync/atomic"
@@ -28,32 +29,60 @@ const (
 	postingSequenceKey = "posting_seq"
 )
 
-// MetadataStore is a persistent store for metadata.
-type MetadataStore struct {
+// These constants define the prefixes used in the
+// lsmkv bucket to namespace different types of data.
+const (
+	versionMapBucketPrefix      = 'v'
+	metadataBucketPrefix        = 'm'
+	postingMetadataBucketPrefix = 'p'
+	reassignBucketKey           = "pending_reassignments"
+)
+
+// NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
+// This bucket is used to store metadata in namespaced regions of the bucket.
+func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Bucket, error) {
+	bName := sharedBucketName(indexID)
+	err := store.CreateOrLoadBucket(context.Background(),
+		bName,
+		cfg.MakeBucketOptions(lsmkv.StrategyReplace, lsmkv.WithForceCompaction(true))...,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
+	}
+
+	return store.Bucket(bName), nil
+}
+
+func sharedBucketName(id string) string {
+	return fmt.Sprintf("hfresh_shared_%s", id)
+}
+
+// IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
+type IndexMetadataStore struct {
 	bucket *lsmkv.Bucket
 }
 
-func NewMetadataStore(bucket *lsmkv.Bucket) *MetadataStore {
-	return &MetadataStore{
+func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
+	return &IndexMetadataStore{
 		bucket: bucket,
 	}
 }
 
-func (m *MetadataStore) key(suffix string) []byte {
+func (i *IndexMetadataStore) key(suffix string) []byte {
 	buf := make([]byte, 1+len(suffix))
 	buf[0] = metadataBucketPrefix
 	copy(buf[1:], suffix)
 	return buf
 }
 
-func (m *MetadataStore) SetDimensions(dimensions uint32) error {
+func (i *IndexMetadataStore) SetDimensions(dimensions uint32) error {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, dimensions)
-	return m.bucket.Put(m.key(dimensionsKey), buf)
+	return i.bucket.Put(i.key(dimensionsKey), buf)
 }
 
-func (m *MetadataStore) GetDimensions() (uint32, error) {
-	data, err := m.bucket.Get(m.key(dimensionsKey))
+func (i *IndexMetadataStore) GetDimensions() (uint32, error) {
+	data, err := i.bucket.Get(i.key(dimensionsKey))
 	if err != nil {
 		return 0, err
 	}
@@ -67,17 +96,17 @@ func (m *MetadataStore) GetDimensions() (uint32, error) {
 	return dimensions, nil
 }
 
-func (m *MetadataStore) SetQuantizationData(data *QuantizationData) error {
+func (i *IndexMetadataStore) SetQuantizationData(data *QuantizationData) error {
 	serialized, err := msgpack.Marshal(data)
 	if err != nil {
 		return errors.Wrap(err, "marshal quantization data")
 	}
 
-	return m.bucket.Put(m.key(quantizationKey), serialized)
+	return i.bucket.Put(i.key(quantizationKey), serialized)
 }
 
-func (m *MetadataStore) GetQuantizationData() (*QuantizationData, error) {
-	data, err := m.bucket.Get(m.key(quantizationKey))
+func (i *IndexMetadataStore) GetQuantizationData() (*QuantizationData, error) {
+	data, err := i.bucket.Get(i.key(quantizationKey))
 	if err != nil {
 		return nil, errors.Wrap(err, "get quantization data")
 	}
@@ -99,7 +128,7 @@ type QuantizationData struct {
 }
 
 func (h *HFresh) restoreMetadata() error {
-	dims, err := h.Metadata.GetDimensions()
+	dims, err := h.IndexMetadata.GetDimensions()
 	if err != nil || dims == 0 {
 		return err
 	}
@@ -108,7 +137,7 @@ func (h *HFresh) restoreMetadata() error {
 		h.setMaxPostingSize()
 
 		var quantization *QuantizationData
-		quantization, err = h.Metadata.GetQuantizationData()
+		quantization, err = h.IndexMetadata.GetQuantizationData()
 		if err != nil {
 			return
 		}
@@ -126,7 +155,7 @@ func (h *HFresh) persistQuantizationData() error {
 		return nil
 	}
 
-	return h.Metadata.SetQuantizationData(&QuantizationData{
+	return h.IndexMetadata.SetQuantizationData(&QuantizationData{
 		RQ: h.quantizer.Data(),
 	})
 }
