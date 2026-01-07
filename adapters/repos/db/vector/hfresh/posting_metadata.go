@@ -34,6 +34,17 @@ func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) (*PostingMe
 
 	m := xsync.NewMap[uint64, *PostingMetadata]()
 
+	// preload existing metadata into the in-memory map
+	err := b.Iterate(context.Background(), func(pm *PostingMetadata) error {
+		for _, vecID := range pm.Vectors {
+			m.Store(vecID, pm)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to preload posting metadata")
+	}
+
 	return &PostingMetadataStore{
 		m:       m,
 		metrics: metrics,
