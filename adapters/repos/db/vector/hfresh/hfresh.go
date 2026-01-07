@@ -76,8 +76,8 @@ type HFresh struct {
 	PostingStore    *PostingStore         // Used for managing persistence of postings.
 	IDs             *common.Sequence      // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap      *VersionMap           // Stores vector versions in-memory.
+	IndexMetadata   *IndexMetadataStore   // Stores metadata about the index.
 	PostingMetadata *PostingMetadataStore // Stores metadata about the postings.
-	Metadata        *MetadataStore        // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -118,7 +118,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	metadata := NewMetadataStore(bucket)
+	indexMetadata := NewIndexMetadataStore(bucket)
 
 	h := HFresh{
 		id:              cfg.ID,
@@ -131,7 +131,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		vectorForId:     cfg.VectorForIDThunk,
 		VersionMap:      versionMap,
 		PostingMetadata: postingMetadata,
-		Metadata:        metadata,
+		IndexMetadata:   indexMetadata,
 		postingLocks:    common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
