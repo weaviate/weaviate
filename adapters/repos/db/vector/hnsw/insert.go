@@ -163,14 +163,13 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			return err
 		}
 	}
-
-	levels := make([]int, len(ids))
+	levels := make([]uint8, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
 		if maxId < id {
 			maxId = id
 		}
-		levels[i] = int(h.generateLevel()) // TODO: represent level as uint8
+		levels[i] = h.generateLevel()
 	}
 	h.RLock()
 	if maxId >= uint64(len(h.nodes)) {
@@ -196,7 +195,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
-			level: levels[i],
+			level: int(levels[i]),
 		}
 		globalBefore := time.Now()
 		if len(vector) == 0 {
@@ -309,9 +308,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])
-		levels := make([]int, numVectors)
+		levels := make([]uint8, numVectors)
 		for j := range numVectors {
-			levels[j] = int(h.generateLevel()) // TODO: represent level as uint8
+			levels[j] = h.generateLevel()
 		}
 
 		h.Lock()
@@ -367,7 +366,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			node := &vertex{
 				id:    uint64(nodeId),
-				level: levels[j],
+				level: int(levels[j]),
 			}
 
 			h.Lock()

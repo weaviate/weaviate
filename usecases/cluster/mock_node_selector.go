@@ -123,6 +123,51 @@ func (_c *MockNodeSelector_AllOtherClusterMembers_Call) RunAndReturn(run func(in
 	return _c
 }
 
+// ClusterHealthScore provides a mock function with no fields
+func (_m *MockNodeSelector) ClusterHealthScore() int {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClusterHealthScore")
+	}
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
+// MockNodeSelector_ClusterHealthScore_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClusterHealthScore'
+type MockNodeSelector_ClusterHealthScore_Call struct {
+	*mock.Call
+}
+
+// ClusterHealthScore is a helper method to define mock.On call
+func (_e *MockNodeSelector_Expecter) ClusterHealthScore() *MockNodeSelector_ClusterHealthScore_Call {
+	return &MockNodeSelector_ClusterHealthScore_Call{Call: _e.mock.On("ClusterHealthScore")}
+}
+
+func (_c *MockNodeSelector_ClusterHealthScore_Call) Run(run func()) *MockNodeSelector_ClusterHealthScore_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_ClusterHealthScore_Call) Return(_a0 int) *MockNodeSelector_ClusterHealthScore_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_ClusterHealthScore_Call) RunAndReturn(run func() int) *MockNodeSelector_ClusterHealthScore_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Leave provides a mock function with no fields
 func (_m *MockNodeSelector) Leave() error {
 	ret := _m.Called()
@@ -259,6 +304,51 @@ func (_c *MockNodeSelector_NodeAddress_Call) RunAndReturn(run func(string) strin
 	return _c
 }
 
+// NodeCount provides a mock function with no fields
+func (_m *MockNodeSelector) NodeCount() int {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for NodeCount")
+	}
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
+// MockNodeSelector_NodeCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NodeCount'
+type MockNodeSelector_NodeCount_Call struct {
+	*mock.Call
+}
+
+// NodeCount is a helper method to define mock.On call
+func (_e *MockNodeSelector_Expecter) NodeCount() *MockNodeSelector_NodeCount_Call {
+	return &MockNodeSelector_NodeCount_Call{Call: _e.mock.On("NodeCount")}
+}
+
+func (_c *MockNodeSelector_NodeCount_Call) Run(run func()) *MockNodeSelector_NodeCount_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeCount_Call) Return(_a0 int) *MockNodeSelector_NodeCount_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeCount_Call) RunAndReturn(run func() int) *MockNodeSelector_NodeCount_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NodeGRPCPort provides a mock function with given fields: id
 func (_m *MockNodeSelector) NodeGRPCPort(id string) (int, error) {
 	ret := _m.Called(id)
@@ -315,9 +405,9 @@ func (_c *MockNodeSelector_NodeGRPCPort_Call) RunAndReturn(run func(string) (int
 	return _c
 }
 
-// NodeHostname provides a mock function with given fields: name
-func (_m *MockNodeSelector) NodeHostname(name string) (string, bool) {
-	ret := _m.Called(name)
+// NodeHostname provides a mock function with given fields: nodeName
+func (_m *MockNodeSelector) NodeHostname(nodeName string) (string, bool) {
+	ret := _m.Called(nodeName)
 
 	if len(ret) == 0 {
 		panic("no return value specified for NodeHostname")
@@ -326,16 +416,16 @@ func (_m *MockNodeSelector) NodeHostname(name string) (string, bool) {
 	var r0 string
 	var r1 bool
 	if rf, ok := ret.Get(0).(func(string) (string, bool)); ok {
-		return rf(name)
+		return rf(nodeName)
 	}
 	if rf, ok := ret.Get(0).(func(string) string); ok {
-		r0 = rf(name)
+		r0 = rf(nodeName)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
 	if rf, ok := ret.Get(1).(func(string) bool); ok {
-		r1 = rf(name)
+		r1 = rf(nodeName)
 	} else {
 		r1 = ret.Get(1).(bool)
 	}
@@ -349,12 +439,12 @@ type MockNodeSelector_NodeHostname_Call struct {
 }
 
 // NodeHostname is a helper method to define mock.On call
-//   - name string
-func (_e *MockNodeSelector_Expecter) NodeHostname(name interface{}) *MockNodeSelector_NodeHostname_Call {
-	return &MockNodeSelector_NodeHostname_Call{Call: _e.mock.On("NodeHostname", name)}
+//   - nodeName string
+func (_e *MockNodeSelector_Expecter) NodeHostname(nodeName interface{}) *MockNodeSelector_NodeHostname_Call {
+	return &MockNodeSelector_NodeHostname_Call{Call: _e.mock.On("NodeHostname", nodeName)}
 }
 
-func (_c *MockNodeSelector_NodeHostname_Call) Run(run func(name string)) *MockNodeSelector_NodeHostname_Call {
+func (_c *MockNodeSelector_NodeHostname_Call) Run(run func(nodeName string)) *MockNodeSelector_NodeHostname_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string))
 	})
