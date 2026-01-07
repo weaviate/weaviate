@@ -12,8 +12,8 @@
 package hfresh
 
 import (
+	"errors"
 	"fmt"
-	"strings"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -73,18 +73,17 @@ func NewDefaultUserConfig() UserConfig {
 }
 
 func (u *UserConfig) validate() error {
-	var errMsgs []string
+	var errs []error
 
 	if u.Distance != vectorIndexCommon.DistanceCosine && u.Distance != vectorIndexCommon.DistanceL2Squared {
-		errMsgs = append(errMsgs, fmt.Sprintf(
-			"Unsupported distance type '%s', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
+		errs = append(errs, fmt.Errorf(
+			"unsupported distance type '%s', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
 			u.Distance,
 		))
 	}
 
-	if len(errMsgs) > 0 {
-		return fmt.Errorf("invalid hnsw config: %s",
-			strings.Join(errMsgs, ", "))
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid hnsw config: %w", errors.Join(errs...))
 	}
 
 	return nil

@@ -225,7 +225,7 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "manhattan",
 			},
 			expectErr:    true,
-			expectErrMsg: "Unsupported distance type 'manhattan', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
+			expectErrMsg: "unsupported distance type 'manhattan', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
 		},
 		{
 			name: "with invalid distance dot",
@@ -233,7 +233,7 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "dot",
 			},
 			expectErr:    true,
-			expectErrMsg: "Unsupported distance type 'dot', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
+			expectErrMsg: "unsupported distance type 'dot', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
 		},
 		{
 			name: "with invalid distance hamming",
@@ -241,7 +241,7 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "hamming",
 			},
 			expectErr:    true,
-			expectErrMsg: "Unsupported distance type 'hamming', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
+			expectErrMsg: "unsupported distance type 'hamming', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
 		},
 		{
 			name:         "with invalid input type (not a map)",
