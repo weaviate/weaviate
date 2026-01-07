@@ -218,8 +218,8 @@ func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func
 }
 
 func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object, schemaVersion uint64) replica.SimpleResponse {
-	if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+	if resp := i.waitForSchemaVersion(ctx, schemaVersion); resp != nil {
+		return *resp
 	}
 
 	localShard, release, pr := i.writableShard(ctx, shard)
@@ -233,8 +233,8 @@ func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, ob
 }
 
 func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse {
-	if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+	if resp := i.waitForSchemaVersion(ctx, schemaVersion); resp != nil {
+		return *resp
 	}
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
@@ -247,8 +247,8 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 }
 
 func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64) replica.SimpleResponse {
-	if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+	if resp := i.waitForSchemaVersion(ctx, schemaVersion); resp != nil {
+		return *resp
 	}
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
@@ -261,8 +261,8 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse {
-	if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+	if resp := i.waitForSchemaVersion(ctx, schemaVersion); resp != nil {
+		return *resp
 	}
 
 	localShard, release, pr := i.writableShard(ctx, shard)
@@ -278,8 +278,8 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) replica.SimpleResponse {
-	if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+	if resp := i.waitForSchemaVersion(ctx, schemaVersion); resp != nil {
+		return *resp
 	}
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
@@ -292,8 +292,8 @@ func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse {
-	if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+	if resp := i.waitForSchemaVersion(ctx, schemaVersion); resp != nil {
+		return *resp
 	}
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
@@ -303,6 +303,13 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 	defer release()
 
 	return localShard.prepareAddReferences(ctx, requestID, refs)
+}
+
+func (i *Index) waitForSchemaVersion(ctx context.Context, schemaVersion uint64) *replica.SimpleResponse {
+	if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+	}
+	return nil
 }
 
 func (i *Index) CommitReplication(shard, requestID string) interface{} {

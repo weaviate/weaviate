@@ -89,7 +89,7 @@ var (
 )
 
 func NewReplicatedIndices(
-	indexer replicaTypes.Replicator,
+	replicator replicaTypes.Replicator,
 	auth auth,
 	maintenanceModeEnabled func() bool,
 	requestQueueConfig cluster.RequestQueueConfig,
@@ -106,7 +106,7 @@ func NewReplicatedIndices(
 	}
 
 	i := &replicatedIndices{
-		replicator:             indexer,
+		replicator:             replicator,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
