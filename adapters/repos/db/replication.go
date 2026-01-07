@@ -153,8 +153,7 @@ func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName str
 	return index.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
-func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string,
-	level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
