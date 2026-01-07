@@ -73,6 +73,21 @@ func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*Post
 	return m, err
 }
 
+// CountVectorIDs returns the number of vector IDs in the posting with the given ID.
+// If the posting does not exist, it returns 0.
+func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
+	m, err := v.Get(ctx, postingID)
+	if err != nil && err != ErrPostingNotFound {
+		return 0, err
+	}
+
+	if m == nil {
+		return 0, nil
+	}
+
+	return uint32(len(m.Vectors)), nil
+}
+
 // SetVectorIDs sets the vector IDs for the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
@@ -104,7 +119,7 @@ func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint6
 // AddVectorID adds a vector ID to the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
-func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (int, error) {
+func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (uint32, error) {
 	old, err := v.Get(ctx, postingID)
 	if err != nil && err != ErrPostingNotFound {
 		return 0, err
@@ -125,7 +140,7 @@ func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64
 	}
 
 	v.cache.Set(postingID, &metadata)
-	return len(metadata.Vectors), nil
+	return uint32(len(metadata.Vectors)), nil
 }
 
 // SetVersion sets the version for the posting with the given ID.
