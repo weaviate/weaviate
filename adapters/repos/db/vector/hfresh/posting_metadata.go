@@ -127,6 +127,8 @@ func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint6
 	}
 	v.cache.Set(postingID, &metadata)
 
+	v.metrics.ObservePostingSize(float64(len(metadata.Vectors)))
+
 	return nil
 }
 
@@ -154,6 +156,9 @@ func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64
 	}
 
 	v.cache.Set(postingID, &metadata)
+
+	v.metrics.ObservePostingSize(float64(len(metadata.Vectors)))
+
 	return uint32(len(metadata.Vectors)), nil
 }
 
