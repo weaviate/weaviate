@@ -73,7 +73,7 @@ const (
 
 const (
 	DefaultObjectsTTLDeleteSchedule    = "" // disabled
-	DefaultObjectsTTLFindBatchSize     = 50_000
+	DefaultObjectsTTLFindBatchSize     = 10_000
 	DefaultObjectsTTLDeleteBatchSize   = 10_000
 	DefaultObjectsTTLConcurrencyFactor = 1
 )
