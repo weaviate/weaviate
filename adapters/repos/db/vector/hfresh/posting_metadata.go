@@ -88,6 +88,20 @@ func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uin
 	return uint32(len(m.Vectors)), nil
 }
 
+// GetVersion returns the version of the posting with the given ID.
+func (v *PostingMetadataStore) GetVersion(ctx context.Context, postingID uint64) (uint32, error) {
+	m, err := v.Get(ctx, postingID)
+	if err != nil && err != ErrPostingNotFound {
+		return 0, err
+	}
+
+	if m == nil {
+		return 0, nil
+	}
+
+	return m.Version, nil
+}
+
 // SetVectorIDs sets the vector IDs for the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
