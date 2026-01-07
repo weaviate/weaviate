@@ -13,6 +13,9 @@ packages:
    interfaces:
       RClient:
       WClient:
+  github.com/weaviate/weaviate/usecases/replica/types:
+    interfaces:
+      Replicator:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
@@ -74,9 +77,6 @@ packages:
   github.com/weaviate/weaviate/cluster/usage:
     interfaces:
       Service:
-  github.com/weaviate/weaviate/adapters/repos/types:
-    interfaces:
-        Indexer:
   github.com/weaviate/weaviate/adapters/repos/db:
     interfaces:
       ShardLike:

@@ -113,6 +113,56 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 	return index.ReplicateReferences(ctx, shard, requestID, refs, schemaVersion)
 }
 
+func (db *DB) OverwriteObjects(ctx context.Context, className, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.OverwriteObjects(ctx, shard, vobjects)
+}
+
+func (db *DB) FetchObject(ctx context.Context, className, shardName string, id strfmt.UUID) (replica.Replica, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return replica.Replica{}, pr.FirstError()
+	}
+	return index.FetchObject(ctx, shardName, id)
+}
+
+func (db *DB) FetchObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) ([]replica.Replica, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.FetchObjects(ctx, shardName, ids)
+}
+
+func (db *DB) DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.DigestObjects(ctx, shardName, ids)
+}
+
+func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string,
+	initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
+}
+
+func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string,
+	level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
 func (db *DB) CommitReplication(class,
 	shard, requestID string,
 ) interface{} {
