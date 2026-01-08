@@ -53,6 +53,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	// filter out candidates that are too far away or have no vectors
 	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
+	centroidsMap := make(map[uint64]float32)
 	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
@@ -66,6 +67,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		}
 
 		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
+		centroidsMap[centroids.data[i].ID] = centroids.data[i].Distance
 	}
 
 	// read all the selected postings
@@ -86,6 +88,10 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		// keep track of the posting size
 		postingSize := len(p)
 		totalVectors += postingSize
+
+		uncompressedCentroid, _ := h.getUncompressedCentroid(selectedCentroids[i])
+		residualVector := h.residualVector(vector, uncompressedCentroid)
+		queryVector = NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(residualVector)))
 
 		for _, v := range p {
 			id := v.ID()
@@ -113,6 +119,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
+			dist += centroidsMap[selectedCentroids[i]]
 
 			visited.Visit(id)
 			q.Insert(id, dist)

@@ -168,7 +168,14 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				if _, exists := vectorSet[v.ID()]; exists {
 					continue // Skip duplicate vectors
 				}
-				newPosting = newPosting.AddVector(v)
+				uncompressedCentroid, _ := h.getUncompressedCentroid(candidateID)
+				compressedRQ := h.quantizer.FromCompressedBytes(v.Data())
+				rq := h.quantizer.Decode(compressedRQ)
+				vector := undoResidualVector(rq, uncompressedCentroid)
+				newUncompressedCentroid, _ := h.getUncompressedCentroid(postingID)
+				vector = h.residualVector(vector, newUncompressedCentroid)
+				v2 := NewVector(v.ID(), v.Version(), h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+				newPosting = newPosting.AddVector(v2)
 				candidateLen++
 			}
 
@@ -223,12 +230,22 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			smallCentroid := h.Centroids.Get(smallID)
 			largeCentroid := h.Centroids.Get(largeID)
 			for _, v := range smallPosting {
-				prevDist, err := smallCentroid.Distance(h.distancer, v)
+				uncompressedCentroid, _ := h.getUncompressedCentroid(smallID)
+				compressedRQ := h.quantizer.FromCompressedBytes(v.Data())
+				rq := h.quantizer.Decode(compressedRQ)
+				vector := undoResidualVector(rq, uncompressedCentroid)
+				v2 := NewVector(v.ID(), v.Version(), h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+				prevDist, err := smallCentroid.Distance(h.distancer, v2)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
 				}
 
-				newDist, err := largeCentroid.Distance(h.distancer, v)
+				newUncompressedCentroid, _ := h.getUncompressedCentroid(largeID)
+				compressedRQ = h.quantizer.FromCompressedBytes(v.Data())
+				rq = h.quantizer.Decode(compressedRQ)
+				vector = undoResidualVector(rq, newUncompressedCentroid)
+				v2 = NewVector(v.ID(), v.Version(), h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+				newDist, err := largeCentroid.Distance(h.distancer, v2)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
 				}
