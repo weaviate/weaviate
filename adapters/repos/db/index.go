@@ -2530,7 +2530,9 @@ func (i *Index) drop() error {
 			if !ok {
 				return nil // shard already does not exist
 			}
-			if err := shard.drop(keepFiles); err != nil {
+			// The full index folder is deleted below, so we don't need to delete shard data here again. This avoids
+			// many syscalls when there are many shards.
+			if err := shard.drop(true); err != nil {
 				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
 			}
 
