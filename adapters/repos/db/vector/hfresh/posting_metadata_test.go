@@ -129,4 +129,20 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 0, v)
 	})
+
+	t.Run("AddVectorID", func(t *testing.T) {
+		store := makePostingMetadataStore(t)
+		count, err := store.AddVectorID(ctx, 42, 100)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, count)
+
+		count, err = store.AddVectorID(ctx, 42, 200)
+		require.NoError(t, err)
+		require.EqualValues(t, 2, count)
+
+		m, release, err := store.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, []uint64{100, 200}, m.Vectors)
+		release()
+	})
 }
