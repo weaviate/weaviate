@@ -342,6 +342,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,
 		Err:         meta.Error,
+		Size:        float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 	}
 	return status, nil
 }
