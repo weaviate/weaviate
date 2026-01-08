@@ -108,6 +108,9 @@ func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*Post
 	if errors.Is(err, otter.ErrNotFound) {
 		return nil, func() {}, ErrPostingNotFound
 	}
+	if err != nil {
+		return nil, func() {}, err
+	}
 
 	return m, func() {
 		if m == nil {
