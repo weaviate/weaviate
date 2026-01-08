@@ -162,6 +162,22 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	return nil
 }
 
+func (m *metaClass) DropProperty(v uint64, propertyName string) error {
+	m.Lock()
+	defer m.Unlock()
+
+	// update all at once to prevent race condition with concurrent readers
+	newProperties := make([]*models.Property, 0, len(m.Class.Properties)-1)
+	for _, prop := range m.Class.Properties {
+		if prop.Name != propertyName {
+			newProperties = append(newProperties, prop)
+		}
+	}
+	m.Class.Properties = newProperties
+	m.ClassVersion = v
+	return nil
+}
+
 func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) error {
 	m.Lock()
 	defer m.Unlock()

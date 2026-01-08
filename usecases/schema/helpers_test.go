@@ -131,6 +131,10 @@ func (f *fakeDB) AddProperty(prop string, cmd command.AddPropertyRequest) error 
 	return nil
 }
 
+func (f *fakeDB) DropProperty(class string, req command.DropPropertyRequest) error {
+	return nil
+}
+
 func (f *fakeDB) AddTenants(class string, cmd *command.AddTenantsRequest) error {
 	return nil
 }
@@ -296,6 +300,11 @@ func (f *fakeMigrator) DropClass(ctx context.Context, className string, hasFroze
 
 func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
 	args := f.Called(ctx, className, prop)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) DropProperty(ctx context.Context, className string, propertyName string) error {
+	args := f.Called(ctx, className, propertyName)
 	return args.Error(0)
 }
 

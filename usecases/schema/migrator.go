@@ -44,6 +44,8 @@ type Migrator interface {
 
 	AddProperty(ctx context.Context, className string,
 		props ...*models.Property) error
+	DropProperty(ctx context.Context, className string,
+		propName string) error
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
 	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error

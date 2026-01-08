@@ -419,6 +419,13 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
 
+func (l *LazyLoadShard) deletePropertyBucket(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	propertyName string,
+) {
+	l.mustLoad()
+	l.shard.deletePropertyBucket(ctx, eg, propertyName)
+}
+
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
 	if err := l.Load(ctx); err != nil {
 		return err
