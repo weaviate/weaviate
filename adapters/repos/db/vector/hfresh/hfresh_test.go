@@ -74,6 +74,10 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
+func makeTestMetrics() *Metrics {
+	return NewMetrics(monitoring.GetMetrics(), "n/a", "n/a")
+}
+
 func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	l := logrus.New()
 	tmpDir := t.TempDir()
