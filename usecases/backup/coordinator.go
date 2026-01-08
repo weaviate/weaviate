@@ -356,21 +356,19 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		node, host string
 	}
 
+	c.descriptor.ApplyNodeMapping()
+
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
+	g.SetLimit(_MaxNumberConns)
+
 	type pair struct {
 		n nodeHost
 		r *Request
 	}
-
-	id := c.descriptor.ID
-	nodeMapping := c.descriptor.NodeMapping
-	groups := c.descriptor.Nodes
-
-	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
-	g.SetLimit(_MaxNumberConns)
 	reqChan := make(chan pair)
 	g.Go(func() error {
 		defer close(reqChan)
-		for node, gr := range groups {
+		for node, gr := range c.descriptor.Nodes {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -382,18 +380,18 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 
 			host, found := c.nodeResolver.NodeHostname(node)
 			if !found {
-				return fmt.Errorf("cannot resolve hostname for %q", node)
+				return fmt.Errorf("cannot resolve hostname for %q, nodes=%v, nodeMapping=%v", node, c.descriptor.Nodes, c.descriptor.NodeMapping)
 			}
 
 			reqChan <- pair{
 				nodeHost{node, host},
 				&Request{
 					Method:            req.Method,
-					ID:                id,
+					ID:                c.descriptor.ID,
 					Backend:           req.Backend,
 					Classes:           gr.Classes,
 					Duration:          _BookingPeriod,
-					NodeMapping:       nodeMapping,
+					NodeMapping:       c.descriptor.NodeMapping,
 					Compression:       req.Compression,
 					Bucket:            req.Bucket,
 					Path:              req.Path,
@@ -406,7 +404,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	})
 
 	mutex := sync.RWMutex{}
-	nodes := make(map[string]string, len(groups))
+	nodes := make(map[string]string, len(c.descriptor.Nodes))
 	for pair := range reqChan {
 		pair := pair
 		g.Go(func() error {
@@ -423,7 +421,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			return nil
 		})
 	}
-	abortReq := &AbortRequest{Method: req.Method, ID: id, Backend: req.Backend}
+	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend}
 	if err := g.Wait(); err != nil {
 		c.abortAll(ctx, abortReq, nodes)
 		return nil, err
