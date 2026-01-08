@@ -344,6 +344,11 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
+	// Apply node mapping to the descriptor shall happen before
+	// asking candidates if they agree to participate in DBRO and before creating the request channel.
+	// This ensures that the request channel contains the correct node names and RESOLVES
+	// correctly the NEW node names and hosts if mapping exists.
+	// NOTE: This could be leveraged for adjusting number of nodes in the schema (as future implementation).
 	c.descriptor.ApplyNodeMapping()
 
 	reqChan := make(chan *Request)
