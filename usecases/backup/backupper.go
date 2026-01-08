@@ -104,17 +104,16 @@ func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommi
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
 		defer b.lastOp.reset()
-		coordinatorNode, shardsPerClassInSync, _, err := b.waitForCoordinator(expiration, id)
+		sharedBackupState, _, err := b.waitForCoordinator(expiration, id)
 		if err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
 			b.lastAsyncError = err
 			return
 		}
-		isCoordinator := coordinatorNode == b.node
-		if isCoordinator {
-			shardsPerClassInSync = nil // coordinator needs to back up all shards
-		}
+		allSyncShards := sharedBackupState.AllSyncShards
+		syncShardsToBackup := sharedBackupState.ShardsPerNode[b.node]
+
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
@@ -125,13 +124,12 @@ func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommi
 			return
 		}
 		result := backup.BackupDescriptor{
-			StartedAt:             time.Now().UTC(),
-			ID:                    id,
-			Classes:               make([]backup.ClassDescriptor, 0, len(req.Classes)),
-			Version:               Version,
-			ServerVersion:         config.ServerVersion,
-			CompressionType:       &compressionType,
-			CreateCoordinatorNode: coordinatorNode,
+			StartedAt:       time.Now().UTC(),
+			ID:              id,
+			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
+			Version:         Version,
+			ServerVersion:   config.ServerVersion,
+			CompressionType: &compressionType,
 		}
 
 		// the coordinator might want to abort the backup
@@ -139,8 +137,15 @@ func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommi
 		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path, "coordinator_node": coordinatorNode, "shards_per_class_in_sync": shardsPerClassInSync}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, shardsPerClassInSync); err != nil {
+		logFields := logrus.Fields{
+			"action":                   "create_backup",
+			"backup_id":                req.ID,
+			"override_bucket":          req.Bucket,
+			"override_path":            req.Path,
+			"shards_per_class_in_sync": allSyncShards,
+			"sync_shards_to_backup":    syncShardsToBackup,
+		}
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, allSyncShards, syncShardsToBackup); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
@@ -149,16 +154,22 @@ func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommi
 		}
 		result.CompletedAt = time.Now().UTC()
 
-		// write chunks that were only backed up on coordinator
-		if isCoordinator {
-			sharedDescr := backup.SharedBackupDescriptor{ChunksPerClass: make(map[string]map[int32][]string, len(result.Classes))}
-			for _, classDescp := range result.Classes {
-				sharedDescr.ChunksPerClass[classDescp.Name] = classDescp.Chunks
+		// write chunks for shards that were only backed up given node
+		descr := backup.SharedBackupLocations{}
+		for _, classDescp := range result.Classes {
+			for chunkId, shards := range classDescp.Chunks {
+				for _, shard := range shards {
+					descr = append(descr, backup.SharedBackupLocation{
+						Class: classDescp.Name,
+						Shard: shard,
+						Chunk: chunkId,
+						Node:  b.node,
+					})
+				}
 			}
-
-			if err := globalStore.PutMeta(ctx, sharedDescr, GlobalSharedBackupFile, req.Bucket, req.Path); err != nil {
-				b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
-			}
+		}
+		if err := globalStore.PutMeta(ctx, descr, GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
+			b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
 		}
 	}
 	enterrors.GoWrapper(f, b.logger)

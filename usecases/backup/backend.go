@@ -26,7 +26,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -143,8 +142,8 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	return &result, err
 }
 
-func (s *nodeStore) GetSharedChunks(ctx context.Context, fileName, overrideBucket, overridePath string) (*backup.SharedBackupDescriptor, error) {
-	var result backup.SharedBackupDescriptor
+func (s *nodeStore) GetSharedChunks(ctx context.Context, fileName, overrideBucket, overridePath string) (*backup.SharedBackupLocations, error) {
+	var result backup.SharedBackupLocations
 
 	if err := s.meta(ctx, fileName, overrideBucket, overridePath, &result); err != nil {
 		return nil, err
@@ -181,13 +180,13 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 }
 
 // Meta gets coordinator's global metadata from object store
-func (s *coordStore) GetSharedChunks(ctx context.Context, filename, overrideBucket, overridePath string) (*backup.SharedBackupDescriptor, error) {
-	var result backup.SharedBackupDescriptor
+func (s *coordStore) GetSharedChunks(ctx context.Context, filename, overrideBucket, overridePath string) (backup.SharedBackupLocations, error) {
+	var result backup.SharedBackupLocations
 	err := s.meta(ctx, filename, overrideBucket, overridePath, &result)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return result, nil
 }
 
 // uploader uploads backup artifacts. This includes db files and metadata
@@ -223,10 +222,12 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string, shardsPerClassInSync map[string][]string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket,
+	overridePath string, allSyncShards map[string][]string, syncShardsToBackup backup.ResultsPerNode,
+) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, shardsPerClassInSync)
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, allSyncShards, syncShardsToBackup)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions
@@ -586,13 +587,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, sharedChunks map[int32][]string, coordinatorBackupId string, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, backupID string, sharedChunks backup.SharedBackupLocations, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 && len(desc.ShardsInSync) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, sharedChunks, coordinatorBackupId, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
+	if err := fw.writeTempFiles(ctx, backupID, sharedChunks, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -608,7 +609,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, s
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, sharedChunks map[int32][]string, coordinatorBackupId, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, backupID string, sharedChunks backup.SharedBackupLocations, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -644,19 +645,29 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, sharedChunks map[int32
 			return err
 		})
 	}
+	sharedChunksPerNode := make(map[string]map[int32][]string)
+	for _, shared := range sharedChunks {
+		if _, ok := sharedChunksPerNode[shared.Node]; !ok {
+			sharedChunksPerNode[shared.Node] = make(map[int32][]string)
+		}
+		sharedChunksPerNode[shared.Node][shared.Chunk] = append(sharedChunksPerNode[shared.Node][shared.Chunk], shared.Shard)
+	}
 
-	for key := range sharedChunks {
-		chunk := chunkKey(desc.Name, key)
-		eg.Go(func() error {
-			uz, w := NewUnzip(classTempDir, compressionType)
+	for node, shared := range sharedChunksPerNode {
+		for chunk, shards := range shared {
+			chunkKey := chunkKey(desc.Name, chunk)
+			backupLocation := fmt.Sprintf("%s/%s", backupID, node)
+			eg.Go(func() error {
+				uz, w := NewUnzip(classTempDir, compressionType)
 
-			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, coordinatorBackupId, w)
-			}, fw.logger)
-			_, err := uz.ReadChunk(desc.ShardsInSync)
-			return err
-		})
-
+				enterrors.GoWrapper(func() {
+					fw.backend.Read(ctx, chunkKey, overrideBucket, overridePath, backupLocation, w)
+				}, fw.logger)
+				// only write shards that were actually shared. A chunk can contain more shards
+				_, err := uz.ReadChunk(shards)
+				return err
+			})
+		}
 	}
 	return eg.Wait()
 }

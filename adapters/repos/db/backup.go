@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -41,11 +42,28 @@ type BackupState struct {
 // ListShardsSync returns which class+shard combination is in sync between different nodes to enable to back those shards
 // only up once.
 // A shard is considered in sync when its last async replication run finished after the backup start time.
-func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeout time.Duration) (map[string][]string, error) {
-	result := make(map[string][]string, len(classes))
+func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeout time.Duration) (*backup.SharedBackupState, error) {
+	sharedBackupState := &backup.SharedBackupState{ShardsPerNode: make(map[string]backup.ResultsPerNode), AllSyncShards: make(map[string][]string, len(classes))}
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	timeOutTime := backupStartedAt.Add(timeout)
+	shardCounter := atomic.Int32{}
+	var mu sync.Mutex
+
+	addToResult := func(className, shard string, idx *Index, lastRun *time.Time) {
+		ownerNodes, err := idx.schemaReader.ShardReplicasWithVersion(context.Background(), className, shard, 0)
+		if err != nil {
+			db.logger.WithField("class", className).WithField("shard", shard).
+				Errorf("unable to get shard owners: %v", err)
+			return
+		}
+		shardCounterInt := int(shardCounter.Add(1) - 1)
+		selectedNode := ownerNodes[shardCounterInt%len(ownerNodes)]
+		mu.Lock()
+		sharedBackupState.AddShard(selectedNode, className, shard)
+		mu.Unlock()
+	}
+
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
@@ -55,17 +73,13 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 		if !idx.Config.AsyncReplicationEnabled {
 			continue // without async replication there is no (easy) way to know if shard is in sync
 		}
-		var mu sync.Mutex
-		result[c] = []string{}
-
 		err := idx.ForEachLoadedShard(func(name string, shard *Shard) error {
 			lastRun := shard.asyncReplicationLastRun.Load()
 			if lastRun != nil && (*lastRun).After(backupStartedAt) {
-				mu.Lock()
-				result[c] = append(result[c], name)
-				mu.Unlock()
+				addToResult(c, name, idx, lastRun)
 				return nil
 			}
+
 			// trigger an async replication run to recheck if the shard is in sync. If it is not, async replication
 			// will start to bring it in sync which can take too long to wait for it.
 			eg.Go(func() error {
@@ -88,10 +102,7 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 					case <-ticker.C:
 						lastRun := shard.asyncReplicationLastRun.Load()
 						if lastRun != nil && (*lastRun).After(backupStartedAt) {
-							mu.Lock()
-							result[c] = append(result[c], name)
-							mu.Unlock()
-
+							addToResult(c, name, idx, lastRun)
 							return nil
 						}
 					}
@@ -107,7 +118,8 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
-	return result, nil
+
+	return sharedBackupState, nil
 }
 
 // Backupable returns whether all given class can be backed up.
@@ -141,6 +153,7 @@ func (db *DB) ListBackupable() []string {
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
 func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, shardsPerClassInSync map[string][]string,
+	syncShardsPerClassToBackup backup.ResultsPerNode,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
@@ -154,7 +167,16 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				}
 				var shardsInSync []string
 				if shardsPerClassInSync != nil {
-					shardsInSync = shardsPerClassInSync[c] // may be nil, which is fine
+					shardsInSyncTmp := shardsPerClassInSync[c] // may be nil, which is fine
+					if syncShardsPerClassToBackup != nil {
+						if syncShardsForClassToBackup, ok := syncShardsPerClassToBackup[c]; ok {
+							for _, shard := range shardsInSyncTmp {
+								if !slices.Contains(syncShardsForClassToBackup, shard) {
+									shardsInSync = append(shardsInSync, shard)
+								}
+							}
+						}
+					}
 				}
 				idx.closeLock.RLock()
 				defer idx.closeLock.RUnlock()
