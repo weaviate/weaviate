@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -468,7 +468,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes)
+	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -497,7 +497,7 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -603,7 +603,7 @@ func (i *indices) getObject() http.Handler {
 			return
 		}
 
-		objBytes, err := IndicesPayloads.SingleObject.Marshal(obj)
+		objBytes, err := IndicesPayloads.SingleObject.Marshal(obj, MethodGet)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -762,7 +762,7 @@ func (i *indices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)
+		objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs, MethodGet)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

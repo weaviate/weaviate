@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -231,9 +231,17 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 
 func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 	count := c.c1.segment.invertedData.avgPropertyLengthsCount + c.c2.segment.invertedData.avgPropertyLengthsCount
-	average := c.c1.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c1.segment.invertedData.avgPropertyLengthsCount) / float64(count))
-	average += c.c2.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c2.segment.invertedData.avgPropertyLengthsCount) / float64(count))
+	average := 0.0
+	if !math.IsNaN(c.c1.segment.invertedData.avgPropertyLengthsAvg) && !math.IsInf(c.c1.segment.invertedData.avgPropertyLengthsAvg, 0) && c.c1.segment.invertedData.avgPropertyLengthsCount > 0 {
+		average += c.c1.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c1.segment.invertedData.avgPropertyLengthsCount) / float64(count))
+	}
+	if !math.IsNaN(c.c2.segment.invertedData.avgPropertyLengthsAvg) && !math.IsInf(c.c2.segment.invertedData.avgPropertyLengthsAvg, 0) && c.c2.segment.invertedData.avgPropertyLengthsCount > 0 {
+		average += c.c2.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c2.segment.invertedData.avgPropertyLengthsCount) / float64(count))
+	}
 
+	if count == 0 {
+		return 0, 0
+	}
 	return count, average
 }
 
