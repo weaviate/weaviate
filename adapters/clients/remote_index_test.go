@@ -33,7 +33,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
 func TestRemoteIndexIncreaseRF(t *testing.T) {
@@ -44,7 +46,8 @@ func TestRemoteIndexIncreaseRF(t *testing.T) {
 	fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	nodeResolver := mocks.NewMockNodeSelector("node1")
+	client := newRemoteIndex(ts.Client(), nodeResolver)
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.IncreaseReplicationFactor(ctx, "", "C1", nil)
 		assert.NotNil(t, err)
@@ -75,7 +78,8 @@ func TestRemoteIndexReInitShardIn(t *testing.T) {
 	fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	nodeResolver := mocks.NewMockNodeSelector("node1")
+	client := newRemoteIndex(ts.Client(), nodeResolver)
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.ReInitShard(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
@@ -106,7 +110,8 @@ func TestRemoteIndexCreateShard(t *testing.T) {
 	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	nodeResolver := mocks.NewMockNodeSelector("node1")
+	client := newRemoteIndex(ts.Client(), nodeResolver)
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.CreateShard(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
@@ -137,7 +142,8 @@ func TestRemoteIndexUpdateShardStatus(t *testing.T) {
 	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	nodeResolver := mocks.NewMockNodeSelector("node1")
+	client := newRemoteIndex(ts.Client(), nodeResolver)
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.UpdateShardStatus(ctx, "", "C1", "S1", "NewStatus", 0)
 		assert.NotNil(t, err)
@@ -168,7 +174,8 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	nodeResolver := mocks.NewMockNodeSelector("node1")
+	client := newRemoteIndex(ts.Client(), nodeResolver)
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.GetShardStatus(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
@@ -216,7 +223,8 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	nodeResolver := mocks.NewMockNodeSelector("node1")
+	client := newRemoteIndex(ts.Client(), nodeResolver)
 
 	rsc := struct {
 		*strings.Reader
@@ -248,8 +256,8 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	})
 }
 
-func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
-	ri := NewRemoteIndex(httpClient)
+func newRemoteIndex(httpClient *http.Client, nodeResolver nodeResolver) *RemoteIndex {
+	ri := NewRemoteIndex(httpClient, nodeResolver)
 	ri.minBackOff = time.Millisecond * 1
 	ri.maxBackOff = time.Millisecond * 10
 	ri.timeoutUnit = time.Millisecond * 20

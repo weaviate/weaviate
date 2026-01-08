@@ -77,8 +77,8 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		panic(err)
 	}
 
-	client := clients.NewRemoteIndex(&http.Client{})
-	nodesClient := clients.NewRemoteNode(&http.Client{})
+	client := clients.NewRemoteIndex(&http.Client{}, nodeResolver)
+	nodesClient := clients.NewRemoteNode(&http.Client{}, nodeResolver)
 	replicaClient := clients.NewReplicationClient(&http.Client{})
 	n.repo, err = db.New(logger, db.Config{
 		MemtablesFlushDirtyAfter:  60,

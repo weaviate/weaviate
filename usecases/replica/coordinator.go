@@ -14,14 +14,15 @@ package replica
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -85,10 +86,28 @@ func newReadCoordinator[T any](f *Finder, shard string,
 	}
 }
 
+// isNetworkError checks if the error is a network-related error
+func isNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "no route to host") ||
+		strings.Contains(errStr, "network is unreachable") ||
+		strings.Contains(errStr, "connection reset by peer") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "i/o timeout") ||
+		strings.Contains(errStr, "connection timed out") ||
+		strings.Contains(errStr, "EOF")
+}
+
 // broadcast sends write request to all replicas (first phase of a two-phase commit)
 func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
+	cl ConsistencyLevel,
 ) <-chan string {
 	// prepare tells replicas to be ready
 	prepare := func() <-chan _Result[string] {
@@ -101,7 +120,31 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				replica := replica
 				g := func() {
 					defer wg.Done()
-					err := op(ctx, replica, c.TxID)
+					// Create a per-node timeout context
+					// During rollouts, we want to fail fast for terminating nodes
+					// but give enough time for new nodes to respond
+					nodeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+					defer cancel()
+
+					err := op(nodeCtx, replica, c.TxID)
+					if err != nil {
+						// If we get a network error, try to re-resolve the node address
+						if isNetworkError(err) {
+							// Re-resolve the node address using the same consistency level as the original request
+							newState, resolveErr := c.Resolver.State(c.Shard, cl, replica)
+							if resolveErr == nil && len(newState.Hosts) > 0 {
+								// Try the operation with the new address
+								newReplica := newState.Hosts[0]
+								if newReplica != replica {
+									// Try with the new address
+									err = op(nodeCtx, newReplica, c.TxID)
+									if err == nil {
+										replica = newReplica // Use the new address for the result
+									}
+								}
+							}
+						}
+					}
 					resChan <- _Result[string]{replica, err}
 				}
 				enterrors.GoWrapper(g, c.log)
@@ -185,14 +228,11 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := state.Level
+	// Use a longer timeout for the overall operation
+	// This allows for multiple per-node timeouts to occur
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_push",
-		"duration": 20 * time.Second,
-		"level":    level,
-	}).Debug("context.WithTimeout")
-	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level)
+	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 180*time.Second)
+	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level, cl)
 	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
 
