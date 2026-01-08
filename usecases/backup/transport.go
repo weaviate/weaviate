@@ -55,6 +55,11 @@ type Request struct {
 	// Additional path prefix override
 	Path string
 
+	// NodeName is the name of the node that will be used to commit the backup
+	NodeName string
+	// NodeHost is the host of the node that will be used to commit the backup
+	NodeHost string
+
 	RbacRestoreOption string
 	UserRestoreOption string
 }

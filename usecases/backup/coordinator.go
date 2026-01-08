@@ -344,31 +344,14 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_can_commit",
-		"duration": c.timeoutCanCommit,
-		"level":    req.Level,
-		"method":   req.Method,
-		"backend":  req.Backend,
-	}).Debug("context.WithTimeout")
-
-	type nodeHost struct {
-		node, host string
-	}
-
 	c.descriptor.ApplyNodeMapping()
 
+	reqChan := make(chan *Request)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
-
-	type pair struct {
-		n nodeHost
-		r *Request
-	}
-	reqChan := make(chan pair)
 	g.Go(func() error {
 		defer close(reqChan)
-		for node, gr := range c.descriptor.Nodes {
+		for nodeName, gr := range c.descriptor.Nodes {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -376,28 +359,27 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 
 			// If we have a nodeMapping with the node name from the backup, replace the node with the new one
-			node = c.descriptor.ToMappedNodeName(node)
+			nodeName = c.descriptor.ToMappedNodeName(nodeName)
 
-			host, found := c.nodeResolver.NodeHostname(node)
+			host, found := c.nodeResolver.NodeHostname(nodeName)
 			if !found {
-				return fmt.Errorf("cannot resolve hostname for %q, nodes=%v, nodeMapping=%v", node, c.descriptor.Nodes, c.descriptor.NodeMapping)
+				return fmt.Errorf("cannot resolve hostname for %q, nodes=%v, nodeMapping=%v", nodeName, c.descriptor.Nodes, c.descriptor.NodeMapping)
 			}
 
-			reqChan <- pair{
-				nodeHost{node, host},
-				&Request{
-					Method:            req.Method,
-					ID:                c.descriptor.ID,
-					Backend:           req.Backend,
-					Classes:           gr.Classes,
-					Duration:          _BookingPeriod,
-					NodeMapping:       c.descriptor.NodeMapping,
-					Compression:       req.Compression,
-					Bucket:            req.Bucket,
-					Path:              req.Path,
-					UserRestoreOption: req.UserRestoreOption,
-					RbacRestoreOption: req.RbacRestoreOption,
-				},
+			reqChan <- &Request{
+				NodeName:          nodeName,
+				NodeHost:          host,
+				Method:            req.Method,
+				ID:                c.descriptor.ID,
+				Backend:           req.Backend,
+				Classes:           gr.Classes,
+				Duration:          _BookingPeriod,
+				NodeMapping:       c.descriptor.NodeMapping,
+				Compression:       req.Compression,
+				Bucket:            req.Bucket,
+				Path:              req.Path,
+				UserRestoreOption: req.UserRestoreOption,
+				RbacRestoreOption: req.RbacRestoreOption,
 			}
 		}
 		return nil
@@ -405,18 +387,17 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 
 	mutex := sync.RWMutex{}
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
-	for pair := range reqChan {
-		pair := pair
+	for req := range reqChan {
 		g.Go(func() error {
-			resp, err := c.client.CanCommit(ctx, pair.n.host, pair.r)
+			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
 				err = fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 			}
 			if err != nil {
-				return fmt.Errorf("node %q: %w", pair.n, err)
+				return fmt.Errorf("node %q: %w", req.NodeName, err)
 			}
 			mutex.Lock()
-			nodes[pair.n.node] = pair.n.host
+			nodes[req.NodeName] = req.NodeHost
 			mutex.Unlock()
 			return nil
 		})
