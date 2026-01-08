@@ -157,6 +157,8 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 }
 
 func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) (uuids []strfmt.UUID, err error) {
+	s.index.logger.Debug("Shard::FindUUIDs started")
+
 	start := time.Now()
 
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
@@ -172,7 +174,6 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
 	uuids = make([]strfmt.UUID, it.Len())
 	currIdx := 0
-	i := uint8(0)
 
 	defer func() {
 		logger := s.index.logger.WithFields(logrus.Fields{
@@ -183,17 +184,18 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		})
 		if err != nil {
 			// log as debug
-			logger.WithError(err).Debug("FindUUIDs failed")
+			logger.WithError(err).Debug("Shard::FindUUIDs failed")
 			return
 		}
-		logger.Debug("FindUUIDs finished")
+		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		if i == 0 && ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return nil, fmt.Errorf("uuids loop: %w", ctx.Err())
+		default:
 		}
-		i = (i + 1) % 10 // check context every 10 docs
 
 		uuid, err := s.uuidFromDocID(docID)
 		if err != nil {
