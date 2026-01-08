@@ -200,10 +200,13 @@ func TestSchedulerBackupStatus(t *testing.T) {
 				StartedAt: starTime, CompletedAt: completedAt,
 				Nodes:  map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"C1"}}},
 				Status: backup.Success,
+				// 2.5Gb
+				PreCompressionSizeBytes: 2684354560,
 			})
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
+		want.Size = 2.5
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
@@ -214,10 +217,19 @@ func TestSchedulerBackupStatus(t *testing.T) {
 	t.Run("ReadFromOldMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		completedAt := starTime.Add(time.Hour)
-		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: string(backup.Success)})
+		bytes := marshalMeta(
+			backup.BackupDescriptor{
+				StartedAt:   starTime,
+				CompletedAt: completedAt,
+				Status:      string(backup.Success),
+				// 1.5Gb
+				PreCompressionSizeBytes: 1610612736,
+			},
+		)
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
+		want.Size = 1.5
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
