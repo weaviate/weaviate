@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -102,6 +103,16 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	state, err = loadCommitLoggerState(h.fs, h.logger, fileNames, state, h.metrics)
 	if err != nil {
 		return errors.Wrap(err, "load commit logger state")
+	}
+
+	// Check for forced compaction on startup (when snapshots are disabled or not used)
+	if os.Getenv("HNSW_COMPACT_ON_STARTUP") != "" && state != nil {
+		// Type assert to *hnswCommitLogger to access compaction method
+		if hnswCL, ok := cl.(*hnswCommitLogger); ok {
+			if err := hnswCL.compactCommitLogsOnStartup(state, h.logger); err != nil {
+				return errors.Wrapf(err, "forced compaction on startup")
+			}
+		}
 	}
 
 	h.cachePrefilled.Store(state == nil)
