@@ -255,10 +255,10 @@ func (c *coordinator) Restore(
 	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req)
 	canCommitDuration := time.Since(canCommitStart)
-	c.observeRestorePhase("can_commit", desc.ID, canCommitDuration)
+	c.observeRestorePhase("init", desc.ID, canCommitDuration)
 	c.log.WithFields(logrus.Fields{
 		"action":      "restore_phase_complete",
-		"phase":       "can_commit",
+		"phase":       "init",
 		"backup_id":   desc.ID,
 		"duration_ms": canCommitDuration.Milliseconds(),
 	}).Debug("restore phase timing")
@@ -287,10 +287,10 @@ func (c *coordinator) Restore(
 		commitStart := time.Now()
 		c.commit(ctx, &statusReq, nodes, true)
 		commitDuration := time.Since(commitStart)
-		c.observeRestorePhase("commit_polling", desc.ID, commitDuration)
+		c.observeRestorePhase("file_staging", desc.ID, commitDuration)
 		c.log.WithFields(logrus.Fields{
 			"action":      "restore_phase_complete",
-			"phase":       "commit_polling",
+			"phase":       "file_staging",
 			"backup_id":   desc.ID,
 			"duration_ms": commitDuration.Milliseconds(),
 		}).Debug("restore phase timing")
@@ -326,7 +326,7 @@ func (c *coordinator) Restore(
 func (c *coordinator) observeRestorePhase(phase, backupID string, duration time.Duration) {
 	metric, err := monitoring.GetMetrics().RestorePhaseDurations.GetMetricWithLabelValues(phase, backupID)
 	if err == nil {
-		metric.Observe(duration.Seconds())
+		metric.Set(duration.Seconds())
 	}
 }
 

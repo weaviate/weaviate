@@ -170,9 +170,6 @@ func (r *restorer) restoreAll(ctx context.Context,
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		classDuration := time.Since(classStart)
-
-		// Emit metric for per-class staging duration
-		r.observeClassStagingDuration(cdesc.Name, desc.ID, classDuration)
 		r.logger.WithFields(logrus.Fields{
 			"action":      "restore_class_staging",
 			"backup_id":   desc.ID,
@@ -194,18 +191,6 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}).Debug("restore node staging total timing")
 
 	return nil
-}
-
-// observeClassStagingDuration records per-class staging duration to Prometheus
-func (r *restorer) observeClassStagingDuration(className, backupID string, duration time.Duration) {
-	classLabel := className
-	if monitoring.GetMetrics().Group {
-		classLabel = "n/a"
-	}
-	metric, err := monitoring.GetMetrics().RestoreClassStagingDurations.GetMetricWithLabelValues(classLabel, backupID)
-	if err == nil {
-		metric.Observe(duration.Seconds())
-	}
 }
 
 func getType(myvar interface{}) string {
