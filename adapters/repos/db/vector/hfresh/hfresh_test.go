@@ -74,6 +74,10 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
+func makeTestMetrics() *Metrics {
+	return NewMetrics(monitoring.GetMetrics(), "n/a", "n/a")
+}
+
 func TestHFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	tmpDir := t.TempDir()
