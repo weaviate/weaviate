@@ -206,13 +206,6 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 		return nil, "", 0, errors.New("empty state")
 	}
 
-	// Check for forced compaction on startup
-	if os.Getenv("HNSW_COMPACT_ON_STARTUP") != "" {
-		if err := l.compactCommitLogsOnStartup(newState, logger); err != nil {
-			return nil, "", 0, errors.Wrapf(err, "forced compaction on startup")
-		}
-	}
-
 	ln := len(commitlogPaths)
 	newSnapshotPath := l.snapshotFileName(commitlogPaths[ln-1])
 	newCreatedAt, err := snapshotTimestamp(newSnapshotPath)
