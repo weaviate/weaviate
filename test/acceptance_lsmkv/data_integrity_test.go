@@ -45,7 +45,7 @@ func TestLSMKV_ChecksumRoundtrip(t *testing.T) {
 			require.Equal(t, val, res)
 
 			// flush the segment to disk
-			require.NoError(t, bucket.Shutdown(context.Background()))
+			require.NoError(t, bucket.Shutdown(context.Background(), false))
 
 			// verify that you can boostrap from the data on disk when checksums are enabled
 			bucket, err = newTestBucket(dataDir, true)
@@ -55,7 +55,7 @@ func TestLSMKV_ChecksumRoundtrip(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, val, res)
 
-			require.NoError(t, bucket.Shutdown(context.Background()))
+			require.NoError(t, bucket.Shutdown(context.Background(), false))
 		})
 	}
 }
@@ -72,7 +72,7 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, bucket.Put(key, val))
 	require.NoError(t, bucket.FlushAndSwitch())
-	require.NoError(t, bucket.Shutdown(context.Background()))
+	require.NoError(t, bucket.Shutdown(context.Background(), false))
 
 	entries, err := os.ReadDir(dataDir)
 	require.NoError(t, err)

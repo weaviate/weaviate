@@ -118,7 +118,7 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	if err != nil {
 		return types.Dimensionality{}, err
 	}
-	defer bucket.Shutdown(ctx)
+	defer bucket.Shutdown(ctx, false)
 
 	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
 }

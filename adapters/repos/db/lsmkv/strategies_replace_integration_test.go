@@ -70,7 +70,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -143,7 +143,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -225,7 +225,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -302,7 +302,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -348,7 +348,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("orderly shutdown", func(t *testing.T) {
-			b.Shutdown(context.Background())
+			b.Shutdown(context.Background(), false)
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
@@ -388,7 +388,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -481,7 +481,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -542,7 +542,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -615,7 +615,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -654,7 +654,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush memtable to disk", func(t *testing.T) {
-			require.Nil(t, b.Shutdown(context.Background()))
+			require.Nil(t, b.Shutdown(context.Background(), false))
 		})
 
 		t.Run("init a new one and verify", func(t *testing.T) {
@@ -689,7 +689,7 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -748,7 +748,7 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -811,7 +811,7 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -880,7 +880,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -1115,7 +1115,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -1209,7 +1209,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -1500,7 +1500,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)

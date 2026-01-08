@@ -70,7 +70,7 @@ func BenchmarkCompaction(b *testing.B) {
 					require.NoError(b, err)
 					require.True(b, once)
 
-					require.NoError(b, bu.Shutdown(ctx))
+					require.NoError(b, bu.Shutdown(ctx, false))
 				}
 			})
 		}

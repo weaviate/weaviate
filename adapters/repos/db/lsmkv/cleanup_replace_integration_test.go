@@ -30,7 +30,7 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer bucket.Shutdown(context.Background())
+	defer bucket.Shutdown(context.Background(), false)
 
 	type kvt struct {
 		pkey string
@@ -402,7 +402,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer bucket.Shutdown(context.Background())
+	defer bucket.Shutdown(context.Background(), false)
 
 	secondaryKey0 := func(primaryKey string) string {
 		return "secondary0-" + primaryKey

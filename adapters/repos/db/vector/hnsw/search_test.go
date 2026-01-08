@@ -184,7 +184,7 @@ func TestAcornPercentage(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import test vectors", func(t *testing.T) {
 		index, err := New(Config{

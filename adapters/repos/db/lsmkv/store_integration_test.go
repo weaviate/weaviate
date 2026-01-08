@@ -65,7 +65,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 		err = b2.Put([]byte("foo"), []byte("bar"))
 		require.Nil(t, err)
 
-		err = store.Shutdown(context.Background())
+		err = store.Shutdown(context.Background(), false)
 		require.Nil(t, err)
 	})
 
@@ -96,7 +96,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 		require.Nil(t, err)
 		assert.Equal(t, []byte("bar"), res)
 
-		err = store.Shutdown(context.Background())
+		err = store.Shutdown(context.Background(), false)
 		require.Nil(t, err)
 	})
 }

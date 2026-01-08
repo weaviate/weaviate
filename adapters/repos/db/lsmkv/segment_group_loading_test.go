@@ -213,7 +213,7 @@ func TestWalFilePresent(t *testing.T) {
 	require.NoError(t, b.Put([]byte("hello0"), []byte("world0")))
 	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
 	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 
 	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 1)
@@ -274,7 +274,7 @@ func TestComputeNetCountAfterCompaction(t *testing.T) {
 	count, err := b.Count(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 4, count)
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 
 	fileTypes := getFileTypeCount(t, finalTestDir)
 	require.Equal(t, 4, fileTypes[".db"])
@@ -322,7 +322,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 1)
 	require.Equal(t, walFiles, 0)
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[1]), WithStrategy(StrategyReplace),
@@ -355,7 +355,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 1)
 	require.Equal(t, walFiles, 0)
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 
 	// move compacted segment to safe place
 	entries, err := os.ReadDir(dirName)

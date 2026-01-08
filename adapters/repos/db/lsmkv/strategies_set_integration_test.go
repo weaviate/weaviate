@@ -59,7 +59,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -120,7 +120,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -185,7 +185,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -252,7 +252,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -308,7 +308,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 		})
 
 		t.Run("orderly shutdown", func(t *testing.T) {
-			b.Shutdown(context.Background())
+			b.Shutdown(context.Background(), false)
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
@@ -343,7 +343,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -441,7 +441,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -543,7 +543,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -654,7 +654,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 			require.Nil(t, err)
 
-			defer b.Shutdown(ctx)
+			defer b.Shutdown(ctx, false)
 
 			// so big it effectively never triggers as part of this test
 			b.SetMemtableThreshold(1e9)
@@ -697,7 +697,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 			})
 
 			t.Run("orderly shutdown", func(t *testing.T) {
-				b.Shutdown(context.Background())
+				b.Shutdown(context.Background(), false)
 			})
 
 			t.Run("init another bucket on the same files", func(t *testing.T) {
@@ -731,7 +731,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -860,7 +860,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)

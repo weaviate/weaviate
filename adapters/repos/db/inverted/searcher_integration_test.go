@@ -318,7 +318,7 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop())
 		require.NoError(t, err)
-		t.Cleanup(func() { store.Shutdown(context.Background()) }) // cleanup in outer test
+		t.Cleanup(func() { store.Shutdown(context.Background(), false) }) // cleanup in outer test
 
 		maxDocID := uint64(20)
 		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))

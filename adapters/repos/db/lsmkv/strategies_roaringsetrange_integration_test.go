@@ -44,7 +44,7 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		key1 := uint64(1)
 		key2 := uint64(2)
@@ -116,7 +116,7 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		key1 := uint64(1)
 		key2 := uint64(2)

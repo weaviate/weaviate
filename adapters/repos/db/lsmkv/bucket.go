@@ -1361,7 +1361,7 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 	return true
 }
 
-func (b *Bucket) Shutdown(ctx context.Context) (err error) {
+func (b *Bucket) Shutdown(ctx context.Context, keepFiles bool) (err error) {
 	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	start := time.Now()
@@ -1393,7 +1393,8 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
-	if b.shouldReuseWAL() {
+	// dont flush to segment if we are to keep files
+	if b.shouldReuseWAL() || keepFiles {
 		if err := b.active.flushWAL(); err != nil {
 			b.flushLock.Unlock()
 			return err

@@ -128,7 +128,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, bucket.Shutdown(ctx, false))
 	require.Nil(t, flushCycle.StopAndWait(ctx))
 }
 
@@ -230,7 +230,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, bucket.Shutdown(ctx, false))
 	require.Nil(t, flushCycle.StopAndWait(ctx))
 }
 
@@ -279,7 +279,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		t.Run("shutdown bucket", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
-			require.Nil(t, bucket.Shutdown(ctx))
+			require.Nil(t, bucket.Shutdown(ctx, false))
 			require.Nil(t, flushCycle.StopAndWait(ctx))
 		})
 	})
@@ -328,7 +328,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		t.Run("shutdown bucket", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
-			require.Nil(t, bucket.Shutdown(ctx))
+			require.Nil(t, bucket.Shutdown(ctx, false))
 			require.Nil(t, flushCycle.StopAndWait(ctx))
 		})
 	})
@@ -385,7 +385,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		t.Run("shutdown bucket", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
-			require.Nil(t, bucket.Shutdown(ctx))
+			require.Nil(t, bucket.Shutdown(ctx, false))
 			require.Nil(t, flushCycle.StopAndWait(ctx))
 		})
 	})

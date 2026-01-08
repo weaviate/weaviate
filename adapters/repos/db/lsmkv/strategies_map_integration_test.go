@@ -59,7 +59,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -151,7 +151,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -247,7 +247,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -346,7 +346,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -402,7 +402,7 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 		})
 
 		t.Run("orderly shutdown", func(t *testing.T) {
-			b.Shutdown(context.Background())
+			b.Shutdown(context.Background(), false)
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
@@ -452,7 +452,7 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -548,7 +548,7 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -652,7 +652,7 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -712,7 +712,7 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 		})
 
 		t.Run("orderly shutdown", func(t *testing.T) {
-			b.Shutdown(context.Background())
+			b.Shutdown(context.Background(), false)
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
@@ -761,7 +761,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)

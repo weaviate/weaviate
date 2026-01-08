@@ -89,7 +89,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 	for _, test := range testsWithQuantization {
 		t.Run(fmt.Sprintf("%s: %s", test.quantization, test.name), func(t *testing.T) {
 			bucket := buildCompressedBucketForTest(t, test.totalVecs)
-			defer bucket.Shutdown(context.Background())
+			defer bucket.Shutdown(context.Background(), false)
 
 			logger, _ := logrustest.NewNullLogger()
 			loadId := binary.BigEndian.Uint64
@@ -139,7 +139,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					bucket := buildCompressedBucketForTest(t, test.totalVecs)
-					defer bucket.Shutdown(context.Background())
+					defer bucket.Shutdown(context.Background(), false)
 
 					cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
 					ctxCancelled, cancel := context.WithCancel(context.Background())
@@ -158,7 +158,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 			for _, test := range testsCancellable {
 				t.Run(test.name, func(t *testing.T) {
 					bucket := buildCompressedBucketForTest(t, test.totalVecs)
-					defer bucket.Shutdown(context.Background())
+					defer bucket.Shutdown(context.Background(), false)
 
 					cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
 					cpi.checkContextEveryN = 10 // make sure we check context often enough for this test

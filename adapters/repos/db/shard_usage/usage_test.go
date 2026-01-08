@@ -158,7 +158,7 @@ func TestCalculateUnloadedObjectsMetrics(t *testing.T) {
 			b, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketFolder, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithCalcCountNetAdditions(true), lsmkv.WithWriteMetadata(metadata))
 			require.NoError(t, err)
-			defer b.Shutdown(ctx)
+			defer b.Shutdown(ctx, false)
 
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
 			require.NoError(t, b.FlushMemtable())

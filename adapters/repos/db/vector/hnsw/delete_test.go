@@ -50,7 +50,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -142,7 +142,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -260,7 +260,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -359,7 +359,7 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 	var vectorIndex *hnsw
 	store := testinghelpers.NewDummyStore(t)
 	ctx := context.Background()
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -457,7 +457,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 	ctx := context.Background()
 
 	t.Run("import the test vectors", func(t *testing.T) {
@@ -578,7 +578,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 
-	store.Shutdown(context.Background())
+	store.Shutdown(context.Background(), false)
 }
 
 func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32, store *lsmkv.Store) (index *hnsw, remainingResult []uint64) {
@@ -668,7 +668,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	var controlRemainingResult []uint64
 	var controlRemainingResultAfterCleanup []uint64
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("create control index", func(t *testing.T) {
 		index, controlRemainingResult = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
@@ -743,7 +743,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 	vectors := vectorsForDeleteTest()
 	var index *hnsw
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("create control index", func(t *testing.T) {
 		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
@@ -807,7 +807,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 	)
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -954,7 +954,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 		}
 	)
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -1052,7 +1052,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 	)
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -1658,7 +1658,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 		nil,
 	}
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -1714,7 +1714,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -1843,7 +1843,7 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 	}
 
 	require.Nil(t, vectorIndex.Drop(context.Background(), false))
-	store.Shutdown(context.Background())
+	store.Shutdown(context.Background(), false)
 }
 
 func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
@@ -1855,7 +1855,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -1917,7 +1917,7 @@ func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
 	ctx := context.Background()
 	vectors := vectorsForDeleteTest() // Use your existing test vectors
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	// Initialize the HNSW index
 	index, err := New(Config{
@@ -1987,7 +1987,7 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	metrics := monitoring.GetMetrics()
 

@@ -92,7 +92,7 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
+	if err = s.store.Shutdown(ctx, keepFiles); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 

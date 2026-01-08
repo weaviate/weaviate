@@ -64,7 +64,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 		return 0, 0, err
 	}
 
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	pq := flatent.CompressionUserConfig{
 		Enabled: false,
@@ -353,7 +353,7 @@ func TestFlat_Preload(t *testing.T) {
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop())
 			require.Nil(t, err)
-			defer store.Shutdown(context.Background())
+			defer store.Shutdown(context.Background(), false)
 
 			index, err := New(Config{
 				ID:               "test-preload",
@@ -478,7 +478,7 @@ func TestFlat_ValidateCount(t *testing.T) {
 
 	store := testinghelpers.NewDummyStore(t)
 	rootPath := t.TempDir()
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	indexID := "id"
 	distancer := distancer.NewCosineDistanceProvider()

@@ -204,7 +204,7 @@ func (s *Store) setBucket(name string, b *Bucket) {
 	s.bucketsByName[name] = b
 }
 
-func (s *Store) Shutdown(ctx context.Context) error {
+func (s *Store) Shutdown(ctx context.Context, keepFiles bool) error {
 	s.closeLock.Lock()
 	defer s.closeLock.Unlock()
 
@@ -226,7 +226,7 @@ func (s *Store) Shutdown(ctx context.Context) error {
 		bucket := bucket
 
 		eg.Go(func() error {
-			if err := bucket.Shutdown(ctx); err != nil {
+			if err := bucket.Shutdown(ctx, keepFiles); err != nil {
 				return errors.Wrapf(err, "shutdown bucket %q of store %q", name, s.dir)
 			}
 			return nil
@@ -247,7 +247,7 @@ func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	if !ok {
 		return fmt.Errorf("shutdown bucket %q of store %q: bucket not found", bucketName, s.dir)
 	}
-	if err := bucket.Shutdown(ctx); err != nil {
+	if err := bucket.Shutdown(ctx, false); err != nil {
 		return errors.Wrapf(err, "shutdown bucket %q of store %q", bucketName, s.dir)
 	}
 	delete(s.bucketsByName, bucketName)
@@ -463,7 +463,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	currReplacementBucketDir := replacementBucket.dir
 	newReplacementBucketDir := currBucketDir
 
-	if err := bucket.Shutdown(ctx); err != nil {
+	if err := bucket.Shutdown(ctx, false); err != nil {
 		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
 

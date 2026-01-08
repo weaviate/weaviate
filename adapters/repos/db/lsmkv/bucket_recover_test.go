@@ -61,7 +61,7 @@ func TestBucketWalReload(t *testing.T) {
 			}
 			testBucketContent(t, strategy, b, 2)
 
-			require.NoError(t, b.Shutdown(ctx))
+			require.NoError(t, b.Shutdown(ctx, false))
 
 			entries, err := os.ReadDir(dirName)
 			require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestBucketWalReload(t *testing.T) {
 			case StrategyRoaringSetRange:
 				require.NoError(t, b.RoaringSetRangeAdd(uint64(2), uint64(2)))
 			}
-			require.NoError(t, b.Shutdown(ctx))
+			require.NoError(t, b.Shutdown(ctx, false))
 
 			entries, err = os.ReadDir(dirName)
 			require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestBucketWalReload(t *testing.T) {
 				require.NoError(t, b.RoaringSetRangeAdd(uint64(3), uint64(3)))
 				require.NoError(t, err)
 			}
-			require.NoError(t, b.Shutdown(ctx))
+			require.NoError(t, b.Shutdown(ctx, false))
 
 			entries, err = os.ReadDir(dirName)
 			require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestBucketWalReload(t *testing.T) {
 			}
 			testBucketContent(t, strategy, b, 120)
 
-			require.NoError(t, b.Shutdown(ctx))
+			require.NoError(t, b.Shutdown(ctx, false))
 
 			entries, err = os.ReadDir(dirName)
 			require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestBucketRecovery(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 0)
 	require.Equal(t, walFiles, 1)
@@ -214,7 +214,7 @@ func TestBucketRecovery(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 0)
 	require.Equal(t, walFiles, 1)
@@ -285,7 +285,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, count, 2)
 
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 0)
 	require.Equal(t, walFiles, 1)
@@ -319,7 +319,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 4, count)
 
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 1)
 	require.Equal(t, walFiles, 1)
@@ -335,7 +335,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 
 	require.NoError(t, b.FlushMemtable())
 
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace),

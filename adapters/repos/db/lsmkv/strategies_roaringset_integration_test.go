@@ -46,7 +46,7 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -129,7 +129,7 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)

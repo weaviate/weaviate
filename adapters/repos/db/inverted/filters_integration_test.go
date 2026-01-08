@@ -54,7 +54,7 @@ func Test_Filters_String(t *testing.T) {
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	bWithFrequency := store.Bucket(bucketName)
 
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	fakeInvertedIndex := map[string][]uint64{
 		"modulo-2":  {2, 4, 6, 8, 10, 12, 14, 16},
@@ -319,7 +319,7 @@ func Test_Filters_Int(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	maxDocID := uint64(21)
 	fakeInvertedIndex := []struct {
@@ -1071,7 +1071,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	bWithFrequency := store.Bucket(bucketName)
 
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 
 	fakeInvertedIndex := map[string][]uint64{
 		"list_a": {0, 1},

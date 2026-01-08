@@ -119,7 +119,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, bucket.Shutdown(ctx, false))
 }
 
 // This test continuously writes into a bucket with a small memtable threshold,
@@ -213,7 +213,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, bucket.Shutdown(ctx, false))
 }
 
 // This test continuously writes into a bucket with a small memtable threshold,
@@ -302,7 +302,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, bucket.Shutdown(ctx, false))
 }
 
 // This test continuously writes into a bucket with a small memtable threshold,
@@ -388,7 +388,7 @@ func TestConcurrentWriting_RoaringSetRange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, bucket.Shutdown(ctx, false))
 }
 
 // This test continuously writes into a bucket with a small memtable threshold,
@@ -488,7 +488,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	require.Nil(t, bucket.Shutdown(ctx))
+	require.Nil(t, bucket.Shutdown(ctx, false))
 }
 
 func mapElementsMatch(a, b []MapPair) bool {

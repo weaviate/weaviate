@@ -43,7 +43,7 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 
-	defer b.Shutdown(testCtx())
+	defer b.Shutdown(testCtx(), false)
 
 	// so big it effectively never triggers as part of this test
 	b.SetMemtableThreshold(1e9)

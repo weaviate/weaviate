@@ -43,7 +43,7 @@ func compactionRoaringSetRangeStrategy_Random(ctx context.Context, t *testing.T,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 
-	defer b.Shutdown(testCtx())
+	defer b.Shutdown(testCtx(), false)
 
 	// so big it effectively never triggers as part of this test
 	b.SetMemtableThreshold(1e9)
@@ -624,7 +624,7 @@ func compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer(ctx context.Conte
 	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b.Shutdown(testCtx())
+	defer b.Shutdown(testCtx(), false)
 	// so big it effectively never triggers as part of this test
 	b.SetMemtableThreshold(1e9)
 

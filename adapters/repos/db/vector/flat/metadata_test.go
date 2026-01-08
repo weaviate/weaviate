@@ -26,7 +26,7 @@ func Test_FlatDimensions(t *testing.T) {
 	ctx := context.TODO()
 	store := testinghelpers.NewDummyStore(t)
 	rootPath := t.TempDir()
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 	indexID := "init-dimensions-zero"
 	distancer := distancer.NewCosineDistanceProvider()
 
@@ -113,7 +113,7 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	ctx := context.TODO()
 	store := testinghelpers.NewDummyStore(t)
 	rootPath := t.TempDir()
-	defer store.Shutdown(context.Background())
+	defer store.Shutdown(context.Background(), false)
 	indexID := "test"
 	distancer := distancer.NewCosineDistanceProvider()
 

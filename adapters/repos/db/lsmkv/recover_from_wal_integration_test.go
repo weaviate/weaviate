@@ -66,7 +66,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 		})
 
 		t.Run("shutdown (orderly) bucket to create first segment", func(t *testing.T) {
-			b.Shutdown(context.Background())
+			b.Shutdown(context.Background(), false)
 
 			// then recreate bucket
 			var err error

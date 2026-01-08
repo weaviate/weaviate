@@ -82,7 +82,7 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value")))
 	require.NoError(t, b.FlushMemtable())
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 	fileTypes := countFileTypes(t, dirName)
 	require.Len(t, fileTypes, 2)
 	require.Equal(t, fileTypes[".db"], 1)
@@ -93,7 +93,7 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithUseBloomFilter(true), WithWriteMetadata(true), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
-	require.NoError(t, b2.Shutdown(ctx))
+	require.NoError(t, b2.Shutdown(ctx, false))
 
 	fileTypes = countFileTypes(t, dirName)
 	require.Len(t, fileTypes, 2)
@@ -118,7 +118,7 @@ func TestCnaNoBloomPresent(t *testing.T) {
 	require.Equal(t, fileTypes[".metadata"], 1)
 
 	require.Equal(t, b.disk.segments[0].getCountNetAdditions(), 1)
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 }
 
 func TestSecondaryBloomNoCna(t *testing.T) {
@@ -149,7 +149,7 @@ func TestSecondaryBloomNoCna(t *testing.T) {
 	require.False(t, segment.secondaryBloomFilters[0].Test([]byte("key1")))
 	require.True(t, segment.secondaryBloomFilters[1].Test([]byte("key1")))
 	require.False(t, segment.secondaryBloomFilters[1].Test([]byte("key0")))
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 }
 
 func TestCorruptFile(t *testing.T) {
@@ -164,7 +164,7 @@ func TestCorruptFile(t *testing.T) {
 
 	require.NoError(t, b.Put([]byte("key"), []byte("value")))
 	require.NoError(t, b.FlushMemtable())
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 
 	files, err := os.ReadDir(dirName)
 	require.NoError(t, err)

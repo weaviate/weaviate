@@ -52,13 +52,13 @@ func TestCreateBloomOnFlush(t *testing.T) {
 	_, ok = findFileWithExt(files, "secondary.0.bloom")
 	assert.True(t, ok)
 	// on Windows we have to shutdown the bucket before opening it again
-	require.Nil(t, b.Shutdown(ctx))
+	require.Nil(t, b.Shutdown(ctx, false))
 
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	valuePrimary, err := b2.Get([]byte("hello"))
 	require.Nil(t, err)
@@ -81,7 +81,7 @@ func TestCreateBloomInit(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -102,14 +102,14 @@ func TestCreateBloomInit(t *testing.T) {
 		require.False(t, ok, "verify the file is really gone")
 	}
 
-	require.Nil(t, b.Shutdown(ctx))
+	require.Nil(t, b.Shutdown(ctx, false))
 
 	// now create a new bucket and assert that the file is re-created on init
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	// just to ensure segments are loaded
 	cursor := b2.Cursor()
@@ -145,7 +145,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 	// now corrupt the bloom filter by randomly overriding data
 	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
 	// on Windows we have to shutdown the bucket before opening it again
-	require.Nil(t, b.Shutdown(ctx))
+	require.Nil(t, b.Shutdown(ctx, false))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
@@ -153,7 +153,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	value, err := b2.Get([]byte("hello"))
 	assert.Nil(t, err)
@@ -178,7 +178,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 	require.Nil(t, err)
 	fname, ok := findFileWithExt(files, ".bloom")
 	require.True(t, ok)
-	b.Shutdown(ctx)
+	b.Shutdown(ctx, false)
 
 	// now corrupt the bloom filter by randomly overriding data
 	require.Nil(t, corruptBloomFileByTruncatingIt(path.Join(dirName, fname)))
@@ -189,7 +189,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	value, err := b2.Get([]byte("hello"))
 	assert.Nil(t, err)
@@ -219,7 +219,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	// now corrupt the file by replacing the count value without adapting the checksum
 	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
 	// on Windows we have to shutdown the bucket before opening it again
-	require.Nil(t, b.Shutdown(ctx))
+	require.Nil(t, b.Shutdown(ctx, false))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
@@ -227,7 +227,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	value := make([]byte, 5)
 	value, _, err = b2.GetBySecondaryWithBuffer(ctx, 0, []byte("bonjour"), value)
@@ -266,7 +266,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 	fname, ok := findFileWithExt(files, "secondary.0.bloom")
 	require.True(t, ok)
 
-	b.Shutdown(ctx)
+	b.Shutdown(ctx, false)
 
 	// now corrupt the file by replacing the count value without adapting the checksum
 	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
@@ -277,7 +277,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	value, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	assert.Nil(t, err)
@@ -304,7 +304,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 	fname, ok := findFileWithExt(files, "secondary.0.bloom")
 	require.True(t, ok)
 
-	b.Shutdown(ctx)
+	b.Shutdown(ctx, false)
 	// now corrupt the file by replacing the count value without adapting the checksum
 	require.Nil(t, corruptBloomFileByTruncatingIt(path.Join(dirName, fname)))
 
@@ -314,7 +314,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	value, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	assert.Nil(t, err)
@@ -414,7 +414,7 @@ func dontCreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	t.Run("populate", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
@@ -452,7 +452,7 @@ func dontRecreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 			opts...)
 		require.NoError(t, err)
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
 			WithSecondaryKey(0, []byte("bonjour"))))
@@ -463,7 +463,7 @@ func dontRecreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	t.Run("check files", func(t *testing.T) {
 		files, err := os.ReadDir(dirName)
@@ -494,7 +494,7 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	t.Run("populate, compact", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
@@ -618,7 +618,7 @@ func BenchmarkName(b *testing.B) {
 			}
 
 			require.Nil(b, bu.FlushMemtable())
-			bu.Shutdown(ctx)
+			bu.Shutdown(ctx, false)
 
 			files, err := os.ReadDir(dirName)
 			require.NoError(b, err)

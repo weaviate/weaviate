@@ -65,7 +65,7 @@ func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
@@ -87,7 +87,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
@@ -110,13 +110,13 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	require.False(t, ok, "verify the file is really gone")
 
 	// on Windows we have to shutdown the bucket before opening it again
-	require.Nil(t, b.Shutdown(ctx))
+	require.Nil(t, b.Shutdown(ctx, false))
 
 	// now create a new bucket and assert that the file is re-created on init
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	// just to ensure segments are loaded
 	cursor = b2.Cursor()
@@ -138,7 +138,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
@@ -152,13 +152,13 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	require.Nil(t, corruptCNAFile(path.Join(dirName, fname), 12345))
 
 	// on Windows we have to shutdown the bucket before opening it again
-	require.Nil(t, b.Shutdown(ctx))
+	require.Nil(t, b.Shutdown(ctx, false))
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 	count, err := b2.Count(ctx)
 	require.NoError(t, err)
 
@@ -201,7 +201,7 @@ func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	t.Run("populate", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
@@ -233,7 +233,7 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 			opts...)
 		require.NoError(t, err)
-		defer b.Shutdown(ctx)
+		defer b.Shutdown(ctx, false)
 
 		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
 		require.NoError(t, b.FlushMemtable())
@@ -243,7 +243,7 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	t.Run("check files", func(t *testing.T) {
 		files, err := os.ReadDir(dirName)
@@ -269,7 +269,7 @@ func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
-	defer b.Shutdown(ctx)
+	defer b.Shutdown(ctx, false)
 
 	t.Run("populate, compact", func(t *testing.T) {
 		require.NoError(t, b.Put([]byte("hello"), []byte("world")))

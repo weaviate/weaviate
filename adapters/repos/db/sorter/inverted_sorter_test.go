@@ -77,7 +77,7 @@ func TestInvertedSorter(t *testing.T) {
 
 		t.Run(fmt.Sprintf("object count %d", objectCount), func(t *testing.T) {
 			store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
-			defer store.Shutdown(ctx)
+			defer store.Shutdown(ctx, false)
 
 			props := generateRandomProps(objectCount)
 			dummyInvertedIndex(t, ctx, store, props)
@@ -156,7 +156,7 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 			)
 
 			store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
-			defer store.Shutdown(ctx)
+			defer store.Shutdown(ctx, false)
 
 			props := generateRandomProps(objectCount)
 			dummyInvertedIndex(t, ctx, store, props)

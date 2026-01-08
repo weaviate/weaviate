@@ -191,7 +191,7 @@ func TestQueryPlanner(t *testing.T) {
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop())
 			require.Nil(t, err)
-			defer store.Shutdown(ctx)
+			defer store.Shutdown(ctx, false)
 
 			err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithCalcCountNetAdditions(true), lsmkv.WithStrategy(lsmkv.StrategyReplace))
 			require.Nil(t, err)

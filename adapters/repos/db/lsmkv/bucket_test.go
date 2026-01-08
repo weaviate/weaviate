@@ -96,7 +96,7 @@ func bucket_WasDeleted_KeepTombstones(ctx context.Context, t *testing.T, opts []
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	t.Cleanup(func() {
-		require.Nil(t, b.Shutdown(context.Background()))
+		require.Nil(t, b.Shutdown(context.Background(), false))
 	})
 
 	var (
@@ -148,7 +148,7 @@ func bucket_WasDeleted_CleanupTombstones(ctx context.Context, t *testing.T, opts
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		require.NoError(t, b.Shutdown(context.Background()))
+		require.NoError(t, b.Shutdown(context.Background(), false))
 	})
 
 	var (
@@ -205,12 +205,12 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 
 	_, ok = findFileWithExt(files, "secondary.0.bloom")
 	assert.True(t, ok)
-	b.Shutdown(ctx)
+	b.Shutdown(ctx, false)
 
 	b2, err := NewBucketCreator().NewBucket(ctx, b.GetDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b2.Shutdown(ctx)
+	defer b2.Shutdown(ctx, false)
 
 	valuePrimary, err := b2.Get([]byte("hello"))
 	require.Nil(t, err)
@@ -369,7 +369,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
 			require.NoError(t, b.FlushMemtable())
-			require.NoError(t, b.Shutdown(ctx))
+			require.NoError(t, b.Shutdown(ctx, false))
 			dbFiles, _ := countDbAndWalFiles(t, dirName)
 			require.Equal(t, dbFiles, 1)
 			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
@@ -380,7 +380,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
 			require.NoError(t, b.FlushMemtable())
-			require.NoError(t, b.Shutdown(ctx))
+			require.NoError(t, b.Shutdown(ctx, false))
 
 			dbFiles, _ = countDbAndWalFiles(t, dirName)
 			require.Equal(t, dbFiles, 2)
@@ -468,7 +468,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.NoError(t, b.Delete([]byte("hello2")))
 	require.NoError(t, b.Delete([]byte("hello3")))
 	require.NoError(t, b.Delete([]byte("hello4")))
-	require.NoError(t, b.Shutdown(ctx))
+	require.NoError(t, b.Shutdown(ctx, false))
 
 	fileTypes = getFileTypeCount(t, dirName)
 	require.Equal(t, 5, fileTypes[".db"])

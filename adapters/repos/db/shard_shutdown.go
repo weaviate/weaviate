@@ -66,7 +66,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
-			// shutdown is idempotent
+		// shutdown is idempotent
 		return nil
 	}
 	if s.inUseCounter.Load() > 0 {
@@ -143,7 +143,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
-		err = s.store.Shutdown(ctx)
+		err = s.store.Shutdown(ctx, false)
 		ec.AddWrap(err, "stop lsmkv store")
 	}
 

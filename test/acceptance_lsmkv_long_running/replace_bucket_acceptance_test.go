@@ -74,7 +74,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	logger.Info("bucket is ready")
 
-	defer bucket.Shutdown(ctx)
+	defer bucket.Shutdown(ctx, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 	defer cancel()

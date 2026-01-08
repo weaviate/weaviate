@@ -58,7 +58,7 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 		expectedErr := errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 		assert.EqualError(t, expectedErr, err.Error())
 
-		err = b.Shutdown(context.Background())
+		err = b.Shutdown(context.Background(), false)
 		require.Nil(t, err)
 	})
 }
@@ -102,5 +102,5 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 	assert.Contains(t, exts, ".bloom") // the segment's bloom filter
 	assert.Contains(t, exts, ".cna")   // the segment's count net additions
 
-	require.NoError(t, b.Shutdown(context.Background()))
+	require.NoError(t, b.Shutdown(context.Background(), false))
 }

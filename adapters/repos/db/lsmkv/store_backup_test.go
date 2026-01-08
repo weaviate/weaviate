@@ -82,7 +82,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 					" deactivating callback 'store/compaction-non-objects/.' of 'classCompactionNonObjects' failed:"+
 					" context deadline exceeded", err.Error())
 
-				err = store.Shutdown(ctx)
+				err = store.Shutdown(ctx, false)
 				require.Nil(t, err)
 			})
 		}
@@ -124,7 +124,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				err = store.PauseCompaction(expirableCtx)
 				assert.Nil(t, err)
 
-				err = store.Shutdown(context.Background())
+				err = store.Shutdown(context.Background(), false)
 				require.Nil(t, err)
 			})
 		}
@@ -176,7 +176,7 @@ func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				assert.True(t, store.cycleCallbacks.compactionCallbacksCtrl.IsActive())
 				assert.True(t, store.cycleCallbacks.compactionAuxCallbacksCtrl.IsActive())
 
-				err = store.Shutdown(ctx)
+				err = store.Shutdown(ctx, false)
 				require.Nil(t, err)
 			})
 		}
@@ -217,7 +217,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 					" deactivating callback 'store/flush/.' of 'classFlush' failed:"+
 					" context deadline exceeded", err.Error())
 
-				err = store.Shutdown(ctx)
+				err = store.Shutdown(ctx, false)
 				require.Nil(t, err)
 			})
 		}
@@ -262,7 +262,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				err = store.FlushMemtables(expirableCtx)
 				assert.Nil(t, err)
 
-				err = store.Shutdown(ctx)
+				err = store.Shutdown(ctx, false)
 				require.Nil(t, err)
 			})
 		}
@@ -309,7 +309,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				require.NotNil(t, err)
 				assert.EqualError(t, expectedErr(len(buckets)), err.Error())
 
-				err = store.Shutdown(ctx)
+				err = store.Shutdown(ctx, false)
 				require.Nil(t, err)
 			})
 		}
