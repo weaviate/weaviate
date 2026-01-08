@@ -75,20 +75,26 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 }
 
 func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
+	l := logrus.New()
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.RootPath = tmpDir
 	cfg.ID = "hfresh"
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
-		RootPath:              t.TempDir(),
-		ID:                    "hfresh",
-		MakeCommitLoggerThunk: makeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath: tmpDir,
+		ID:       "centroids",
+		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(tmpDir, "centroids",
+				l, cyclemanager.NewCallbackGroupNoop(),
+				hnsw.WithAllocChecker(memwatch.NewDummyMonitor()),
+			)
+		},
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
-	l := logrus.New()
+
 	cfg.Logger = l
 	scheduler := queue.NewScheduler(
 		queue.SchedulerOptions{
@@ -103,16 +109,11 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	return cfg, ent.NewDefaultUserConfig()
 }
 
-func makeHFresh(t *testing.T) *HFresh {
-	cfg, uc := makeHFreshConfig(t)
-	return makeHFreshWithConfig(t, cfg, uc)
-}
-
-func makeHFreshWithConfig(t *testing.T, cfg *Config, uc ent.UserConfig) *HFresh {
-	store := testinghelpers.NewDummyStore(t)
-
+func makeHFreshWithConfig(t *testing.T, store *lsmkv.Store, cfg *Config, uc ent.UserConfig) *HFresh {
 	index, err := New(cfg, uc, store)
 	require.NoError(t, err)
+
+	index.PostStartup(t.Context())
 
 	t.Cleanup(func() {
 		index.Shutdown(t.Context())
@@ -123,6 +124,7 @@ func makeHFreshWithConfig(t *testing.T, cfg *Config, uc ent.UserConfig) *HFresh 
 
 func TestHFreshRecall(t *testing.T) {
 	logger, _ := test.NewNullLogger()
+	store := testinghelpers.NewDummyStore(t)
 	cfg, ucfg := makeHFreshConfig(t)
 
 	vectors_size := 10_000
@@ -146,7 +148,7 @@ func TestHFreshRecall(t *testing.T) {
 	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 		return vectors[indexID], nil
 	})
-	index := makeHFreshWithConfig(t, cfg, ucfg)
+	index := makeHFreshWithConfig(t, store, cfg, ucfg)
 
 	before = time.Now()
 	var count atomic.Uint32
@@ -185,4 +187,28 @@ func TestHFreshRecall(t *testing.T) {
 	fmt.Println(index.searchProbe, recall, latency)
 
 	require.Greater(t, recall, float32(0.7))
+
+	err := index.Flush()
+	require.NoError(t, err)
+
+	err = index.Shutdown(t.Context())
+	require.NoError(t, err)
+
+	t.Run("test disk layout", func(t *testing.T) {
+		dirs, err := os.ReadDir(cfg.RootPath)
+		require.NoError(t, err)
+		require.Len(t, dirs, 4)
+		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[0].Name())
+		require.Equal(t, "merge.queue.d", dirs[1].Name())
+		require.Equal(t, "reassign.queue.d", dirs[2].Name())
+		require.Equal(t, "split.queue.d", dirs[3].Name())
+	})
+
+	t.Run("restart and re-test recall", func(t *testing.T) {
+		index = makeHFreshWithConfig(t, store, cfg, ucfg)
+
+		index.searchProbe = 256
+		recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
+		require.Greater(t, recall, float32(0.7))
+	})
 }
