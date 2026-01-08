@@ -4744,6 +4744,41 @@ func (_c *MockShardLike_updateMultiVectorIndexesIgnoreDelete_Call) RunAndReturn(
 	return _c
 }
 
+// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property
+func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property) {
+	_m.Called(ctx, eg, property)
+}
+
+// MockShardLike_updatePropertyBuckets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'updatePropertyBuckets'
+type MockShardLike_updatePropertyBuckets_Call struct {
+	*mock.Call
+}
+
+// updatePropertyBuckets is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eg *errors.ErrorGroupWrapper
+//   - property *models.Property
+func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}) *MockShardLike_updatePropertyBuckets_Call {
+	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property)}
+}
+
+func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property)) *MockShardLike_updatePropertyBuckets_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_updatePropertyBuckets_Call) Return() *MockShardLike_updatePropertyBuckets_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property)) *MockShardLike_updatePropertyBuckets_Call {
+	_c.Run(run)
+	return _c
+}
+
 // updatePropertySpecificIndices provides a mock function with given fields: ctx, object, status
 func (_m *MockShardLike) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {
 	ret := _m.Called(ctx, object, status)

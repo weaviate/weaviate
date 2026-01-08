@@ -93,6 +93,70 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 }
 
 // DeleteClassProperty from existing Schema
+func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
+	class *models.Class, className, propertyName string, deletePropIndex *models.DeletePropertyIndexRequest,
+) error {
+	// TODO: Handle RBAC
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	if class == nil {
+		return fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
+	if propertyName == "" {
+		return fmt.Errorf("propertyName is empty: %w", ErrNotFound)
+	}
+
+	var prop *models.Property
+	for i := range class.Properties {
+		if class.Properties[i].Name == propertyName {
+			prop = class.Properties[i]
+			break
+		}
+	}
+
+	if prop == nil {
+		return fmt.Errorf("propertyName not found: %w", ErrNotFound)
+	}
+
+	var preformUpdate bool
+	if deletePropIndex.IndexFilterable != nil && *deletePropIndex.IndexFilterable && prop.IndexFilterable != nil && *prop.IndexFilterable {
+		notExists := false
+		prop.IndexFilterable = &notExists
+		preformUpdate = true
+	}
+
+	if deletePropIndex.IndexSearchable != nil && *deletePropIndex.IndexSearchable && prop.IndexSearchable != nil && *prop.IndexSearchable {
+		notExists := false
+		prop.IndexSearchable = &notExists
+		preformUpdate = true
+	}
+
+	if deletePropIndex.IndexRangeFilters != nil && *deletePropIndex.IndexRangeFilters && prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+		notExists := false
+		prop.IndexRangeFilters = &notExists
+		preformUpdate = true
+	}
+
+	if preformUpdate {
+		if err := h.validatePropertyIndexing(prop); err != nil {
+			return err
+		}
+
+		_, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {

@@ -218,6 +218,19 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 	return nil
 }
 
+func (e *executor) UpdateProperty(className string, req api.UpdatePropertyRequest) error {
+	ctx := context.Background()
+	if err := e.migrator.UpdateProperty(ctx, className, req.Property); err != nil {
+		return err
+	}
+
+	e.logger.WithFields(logrus.Fields{
+		"action": "update_property",
+		"class":  className,
+	}).Debug("updating property")
+	return nil
+}
+
 func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 	if len(req.Tenants) == 0 {
 		return nil

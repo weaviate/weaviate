@@ -55,6 +55,11 @@ func (f *fakeSchemaManager) AddProperty(_ context.Context, class string, p ...*m
 	return 0, args.Error(0)
 }
 
+func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, property *models.Property) (uint64, error) {
+	args := f.Called(class, property)
+	return 0, args.Error(0)
+}
+
 func (f *fakeSchemaManager) UpdateShardStatus(c_ context.Context, class, shard, status string) (uint64, error) {
 	args := f.Called(class, shard, status)
 	return 0, args.Error(0)

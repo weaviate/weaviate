@@ -435,6 +435,17 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 	return meta.AddProperty(v, props...)
 }
 
+func (s *schema) updateProperty(class string, v uint64, property *models.Property) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	meta := s.unsafeResolveClass(class)
+	if meta == nil {
+		return ErrClassNotFound
+	}
+	return meta.UpdateProperty(v, property)
+}
+
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
