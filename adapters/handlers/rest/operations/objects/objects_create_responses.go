@@ -273,3 +273,48 @@ func (o *ObjectsCreateInternalServerError) WriteResponse(rw http.ResponseWriter,
 		}
 	}
 }
+
+// ObjectsCreateServiceUnavailableCode is the HTTP code returned for type ObjectsCreateServiceUnavailable
+const ObjectsCreateServiceUnavailableCode int = 503
+
+/*
+ObjectsCreateServiceUnavailable The operational mode of the server does not allow objects operations at this time.
+
+swagger:response objectsCreateServiceUnavailable
+*/
+type ObjectsCreateServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsCreateServiceUnavailable creates ObjectsCreateServiceUnavailable with default headers values
+func NewObjectsCreateServiceUnavailable() *ObjectsCreateServiceUnavailable {
+
+	return &ObjectsCreateServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the objects create service unavailable response
+func (o *ObjectsCreateServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ObjectsCreateServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects create service unavailable response
+func (o *ObjectsCreateServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsCreateServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

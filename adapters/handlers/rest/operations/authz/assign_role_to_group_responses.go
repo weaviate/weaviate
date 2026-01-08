@@ -233,3 +233,48 @@ func (o *AssignRoleToGroupInternalServerError) WriteResponse(rw http.ResponseWri
 		}
 	}
 }
+
+// AssignRoleToGroupServiceUnavailableCode is the HTTP code returned for type AssignRoleToGroupServiceUnavailable
+const AssignRoleToGroupServiceUnavailableCode int = 503
+
+/*
+AssignRoleToGroupServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response assignRoleToGroupServiceUnavailable
+*/
+type AssignRoleToGroupServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAssignRoleToGroupServiceUnavailable creates AssignRoleToGroupServiceUnavailable with default headers values
+func NewAssignRoleToGroupServiceUnavailable() *AssignRoleToGroupServiceUnavailable {
+
+	return &AssignRoleToGroupServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the assign role to group service unavailable response
+func (o *AssignRoleToGroupServiceUnavailable) WithPayload(payload *models.ErrorResponse) *AssignRoleToGroupServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the assign role to group service unavailable response
+func (o *AssignRoleToGroupServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AssignRoleToGroupServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
