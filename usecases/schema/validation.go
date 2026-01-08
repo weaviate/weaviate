@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 type validatorNestedProperty func(property *models.NestedProperty,
@@ -98,15 +99,33 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch property.Tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
+				models.PropertyTokenizationTrigram, "":
+				return nil
+			case models.PropertyTokenizationGse:
+				if !tokenizer.UseGse {
+					return fmt.Errorf("property '%s': the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable", propName)
+				}
+				return nil
+			case models.PropertyTokenizationKagomeKr:
+				if !tokenizer.KagomeKrEnabled {
+					return fmt.Errorf("property '%s': the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable", propName)
+				}
+				return nil
+			case models.PropertyTokenizationKagomeJa:
+				if !tokenizer.KagomeJaEnabled {
+					return fmt.Errorf("property '%s': the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable", propName)
+				}
+				return nil
+			case models.PropertyTokenizationGseCh:
+				if !tokenizer.UseGseCh {
+					return fmt.Errorf("property '%s': the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable", propName)
+				}
 				return nil
 			}
 			return fmt.Errorf("property '%s': Tokenization '%s' is not allowed for data type '%s'",
 				propName, property.Tokenization, primitiveDataType)
 		default:
-			if property.Tokenization == "" {
-				return nil
-			}
 			return fmt.Errorf("property '%s': Tokenization is not allowed for data type '%s'",
 				propName, primitiveDataType)
 		}
