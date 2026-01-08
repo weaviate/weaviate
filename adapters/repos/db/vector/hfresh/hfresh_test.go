@@ -201,11 +201,12 @@ func TestHFreshRecall(t *testing.T) {
 	t.Run("test disk layout", func(t *testing.T) {
 		dirs, err := os.ReadDir(cfg.RootPath)
 		require.NoError(t, err)
-		require.Len(t, dirs, 4)
+		require.Len(t, dirs, 5)
 		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[0].Name())
-		require.Equal(t, "merge.queue.d", dirs[1].Name())
-		require.Equal(t, "reassign.queue.d", dirs[2].Name())
-		require.Equal(t, "split.queue.d", dirs[3].Name())
+		require.Equal(t, "centroids.hnsw.snapshot.d/", dirs[1].Name())
+		require.Equal(t, "merge.queue.d", dirs[2].Name())
+		require.Equal(t, "reassign.queue.d", dirs[3].Name())
+		require.Equal(t, "split.queue.d", dirs[4].Name())
 	})
 
 	t.Run("restart and re-test recall", func(t *testing.T) {
