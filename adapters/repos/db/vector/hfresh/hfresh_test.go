@@ -74,12 +74,11 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
-func TestHFreshRecall(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
+func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.RootPath = tmpDir
-	cfg.ID = "hpfresh"
+	cfg.ID = "hfresh"
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath:              t.TempDir(),
 		ID:                    "hfresh",
@@ -101,7 +100,30 @@ func TestHFreshRecall(t *testing.T) {
 	cfg.PrometheusMetrics = monitoring.GetMetrics()
 	cfg.PrometheusMetrics.Registerer.MustRegister()
 
+	return cfg, ent.NewDefaultUserConfig()
+}
+
+func makeHFresh(t *testing.T) *HFresh {
+	cfg, uc := makeHFreshConfig(t)
+	return makeHFreshWithConfig(t, cfg, uc)
+}
+
+func makeHFreshWithConfig(t *testing.T, cfg *Config, uc ent.UserConfig) *HFresh {
+	store := testinghelpers.NewDummyStore(t)
+
+	index, err := New(cfg, uc, store)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		index.Shutdown(t.Context())
+	})
+
+	return index
+}
+
+func TestHFreshRecall(t *testing.T) {
 	logger, _ := test.NewNullLogger()
+	cfg, ucfg := makeHFreshConfig(t)
 
 	vectors_size := 10_000
 	queries_size := 100
@@ -110,11 +132,7 @@ func TestHFreshRecall(t *testing.T) {
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
-		return vectors[indexID], nil
-	})
 	var mu sync.Mutex
-
 	truths := make([][]uint64, queries_size)
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		res, _ := testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer.NewL2SquaredProvider()))
@@ -125,9 +143,10 @@ func TestHFreshRecall(t *testing.T) {
 
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	index, err := New(cfg, ent.NewDefaultUserConfig(), store)
-	require.NoError(t, err)
-	defer index.Shutdown(t.Context())
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+		return vectors[indexID], nil
+	})
+	index := makeHFreshWithConfig(t, cfg, ucfg)
 
 	before = time.Now()
 	var count atomic.Uint32
@@ -135,7 +154,6 @@ func TestHFreshRecall(t *testing.T) {
 		cur := count.Add(1)
 		if cur%1000 == 0 {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
-			// fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)
