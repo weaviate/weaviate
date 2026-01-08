@@ -12,7 +12,6 @@
 package hfresh
 
 import (
-	"fmt"
 	"io"
 	"math"
 
@@ -95,19 +94,49 @@ func DefaultConfig() *Config {
 }
 
 func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
-	uc, ok := initial.(ent.UserConfig)
+	initialParsed, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
 	}
 
-	nuc, ok := updated.(ent.UserConfig)
+	updatedParsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("updated is not UserConfig, but %T", updated)
 	}
 
-	if uc.Distance != nuc.Distance {
-		return fmt.Errorf("distance function cannot be changed once set (was '%s', cannot change to '%s')",
-			uc.Distance, nuc.Distance)
+	immutableFields := []immutableParameter{
+		{
+			name:     "distance",
+			accessor: func(c ent.UserConfig) interface{} { return c.Distance },
+		},
+		{
+			name:     "replicas",
+			accessor: func(c ent.UserConfig) interface{} { return c.Replicas },
+		},
+	}
+
+	for _, u := range immutableFields {
+		if err := validateImmutableField(u, initialParsed, updatedParsed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type immutableParameter struct {
+	accessor func(c ent.UserConfig) interface{}
+	name     string
+}
+
+func validateImmutableField(u immutableParameter,
+	previous, next ent.UserConfig,
+) error {
+	oldField := u.accessor(previous)
+	newField := u.accessor(next)
+	if oldField != newField {
+		return errors.Errorf("%s is immutable: attempted change from \"%v\" to \"%v\"",
+			u.name, oldField, newField)
 	}
 
 	return nil
