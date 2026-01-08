@@ -255,10 +255,10 @@ func (c *coordinator) Restore(
 	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req)
 	canCommitDuration := time.Since(canCommitStart)
-	c.observeRestorePhase("init", desc.ID, canCommitDuration)
+	c.observeRestorePhase("prepare", canCommitDuration)
 	c.log.WithFields(logrus.Fields{
 		"action":      "restore_phase_complete",
-		"phase":       "init",
+		"phase":       "prepare",
 		"backup_id":   desc.ID,
 		"duration_ms": canCommitDuration.Milliseconds(),
 	}).Debug("restore phase timing")
@@ -287,10 +287,10 @@ func (c *coordinator) Restore(
 		commitStart := time.Now()
 		c.commit(ctx, &statusReq, nodes, true)
 		commitDuration := time.Since(commitStart)
-		c.observeRestorePhase("file_staging", desc.ID, commitDuration)
+		c.observeRestorePhase("object_storage_download", commitDuration)
 		c.log.WithFields(logrus.Fields{
 			"action":      "restore_phase_complete",
-			"phase":       "file_staging",
+			"phase":       "object_storage_download",
 			"backup_id":   desc.ID,
 			"duration_ms": commitDuration.Milliseconds(),
 		}).Debug("restore phase timing")
@@ -299,7 +299,7 @@ func (c *coordinator) Restore(
 		schemaApplyStart := time.Now()
 		c.restoreClasses(ctx, schema, req)
 		schemaApplyDuration := time.Since(schemaApplyStart)
-		c.observeRestorePhase("schema_apply", desc.ID, schemaApplyDuration)
+		c.observeRestorePhase("schema_apply", schemaApplyDuration)
 		c.log.WithFields(logrus.Fields{
 			"action":      "restore_phase_complete",
 			"phase":       "schema_apply",
@@ -323,10 +323,10 @@ func (c *coordinator) Restore(
 }
 
 // observeRestorePhase records the duration of a restore phase to Prometheus
-func (c *coordinator) observeRestorePhase(phase, backupID string, duration time.Duration) {
-	metric, err := monitoring.GetMetrics().RestorePhaseDurations.GetMetricWithLabelValues(phase, backupID)
+func (c *coordinator) observeRestorePhase(phase string, duration time.Duration) {
+	metric, err := monitoring.GetMetrics().RestorePhaseDurations.GetMetricWithLabelValues(phase)
 	if err == nil {
-		metric.Set(duration.Seconds())
+		metric.Observe(duration.Seconds())
 	}
 }
 

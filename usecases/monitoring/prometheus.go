@@ -81,7 +81,7 @@ type PrometheusMetrics struct {
 	BackupRestoreFromStorageDurations *prometheus.SummaryVec
 	BackupRestoreDataTransferred      *prometheus.CounterVec
 	BackupStoreDataTransferred        *prometheus.CounterVec
-	RestorePhaseDurations             *prometheus.GaugeVec
+	RestorePhaseDurations             *prometheus.HistogramVec
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -739,10 +739,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
-		RestorePhaseDurations: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "weaviate_restore_phase_duration_seconds",
-			Help: "Duration of the most recent restore phase (init, file_staging, schema_apply)",
-		}, []string{"phase", "backup_id"}),
+		RestorePhaseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_restore_phase_duration_seconds",
+			Help:    "Duration of restore phases (prepare, object_storage_download, schema_apply)",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
+		}, []string{"phase"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
