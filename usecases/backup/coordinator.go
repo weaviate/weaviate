@@ -73,7 +73,7 @@ type Selector interface {
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
 
-	ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (map[string][]string, error)
+	ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (*backup.SharedBackupState, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -225,7 +225,6 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 			Backend:      req.Backend,
 			Bucket:       req.Bucket,
 			Path:         req.Path,
-			Coordinator:  c.schema.NodeName(),
 			InSyncShards: inSyncShards,
 		}
 
@@ -252,7 +251,7 @@ func (c *coordinator) Restore(
 	store coordStore,
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
-	sharedChunks *backup.SharedBackupDescriptor,
+	sharedChunks *backup.SharedBackupLocations,
 	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
@@ -287,7 +286,14 @@ func (c *coordinator) Restore(
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath, ChunksPerClass: sharedChunks.ChunksPerClass}
+	statusReq := StatusRequest{
+		Method:         OpRestore,
+		ID:             desc.ID,
+		Backend:        req.Backend,
+		Bucket:         overrideBucket,
+		Path:           overridePath,
+		ChunksPerClass: sharedChunks,
+	}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()

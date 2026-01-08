@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"sync"
 	"time"
 
@@ -106,7 +105,7 @@ func (r *restorer) restore(
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
 			r.lastOp.reset()
 		}()
-		_, _, sharedChunks, err := r.waitForCoordinator(expiration, req.ID)
+		_, sharedChunks, err := r.waitForCoordinator(expiration, req.ID)
 		if err != nil {
 			r.logger.WithField("action", "restore_backup").
 				Error(err)
@@ -117,7 +116,17 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, sharedChunks, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		sharedChunksForNode := backup.SharedBackupLocations{}
+		if sharedChunks != nil {
+			for _, sharedChunk := range *sharedChunks {
+				if sharedChunk.Node == r.node {
+					continue // normal download
+				}
+				sharedChunksForNode = append(sharedChunksForNode, sharedChunk)
+			}
+		}
+
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, sharedChunksForNode, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -134,7 +143,7 @@ func (r *restorer) restore(
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, sharedChunks map[string]map[int32][]string, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+	store nodeStore, sharedChunks backup.SharedBackupLocations, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
 	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
@@ -152,22 +161,17 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 	}
 
-	coordinatorBackupId := fmt.Sprintf("%s/%s", desc.ID, desc.CreateCoordinatorNode)
-
 	for _, cdesc := range desc.Classes {
-		sharedChunksForClass := sharedChunks[cdesc.Name]
-
-		// remove chunks that have no shards that need to be copied over
-		for chunk, shardsPerChunk := range sharedChunksForClass {
-			for _, shardID := range shardsPerChunk {
-				if !slices.Contains(cdesc.ShardsInSync, shardID) {
-					delete(sharedChunksForClass, chunk)
-					break
-				}
+		var sharedBackupsPerClass backup.SharedBackupLocations
+		for _, sharedChunk := range sharedChunks {
+			if sharedChunk.Class != cdesc.Name {
+				continue
 			}
+
+			sharedBackupsPerClass = append(sharedBackupsPerClass, sharedChunk)
 		}
 
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, sharedChunksForClass, coordinatorBackupId, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, desc.ID, sharedBackupsPerClass, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -187,7 +191,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string, sharedChunks map[int32][]string, coordinatorBackupId string, compressionType backup.CompressionType,
+	desc *backup.ClassDescriptor, serverVersion, backupID string, sharedChunks backup.SharedBackupLocations, compressionType backup.CompressionType,
 	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
@@ -213,7 +217,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, sharedChunks, coordinatorBackupId, overrideBucket, overridePath, compressionType); err != nil {
+	if err := fw.Write(ctx, desc, backupID, sharedChunks, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 

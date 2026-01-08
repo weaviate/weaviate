@@ -721,7 +721,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						}
 						backoffTimer.Reset()
 						lastHashbeatMux.Lock()
-						now := time.Now()
+						now := time.Now().UTC()
 						s.asyncReplicationLastRun.Store(&now)
 						lastHashbeatPropagatedObjects = false
 						lastHashbeatMux.Unlock()

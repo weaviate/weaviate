@@ -242,7 +242,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, nil, "", nil}
+	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, nil, nil}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -260,7 +260,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, nil, "", nil}
+	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, nil, nil}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -439,7 +439,7 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 	return nil
 }
 
-func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, *backup.SharedBackupDescriptor, error) {
+func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, *backup.SharedBackupLocations, error) {
 	if !store.backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
 		return nil, nil, errLocalBackendDBRO
 	}
@@ -496,13 +496,18 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		meta.ApplyNodeMapping()
 	}
 
+	sharedChunks := backup.SharedBackupLocations{}
 	// old backups do not have this file, so do not log errors if it is missing
-	sharedChunks, err := store.GetSharedChunks(ctx, GlobalSharedBackupFile, req.Bucket, req.Path)
-	if err != nil {
-		s.logger.Infof("failed to retrieve shared chunks: %v", err)
+	for node := range meta.Nodes {
+		sharedChunksPerNode, err := store.GetSharedChunks(ctx, GlobalSharedBackupFile+"_"+node, req.Bucket, req.Path)
+		if err != nil {
+			s.logger.Infof("failed to retrieve shared chunks: %v", err)
+			continue
+		}
+		sharedChunks = append(sharedChunks, sharedChunksPerNode...)
 	}
 
-	return meta, sharedChunks, nil
+	return meta, &sharedChunks, nil
 }
 
 // fetchSchema retrieves and returns the latest schema for all classes

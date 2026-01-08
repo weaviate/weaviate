@@ -239,9 +239,16 @@ type ShardDescriptor struct {
 }
 
 type SharedBackupDescriptor struct {
-	// contains the shards that are in each chunk for each class
-	ChunksPerClass map[string]map[int32][]string `json:"chunks,omitempty"`
+	ClassToNodeToChunk map[string]int32 `json:"classToNodeToChunk"`
 }
+
+type SharedBackupLocation struct {
+	Node  string `json:"node"`
+	Chunk int32  `json:"chunk"`
+	Shard string `json:"shard"`
+	Class string `json:"class"`
+}
+type SharedBackupLocations []SharedBackupLocation
 
 // ClearTemporary clears fields that are no longer needed once compression is done.
 // These fields are not required in versions > 1 because they are stored in the tarball.
@@ -299,10 +306,32 @@ type BackupDescriptor struct {
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
-	// Node which created this backup (used for distributed backups). This is the node that holds the backups for ALL
-	// shards including the ones that are in sync between the different nodes
-	CreateCoordinatorNode string `json:"createCoordinatorNode,omitempty"`
 }
+
+type SharedBackupState struct {
+	ShardsPerNode map[string]ResultsPerNode
+	AllSyncShards map[string][]string
+}
+
+func (s *SharedBackupState) AddShard(selectedNode, className, shard string) {
+	node, nodeExists := s.ShardsPerNode[selectedNode]
+	if !nodeExists {
+		node = make(ResultsPerNode)
+	}
+	class, classExists := node[className]
+	if !classExists {
+		class = []string{}
+	}
+	class = append(class, shard)
+	node[className] = class
+	s.ShardsPerNode[selectedNode] = node
+	if _, ok := s.AllSyncShards[className]; !ok {
+		s.AllSyncShards[className] = []string{}
+	}
+	s.AllSyncShards[className] = append(s.AllSyncShards[className], shard)
+}
+
+type ResultsPerNode map[string][]string
 
 // List all existing classes in d
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
