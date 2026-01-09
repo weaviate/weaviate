@@ -254,14 +254,7 @@ func (c *coordinator) Restore(
 	// Time canCommit phase (initiates file staging on all nodes)
 	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req)
-	canCommitDuration := time.Since(canCommitStart)
-	c.observeRestorePhase("prepare", canCommitDuration)
-	c.log.WithFields(logrus.Fields{
-		"action":      "restore_phase_complete",
-		"phase":       "prepare",
-		"backup_id":   desc.ID,
-		"duration_ms": canCommitDuration.Milliseconds(),
-	}).Debug("restore phase timing")
+	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -286,26 +279,12 @@ func (c *coordinator) Restore(
 		// Time commit polling phase (waits for all nodes to finish staging)
 		commitStart := time.Now()
 		c.commit(ctx, &statusReq, nodes, true)
-		commitDuration := time.Since(commitStart)
-		c.observeRestorePhase("object_storage_download", commitDuration)
-		c.log.WithFields(logrus.Fields{
-			"action":      "restore_phase_complete",
-			"phase":       "object_storage_download",
-			"backup_id":   desc.ID,
-			"duration_ms": commitDuration.Milliseconds(),
-		}).Debug("restore phase timing")
+		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
 		// Time schema apply phase (Raft commits for each class)
 		schemaApplyStart := time.Now()
 		c.restoreClasses(ctx, schema, req)
-		schemaApplyDuration := time.Since(schemaApplyStart)
-		c.observeRestorePhase("schema_apply", schemaApplyDuration)
-		c.log.WithFields(logrus.Fields{
-			"action":      "restore_phase_complete",
-			"phase":       "schema_apply",
-			"backup_id":   desc.ID,
-			"duration_ms": schemaApplyDuration.Milliseconds(),
-		}).Debug("restore phase timing")
+		c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
 
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
@@ -349,18 +328,10 @@ func (c *coordinator) restoreClasses(
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
-		classStart := time.Now()
 		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
-		classDuration := time.Since(classStart)
-		c.log.WithFields(logrus.Fields{
-			"action":      "restore_class_schema_apply",
-			"backup_id":   c.descriptor.ID,
-			"class_name":  cls.Name,
-			"duration_ms": classDuration.Milliseconds(),
-		}).Debug("restore class schema apply timing")
 	}
 	if len(errors) > 0 {
 		c.descriptor.Status = backup.Failed
