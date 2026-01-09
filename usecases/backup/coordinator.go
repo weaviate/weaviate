@@ -262,6 +262,7 @@ func (c *coordinator) Restore(
 
 	// Set status to Transferring now that staging has begun
 	c.descriptor.Status = backup.Transferring
+	c.lastOp.set(backup.Transferring)
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
@@ -288,6 +289,7 @@ func (c *coordinator) Restore(
 		// Only proceed if staging was successful (Transferred = staging complete)
 		if c.descriptor.Status == backup.Transferred {
 			c.descriptor.Status = backup.Finalizing
+			c.lastOp.set(backup.Finalizing)
 			if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 				c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
 			}
@@ -302,6 +304,7 @@ func (c *coordinator) Restore(
 		if c.descriptor.Status == backup.Finalizing {
 			c.descriptor.Status = backup.Success
 		}
+		c.lastOp.set(c.descriptor.Status)
 
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
@@ -579,6 +582,7 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	c.descriptor.Status = status
+	c.lastOp.set(status)
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
