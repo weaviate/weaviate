@@ -200,6 +200,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	rReq := Request{
 		Method:            OpRestore,
+		NodeMapping:       req.NodeMapping,
 		ID:                req.ID,
 		Backend:           req.Backend,
 		Compression:       req.Compression,
