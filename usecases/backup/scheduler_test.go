@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -108,6 +108,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 
 	t.Run("GetMetadataFails", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, errors.New("can not be read"))
@@ -126,6 +127,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 	})
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id})
@@ -318,6 +320,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		// first
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req1.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
 
@@ -369,6 +372,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 	t.Run("InitMetadata", func(t *testing.T) {
 		classes := []string{cls}
 		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return(classes)
 		fs.selector.On("Backupable", ctx, classes).Return(nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
@@ -389,6 +393,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
 
@@ -1002,5 +1007,65 @@ func TestCancellingBackup(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Equal(t, fmt.Sprintf("backup %q already succeeded", backupID), err.Error())
 		fakeScheduler.backend.AssertExpectations(t)
+	})
+}
+
+func TestWildcardExpansion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("MatchesWildcard", func(t *testing.T) {
+		tests := []struct {
+			pattern   string
+			className string
+			expected  bool
+		}{
+			{"data-202212*", "data-20221223", true},
+			{"data-202212*", "data-20221122", false},
+			{"data-*", "data-20221223", true},
+			{"*-December", "Backup-December", true},
+			{"Class?", "ClassA", true},
+			{"Class?", "ClassAB", false},
+			{"ExactMatch", "ExactMatch", true},
+			{"ExactMatch", "NotMatch", false},
+		}
+		for _, tc := range tests {
+			got := matchesWildcard(tc.pattern, tc.className)
+			assert.Equal(t, tc.expected, got, "pattern=%s class=%s", tc.pattern, tc.className)
+		}
+	})
+
+	t.Run("ExpandWildcards", func(t *testing.T) {
+		candidates := []string{
+			"data-20221122",
+			"data-20221223",
+			"data-20221224",
+			"data-20221225",
+			"Article",
+			"Blog",
+		}
+
+		tests := []struct {
+			patterns []string
+			expected []string
+		}{
+			// Empty patterns returns empty
+			{[]string{}, []string{}},
+			// Exact match, no wildcards
+			{[]string{"Article"}, []string{"Article"}},
+			// Wildcard matching December dates
+			{[]string{"data-202212*"}, []string{"data-20221223", "data-20221224", "data-20221225"}},
+			// Wildcard matching all data classes
+			{[]string{"data-*"}, []string{"data-20221122", "data-20221223", "data-20221224", "data-20221225"}},
+			// Mixed: exact and wildcard
+			{[]string{"Article", "data-202212*"}, []string{"Article", "data-20221223", "data-20221224", "data-20221225"}},
+			// Pattern that matches nothing (stays as-is for non-wildcard)
+			{[]string{"NonExistent"}, []string{"NonExistent"}},
+			// Wildcard that matches nothing returns empty for that pattern
+			{[]string{"nothing-*"}, []string{}},
+		}
+		for _, tc := range tests {
+			got := expandWildcards(tc.patterns, candidates)
+			assert.ElementsMatch(t, tc.expected, got, "patterns=%v", tc.patterns)
+		}
 	})
 }

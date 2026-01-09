@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-rc.0"
+    "version": "1.36.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -1793,11 +1793,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -1809,7 +1809,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -1829,7 +1829,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1841,13 +1841,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9308,7 +9308,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-rc.0"
+    "version": "1.36.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -11029,11 +11029,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -11045,7 +11045,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -11065,7 +11065,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -11077,13 +11077,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

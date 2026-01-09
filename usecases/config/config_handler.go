@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -437,7 +437,7 @@ const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward
 const (
 	// minimal interval for new hnws snapshot to be created after last one
 	DefaultHNSWSnapshotIntervalSeconds                  = 6 * 3600 // 6h
-	DefaultHNSWSnapshotDisabled                         = true
+	DefaultHNSWSnapshotDisabled                         = false
 	DefaultHNSWSnapshotOnStartup                        = true
 	DefaultHNSWSnapshotMinDeltaCommitlogsNumber         = 1
 	DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage = 5 // 5%

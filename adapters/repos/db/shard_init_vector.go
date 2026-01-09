@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -239,11 +239,13 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		hfreshConfigID := s.vectorIndexID(targetVector)
+		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
+
 		hfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
 			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
-			RootPath:          filepath.Join(s.path(), "hfresh"),
+			RootPath:          rootPath,
 			ID:                hfreshConfigID,
 			TargetVector:      targetVector,
 			ShardName:         s.name,
@@ -257,8 +259,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                    s.index.logger,
-					RootPath:                  s.path(),
-					ID:                        hfreshConfigID + "_centroids",
+					RootPath:                  rootPath,
+					ID:                        "centroids",
 					ShardName:                 s.name,
 					ClassName:                 s.index.Config.ClassName.String(),
 					PrometheusMetrics:         s.promMetrics,
@@ -266,7 +268,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 					DistanceProvider:          distProv,
 					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-						return hnsw.NewCommitLogger(s.path(), hfreshConfigID+"_centroids",
+						return hnsw.NewCommitLogger(rootPath, "centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							hnsw.WithAllocChecker(s.index.allocChecker),
 							hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),

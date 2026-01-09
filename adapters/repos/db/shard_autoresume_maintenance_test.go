@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -94,12 +94,12 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 	})
 
 	t.Run("halt for transfer and wait for inactivity timeout", func(t *testing.T) {
-		inactivityTimeout := 100 * time.Millisecond
+		inactivityTimeout := 10 * time.Millisecond
 
 		err := shd.HaltForTransfer(ctx, false, inactivityTimeout)
 		require.NoError(t, err)
 
-		time.Sleep(inactivityTimeout * 2)
+		time.Sleep(inactivityTimeout * 10) // wait for inactivity timeout to elapse
 	})
 
 	t.Run("attempt to list backup files after inactivity time should fail", func(t *testing.T) {

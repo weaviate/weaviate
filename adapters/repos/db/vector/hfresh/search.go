@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,7 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	rescoreLimit := int(min(h.rescoreLimit, h.searchProbe)) // Todo: Remove this line when we add support on the benchmarker for lowering the rescore limit too
+	rescoreLimit := int(h.rescoreLimit)
 	vector = h.normalizeVec(vector)
 	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
 
@@ -57,7 +57,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
-		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
+		count, err := h.PostingMetadata.CountVectorIDs(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
 		}

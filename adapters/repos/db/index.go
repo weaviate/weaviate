@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -65,6 +65,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -303,11 +304,6 @@ func (i *Index) path() string {
 	return path.Join(i.Config.RootPath, i.ID())
 }
 
-type nodeResolver interface {
-	AllHostnames() []string
-	NodeHostname(nodeName string) (string, bool)
-}
-
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
 func NewIndex(
@@ -322,7 +318,7 @@ func NewIndex(
 	schemaReader schemaUC.SchemaReader,
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
-	nodeResolver nodeResolver,
+	nodeResolver cluster.NodeResolver,
 	remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
@@ -393,7 +389,7 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
@@ -1786,7 +1782,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		golangSort.Slice(results, func(i, j int) bool {
 			if results[i].score == results[j].score {
-				return results[i].object.Object.ID > results[j].object.Object.ID
+				return results[i].object.Object.ID < results[j].object.Object.ID
 			}
 
 			return results[i].score > results[j].score
@@ -2298,8 +2294,9 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	mustLoad := !implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
+	// TODO: implicitShardLoading needs to be double checked if needed at all
+	// consalidate mustLoad and implicitShardLoading
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {

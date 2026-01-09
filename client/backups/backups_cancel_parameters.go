@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -86,7 +86,7 @@ type BackupsCancelParams struct {
 
 	/* ID.
 
-	   The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
+	   The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
 	*/
 	ID string
 

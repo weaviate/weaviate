@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,7 +72,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
 
-		err = h.PostingSizes.Set(ctx, postingID, uint32(lf))
+		err = h.PostingMetadata.SetVectorIDs(ctx, postingID, filtered)
 		if err != nil {
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 		}
@@ -104,7 +104,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
 		}
 		// allocate and set posting size after successful persist
-		err = h.PostingSizes.Set(ctx, newPostingID, uint32(len(result[i].Posting)))
+		err = h.PostingMetadata.SetVectorIDs(ctx, newPostingID, result[i].Posting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
 		}
@@ -125,7 +125,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	if err != nil {
 		return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
 	}
-	err = h.PostingSizes.Set(ctx, postingID, 0)
+	err = h.PostingMetadata.SetVectorIDs(ctx, postingID, Posting{})
 	if err != nil {
 		return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 	}
@@ -160,7 +160,7 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 
 	data := posting.Uncompress(h.quantizer)
 
-	err := enc.Fit(data)
+	idsAssignments, err := enc.FitBalanced(data)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fit KMeans encoder for split operation")
 	}
@@ -174,21 +174,8 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 		results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(enc.Centroid(byte(i))))
 	}
 
-	for i, v := range data {
-		// compute the distance to each centroid
-		dA, err := h.distancer.DistanceBetweenVectors(v, results[0].Uncompressed)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance to centroid 0")
-		}
-		dB, err := h.distancer.DistanceBetweenVectors(v, results[1].Uncompressed)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
-		}
-		if dA < dB {
-			results[0].Posting = results[0].Posting.AddVector(posting[i])
-		} else {
-			results[1].Posting = results[1].Posting.AddVector(posting[i])
-		}
+	for i, v := range idsAssignments {
+		results[v].Posting = results[v].Posting.AddVector(posting[i])
 	}
 
 	return results, nil

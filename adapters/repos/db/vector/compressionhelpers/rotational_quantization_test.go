@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -415,11 +415,13 @@ func TestUnRotate_DoubleInverse(t *testing.T) {
 	rotation := compressionhelpers.NewFastRotation(128, 3, 42)
 
 	original := make([]float32, 128)
+	originalCpy := make([]float32, 128)
 	for i := range original {
 		original[i] = float32(i)*0.5 - 32.0
 	}
+	copy(originalCpy, original)
 
-	unrotated := rotation.UnRotate(original)
+	unrotated := rotation.UnRotate(originalCpy)
 	rotatedBack := rotation.Rotate(unrotated)
 
 	for i := range original {

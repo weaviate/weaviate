@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 )
 
@@ -32,60 +33,90 @@ const (
 // limit the size of each task chunk to
 // to avoid sending too many tasks at once.
 const (
-	mainTaskQueueChunkSize  = 128 * 1024 // 128KB
-	mergeTaskQueueChunkSize = 64 * 1024  // 64KB
+	splitTaskQueueChunkSize    = 16 * 1024 // 16KB
+	reassignTaskQueueChunkSize = 16 * 1024 // 16KB
+	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
 )
 
 type TaskQueue struct {
-	// queue for split and reassign operations
-	q *queue.DiskQueue
+	// queue for split operations
+	splitQueue *queue.DiskQueue
+	// queue for reassign operations
+	reassignQueue *queue.DiskQueue
 	// queue for merge operations, as these need to be run sequentially
-	qMerge *queue.DiskQueue
+	mergeQueue *queue.DiskQueue
 
 	scheduler *queue.Scheduler
 
-	index     *HFresh
-	splitList *deduplicator // Prevents duplicate split operations
-	mergeList *deduplicator // Prevents duplicate merge operations
+	index        *HFresh
+	splitList    *deduplicator         // Prevents duplicate split operations
+	mergeList    *deduplicator         // Prevents duplicate merge operations
+	reassignList *reassignDeduplicator // Prevents duplicate reassign operations
 }
 
-func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
+func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	var err error
 
-	tq := TaskQueue{
-		index:     index,
-		scheduler: index.scheduler,
-		splitList: newDeduplicator(),
-		mergeList: newDeduplicator(),
+	reassignList, err := newReassignDeduplicator(bucket)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create reassign deduplicator")
 	}
 
-	// create main queue for split and reassign operations
-	tq.q, err = queue.NewDiskQueue(
+	tq := TaskQueue{
+		index:        index,
+		scheduler:    index.scheduler,
+		splitList:    newDeduplicator(),
+		mergeList:    newDeduplicator(),
+		reassignList: reassignList,
+	}
+
+	// create queue for split operations
+	tq.splitQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:               fmt.Sprintf("hfresh_ops_queue_%s_%s", index.config.ShardName, index.config.ID),
+			ID:               fmt.Sprintf("hfresh_split_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
-			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.queue.d", index.config.ID)),
+			Dir:              filepath.Join(index.config.RootPath, "split.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
-			ChunkSize:        mainTaskQueueChunkSize,
+			ChunkSize:        splitTaskQueueChunkSize,
 		},
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create hfresh main queue")
+		return nil, errors.Wrap(err, "failed to create hfresh split queue")
 	}
-	err = tq.q.Init()
+	err = tq.splitQueue.Init()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize hfresh main queue")
+		return nil, errors.Wrap(err, "failed to initialize hfresh split queue")
 	}
 
-	// create separate queue for merge operations
-	tq.qMerge, err = queue.NewDiskQueue(
+	// create queue for reassign operations
+	tq.reassignQueue, err = queue.NewDiskQueue(
+		queue.DiskQueueOptions{
+			ID:               fmt.Sprintf("hfresh_reassign_queue_%s_%s", index.config.ShardName, index.config.ID),
+			Logger:           index.logger,
+			Scheduler:        index.scheduler,
+			Dir:              filepath.Join(index.config.RootPath, "reassign.queue.d"),
+			TaskDecoder:      &tq,
+			OnBatchProcessed: tq.OnBatchProcessed,
+			ChunkSize:        reassignTaskQueueChunkSize,
+		},
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create hfresh reassign queue")
+	}
+	err = tq.reassignQueue.Init()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
+	}
+
+	// create queue for merge operations
+	tq.mergeQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_merge_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
 			Scheduler:        index.scheduler,
-			Dir:              filepath.Join(index.config.RootPath, fmt.Sprintf("%s.merge.queue.d", index.config.ID)),
+			Dir:              filepath.Join(index.config.RootPath, "merge.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
 			ChunkSize:        mergeTaskQueueChunkSize,
@@ -94,32 +125,63 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh merge queue")
 	}
-	err = tq.qMerge.Init()
+	err = tq.mergeQueue.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh merge queue")
 	}
 
-	index.scheduler.RegisterQueue(tq.q)
-	index.scheduler.RegisterQueue(tq.qMerge)
+	index.scheduler.RegisterQueue(tq.splitQueue)
+	index.scheduler.RegisterQueue(tq.reassignQueue)
+	index.scheduler.RegisterQueue(tq.mergeQueue)
 
 	return &tq, nil
 }
 
 func (tq *TaskQueue) Close() error {
 	var errs []error
-	if err := tq.q.Close(); err != nil {
-		errs = append(errs, errors.Wrap(err, "failed to close main queue"))
+	if err := tq.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
 	}
 
-	if err := tq.qMerge.Close(); err != nil {
+	if err := tq.splitQueue.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
+	}
+
+	if err := tq.reassignQueue.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close reassign queue"))
+	}
+
+	if err := tq.mergeQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 
 	return stderrors.Join(errs...)
 }
 
+func (tq *TaskQueue) Flush() error {
+	var errs []error
+
+	if err := tq.reassignList.flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
+	}
+
+	if err := tq.splitQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush split queue"))
+	}
+
+	if err := tq.reassignQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign queue"))
+	}
+
+	if err := tq.mergeQueue.Flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush merge queue"))
+	}
+
+	return stderrors.Join(errs...)
+}
+
 func (tq *TaskQueue) Size() int64 {
-	return tq.q.Size() + tq.qMerge.Size()
+	return tq.splitQueue.Size() + tq.reassignQueue.Size() + tq.mergeQueue.Size()
 }
 
 func (tq *TaskQueue) SplitDone(postingID uint64) {
@@ -130,17 +192,21 @@ func (tq *TaskQueue) MergeDone(postingID uint64) {
 	tq.mergeList.done(postingID)
 }
 
+func (tq *TaskQueue) ReassignDone(vectorID uint64) {
+	tq.reassignList.done(vectorID)
+}
+
 func (tq *TaskQueue) MergeContains(postingID uint64) bool {
 	return tq.mergeList.contains(postingID)
 }
 
 func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
-	// Check if the task is already in progress
+	// Check if the operation is already enqueued
 	if !tq.splitList.tryAdd(postingID) {
 		return nil
 	}
 
-	if err := tq.q.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
+	if err := tq.splitQueue.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
 		return errors.Wrap(err, "failed to push split operation to queue")
 	}
 
@@ -150,12 +216,12 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 }
 
 func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
-	// Check if the operation is already in progress
+	// Check if the operation is already enqueued
 	if !tq.mergeList.tryAdd(postingID) {
 		return nil
 	}
 
-	if err := tq.qMerge.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
+	if err := tq.mergeQueue.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
 		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
 
@@ -165,13 +231,12 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 }
 
 func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version VectorVersion) error {
-	buf := make([]byte, 18)
-	buf[0] = taskQueueReassignOp
-	binary.LittleEndian.PutUint64(buf[1:9], postingID)
-	binary.LittleEndian.PutUint64(buf[9:17], vecID)
-	buf[17] = byte(version)
+	// Check if the operation is already enqueued
+	if !tq.reassignList.tryAdd(vecID, postingID) {
+		return nil
+	}
 
-	if err := tq.q.Push(buf); err != nil {
+	if err := tq.reassignQueue.Push(encodeTask(vecID, taskQueueReassignOp)); err != nil {
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
@@ -209,19 +274,13 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 			idx: tq.index,
 		}, nil
 	case taskQueueReassignOp:
-		// decode posting ID
-		postingID := binary.LittleEndian.Uint64(data)
-		data = data[8:]
 		// decode vector ID
 		vecID := binary.LittleEndian.Uint64(data)
-		data = data[8:]
-		// decode version
-		version := uint8(data[0])
+
 		return &ReassignTask{
-			id:      postingID,
-			vecID:   vecID,
-			version: version,
-			idx:     tq.index,
+			vecID:     vecID,
+			postingID: tq.reassignList.getLastKnownPostingID(vecID),
+			idx:       tq.index,
 		}, nil
 	}
 
@@ -253,6 +312,7 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueSplitTask()
+	t.idx.metrics.IncSplitCount()
 	return nil
 }
 
@@ -282,14 +342,14 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 	}
 
 	t.idx.metrics.DequeueMergeTask()
+	t.idx.metrics.IncMergeCount()
 	return nil
 }
 
 type ReassignTask struct {
-	id      uint64
-	vecID   uint64
-	version uint8
-	idx     *HFresh
+	vecID     uint64
+	postingID uint64
+	idx       *HFresh
 }
 
 func (t *ReassignTask) Op() uint8 {
@@ -297,8 +357,7 @@ func (t *ReassignTask) Op() uint8 {
 }
 
 func (t *ReassignTask) Key() uint64 {
-	// postings sharing same lock are run by the same worker to reduce contention
-	return t.idx.postingLocks.Hash(t.id)
+	return t.vecID
 }
 
 func (t *ReassignTask) Execute(ctx context.Context) error {
@@ -306,12 +365,13 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	err := t.idx.doReassign(ctx, reassignOperation{PostingID: t.id, VectorID: t.vecID, Version: t.version})
+	err := t.idx.doReassign(ctx, reassignOperation{VectorID: t.vecID, PostingID: t.postingID})
 	if err != nil {
 		return err
 	}
 
 	t.idx.metrics.DequeueReassignTask()
+	t.idx.metrics.IncReassignCount()
 	return nil
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -61,6 +62,7 @@ type Replicator struct {
 
 func NewReplicator(className string,
 	router types.Router,
+	nodeResolver cluster.NodeResolver,
 	nodeName string,
 	getDeletionStrategy func() string,
 	client Client,
@@ -81,6 +83,7 @@ func NewReplicator(className string,
 		Finder: NewFinder(
 			className,
 			router,
+			nodeResolver,
 			nodeName,
 			client,
 			metrics,

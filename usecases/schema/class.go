@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -1008,6 +1008,25 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
 		}
+	}
+
+	// changing indexing not allowed
+	compareIndexSetting := func(name string, extractVal func(config *models.InvertedIndexConfig) bool) error {
+		initialVal := initial.InvertedIndexConfig != nil && extractVal(initial.InvertedIndexConfig)
+		updatedVal := updated.InvertedIndexConfig != nil && extractVal(updated.InvertedIndexConfig)
+		if initialVal != updatedVal {
+			return fmt.Errorf("%q setting is immutable. Value changed from \"%v\" to \"%v\"", name, initialVal, updatedVal)
+		}
+		return nil
+	}
+	if err := compareIndexSetting("indexTimestamp", func(config *models.InvertedIndexConfig) bool { return config.IndexTimestamps }); err != nil {
+		return err
+	}
+	if err := compareIndexSetting("indexNullState", func(config *models.InvertedIndexConfig) bool { return config.IndexNullState }); err != nil {
+		return err
+	}
+	if err := compareIndexSetting("indexPropertyLength", func(config *models.InvertedIndexConfig) bool { return config.IndexPropertyLength }); err != nil {
+		return err
 	}
 
 	return nil

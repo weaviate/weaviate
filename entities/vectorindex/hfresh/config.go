@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"errors"
 	"fmt"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -71,6 +72,23 @@ func NewDefaultUserConfig() UserConfig {
 	return uc
 }
 
+func (u *UserConfig) validate() error {
+	var errs []error
+
+	if u.Distance != vectorIndexCommon.DistanceCosine && u.Distance != vectorIndexCommon.DistanceL2Squared {
+		errs = append(errs, fmt.Errorf(
+			"unsupported distance type '%s', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
+			u.Distance,
+		))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid hnsw config: %w", errors.Join(errs...))
+	}
+
+	return nil
+}
+
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
 func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
@@ -117,7 +135,9 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 	}
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "rescoreLimit", func(v int) {
-		uc.RescoreLimit = uint32(v)
+		if v >= 0 {
+			uc.RescoreLimit = uint32(v)
+		}
 	}); err != nil {
 		return uc, err
 	}
@@ -130,5 +150,5 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	// TODO: add quantization config
 
-	return uc, nil
+	return uc, uc.validate()
 }

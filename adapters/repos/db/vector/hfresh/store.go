@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,22 +23,17 @@ import (
 )
 
 type PostingStore struct {
-	store    *lsmkv.Store
-	bucket   *lsmkv.Bucket
-	locks    *common.ShardedRWLocks
-	metrics  *Metrics
-	versions *PostingVersions
+	store           *lsmkv.Store
+	bucket          *lsmkv.Bucket
+	locks           *common.ShardedRWLocks
+	metrics         *Metrics
+	postingMetadata *PostingMetadataStore
 }
 
-func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+func NewPostingStore(store *lsmkv.Store, postingMetadata *PostingMetadataStore, metadataBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
 	bName := postingsBucketName(id)
 
-	versions, err := NewPostingVersions(metadataBucket, metrics)
-	if err != nil {
-		return nil, errors.Wrap(err, "create posting versions store")
-	}
-
-	err = store.CreateOrLoadBucket(context.Background(),
+	err := store.CreateOrLoadBucket(context.Background(),
 		bName,
 		cfg.MakeBucketOptions(
 			lsmkv.StrategySetCollection,
@@ -51,7 +46,7 @@ func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *
 					}
 					postingId := binary.LittleEndian.Uint64(key[:8])
 					segmentPostingVersion := binary.LittleEndian.Uint32(key[8:])
-					currentPostingVersion, err := versions.Get(ctx, postingId)
+					currentPostingVersion, err := postingMetadata.GetVersion(ctx, postingId)
 					if err != nil {
 						return false, errors.Wrap(err, "get posting version during compaction")
 					}
@@ -66,27 +61,18 @@ func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *
 	}
 
 	return &PostingStore{
-		store:    store,
-		bucket:   store.Bucket(bName),
-		locks:    common.NewDefaultShardedRWLocks(),
-		metrics:  metrics,
-		versions: versions,
+		store:           store,
+		bucket:          store.Bucket(bName),
+		locks:           common.NewDefaultShardedRWLocks(),
+		metrics:         metrics,
+		postingMetadata: postingMetadata,
 	}, nil
-}
-
-func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
-	bucket, err := NewSharedBucket(store, id, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewPostingStore(store, bucket, metrics, id, cfg)
 }
 
 func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
-	version, err := p.versions.Get(ctx, postingID)
+	version, err := p.postingMetadata.GetVersion(ctx, postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get posting version for id %d", postingID)
 	}
@@ -145,13 +131,8 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	defer p.locks.Unlock(postingID)
 
 	_, err := p.getKeyBytes(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+	if err != nil {
 		return err
-	} else if err != nil && errors.Is(err, ErrPostingNotFound) {
-		err := p.versions.Set(ctx, postingID, 0)
-		if err != nil {
-			return err
-		}
 	}
 
 	set := make([][]byte, len(posting))
@@ -159,15 +140,11 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 		set[i] = v
 	}
 
-	currentVersion, err := p.versions.Get(ctx, postingID)
+	currentVersion, err := p.postingMetadata.GetVersion(ctx, postingID)
 	if err != nil {
 		return err
 	}
 	newVersion := currentVersion + 1
-
-	if err != nil {
-		return errors.Wrapf(err, "increment posting version for id %d", postingID)
-	}
 
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
@@ -177,7 +154,7 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 		return errors.Wrapf(err, "failed to put posting %d", postingID)
 	}
 
-	err = p.versions.Set(ctx, postingID, newVersion)
+	err = p.postingMetadata.SetVersion(ctx, postingID, newVersion)
 	if err != nil {
 		return errors.Wrapf(err, "set new posting version for id %d", postingID)
 	}

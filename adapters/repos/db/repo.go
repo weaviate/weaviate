@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,7 +57,7 @@ type DB struct {
 	indices           map[string]*Index
 	remoteIndex       sharding.RemoteIndexClient
 	replicaClient     replica.Client
-	nodeResolver      nodeResolver
+	nodeResolver      cluster.NodeResolver
 	remoteNode        *sharding.RemoteNode
 	promMetrics       *monitoring.PrometheusMetrics
 	indexCheckpoints  *indexcheckpoint.Checkpoints
@@ -166,7 +166,7 @@ type IndexLike interface {
 }
 
 func New(logger logrus.FieldLogger, localNodeName string, config Config,
-	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteIndex sharding.RemoteIndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,

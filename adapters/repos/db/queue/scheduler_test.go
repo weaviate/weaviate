@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -401,6 +401,42 @@ func TestScheduler(t *testing.T) {
 		err := q1.Close()
 		require.NoError(t, err)
 		err = q2.Close()
+		require.NoError(t, err)
+	})
+
+	t.Run("notify scheduler when batch is done", func(t *testing.T) {
+		s := makeScheduler(t, 3 /* workers */)
+		s.ScheduleInterval = 10 * time.Minute // use a long interval to ensure we rely on the done notification
+		s.Start()
+
+		ch, e := streamExecutor()
+		q := makeQueue(t, s, e)
+		q.w.maxSize = 100 // about 8 records per chunk
+		q.staleTimeout = 0
+
+		for i := range 100 {
+			pushMany(t, q, 1, uint64(i))
+		}
+
+		s.triggerSchedule()
+
+		tm := time.After(30 * time.Second)
+		values := make([]uint64, 0, 100)
+		for range 100 {
+			select {
+			case v := <-ch:
+				values = append(values, v)
+			case <-tm:
+				t.Fatal("timeout waiting for tasks to be processed")
+			}
+		}
+
+		slices.Sort(values)
+		for i, v := range values {
+			require.EqualValues(t, i, v)
+		}
+
+		err := q.Close()
 		require.NoError(t, err)
 	})
 }

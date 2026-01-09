@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,7 +62,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 		require.NoError(t, err)
 
 		maxPostingSize := index.maxPostingSize
-		require.Equal(t, 99, int(maxPostingSize))
+		require.Equal(t, 1311, int(maxPostingSize))
 	})
 
 	t.Run("max posting size set by the user", func(t *testing.T) {

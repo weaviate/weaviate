@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,7 +64,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 ) error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 
-	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
+	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj, clusterapi.MethodPut)
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
@@ -94,7 +94,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
-	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs)
+	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs, clusterapi.MethodPut)
 	if err != nil {
 		return duplicateErr(fmt.Errorf("encode request: %w", err), len(objs))
 	}
@@ -222,7 +222,7 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "read body")
 	}
 
-	obj, err := clusterapi.IndicesPayloads.SingleObject.Unmarshal(objBytes)
+	obj, err := clusterapi.IndicesPayloads.SingleObject.Unmarshal(objBytes, clusterapi.MethodGet)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal body")
 	}
@@ -355,7 +355,7 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	objs, err := clusterapi.IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	objs, err := clusterapi.IndicesPayloads.ObjectList.Unmarshal(bodyBytes, clusterapi.MethodGet)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal objects")
 	}

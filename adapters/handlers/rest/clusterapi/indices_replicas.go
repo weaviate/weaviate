@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -774,7 +774,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes)
+	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -805,7 +805,7 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

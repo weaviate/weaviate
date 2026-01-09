@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -85,7 +85,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		return h.PostingSizes.Set(ctx, postingID, uint32(prevLen))
+		return h.PostingMetadata.SetVectorIDs(ctx, postingID, newPosting)
 	}
 
 	vectorSet := make(map[uint64]struct{})
@@ -117,7 +117,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		err = h.PostingSizes.Set(ctx, postingID, uint32(prevLen))
+		err = h.PostingMetadata.SetVectorIDs(ctx, postingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to set size of posting %d to %d", postingID, prevLen)
 		}
@@ -128,7 +128,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	// first centroid is the query centroid, the rest are candidates for merging
 	for candidateID := range nearest.Iter() {
 		// check if the combined size of the postings is within limits
-		count, err := h.PostingSizes.Get(ctx, candidateID)
+		count, err := h.PostingMetadata.CountVectorIDs(ctx, candidateID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get posting size for candidate %d", candidateID)
 		}
@@ -193,7 +193,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			}
 
 			// set the small posting size to 0 and update the large posting size only after successful persist
-			err = h.PostingSizes.Set(ctx, smallID, 0)
+			err = h.PostingMetadata.SetVectorIDs(ctx, smallID, Posting{})
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
 			}
@@ -205,7 +205,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				return errors.Wrapf(err, "failed to put empty posting %d after merge operation", smallID)
 			}
 
-			err = h.PostingSizes.Set(ctx, largeID, uint32(len(newPosting)))
+			err = h.PostingMetadata.SetVectorIDs(ctx, largeID, newPosting)
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, len(newPosting))
 			}
@@ -252,7 +252,10 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// if no candidates were found, just persist the gc'ed posting
-	h.PostingSizes.Set(ctx, postingID, uint32(len(newPosting)))
+	err = h.PostingMetadata.SetVectorIDs(ctx, postingID, newPosting)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set size of filtered posting %d", postingID)
+	}
 	err = h.PostingStore.Put(ctx, postingID, newPosting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put filtered posting %d", postingID)

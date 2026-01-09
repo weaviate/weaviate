@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,12 +72,12 @@ type HFresh struct {
 	quantizer          *compressionhelpers.BinaryRotationalQuantizer
 
 	// Internal components
-	Centroids    *HNSWIndex       // Provides access to the centroids.
-	PostingStore *PostingStore    // Used for managing persistence of postings.
-	IDs          *common.Sequence // Shared monotonic counter for generating unique IDs for new postings.
-	VersionMap   *VersionMap      // Stores vector versions in-memory.
-	PostingSizes *PostingSizes    // Stores the size of each posting in-memory.
-	Metadata     *MetadataStore   // Stores metadata about the index.
+	Centroids       *HNSWIndex            // Provides access to the centroids.
+	PostingStore    *PostingStore         // Used for managing persistence of postings.
+	IDs             *common.Sequence      // Shared monotonic counter for generating unique IDs for new postings.
+	VersionMap      *VersionMap           // Stores vector versions in-memory.
+	IndexMetadata   *IndexMetadataStore   // Stores metadata about the index.
+	PostingMetadata *PostingMetadataStore // Stores metadata about the postings.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -106,12 +106,9 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	postingStore, err := NewPostingStore(store, bucket, metrics, cfg.ID, cfg.Store)
-	if err != nil {
-		return nil, err
-	}
+	postingMetadata := NewPostingMetadataStore(bucket, metrics)
 
-	postingSizes, err := NewPostingSizes(bucket, metrics)
+	postingStore, err := NewPostingStore(store, postingMetadata, bucket, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -121,21 +118,21 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	metadata := NewMetadataStore(bucket)
+	indexMetadata := NewIndexMetadataStore(bucket)
 
 	h := HFresh{
-		id:           cfg.ID,
-		logger:       cfg.Logger.WithField("component", "HFresh"),
-		config:       cfg,
-		scheduler:    cfg.Scheduler,
-		store:        store,
-		metrics:      metrics,
-		PostingStore: postingStore,
-		vectorForId:  cfg.VectorForIDThunk,
-		VersionMap:   versionMap,
-		PostingSizes: postingSizes,
-		Metadata:     metadata,
-		postingLocks: common.NewDefaultShardedRWLocks(),
+		id:              cfg.ID,
+		logger:          cfg.Logger.WithField("component", "HFresh"),
+		config:          cfg,
+		scheduler:       cfg.Scheduler,
+		store:           store,
+		metrics:         metrics,
+		PostingStore:    postingStore,
+		vectorForId:     cfg.VectorForIDThunk,
+		VersionMap:      versionMap,
+		PostingMetadata: postingMetadata,
+		IndexMetadata:   indexMetadata,
+		postingLocks:    common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:    visited.NewPool(1, 512, -1),
@@ -158,7 +155,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 
-	taskQueue, err := NewTaskQueue(&h)
+	taskQueue, err := NewTaskQueue(&h, bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +247,21 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 }
 
 func (h *HFresh) Flush() error {
-	return h.Centroids.hnsw.Flush()
+	var errs []error
+
+	// flush the HNSW commit log
+	err := h.Centroids.hnsw.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	// flush the task queues
+	err = h.taskQueue.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	return stderrors.Join(errs...)
 }
 
 func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {

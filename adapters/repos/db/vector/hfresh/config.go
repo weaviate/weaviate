@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,6 @@
 package hfresh
 
 import (
-	"fmt"
 	"io"
 	"math"
 
@@ -95,52 +94,73 @@ func DefaultConfig() *Config {
 }
 
 func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
-	uc, ok := initial.(ent.UserConfig)
+	initialParsed, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
 	}
 
-	nuc, ok := updated.(ent.UserConfig)
+	updatedParsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("updated is not UserConfig, but %T", updated)
 	}
 
-	if uc.Distance != nuc.Distance {
-		return fmt.Errorf("distance function cannot be changed once set (was '%s', cannot change to '%s')",
-			uc.Distance, nuc.Distance)
+	immutableFields := []immutableParameter{
+		{
+			name:     "distance",
+			accessor: func(c ent.UserConfig) interface{} { return c.Distance },
+		},
+		{
+			name:     "replicas",
+			accessor: func(c ent.UserConfig) interface{} { return c.Replicas },
+		},
+	}
+
+	for _, u := range immutableFields {
+		if err := validateImmutableField(u, initialParsed, updatedParsed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type immutableParameter struct {
+	accessor func(c ent.UserConfig) interface{}
+	name     string
+}
+
+func validateImmutableField(u immutableParameter,
+	previous, next ent.UserConfig,
+) error {
+	oldField := u.accessor(previous)
+	newField := u.accessor(next)
+	if oldField != newField {
+		return errors.Errorf("%s is immutable: attempted change from \"%v\" to \"%v\"",
+			u.name, oldField, newField)
 	}
 
 	return nil
 }
 
 // MaxPostingVectors returns how many vectors can fit in one posting
-// given the dimensions, compression and I/O budget.
-// I/O budget: SPANN recommends 12KB per posting for byte vectors
-// and 48KB for float32 vectors.
+// given the dimensions and I/O budget.
+// I/O budget: 48KB.
 // Dims is the number of dimensions of the vector, after compression
 // if applicable.
-func computeMaxPostingSize(dims int, compressed bool) uint32 {
-	bytesPerDim := 4
-	maxBytes := 48 * 1024 // default to float32 budget
-	metadata := 8 + 1     // id + version
-	if compressed {
-		bytesPerDim = 1
-		maxBytes = 12 * 1024                          // compressed budget
-		metadata += compressionhelpers.RQMetadataSize // RQ metadata
-	}
+func computeMaxPostingSize(dims int) uint32 {
+	bytesPerDim := 0.125                                  // RQ1
+	maxBytes := 48 * 1024                                 // budget
+	metadata := 8 + 1 + compressionhelpers.RQMetadataSize // id + version + RQ metadata
 
-	vBytes := dims*bytesPerDim + metadata
+	vBytes := float64(dims)*bytesPerDim + float64(metadata)
 
-	return uint32(math.Ceil(float64(maxBytes) / float64(vBytes)))
+	return uint32(math.Ceil(float64(maxBytes) / vBytes))
 }
 
 func (h *HFresh) setMaxPostingSize() {
 	if h.maxPostingSize == 0 {
-		isCompressed := h.Compressed()
-		h.maxPostingSize = computeMaxPostingSize(int(h.dims), isCompressed)
+		h.maxPostingSize = computeMaxPostingSize(int(h.dims))
 	}
 
-	if h.maxPostingSize <= h.minPostingSize {
-		h.minPostingSize = h.maxPostingSize / 2
-	}
+	h.minPostingSize = h.maxPostingSize / 3
 }
