@@ -182,13 +182,16 @@ func (s *segment) exists(key []byte) error {
 	// Format: byte 0 = tombstone flag, bytes 1-8 = value length, bytes 9+ = value
 	// For tombstones, the value is 9 bytes (1 version + 8 timestamp).
 	// So we need at most 18 bytes: 1 (flag) + 8 (length) + 9 (tombstone value)
-	headerSize := uint64(18)
+	const maxHeaderSize = 18
 	nodeSize := node.End - node.Start
+	headerSize := uint64(maxHeaderSize)
 	if nodeSize < headerSize {
 		headerSize = nodeSize
 	}
 
-	header := make([]byte, headerSize)
+	// Use stack-allocated buffer to avoid heap allocation on every call
+	var headerBuf [maxHeaderSize]byte
+	header := headerBuf[:headerSize]
 	if err = s.copyNode(header, nodeOffset{node.Start, node.Start + headerSize}); err != nil {
 		return err
 	}
