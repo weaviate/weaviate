@@ -402,7 +402,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+		// PutMeta is called 3 times: initial (TRANSFERRING), Finalizing, and final (SUCCESS)
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Times(3)
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
@@ -516,7 +517,8 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		fc.client.On("Status", any, newNodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, newNodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+		// PutMeta is called 3 times: initial (TRANSFERRING), Finalizing, and final (SUCCESS)
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Times(3)
 
 		coordinator := *fc.coordinator()
 		descReq := genReq()

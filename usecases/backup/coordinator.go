@@ -260,6 +260,9 @@ func (c *coordinator) Restore(
 		return err
 	}
 
+	// Set status to Transferring now that staging has begun
+	c.descriptor.Status = backup.Transferring
+
 	overrideBucket := req.Bucket
 	overridePath := req.Path
 
@@ -281,10 +284,24 @@ func (c *coordinator) Restore(
 		c.commit(ctx, &statusReq, nodes, true)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
+		// Block cancellation by setting status to Finalizing before schema apply
+		// Only proceed if staging was successful (Transferred = staging complete)
+		if c.descriptor.Status == backup.Transferred {
+			c.descriptor.Status = backup.Finalizing
+			if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+				c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
+			}
+		}
+
 		// Time schema apply phase (Raft commits for each class)
 		schemaApplyStart := time.Now()
 		c.restoreClasses(ctx, schema, req)
 		c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
+
+		// Set final status - restoreClasses may have set Failed, otherwise set Success
+		if c.descriptor.Status == backup.Finalizing {
+			c.descriptor.Status = backup.Success
+		}
 
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
@@ -319,7 +336,16 @@ func (c *coordinator) restoreClasses(
 	schema []backup.ClassDescriptor,
 	req *Request,
 ) {
-	if c.descriptor.Status != backup.Success {
+	// Only proceed if status is Finalizing (set by caller before schema apply)
+	if c.descriptor.Status != backup.Finalizing {
+		c.log.WithFields(logrus.Fields{
+			"action":          "restore_classes",
+			"backup_id":       c.descriptor.ID,
+			"expected_status": backup.Finalizing,
+			"actual_status":   c.descriptor.Status,
+		}).Error("unexpected status before schema apply")
+		c.descriptor.Error = fmt.Sprintf("unexpected status %q before schema apply, expected %q", c.descriptor.Status, backup.Finalizing)
+		c.descriptor.Status = backup.Failed
 		return
 	}
 	errors := make([]string, 0, 5)
@@ -486,7 +512,12 @@ func (c *coordinator) commit(ctx context.Context,
 		c.abortAll(context.Background(), req, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
+	// For restore operations, successful staging means "Transferred" (ready for schema apply)
+	// For backup operations, successful staging means "Success" (operation complete)
 	status := backup.Success
+	if req.Method == OpRestore {
+		status = backup.Transferred
+	}
 	reason := ""
 	groups := c.descriptor.Nodes
 	var totalPreCompressionSize int64

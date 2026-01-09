@@ -352,8 +352,10 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			return nil
 		case backup.Success:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
+		case backup.Finalizing:
+			return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
 		default:
-			// do nothing and continue the cancellation
+			// Transferring, Started - continue with cancellation
 		}
 	} else {
 		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
