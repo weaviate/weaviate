@@ -59,6 +59,16 @@ func (t *binarySearchTree) getNode(key []byte) (*binarySearchNode, error) {
 	return t.root.getNode(key)
 }
 
+// exists checks if a key exists and is not deleted, without returning the value.
+func (t *binarySearchTree) exists(key []byte) error {
+	if t.root == nil {
+		return lsmkv.NotFound
+	}
+
+	_, err := t.root.getNode(key)
+	return err
+}
+
 func (t *binarySearchTree) setTombstone(key, value []byte, secondaryKeys [][]byte) {
 	if t.root == nil {
 		// we need to actively insert a node with a tombstone, even if this node is

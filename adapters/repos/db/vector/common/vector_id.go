@@ -119,6 +119,30 @@ type (
 	MultiVectorForID                                              func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
+// BucketView represents a consistent view of an LSM bucket that can be used
+// for multiple reads without acquiring locks for each read. The caller must
+// call Release() when done to avoid blocking compactions.
+type BucketView interface {
+	Release()
+}
+
+// GetViewThunk returns a consistent view of the underlying bucket.
+type GetViewThunk func() BucketView
+
+// TempVectorForIDWithView is like TempVectorForID but uses an existing bucket view.
+type TempVectorForIDWithView[T []float32 | float32] func(ctx context.Context, id uint64, container *VectorSlice, view BucketView) ([]T, error)
+
+// TargetTempVectorForIDWithView wraps a view-aware vector thunk with a target vector name.
+type TargetTempVectorForIDWithView[T []float32 | float32] struct {
+	TargetVector                 string
+	TempVectorForIDWithViewThunk func(ctx context.Context, id uint64, container *VectorSlice, targetVector string, view BucketView) ([]T, error)
+}
+
+// TempVectorForIDWithView returns the view-aware vector lookup function.
+func (t TargetTempVectorForIDWithView[T]) TempVectorForIDWithView(ctx context.Context, id uint64, container *VectorSlice, view BucketView) ([]T, error) {
+	return t.TempVectorForIDWithViewThunk(ctx, id, container, t.TargetVector, view)
+}
+
 type TargetVectorForID[T []float32 | float32 | byte | uint64] struct {
 	TargetVector     string
 	VectorForIDThunk func(ctx context.Context, id uint64, targetVector string) ([]T, error)

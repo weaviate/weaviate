@@ -86,9 +86,9 @@ func TestBackup_Integration(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}
 
 	uc := ent.UserConfig{

@@ -16,11 +16,13 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // This test proves two things:
@@ -672,4 +674,116 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 
 	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "compacted segment should have received calls on new view")
+}
+
+func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
+	t.Run("key found in segment", func(t *testing.T) {
+		segmentData := map[string][]byte{
+			"key1": []byte("value1"),
+		}
+		sg := &SegmentGroup{
+			strategy:         StrategyReplace,
+			segments:         []Segment{newFakeReplaceSegment(segmentData)},
+			segmentsWithRefs: map[string]Segment{},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		require.NoError(t, err)
+	})
+
+	t.Run("key not found in any segment", func(t *testing.T) {
+		segmentData := map[string][]byte{
+			"key1": []byte("value1"),
+		}
+		sg := &SegmentGroup{
+			strategy:         StrategyReplace,
+			segments:         []Segment{newFakeReplaceSegment(segmentData)},
+			segmentsWithRefs: map[string]Segment{},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		err := sg.existsWithSegmentList([]byte("nonexistent"), segments)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("key in older segment overridden by newer", func(t *testing.T) {
+		// older segment has key1
+		seg1 := newFakeReplaceSegment(map[string][]byte{
+			"key1": []byte("old-value"),
+		})
+		// newer segment also has key1
+		seg2 := newFakeReplaceSegment(map[string][]byte{
+			"key1": []byte("new-value"),
+		})
+		sg := &SegmentGroup{
+			strategy:         StrategyReplace,
+			segments:         []Segment{seg1, seg2}, // seg2 is newer (higher index)
+			segmentsWithRefs: map[string]Segment{},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		require.NoError(t, err)
+	})
+
+	t.Run("exists and get return consistent results", func(t *testing.T) {
+		segmentData := map[string][]byte{
+			"key1": []byte("value1"),
+		}
+		sg := &SegmentGroup{
+			strategy:         StrategyReplace,
+			segments:         []Segment{newFakeReplaceSegment(segmentData)},
+			segmentsWithRefs: map[string]Segment{},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		// For existing key
+		existsErr := sg.existsWithSegmentList([]byte("key1"), segments)
+		_, getErr := sg.getWithSegmentList([]byte("key1"), segments)
+		assert.NoError(t, existsErr)
+		assert.NoError(t, getErr)
+
+		// For non-existing key
+		existsErr = sg.existsWithSegmentList([]byte("nonexistent"), segments)
+		_, getErr = sg.getWithSegmentList([]byte("nonexistent"), segments)
+		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
+		assert.ErrorIs(t, getErr, lsmkv.NotFound)
+	})
+
+	t.Run("multiple segments with different keys", func(t *testing.T) {
+		seg1 := newFakeReplaceSegment(map[string][]byte{
+			"key1": []byte("value1"),
+		})
+		seg2 := newFakeReplaceSegment(map[string][]byte{
+			"key2": []byte("value2"),
+		})
+		sg := &SegmentGroup{
+			strategy:         StrategyReplace,
+			segments:         []Segment{seg1, seg2},
+			segmentsWithRefs: map[string]Segment{},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		// Both keys should exist
+		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		require.NoError(t, err)
+
+		err = sg.existsWithSegmentList([]byte("key2"), segments)
+		require.NoError(t, err)
+
+		// Non-existent key should return NotFound
+		err = sg.existsWithSegmentList([]byte("key3"), segments)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
 }
