@@ -85,6 +85,8 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 func (egw *ErrorGroupWrapper) setDeferFunc() {
 	disable := entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
 	if !disable {
+		var cancelOnce sync.Once
+
 		egw.deferFunc = func(localVars ...interface{}) {
 			if r := recover(); r != nil {
 				entsentry.Recover(r)
@@ -97,7 +99,9 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 					egw.returnError = fmt.Errorf("panic occurred: %v, with previous error: %w", r, egw.returnError)
 				}
 				egw.returnErrorMu.Unlock()
-				egw.cancelCtx()
+				cancelOnce.Do(func() {
+					egw.cancelCtx()
+				})
 			}
 		}
 	} else {
