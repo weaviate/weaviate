@@ -102,7 +102,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// search for the closest centroids
-	nearest, err := h.Centroids.Search(oldCentroid.Uncompressed, h.config.InternalPostingCandidates)
+	nearest, err := h.Centroids.Search(oldCentroid.Uncompressed, h.config.InternalPostingCandidates, nil)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}

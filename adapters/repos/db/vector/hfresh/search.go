@@ -38,7 +38,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// to enlarge the search space.
 	candidateCentroidNum := max(k, int(h.searchProbe))
 
-	centroids, err := h.Centroids.Search(vector, candidateCentroidNum)
+	nAllowList := allowList
+	if allowList != nil {
+		nAllowList = h.wrapAllowList(ctx, allowList)
+	}
+	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
 	if err != nil {
 		return nil, nil, err
 	}

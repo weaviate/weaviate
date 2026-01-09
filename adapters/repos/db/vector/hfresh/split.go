@@ -236,7 +236,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 	}
 
 	// search for neighboring centroids
-	nearest, err := h.Centroids.Search(oldCentroid.Uncompressed, h.config.ReassignNeighbors)
+	nearest, err := h.Centroids.Search(oldCentroid.Uncompressed, h.config.ReassignNeighbors, nil)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroids for reassign after split for posting %d", oldPostingID)
 	}

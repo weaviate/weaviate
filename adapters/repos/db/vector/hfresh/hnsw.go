@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -111,11 +112,11 @@ func (i *HNSWIndex) Exists(id uint64) bool {
 	return i.hnsw.ContainsDoc(id)
 }
 
-func (i *HNSWIndex) Search(query []float32, k int) (*ResultSet, error) {
+func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
 	start := time.Now()
 	defer i.metrics.CentroidSearchDuration(start)
 
-	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, nil)
+	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, allowList)
 	if err != nil {
 		return nil, err
 	}
