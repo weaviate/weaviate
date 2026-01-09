@@ -18,22 +18,21 @@ import (
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
-	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, *PostingMap]
-	bucket  *PostingMetadataBucket
+	cache   *otter.Cache[uint64, []uint64]
+	bucket  *PostingMapStore
 	pool    sync.Pool
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
-	b := NewPostingMetadataBucket(bucket, postingMetadataBucketPrefix)
+	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
-	cache, _ := otter.New[uint64, *PostingMap](nil)
+	cache, _ := otter.New[uint64, []uint64](nil)
 
 	return &PostingMap{
 		cache:   cache,
@@ -73,10 +72,10 @@ func (v *PostingMap) invalidate(m *PostingMap) {
 	m.m.Unlock()
 }
 
-// Get returns the size of the posting with the given ID.
+// Get returns the vector IDs associated with this posting.
 // The returned function must be called to release the posting back to the pool.
-func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMap, func(), error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMap](func(ctx context.Context, key uint64) (*PostingMap, error) {
+func (v *PostingMap) Get(ctx context.Context, postingID uint64) ([]uint64, func(), error) {
+	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, []uint64](func(ctx context.Context, key uint64) ([]uint64, error) {
 		m, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
@@ -229,28 +228,28 @@ func (v *PostingMap) SetVersion(ctx context.Context, postingID uint64, newVersio
 	return nil
 }
 
-// PostingMetadataBucket is a persistent store for posting metadata.
-type PostingMetadataBucket struct {
+// PostingMapStore is a persistent store for vector IDs.
+type PostingMapStore struct {
 	bucket    *lsmkv.Bucket
 	keyPrefix byte
 }
 
-func NewPostingMetadataBucket(bucket *lsmkv.Bucket, keyPrefix byte) *PostingMetadataBucket {
-	return &PostingMetadataBucket{
+func NewPostingMapStore(bucket *lsmkv.Bucket, keyPrefix byte) *PostingMapStore {
+	return &PostingMapStore{
 		bucket:    bucket,
 		keyPrefix: keyPrefix,
 	}
 }
 
-func (p *PostingMetadataBucket) key(postingID uint64) [9]byte {
+func (p *PostingMapStore) key(postingID uint64) [9]byte {
 	var buf [9]byte
 	buf[0] = p.keyPrefix
 	binary.LittleEndian.PutUint64(buf[1:], postingID)
 	return buf
 }
 
-// Get retrieves the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*PostingMap, error) {
+// Get retrieves the vector IDs for the given posting ID.
+func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]uint64, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
@@ -260,23 +259,26 @@ func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*Pos
 		return nil, ErrPostingNotFound
 	}
 
-	var metadata PostingMap
-	err = msgpack.Unmarshal(v, &metadata)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to unmarshal posting metadata for %d", postingID)
+	numVectors := binary.LittleEndian.Uint32(v[:4])
+	vectorIDs := make([]uint64, numVectors)
+	for i := uint32(0); i < numVectors; i++ {
+		start := 4 + i*8
+		end := start + 8
+		vectorIDs[i] = binary.LittleEndian.Uint64(v[start:end])
 	}
 
-	return &metadata, nil
+	return vectorIDs, nil
 }
 
-// Set adds or replaces the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metadata *PostingMap) error {
+// Set adds or replaces the vector IDs for the given posting ID.
+func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs []uint64) error {
 	key := p.key(postingID)
 
-	data, err := msgpack.Marshal(metadata)
-	if err != nil {
-		return errors.Wrapf(err, "failed to marshal posting metadata for %d", postingID)
+	buf := make([]byte, 0, 4+8*len(vectorIDs))
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(vectorIDs)))
+	for _, vectorID := range vectorIDs {
+		buf = binary.LittleEndian.AppendUint64(buf, vectorID)
 	}
 
-	return p.bucket.Put(key[:], data)
+	return p.bucket.Put(key[:], buf)
 }

@@ -32,11 +32,11 @@ const (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 const (
-	versionMapBucketPrefix      = 'v'
-	metadataBucketPrefix        = 'm'
-	postingMetadataBucketPrefix = 'p'
-	postingVersionBucketPrefix  = 'l'
-	reassignBucketKey           = "pending_reassignments"
+	indexMetadataBucketPrefix  = 'm'
+	versionMapBucketPrefix     = 'v'
+	postingMapBucketPrefix     = 'p'
+	postingVersionBucketPrefix = 'l'
+	reassignBucketKey          = "pending_reassignments"
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
@@ -71,7 +71,7 @@ func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
 
 func (i *IndexMetadataStore) key(suffix string) []byte {
 	buf := make([]byte, 1+len(suffix))
-	buf[0] = metadataBucketPrefix
+	buf[0] = indexMetadataBucketPrefix
 	copy(buf[1:], suffix)
 	return buf
 }
