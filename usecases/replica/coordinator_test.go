@@ -29,18 +29,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-type mockHttpClient struct {
-	handler func(req *http.Request) (*http.Response, error)
-}
-
-func newMockHttpClient(handler func(req *http.Request) (*http.Response, error)) *mockHttpClient {
-	return &mockHttpClient{handler: handler}
-}
-
-func (m *mockHttpClient) Do(req *http.Request) (*http.Response, error) {
-	return m.handler(req)
-}
-
 func Test_coordinatorPush(t *testing.T) {
 	class := "C1"
 	shard := "S1"
