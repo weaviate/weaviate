@@ -180,14 +180,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
-	ctx := context.Background()
-	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (e *executor) DeleteClass(cls string, hasFrozen bool) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls, hasFrozen); err != nil {

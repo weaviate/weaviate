@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -221,7 +222,8 @@ type Index struct {
 
 	replicationConfigLock sync.RWMutex
 
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter  *loadlimiter.LoadLimiter
+	bucketLoadLimiter *loadlimiter.LoadLimiter
 
 	closed bool
 
@@ -299,6 +301,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
+		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,
 		bitmapBufPool:           bitmapBufPool,
 	}
@@ -706,7 +709,8 @@ type IndexConfig struct {
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
-	ShardLoadLimiter                    ShardLoadLimiter
+	ShardLoadLimiter                    *loadlimiter.LoadLimiter
+	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool

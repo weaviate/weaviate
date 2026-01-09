@@ -56,7 +56,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	queries_size := len(queries)
 	runId := uuid.New().String()
 
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -288,7 +288,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			bq := flatent.CompressionUserConfig{
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
 			}
-			store, err := lsmkv.New(dirName, dirName, logger, nil,
+			store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop())
@@ -348,7 +348,7 @@ func TestFlat_Preload(t *testing.T) {
 			bq := flatent.CompressionUserConfig{
 				Enabled: true, Cache: true, RescoreLimit: 10,
 			}
-			store, err := lsmkv.New(dirName, dirName, logger, nil,
+			store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop())
@@ -433,7 +433,7 @@ func TestFlat_Validation(t *testing.T) {
 
 	dirName := t.TempDir()
 
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())

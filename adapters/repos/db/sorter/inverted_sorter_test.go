@@ -200,7 +200,7 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 func createStoreAndInitWithObjects(t *testing.T, ctx context.Context, objectCount int,
 	dirName string, logger logrus.FieldLogger,
 ) *lsmkv.Store {
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())

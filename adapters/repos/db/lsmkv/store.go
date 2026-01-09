@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
@@ -55,6 +56,7 @@ type Store struct {
 	// Prevent concurrent manipulations to the same Bucket, specially if there is
 	// action on the bucket in the meantime.
 	bucketsLocks *wsync.KeyLocker
+	loadLimiter  *loadlimiter.LoadLimiter
 
 	closeLock sync.RWMutex
 	closed    bool
@@ -63,7 +65,7 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadLimiter *loadlimiter.LoadLimiter,
 	shardCompactionCallbacks, shardCompactionAuxCallbacks,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
@@ -75,6 +77,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
+		loadLimiter:   loadLimiter,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
@@ -164,6 +167,13 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 			WithError(err).Errorf("unexpected error loading shard")
 		debug.PrintStack()
 	}()
+
+	if s.loadLimiter != nil {
+		if err := s.loadLimiter.Acquire(ctx); err != nil {
+			return errors.Wrapf(err, "acquire load limiter for bucket %q", bucketName)
+		}
+		defer s.loadLimiter.Release()
+	}
 
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()

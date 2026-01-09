@@ -50,7 +50,7 @@ func TestObjects(t *testing.T) {
 		docIDCounter = uint64(0)
 	)
 
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -159,7 +159,7 @@ func TestDocIDs(t *testing.T) {
 		numObjects   = len(charSet) * multiplier
 		docIDCounter = uint64(0)
 	)
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -313,7 +313,7 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 	propName := "inverted-text-roaringset"
 
 	t.Run("import data", func(tt *testing.T) {
-		store, err := lsmkv.New(dirName, dirName, logger, nil,
+		store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop())

@@ -30,7 +30,7 @@ func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 	defer os.RemoveAll(dirName)
 	logger, _ := test.NewNullLogger()
 
-	store, err := New(dirName, dirName, logger, nil,
+	store, err := New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1),
 		cyclemanager.NewCallbackGroup("classCompactionNonObjects", logger, 1),
 		cyclemanager.NewCallbackGroupNoop())
@@ -76,7 +76,7 @@ func TestCreateBucketConcurrency(t *testing.T) {
 	defer os.RemoveAll(dirName)
 	logger, _ := test.NewNullLogger()
 
-	store, err := New(dirName, dirName, logger, nil,
+	store, err := New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1),
 		cyclemanager.NewCallbackGroup("classCompactionNonObjects", logger, 1),
 		cyclemanager.NewCallbackGroupNoop())
