@@ -379,6 +379,9 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	s.restorer.abortAll(ctx,
 		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
+	// Update coordinator's lastOp status to prevent stale reads from OnStatus()
+	s.restorer.lastOp.set(backup.Cancelled)
+
 	// Write CANCELED status to restore_config.json
 	if meta != nil {
 		meta.Status = backup.Cancelled
