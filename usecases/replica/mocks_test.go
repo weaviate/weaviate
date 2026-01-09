@@ -55,7 +55,7 @@ func (f *fakeRClient) OverwriteObjects(ctx context.Context, host, index, shard s
 }
 
 func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID, numRetries int,
+	ids []strfmt.UUID,
 ) ([]types.RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, ids)
 	return args.Get(0).([]types.RepairResponse), args.Error(1)
