@@ -602,6 +602,97 @@ func TestSchedulerRestoration(t *testing.T) {
 		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
 		assert.Contains(t, fs.backend.glMeta.Error, "")
 	})
+
+	t.Run("NodeMappingPassedCorrectly", func(t *testing.T) {
+		oldNodeA := "Old-Node-A"
+		oldNodeB := "Old-Node-B"
+		newNodeA := "New-Node-A"
+		newNodeB := "New-Node-B"
+		nodeMapping := map[string]string{
+			oldNodeA: newNodeA,
+			oldNodeB: newNodeB,
+		}
+
+		// Create meta with old node names
+		metaWithOldNodes := backup.DistributedBackupDescriptor{
+			ID:            backupID,
+			StartedAt:     timePt,
+			Version:       "1",
+			ServerVersion: "1",
+			Status:        backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{
+				oldNodeA: {Classes: []string{cls}},
+				oldNodeB: {Classes: []string{cls}},
+			},
+		}
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{newNodeA, newNodeB}))
+		bytes := marshalCoordinatorMeta(metaWithOldNodes)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeA, BackupFile).Return(metaBytes1, nil)
+		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeB, BackupFile).Return(metaBytes2, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil).Twice()
+		fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+
+		// Verify CanCommit is called with new node names and Request contains NodeMapping
+		fs.client.On("CanCommit", any, newNodeA, mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpRestore && r.ID == backupID && r.Backend == backendName &&
+				len(r.Classes) == 1 && r.Classes[0] == cls &&
+				len(r.NodeMapping) == 2 &&
+				r.NodeMapping[oldNodeA] == newNodeA &&
+				r.NodeMapping[oldNodeB] == newNodeB
+		})).Return(cResp, nil)
+		fs.client.On("CanCommit", any, newNodeB, mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpRestore && r.ID == backupID && r.Backend == backendName &&
+				len(r.Classes) == 1 && r.Classes[0] == cls &&
+				len(r.NodeMapping) == 2 &&
+				r.NodeMapping[oldNodeA] == newNodeA &&
+				r.NodeMapping[oldNodeB] == newNodeB
+		})).Return(cResp, nil)
+		fs.client.On("Commit", any, newNodeA, sReq).Return(nil)
+		fs.client.On("Commit", any, newNodeB, sReq).Return(nil)
+		fs.client.On("Status", any, newNodeA, sReq).Return(sresp, nil)
+		fs.client.On("Status", any, newNodeB, sReq).Return(sresp, nil)
+
+		// Ensure RestoreClass succeeds so we can verify NodeMapping was passed
+		fs.schema.errRestoreClass = nil
+
+		s := fs.scheduler()
+		req := BackupRequest{
+			ID:          backupID,
+			Include:     []string{cls},
+			Backend:     backendName,
+			NodeMapping: nodeMapping,
+		}
+		resp, err := s.Restore(ctx, nil, &req, false)
+		assert.Nil(t, err)
+		status1 := string(backup.Started)
+		want1 := &models.BackupRestoreResponse{
+			Backend: backendName,
+			Classes: req.Include,
+			ID:      backupID,
+			Status:  &status1,
+			Path:    path,
+		}
+		assert.Equal(t, resp, want1)
+
+		// Wait for restore to complete
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Millisecond * 60)
+			if i > 0 && s.restorer.lastOp.get().Status == "" {
+				break
+			}
+		}
+
+		// Verify node mapping was applied to meta descriptor
+		// The meta should have new node names after ApplyNodeMapping
+		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
+		assert.Equal(t, fs.backend.glMeta.NodeMapping, nodeMapping)
+		assert.Equal(t, nodeMapping, fs.schema.lastNodeMapping)
+		fs.client.AssertExpectations(t)
+	})
 }
 
 func TestSchedulerRestoreRequestValidation(t *testing.T) {
