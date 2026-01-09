@@ -75,7 +75,6 @@ func NewConfigManager[T any](
 	registered *T,
 	interval time.Duration,
 	log logrus.FieldLogger,
-	hooks map[string]func() error,
 	r prometheus.Registerer,
 ) (*ConfigManager[T], error) {
 	// catch empty filepath early
@@ -98,7 +97,7 @@ func NewConfigManager[T any](
 			Help: "Hash value of the currently active runtime configuration",
 		}, []string{"sha256"}), // sha256 is type of checksum and hard-coded for now
 		currentConfig: registered,
-		hooks:         hooks,
+		hooks:         nil,
 	}
 
 	// try to load it once to fail early if configs are invalid
@@ -114,6 +113,11 @@ func NewConfigManager[T any](
 // Meaning, cancelling the passed `ctx` stops the actor.
 func (cm *ConfigManager[T]) Run(ctx context.Context) error {
 	return cm.loop(ctx)
+}
+
+// RegisterHooks registers any hooks that should be enabled prior runtime config start
+func (cm *ConfigManager[T]) RegisterHooks(hooks map[string]func() error) {
+	cm.hooks = hooks
 }
 
 // loadConfig reads and unmarshal the config from the file location.

@@ -143,6 +143,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
 		bitmapBufPool:                b.bitmapBufPool,
+		keepLevelCompaction:          cfg.keepLevelCompaction,
 	}
 
 	segmentIndex := 0
