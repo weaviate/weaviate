@@ -147,14 +147,22 @@ func TestReplicatorPutObject(t *testing.T) {
 			rep := f.newReplicator()
 			resp := replica.SimpleResponse{}
 
-			f.WClient.On("PutObject", mock.Anything, "A", cls, shard, anyVal, obj, uint64(123)).Return(resp, errAny).After(time.Second * 10)
-			f.WClient.On("Abort", mock.Anything, "A", cls, shard, anyVal).Return(resp, nil)
+			// Route-dependent host(make it deterministic): succeed only on "A", return a phase-one error
+			// for any other host. This guarantees:
+			//   - multiple hosts are tried
+			//   - exactly one host ("A") can be committed successfully.
+			f.WClient.EXPECT().
+				PutObject(mock.Anything, mock.Anything, cls, shard, anyVal, obj, uint64(123)).
+				RunAndReturn(func(ctx context.Context, host, index, shard, reqID string, o *storobj.Object, sv uint64) (replica.SimpleResponse, error) {
+					if host == "A" {
+						return resp, nil
+					}
+					return replica.SimpleResponse{}, errAny
+				})
 
-			f.WClient.On("PutObject", mock.Anything, "B", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
-			f.WClient.On("Commit", ctx, "B", cls, shard, anyVal, anyVal).Return(errAny)
+			f.WClient.On("Commit", ctx, "A", "C1", shard, anyVal, anyVal).
+				Return(nil)
 
-			f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
-			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil)
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelOne, 123)
 			assert.Nil(t, err)
 		})
@@ -348,7 +356,6 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			resp := replica.SimpleResponse{Errors: make([]replica.Error, 1)}
 			for _, n := range nodes[:2] {
 				client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, anyVal, uint64(123)).Return(resp, nil)
-				client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 			}
 			client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid, anyVal, uint64(123)).Return(replica.SimpleResponse{}, errAny)
 			for _, n := range nodes {
@@ -537,16 +544,16 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyQuorum_%v", tc.variant), func(t *testing.T) {
-			nodes = []string{"A", "B", "C"}
-			factory := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
+			nodesQuorum := []string{"A", "B", "C"}
+			factory := newFakeFactory(t, "C1", shard, nodesQuorum, tc.isMultiTenant)
 			client := factory.WClient
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
-			for _, n := range nodes {
+			for _, n := range nodesQuorum {
 				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
 			}
-			for _, n := range nodes[:2] {
+			for _, n := range nodesQuorum[:2] {
 				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
 					resp := args[5].(*replica.DeleteBatchResponse)
 					*resp = replica.DeleteBatchResponse{
@@ -602,18 +609,26 @@ func TestReplicatorPutObjects(t *testing.T) {
 			nodes := []string{"A", "B", "C"}
 			f := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
-			for _, n := range nodes[:2] {
-				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
-				f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
-					resp := a[5].(*replica.SimpleResponse)
-					*resp = replica.SimpleResponse{Errors: []replica.Error{{}, {}, {Msg: "e3"}}}
-				}
-			}
-			f.WClient.On("PutObjects", mock.Anything, "C", cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
-			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+
+			// Phase one: branch on host(make it deterministic). Only "A" can succeed; all other hosts
+			// return a phase-one error. This guarantees:
+			//   - multiple replicas are contacted
+			//   - only "A" is eligible for commit.
+			f.WClient.EXPECT().
+				PutObjects(mock.Anything, mock.Anything, cls, shard, anyVal, objs, uint64(0)).
+				RunAndReturn(func(ctx context.Context, host, index, shard, reqID string, os []*storobj.Object, sv uint64) (replica.SimpleResponse, error) {
+					if host == "A" {
+						return resp1, nil
+					}
+					return replica.SimpleResponse{}, errAny
+				})
+
+			// Commit only on the successful node.
+			f.WClient.On("Commit", ctx, "A", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replica.Error, 3)}
 			}
+
 			errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelOne, 0)
 			assert.Equal(t, []error{nil, nil, nil}, errs)
 		})
@@ -795,8 +810,8 @@ type fakeFactory struct {
 	CLS            string
 	Nodes          []string
 	Shard2replicas map[string][]string
-	WClient        *fakeClient
-	RClient        *fakeRClient
+	WClient        *replica.MockWClient
+	RClient        *replica.MockRClient
 	log            *logrus.Logger
 	hook           *test.Hook
 	isMultiTenant  bool
@@ -810,8 +825,8 @@ func newFakeFactory(t *testing.T, class, shard string, nodes []string, isMultiTe
 		CLS:            class,
 		Nodes:          nodes,
 		Shard2replicas: map[string][]string{shard: nodes},
-		WClient:        &fakeClient{},
-		RClient:        &fakeRClient{},
+		WClient:        replica.NewMockWClient(t),
+		RClient:        replica.NewMockRClient(t),
 		log:            logger,
 		hook:           hook,
 		isMultiTenant:  isMultiTenant,
