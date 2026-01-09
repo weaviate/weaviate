@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -186,12 +187,16 @@ func postingsBucketName(id string) string {
 type PostingVersionsStore struct {
 	bucket    *lsmkv.Bucket
 	keyPrefix byte
+	cache     *otter.Cache[uint64, uint32]
 }
 
 func NewPostingVersionsStore(bucket *lsmkv.Bucket) *PostingVersionsStore {
+	cache, _ := otter.New[uint64, uint32](nil)
+
 	return &PostingVersionsStore{
 		bucket:    bucket,
 		keyPrefix: postingVersionBucketPrefix,
+		cache:     cache,
 	}
 }
 
@@ -203,19 +208,32 @@ func (p *PostingVersionsStore) key(postingID uint64) [9]byte {
 }
 
 func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
-	key := p.key(postingID)
-	v, err := p.bucket.Get(key[:])
-	if err != nil {
-		return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
-	}
-	if len(v) == 0 {
-		return 0, ErrPostingNotFound
+	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint32](func(ctx context.Context, key uint64) (uint32, error) {
+		k := p.key(postingID)
+		v, err := p.bucket.Get(k[:])
+		if err != nil {
+			return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+		}
+		if len(v) == 0 {
+			return 0, otter.ErrNotFound
+		}
+
+		return binary.LittleEndian.Uint32(v), nil
+	}))
+	if errors.Is(err, otter.ErrNotFound) {
+		return 0, nil
 	}
 
-	return binary.LittleEndian.Uint32(v), nil
+	return version, err
 }
 
-func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, size uint32) error {
+func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, version uint32) error {
 	key := p.key(postingID)
-	return p.bucket.Put(key[:], binary.LittleEndian.AppendUint32(nil, size))
+	err := p.bucket.Put(key[:], binary.LittleEndian.AppendUint32(nil, version))
+	if err != nil {
+		return err
+	}
+
+	p.cache.Set(postingID, version)
+	return nil
 }
