@@ -203,7 +203,7 @@ func TestHFreshRecall(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, dirs, 5)
 		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[0].Name())
-		require.Equal(t, "centroids.hnsw.snapshot.d/", dirs[1].Name())
+		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[1].Name())
 		require.Equal(t, "merge.queue.d", dirs[2].Name())
 		require.Equal(t, "reassign.queue.d", dirs[3].Name())
 		require.Equal(t, "split.queue.d", dirs[4].Name())
