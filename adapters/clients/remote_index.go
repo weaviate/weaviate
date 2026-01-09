@@ -78,7 +78,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
+	_, err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, nil, successCode)
 	return err
 }
 
@@ -114,7 +114,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, decode, successCode, MAX_RETRIES); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 
@@ -241,7 +241,7 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 		return false, fmt.Errorf("create http request: %w", err)
 	}
 	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
-	code, err := c.do(c.timeoutUnit*20, req, nil, nil, ok)
+	code, err := c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, nil, ok)
 	return code != http.StatusNotFound, err
 }
 
@@ -393,7 +393,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
 	return resp.Objects, resp.Distributions, err
 }
 
@@ -434,7 +434,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
 	return resp.Result, err
 }
 
@@ -574,7 +574,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		return false, nil
 	}
-	return size, c.retry(ctx, 9, try)
+	return size, c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
@@ -615,7 +615,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, 9, try)
+	return status, c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -651,7 +651,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
@@ -685,7 +685,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 
-	return c.retry(ctx, 12, try)
+	return c.retry(ctx, MAX_RETRIES+SOME_RETRIES, try)
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
@@ -711,7 +711,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) ReInitShard(ctx context.Context,
@@ -738,7 +738,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // PauseFileActivity pauses the collection's shard replica background processes on the specified
@@ -770,7 +770,7 @@ func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // ResumeFileActivity resumes the collection's shard replica background processes on the specified host
@@ -797,7 +797,7 @@ func (c *RemoteIndex) ResumeFileActivity(ctx context.Context,
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // ListFiles returns a list of files that can be used to get the shard data at the time the pause
@@ -837,7 +837,7 @@ func (c *RemoteIndex) ListFiles(ctx context.Context,
 		}
 		return false, nil
 	}
-	return relativeFilePaths, c.retry(ctx, 9, try)
+	return relativeFilePaths, c.retry(ctx, MAX_RETRIES, try)
 }
 
 // GetFileMetadata returns file info to the file relative to the
@@ -881,7 +881,7 @@ func (c *RemoteIndex) GetFileMetadata(ctx context.Context, hostName, indexName,
 
 		return false, nil
 	}
-	return md, c.retry(ctx, 9, try)
+	return md, c.retry(ctx, MAX_RETRIES, try)
 }
 
 // GetFile caller must close the returned io.ReadCloser if no error is returned.
@@ -914,7 +914,7 @@ func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
 		file = res.Body
 		return false, nil
 	}
-	return file, c.retry(ctx, 9, try)
+	return file, c.retry(ctx, MAX_RETRIES, try)
 }
 
 // AddAsyncReplicationTargetNode configures and starts async replication for the given
@@ -953,7 +953,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // RemoveAsyncReplicationTargetNode removes the given target node override for async replication.
@@ -988,7 +988,7 @@ func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 // setupRequest is a simple helper to create a new http request with the given method, host, path,

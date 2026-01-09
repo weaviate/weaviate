@@ -509,7 +509,7 @@ func (*FakeReplicationClient) FetchObject(ctx context.Context, hostName, indexNa
 }
 
 func (*FakeReplicationClient) DigestObjects(ctx context.Context,
-	hostName, indexName, shardName string, ids []strfmt.UUID, numRetries int,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {
 	return nil, nil
 }
