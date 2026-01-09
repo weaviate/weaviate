@@ -13,6 +13,7 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"regexp"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -402,6 +404,164 @@ replica_movement_minimum_async_wait: 10s`)
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 		assert.Equal(t, 0, raftTimeoutsMultiplier.Get())
+	})
+
+	t.Run("updating objects ttl", func(t *testing.T) {
+		deleteSchedule, _ := runtime.NewDynamicValueWithValidation("@every 1h", func(val string) error {
+			if _, err := cron.StandardParser().Parse(val); err != nil {
+				return fmt.Errorf("delete_schedule: %w", err)
+			}
+			return nil
+		})
+		findBatchSize, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLFindBatchSize, func(val int) error {
+			return validatePositiveInt(val, "find_batch_size")
+		})
+		deleteBatchSize, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLDeleteBatchSize, func(val int) error {
+			return validatePositiveInt(val, "delete_batch_size")
+		})
+		concurrencyFactor, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLConcurrencyFactor, func(val float64) error {
+			return validatePositiveFloat(val, "concurrency_factor")
+		})
+
+		emptyBuf := []byte("")
+		reg := &WeaviateRuntimeConfig{
+			ObjectsTTLDeleteSchedule:    deleteSchedule,
+			ObjectsTTLFindBatchSize:     findBatchSize,
+			ObjectsTTLDeleteBatchSize:   deleteBatchSize,
+			ObjectsTTLConcurrencyFactor: concurrencyFactor,
+		}
+
+		t.Run("delete schedule", func(t *testing.T) {
+			buf := func(val string) []byte {
+				return fmt.Appendf(nil, "objects_ttl_delete_schedule: %q", val)
+			}
+
+			// initial default
+			assert.Equal(t, "@every 1h", deleteSchedule.Get())
+
+			// set to 2h
+			parsed, err := ParseRuntimeConfig(buf("@every 2h"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 2h", deleteSchedule.Get())
+
+			// try set invalid value
+			parsed, err = ParseRuntimeConfig(buf("* * * * * *"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 2h", deleteSchedule.Get())
+
+			// update to 3h
+			parsed, err = ParseRuntimeConfig(buf("@every 3h"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 3h", deleteSchedule.Get())
+
+			// remove -> back to default
+			parsed, err = ParseRuntimeConfig(emptyBuf)
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, "@every 1h", deleteSchedule.Get())
+		})
+
+		t.Run("find batch size", func(t *testing.T) {
+			buf := func(val int) []byte {
+				return fmt.Appendf(nil, "objects_ttl_find_batch_size: %d", val)
+			}
+
+			// initial default
+			assert.Equal(t, DefaultObjectsTTLFindBatchSize, findBatchSize.Get())
+
+			// set to 20k
+			parsed, err := ParseRuntimeConfig(buf(20_000))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 20_000, findBatchSize.Get())
+
+			// try set invalid value
+			parsed, err = ParseRuntimeConfig(buf(-10_000))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 20_000, findBatchSize.Get())
+
+			// update to 30k
+			parsed, err = ParseRuntimeConfig(buf(30_000))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 30_000, findBatchSize.Get())
+
+			// remove -> back to default
+			parsed, err = ParseRuntimeConfig(emptyBuf)
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, DefaultObjectsTTLFindBatchSize, findBatchSize.Get())
+		})
+
+		t.Run("delete batch size", func(t *testing.T) {
+			buf := func(val int) []byte {
+				return fmt.Appendf(nil, "objects_ttl_delete_batch_size: %d", val)
+			}
+
+			// initial default
+			assert.Equal(t, DefaultObjectsTTLDeleteBatchSize, deleteBatchSize.Get())
+
+			// set to 20k
+			parsed, err := ParseRuntimeConfig(buf(20_000))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 20_000, deleteBatchSize.Get())
+
+			// try set invalid value
+			parsed, err = ParseRuntimeConfig(buf(-10_000))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 20_000, deleteBatchSize.Get())
+
+			// update to 30k
+			parsed, err = ParseRuntimeConfig(buf(30_000))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 30_000, deleteBatchSize.Get())
+
+			// remove -> back to default
+			parsed, err = ParseRuntimeConfig(emptyBuf)
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, DefaultObjectsTTLDeleteBatchSize, deleteBatchSize.Get())
+		})
+
+		t.Run("concurrency factor", func(t *testing.T) {
+			buf := func(val float64) []byte {
+				return fmt.Appendf(nil, "objects_ttl_concurrency_factor: %f", val)
+			}
+
+			// initial default
+			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
+
+			// set to 2
+			parsed, err := ParseRuntimeConfig(buf(2))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 2., concurrencyFactor.Get())
+
+			// try set invalid value
+			parsed, err = ParseRuntimeConfig(buf(-1))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 2., concurrencyFactor.Get())
+
+			// update to 3
+			parsed, err = ParseRuntimeConfig(buf(3))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 3., concurrencyFactor.Get())
+
+			// remove -> back to default
+			parsed, err = ParseRuntimeConfig(emptyBuf)
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
+		})
 	})
 }
 

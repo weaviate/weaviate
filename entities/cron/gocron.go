@@ -14,22 +14,9 @@ package cron
 import (
 	"fmt"
 
+	"github.com/netresearch/go-cron"
 	"github.com/sirupsen/logrus"
 )
-
-func NewGoCronJob(callback func()) *GoCronJob {
-	return &GoCronJob{callback: callback}
-}
-
-type GoCronJob struct {
-	callback func()
-}
-
-func (j *GoCronJob) Run() {
-	j.callback()
-}
-
-// ----------------------------------------------------------------------------
 
 func NewGoCronLogger(logger logrus.FieldLogger, infoLevel logrus.Level) *GoCronLogger {
 	return &GoCronLogger{logger: logger, infoLevel: infoLevel}
@@ -59,4 +46,15 @@ func (l *GoCronLogger) toFields(keysAndValues []any) logrus.Fields {
 		}
 	}
 	return fields
+}
+
+// ----------------------------------------------------------------------------
+
+// equivalent of cron.WithSeconds() option
+func SecondsParser() cron.Parser {
+	return cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+}
+
+func StandardParser() cron.Parser {
+	return cron.StandardParser()
 }

@@ -184,11 +184,11 @@ func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
 	return l.shard.SetStatusReadonly(reason)
 }
 
-func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
+func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
 	if err := l.Load(ctx); err != nil {
 		return []strfmt.UUID{}, err
 	}
-	return l.shard.FindUUIDs(ctx, filters)
+	return l.shard.FindUUIDs(ctx, filters, limit)
 }
 
 func (l *LazyLoadShard) Counter() *indexcounter.Counter {

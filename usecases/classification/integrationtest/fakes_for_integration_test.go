@@ -501,7 +501,7 @@ func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -626,7 +626,7 @@ func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (c *fakeReplicationClient) FindUUIDs(ctx context.Context, host, index, shard string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
