@@ -180,3 +180,7 @@ func (m fakeModulesProvider) IsGenerative(name string) bool {
 func (m fakeModulesProvider) IsMultiVector(name string) bool {
 	return strings.Contains(name, "colbert")
 }
+
+func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
+	return false
+}

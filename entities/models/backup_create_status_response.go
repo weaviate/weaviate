@@ -47,6 +47,9 @@ type BackupCreateStatusResponse struct {
 	// Destination path of backup files valid for the selected backend.
 	Path string `json:"path,omitempty"`
 
+	// Size of the backup in Gibs
+	Size float64 `json:"size,omitempty"`
+
 	// Timestamp when the backup process started
 	// Format: date-time
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
