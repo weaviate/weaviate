@@ -266,6 +266,14 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		return nil, nil, err
 	}
 
+	if holder, ok := ctx.Value(ContextKeyQueryVector).(*QueryVectorHolder); ok {
+		for i, targetVector := range targetVectors {
+			if vec, ok := searchVectors[i].([]float32); ok {
+				holder.Set(targetVector, vec)
+			}
+		}
+	}
+
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
 		// if a module-specific additional prop is set, assume it needs the vector
 		// present for backward-compatibility. This could be improved by actually
@@ -632,6 +640,12 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 	vector, targetVector, err := e.vectorFromExploreParams(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("vectorize params: %v", err)
+	}
+
+	if holder, ok := ctx.Value(ContextKeyQueryVector).(*QueryVectorHolder); ok {
+		if vec, ok := vector.([]float32); ok {
+			holder.Set(targetVector, vec)
+		}
 	}
 
 	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
