@@ -2540,3 +2540,78 @@ func Test_GetConsistentClass_WithAlias(t *testing.T) {
 		fakeSchemaManager.AssertExpectations(t)
 	})
 }
+
+func Test_deepEqualVectorizerSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial any
+		updated any
+		want    bool
+	}{
+		{
+			name: "all empty",
+			want: true,
+		},
+		{
+			name: "initial is empty, updated is not empty",
+			updated: map[string]any{
+				"model": "name",
+			},
+			want: false,
+		},
+		{
+			name: "initial is not empty, updated is empty",
+			initial: map[string]any{
+				"model": "name",
+			},
+			want: false,
+		},
+		{
+			name: "both are equal",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			want: true,
+		},
+		{
+			name: "both are equal, but dimensions is json.Number type",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": json.Number("1024"),
+			},
+			want: true,
+		},
+		{
+			name: "both are equal, but weights ares of json.Number type",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+				"weights": map[string]any{
+					"image": 0.9,
+				},
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+				"weights": map[string]any{
+					"image": json.Number("0.9"),
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, deepEqualVectorizerSettings(tt.initial, tt.updated))
+		})
+	}
+}

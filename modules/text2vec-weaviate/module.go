@@ -146,6 +146,15 @@ func (m *WeaviateEmbedModule) AdditionalProperties() map[string]modulecapabiliti
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *WeaviateEmbedModule) MigrateProperties() []modulecapabilities.MigrateProperty {
+	return []modulecapabilities.MigrateProperty{
+		{Name: "baseUrl", NewName: "baseURL"},
+		{Name: "baseURL"},
+		{Name: "model"},
+		{Name: "truncate"},
+	}
+}
+
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer[[]float32](New())
@@ -153,4 +162,5 @@ var (
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
+	_ = modulecapabilities.MigrateProperties(New())
 )
