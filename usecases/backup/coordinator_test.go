@@ -57,8 +57,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(cresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
 
@@ -74,12 +74,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(cresp, nil)
+		fc.client.On("Commit", nodes[0], sReq).Return(nil)
+		fc.client.On("Commit", nodes[1], sReq).Return(nil)
+		fc.client.On("Status", nodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
@@ -152,12 +152,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
-		fc.client.On("CanCommit", any, nodes[0], twoClassesReqcreq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], oneClassReq).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("CanCommit", nodes[0], twoClassesReqcreq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], oneClassReq).Return(cresp, nil)
+		fc.client.On("Commit", nodes[0], sReq).Return(nil)
+		fc.client.On("Commit", nodes[1], sReq).Return(nil)
+		fc.client.On("Status", nodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
@@ -207,8 +207,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(&CanCommitResponse{}, nil)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(ErrAny)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 
@@ -237,12 +237,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, ErrAny)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(cresp, nil)
+		fc.client.On("Commit", nodes[0], sReq).Return(nil)
+		fc.client.On("Commit", nodes[1], sReq).Return(nil)
+		fc.client.On("Status", nodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", nodes[1], sReq).Return(sresp, ErrAny)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
@@ -292,11 +292,11 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(ErrAny)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(cresp, nil)
+		fc.client.On("Commit", nodes[0], sReq).Return(ErrAny)
+		fc.client.On("Commit", nodes[1], sReq).Return(nil)
+		fc.client.On("Status", nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
@@ -394,13 +394,13 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(cresp, nil)
 
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", nodes[0], sReq).Return(nil)
+		fc.client.On("Commit", nodes[1], sReq).Return(nil)
+		fc.client.On("Status", nodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 
@@ -416,8 +416,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		t.Parallel()
 
 		fc := newFakeCoordinator(nodeResolver)
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(&CanCommitResponse{}, nil)
 		fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
@@ -433,8 +433,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		t.Parallel()
 
 		fc := newFakeCoordinator(nodeResolver)
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", nodes[1], creq).Return(cresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(ErrAny).Once()
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
@@ -508,13 +508,13 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
 
-		fc.client.On("CanCommit", any, newNodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, newNodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", newNodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", newNodes[1], creq).Return(cresp, nil)
 
-		fc.client.On("Commit", any, newNodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, newNodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, newNodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, newNodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", newNodes[0], sReq).Return(nil)
+		fc.client.On("Commit", newNodes[1], sReq).Return(nil)
+		fc.client.On("Status", newNodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", newNodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 
@@ -629,21 +629,21 @@ type fakeClient struct {
 	mock.Mock
 }
 
-func (f *fakeClient) CanCommit(ctx context.Context, node string, req *Request) (*CanCommitResponse, error) {
-	args := f.Called(ctx, node, req)
+func (f *fakeClient) CanCommit(_ context.Context, node string, req *Request) (*CanCommitResponse, error) {
+	args := f.Called(node, req)
 	if args.Get(0) != nil {
 		return args.Get(0).(*CanCommitResponse), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (f *fakeClient) Commit(ctx context.Context, node string, req *StatusRequest) error {
-	args := f.Called(ctx, node, req)
+func (f *fakeClient) Commit(_ context.Context, node string, req *StatusRequest) error {
+	args := f.Called(node, req)
 	return args.Error(0)
 }
 
-func (f *fakeClient) Status(ctx context.Context, node string, req *StatusRequest) (*StatusResponse, error) {
-	args := f.Called(ctx, node, req)
+func (f *fakeClient) Status(_ context.Context, node string, req *StatusRequest) (*StatusResponse, error) {
+	args := f.Called(node, req)
 	if args.Get(0) != nil {
 		return args.Get(0).(*StatusResponse), args.Error(1)
 	}
