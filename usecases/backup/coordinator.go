@@ -352,33 +352,19 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_can_commit",
-		"duration": c.timeoutCanCommit,
-		"level":    req.Level,
-		"method":   req.Method,
-		"backend":  req.Backend,
-	}).Debug("context.WithTimeout")
+	// Apply node mapping to the descriptor shall happen before
+	// asking candidates if they agree to participate in DBRO and before creating the request channel.
+	// This ensures that the request channel contains the correct node names and RESOLVES
+	// correctly the NEW node names and hosts if mapping exists.
+	// NOTE: This could be leveraged for adjusting number of nodes in the schema (as future implementation).
+	c.descriptor.ApplyNodeMapping()
 
-	type nodeHost struct {
-		node, host string
-	}
-
-	type pair struct {
-		n nodeHost
-		r *Request
-	}
-
-	id := c.descriptor.ID
-	nodeMapping := c.descriptor.NodeMapping
-	groups := c.descriptor.Nodes
-
+	reqChan := make(chan *Request)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
-	reqChan := make(chan pair)
 	g.Go(func() error {
 		defer close(reqChan)
-		for node, gr := range groups {
+		for nodeName, gr := range c.descriptor.Nodes {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -386,52 +372,50 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 
 			// If we have a nodeMapping with the node name from the backup, replace the node with the new one
-			node = c.descriptor.ToMappedNodeName(node)
+			nodeName = c.descriptor.ToMappedNodeName(nodeName)
 
-			host, found := c.nodeResolver.NodeHostname(node)
+			host, found := c.nodeResolver.NodeHostname(nodeName)
 			if !found {
-				return fmt.Errorf("cannot resolve hostname for %q", node)
+				return fmt.Errorf("cannot resolve hostname for %q, nodes=%v, nodeMapping=%v", nodeName, c.descriptor.Nodes, c.descriptor.NodeMapping)
 			}
 
-			reqChan <- pair{
-				nodeHost{node, host},
-				&Request{
-					Method:            req.Method,
-					ID:                id,
-					Backend:           req.Backend,
-					Classes:           gr.Classes,
-					Duration:          _BookingPeriod,
-					NodeMapping:       nodeMapping,
-					Compression:       req.Compression,
-					Bucket:            req.Bucket,
-					Path:              req.Path,
-					UserRestoreOption: req.UserRestoreOption,
-					RbacRestoreOption: req.RbacRestoreOption,
-				},
+			reqChan <- &Request{
+				NodeName:          nodeName,
+				NodeHost:          host,
+				Method:            req.Method,
+				ID:                c.descriptor.ID,
+				Backend:           req.Backend,
+				Classes:           gr.Classes,
+				Duration:          _BookingPeriod,
+				NodeMapping:       c.descriptor.NodeMapping,
+				Compression:       req.Compression,
+				Bucket:            req.Bucket,
+				Path:              req.Path,
+				UserRestoreOption: req.UserRestoreOption,
+				RbacRestoreOption: req.RbacRestoreOption,
 			}
 		}
 		return nil
 	})
 
 	mutex := sync.RWMutex{}
-	nodes := make(map[string]string, len(groups))
-	for pair := range reqChan {
-		pair := pair
+	nodes := make(map[string]string, len(c.descriptor.Nodes))
+	for req := range reqChan {
 		g.Go(func() error {
-			resp, err := c.client.CanCommit(ctx, pair.n.host, pair.r)
+			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
 				err = fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 			}
 			if err != nil {
-				return fmt.Errorf("node %q: %w", pair.n, err)
+				return fmt.Errorf("node %q: %w", req.NodeName, err)
 			}
 			mutex.Lock()
-			nodes[pair.n.node] = pair.n.host
+			nodes[req.NodeName] = req.NodeHost
 			mutex.Unlock()
 			return nil
 		})
 	}
-	abortReq := &AbortRequest{Method: req.Method, ID: id, Backend: req.Backend}
+	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend}
 	if err := g.Wait(); err != nil {
 		c.abortAll(ctx, abortReq, nodes)
 		return nil, err
