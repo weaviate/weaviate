@@ -145,6 +145,15 @@ func (m *HuggingFaceModule) VectorizeInput(ctx context.Context,
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
+func (m *HuggingFaceModule) MigrateProperties() []modulecapabilities.MigrateProperty {
+	return []modulecapabilities.MigrateProperty{
+		{Name: "model"},
+		{Name: "waitForModel"},
+		{Name: "useGPU"},
+		{Name: "useCache"},
+	}
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
@@ -153,4 +162,5 @@ var (
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
+	_ = modulecapabilities.MigrateProperties(New())
 )

@@ -26,6 +26,7 @@ import (
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
@@ -74,6 +75,19 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		Multiplier: 3,
 	}),
 		storage.WithPolicy(storage.RetryAlways),
+		storage.WithErrorFunc(func(err error) bool {
+			if storage.ShouldRetry(err) {
+				return true
+			}
+
+			var gerr *googleapi.Error
+			if errors.As(err, &gerr) {
+				// retry on 401 on top of the default retryable errors
+				return gerr.Code == 401
+			}
+
+			return false
+		}),
 	)
 	return &gcsClient{client, *config, projectID, dataPath}, nil
 }

@@ -169,6 +169,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		Error:       status.Err,
 		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
 		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
+		Size:        status.Size,
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
