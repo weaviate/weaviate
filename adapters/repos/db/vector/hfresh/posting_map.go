@@ -20,17 +20,22 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
+type VectorMetadata struct {
+	ID      uint64
+	Version VectorVersion
+}
+
 // PostingMap manages various information about postings.
 type PostingMap struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, []uint64]
+	cache   *otter.Cache[uint64, []VectorMetadata]
 	bucket  *PostingMapStore
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
-	cache, _ := otter.New[uint64, []uint64](nil)
+	cache, _ := otter.New[uint64, []VectorMetadata](nil)
 
 	return &PostingMap{
 		cache:   cache,
@@ -41,8 +46,8 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 
 // Get returns the vector IDs associated with this posting.
 // The returned function must be called to release the posting back to the pool.
-func (v *PostingMap) Get(ctx context.Context, postingID uint64) ([]uint64, error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, []uint64](func(ctx context.Context, key uint64) ([]uint64, error) {
+func (v *PostingMap) Get(ctx context.Context, postingID uint64) ([]VectorMetadata, error) {
+	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, []VectorMetadata](func(ctx context.Context, key uint64) ([]VectorMetadata, error) {
 		m, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
@@ -83,9 +88,12 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
-	vectorIDs := make([]uint64, len(posting))
+	vectorIDs := make([]VectorMetadata, len(posting))
 	for i, vector := range posting {
-		vectorIDs[i] = vector.ID()
+		vectorIDs[i] = VectorMetadata{
+			ID:      vector.ID(),
+			Version: vector.Version(),
+		}
 	}
 
 	err := v.bucket.Set(ctx, postingID, vectorIDs)
@@ -102,19 +110,19 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 // AddVectorID adds a vector ID to the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
-func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (uint32, error) {
+func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64, version VectorVersion) (uint32, error) {
 	old, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
 
-	var vectors []uint64
+	var vectors []VectorMetadata
 
 	if old != nil {
-		vectors = make([]uint64, len(old))
+		vectors = make([]VectorMetadata, len(old))
 		copy(vectors, old)
 	}
-	vectors = append(vectors, vectorID)
+	vectors = append(vectors, VectorMetadata{ID: vectorID, Version: version})
 
 	err = v.bucket.Set(ctx, postingID, vectors)
 	if err != nil {
@@ -148,7 +156,7 @@ func (p *PostingMapStore) key(postingID uint64) [9]byte {
 }
 
 // Get retrieves the vector IDs for the given posting ID.
-func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]uint64, error) {
+func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]VectorMetadata, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
@@ -159,24 +167,28 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]uint64, 
 	}
 
 	numVectors := binary.LittleEndian.Uint32(v[:4])
-	vectorIDs := make([]uint64, numVectors)
+	vectorIDs := make([]VectorMetadata, numVectors)
 	for i := uint32(0); i < numVectors; i++ {
-		start := 4 + i*8
-		end := start + 8
-		vectorIDs[i] = binary.LittleEndian.Uint64(v[start:end])
+		start := 4 + i*16
+		end := start + 16
+		vectorIDs[i] = VectorMetadata{
+			ID:      binary.LittleEndian.Uint64(v[start : start+8]),
+			Version: VectorVersion(binary.LittleEndian.Uint64(v[start+8 : end])),
+		}
 	}
 
 	return vectorIDs, nil
 }
 
 // Set adds or replaces the vector IDs for the given posting ID.
-func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs []uint64) error {
+func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs []VectorMetadata) error {
 	key := p.key(postingID)
 
-	buf := make([]byte, 0, 4+8*len(vectorIDs))
+	buf := make([]byte, 0, 4+16*len(vectorIDs))
 	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(vectorIDs)))
 	for _, vectorID := range vectorIDs {
-		buf = binary.LittleEndian.AppendUint64(buf, vectorID)
+		buf = binary.LittleEndian.AppendUint64(buf, vectorID.ID)
+		buf = binary.LittleEndian.AppendUint64(buf, uint64(vectorID.Version))
 	}
 
 	return p.bucket.Put(key[:], buf)
