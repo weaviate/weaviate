@@ -31,6 +31,7 @@ type PostingMetadata struct {
 	version []VectorVersion
 }
 
+// Iter returns an iterator over the vector metadata in the posting.
 func (m *PostingMetadata) Iter() iter.Seq2[int, *VectorMetadata] {
 	var v VectorMetadata
 
@@ -43,6 +44,28 @@ func (m *PostingMetadata) Iter() iter.Seq2[int, *VectorMetadata] {
 			}
 		}
 	}
+}
+
+// GetValidVectors returns the list of vector IDs that are still valid
+// according to the provided VersionMap.
+func (m *PostingMetadata) GetValidVectors(ctx context.Context, vmap *VersionMap) ([]uint64, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	validVectors := make([]uint64, 0, len(m.vectors))
+
+	for i, vectorID := range m.vectors {
+		currentVersion, err := vmap.Get(ctx, vectorID)
+		if err != nil {
+			return nil, err
+		}
+
+		if m.version[i] == currentVersion && !m.version[i].Deleted() {
+			validVectors = append(validVectors, vectorID)
+		}
+	}
+
+	return validVectors, nil
 }
 
 // VectorMetadata holds the ID and version of a vector.
