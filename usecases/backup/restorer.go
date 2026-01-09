@@ -159,6 +159,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			WithField("backup_id", desc.ID).
 			WithField("class", cdesc.Name).Info("successfully restored")
 	}
+
 	return nil
 }
 
