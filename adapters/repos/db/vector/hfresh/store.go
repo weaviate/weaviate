@@ -180,3 +180,45 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 func postingsBucketName(id string) string {
 	return fmt.Sprintf("hfresh_postings_%s", id)
 }
+
+// PostingVersions keeps track of the version of the posting list.
+// Versions are incremented on each Put operation to the posting list,
+// and allow for simpler cleanup of stale data during LSMKV compactions.
+// It uses a combination of an LSMKV store for persistence and an in-memory
+// cache for fast access.
+type PostingVersionsStore struct {
+	bucket    *lsmkv.Bucket
+	keyPrefix byte
+}
+
+func NewPostingVersionsStore(bucket *lsmkv.Bucket, keyPrefix byte) *PostingVersionsStore {
+	return &PostingVersionsStore{
+		bucket:    bucket,
+		keyPrefix: keyPrefix,
+	}
+}
+
+func (p *PostingVersionsStore) key(postingID uint64) [9]byte {
+	var buf [9]byte
+	buf[0] = p.keyPrefix
+	binary.LittleEndian.PutUint64(buf[1:], postingID)
+	return buf
+}
+
+func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
+	key := p.key(postingID)
+	v, err := p.bucket.Get(key[:])
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+	}
+	if len(v) == 0 {
+		return 0, ErrPostingNotFound
+	}
+
+	return binary.LittleEndian.Uint32(v), nil
+}
+
+func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, size uint32) error {
+	key := p.key(postingID)
+	return p.bucket.Put(key[:], binary.LittleEndian.AppendUint32(nil, size))
+}

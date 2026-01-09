@@ -35,6 +35,7 @@ const (
 	versionMapBucketPrefix      = 'v'
 	metadataBucketPrefix        = 'm'
 	postingMetadataBucketPrefix = 'p'
+	postingVersionBucketPrefix  = 'l'
 	reassignBucketKey           = "pending_reassignments"
 )
 
