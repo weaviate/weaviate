@@ -28,7 +28,7 @@ import (
 const BackupsCancelNoContentCode int = 204
 
 /*
-BackupsCancelNoContent Backup deleted successfully.
+BackupsCancelNoContent Backup canceled successfully.
 
 swagger:response backupsCancelNoContent
 */
@@ -123,7 +123,7 @@ func (o *BackupsCancelForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsCancelUnprocessableEntityCode int = 422
 
 /*
-BackupsCancelUnprocessableEntity Invalid backup deletion request.
+BackupsCancelUnprocessableEntity Invalid backup cancellation request.
 
 swagger:response backupsCancelUnprocessableEntity
 */
@@ -168,7 +168,7 @@ func (o *BackupsCancelUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 const BackupsCancelInternalServerErrorCode int = 500
 
 /*
-BackupsCancelInternalServerError An internal server error occurred during backup deletion. Check the ErrorResponse for details.
+BackupsCancelInternalServerError An internal server error occurred during backup cancellation. Check the ErrorResponse for details.
 
 swagger:response backupsCancelInternalServerError
 */
