@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -168,8 +169,22 @@ func Test_coordinatorPush(t *testing.T) {
 
 			ch, _, err := coordinator.Push(context.Background(), cl, broadcast(client), commit(client))
 			require.NoError(t, err)
-			for res := range ch {
-				require.NoError(t, res.Err)
+
+			// If this timeouts then something inside coordinator.Push is retrying/hanging when it shouldn't
+			// QUORUM should return quickly even if one node is down
+			// Likewise, ONE should return quickly even if two nodes are down
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			for {
+				select {
+				case res, ok := <-ch:
+					if !ok {
+						return
+					}
+					require.NoError(t, res.Err)
+				case <-ctx.Done():
+					cancel()
+					t.Fatal("timeout exceeded")
+				}
 			}
 		})
 	}
