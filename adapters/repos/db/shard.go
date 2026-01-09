@@ -124,7 +124,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error
+	SetAsyncReplicationEnabled(ctx context.Context, config *models.ReplicationAsyncConfig, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
