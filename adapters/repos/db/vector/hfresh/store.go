@@ -23,15 +23,17 @@ import (
 )
 
 type PostingStore struct {
-	store           *lsmkv.Store
-	bucket          *lsmkv.Bucket
-	locks           *common.ShardedRWLocks
-	metrics         *Metrics
-	postingMetadata *PostingMetadataStore
+	store    *lsmkv.Store
+	bucket   *lsmkv.Bucket
+	locks    *common.ShardedRWLocks
+	metrics  *Metrics
+	versions *PostingVersionsStore
 }
 
-func NewPostingStore(store *lsmkv.Store, postingMetadata *PostingMetadataStore, metadataBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
 	bName := postingsBucketName(id)
+
+	versions := NewPostingVersionsStore(sharedBucket)
 
 	err := store.CreateOrLoadBucket(context.Background(),
 		bName,
@@ -46,7 +48,7 @@ func NewPostingStore(store *lsmkv.Store, postingMetadata *PostingMetadataStore, 
 					}
 					postingId := binary.LittleEndian.Uint64(key[:8])
 					segmentPostingVersion := binary.LittleEndian.Uint32(key[8:])
-					currentPostingVersion, err := postingMetadata.GetVersion(ctx, postingId)
+					currentPostingVersion, err := versions.Get(ctx, postingId)
 					if err != nil {
 						return false, errors.Wrap(err, "get posting version during compaction")
 					}
@@ -61,18 +63,18 @@ func NewPostingStore(store *lsmkv.Store, postingMetadata *PostingMetadataStore, 
 	}
 
 	return &PostingStore{
-		store:           store,
-		bucket:          store.Bucket(bName),
-		locks:           common.NewDefaultShardedRWLocks(),
-		metrics:         metrics,
-		postingMetadata: postingMetadata,
+		store:    store,
+		bucket:   store.Bucket(bName),
+		locks:    common.NewDefaultShardedRWLocks(),
+		metrics:  metrics,
+		versions: versions,
 	}, nil
 }
 
 func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
 	var buf [12]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
-	version, err := p.postingMetadata.GetVersion(ctx, postingID)
+	version, err := p.versions.Get(ctx, postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get posting version for id %d", postingID)
 	}
@@ -130,17 +132,12 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
-	_, err := p.getKeyBytes(ctx, postingID)
-	if err != nil {
-		return err
-	}
-
 	set := make([][]byte, len(posting))
 	for i, v := range posting {
 		set[i] = v
 	}
 
-	currentVersion, err := p.postingMetadata.GetVersion(ctx, postingID)
+	currentVersion, err := p.versions.Get(ctx, postingID)
 	if err != nil {
 		return err
 	}
@@ -154,7 +151,7 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 		return errors.Wrapf(err, "failed to put posting %d", postingID)
 	}
 
-	err = p.postingMetadata.SetVersion(ctx, postingID, newVersion)
+	err = p.versions.Set(ctx, postingID, newVersion)
 	if err != nil {
 		return errors.Wrapf(err, "set new posting version for id %d", postingID)
 	}
@@ -191,10 +188,10 @@ type PostingVersionsStore struct {
 	keyPrefix byte
 }
 
-func NewPostingVersionsStore(bucket *lsmkv.Bucket, keyPrefix byte) *PostingVersionsStore {
+func NewPostingVersionsStore(bucket *lsmkv.Bucket) *PostingVersionsStore {
 	return &PostingVersionsStore{
 		bucket:    bucket,
-		keyPrefix: keyPrefix,
+		keyPrefix: postingVersionBucketPrefix,
 	}
 }
 
