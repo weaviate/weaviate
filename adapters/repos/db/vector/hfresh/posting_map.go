@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"iter"
 	"sync"
 
 	"github.com/maypok86/otter/v2"
@@ -26,7 +27,22 @@ import (
 // Any read or modification to the vectors slice must be protected by the mutex.
 type PostingMetadata struct {
 	sync.RWMutex
-	vectors []VectorMetadata
+	vectors []uint64
+	version []VectorVersion
+}
+
+func (m *PostingMetadata) Iter() iter.Seq2[int, *VectorMetadata] {
+	var v VectorMetadata
+
+	return func(yield func(int, *VectorMetadata) bool) {
+		for i := range m.vectors {
+			v.ID = m.vectors[i]
+			v.Version = m.version[i]
+			if !yield(i, &v) {
+				return
+			}
+		}
+	}
 }
 
 // VectorMetadata holds the ID and version of a vector.
@@ -67,7 +83,7 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
 	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
-		vids, err := v.bucket.Get(ctx, postingID)
+		vids, vvers, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				return nil, otter.ErrNotFound
@@ -76,7 +92,7 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadat
 			return nil, err
 		}
 
-		return &PostingMetadata{vectors: vids}, nil
+		return &PostingMetadata{vectors: vids, version: vvers}, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
 		return nil, ErrPostingNotFound
@@ -120,20 +136,18 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		return nil
 	}
 
-	vectorIDs := make([]VectorMetadata, len(posting))
+	vectorIDs := make([]uint64, len(posting))
+	vectorVersions := make([]VectorVersion, len(posting))
 	for i, vector := range posting {
-		vectorIDs[i] = VectorMetadata{
-			ID:      vector.ID(),
-			Version: vector.Version(),
-		}
+		vectorIDs[i] = vector.ID()
+		vectorVersions[i] = vector.Version()
 	}
 
-	err := v.bucket.Set(ctx, postingID, vectorIDs)
+	err := v.bucket.Set(ctx, postingID, vectorIDs, vectorVersions)
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, &PostingMetadata{vectors: vectorIDs})
-
+	v.cache.Set(postingID, &PostingMetadata{vectors: vectorIDs, version: vectorVersions})
 	v.metrics.ObservePostingSize(float64(len(vectorIDs)))
 
 	return nil
@@ -148,22 +162,29 @@ func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID
 		return 0, err
 	}
 
+	var newPosting bool
+
 	if m != nil {
 		m.Lock()
-		m.vectors = append(m.vectors, VectorMetadata{ID: vectorID, Version: version})
+		m.vectors = append(m.vectors, vectorID)
+		m.version = append(m.version, version)
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
-			vectors: []VectorMetadata{{ID: vectorID, Version: version}},
+			vectors: []uint64{vectorID},
+			version: []VectorVersion{version},
 		}
+		newPosting = true
 	}
 
-	err = v.bucket.Set(ctx, postingID, m.vectors)
+	err = v.bucket.Set(ctx, postingID, m.vectors, m.version)
 	if err != nil {
 		return 0, err
 	}
 
-	v.cache.Set(postingID, m)
+	if newPosting {
+		v.cache.Set(postingID, m)
+	}
 
 	v.metrics.ObservePostingSize(float64(len(m.vectors)))
 	return uint32(len(m.vectors)), nil
@@ -190,39 +211,38 @@ func (p *PostingMapStore) key(postingID uint64) [9]byte {
 }
 
 // Get retrieves the vector IDs for the given posting ID.
-func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]VectorMetadata, error) {
+func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]uint64, []VectorVersion, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+		return nil, nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
 	}
 	if len(v) == 0 {
-		return nil, ErrPostingNotFound
+		return nil, nil, ErrPostingNotFound
 	}
 
 	numVectors := binary.LittleEndian.Uint32(v[:4])
-	vectorIDs := make([]VectorMetadata, numVectors)
+	vectorIDs := make([]uint64, numVectors)
+	vectorVersions := make([]VectorVersion, numVectors)
 	for i := uint32(0); i < numVectors; i++ {
 		start := 4 + i*16
 		end := start + 16
-		vectorIDs[i] = VectorMetadata{
-			ID:      binary.LittleEndian.Uint64(v[start : start+8]),
-			Version: VectorVersion(binary.LittleEndian.Uint64(v[start+8 : end])),
-		}
+		vectorIDs[i] = binary.LittleEndian.Uint64(v[start : start+8])
+		vectorVersions[i] = VectorVersion(binary.LittleEndian.Uint64(v[start+8 : end]))
 	}
 
-	return vectorIDs, nil
+	return vectorIDs, vectorVersions, nil
 }
 
 // Set adds or replaces the vector IDs for the given posting ID.
-func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs []VectorMetadata) error {
+func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs []uint64, vectorVersions []VectorVersion) error {
 	key := p.key(postingID)
 
 	buf := make([]byte, 0, 4+16*len(vectorIDs))
 	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(vectorIDs)))
-	for _, vectorID := range vectorIDs {
-		buf = binary.LittleEndian.AppendUint64(buf, vectorID.ID)
-		buf = binary.LittleEndian.AppendUint64(buf, uint64(vectorID.Version))
+	for i, vectorID := range vectorIDs {
+		buf = binary.LittleEndian.AppendUint64(buf, vectorID)
+		buf = binary.LittleEndian.AppendUint64(buf, uint64(vectorVersions[i]))
 	}
 
 	return p.bucket.Put(key[:], buf)
