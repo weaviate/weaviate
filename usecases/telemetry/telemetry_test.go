@@ -596,6 +596,7 @@ func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent stri
 func TestClientTracker(t *testing.T) {
 	t.Run("track and get client counts", func(t *testing.T) {
 		tracker := NewClientTracker()
+		defer tracker.Stop()
 
 		// Create requests for different client types
 		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
@@ -637,6 +638,7 @@ func TestClientTracker(t *testing.T) {
 
 	t.Run("identify client from User-Agent", func(t *testing.T) {
 		tracker := NewClientTracker()
+		defer tracker.Stop()
 
 		testCases := []struct {
 			name     string
@@ -704,6 +706,7 @@ func TestClientTracker(t *testing.T) {
 
 	t.Run("thread safety", func(t *testing.T) {
 		tracker := NewClientTracker()
+		defer tracker.Stop()
 
 		// Create requests for different clients
 		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
@@ -741,5 +744,36 @@ func TestClientTracker(t *testing.T) {
 		expectedJava := int64(numGoroutines * numRequestsPerGoroutine / 2)
 		assert.Equal(t, expectedPython, counts[ClientTypePython]["1.0.0"])
 		assert.Equal(t, expectedJava, counts[ClientTypeJava]["1.0.0"])
+	})
+
+	t.Run("Get and GetAndReset return nil after Stop", func(t *testing.T) {
+		tracker := NewClientTracker()
+
+		// Track some requests
+		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		pythonReq.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
+		tracker.Track(pythonReq)
+
+		// Verify we can get counts before stop
+		counts := tracker.Get()
+		assert.NotNil(t, counts)
+
+		// Stop the tracker
+		tracker.Stop()
+
+		// Get and GetAndReset should return nil after stop (not block forever)
+		assert.Nil(t, tracker.Get())
+		assert.Nil(t, tracker.GetAndReset())
+	})
+
+	t.Run("double Stop does not panic", func(t *testing.T) {
+		tracker := NewClientTracker()
+
+		// Should not panic when called multiple times
+		assert.NotPanics(t, func() {
+			tracker.Stop()
+			tracker.Stop()
+			tracker.Stop()
+		})
 	})
 }

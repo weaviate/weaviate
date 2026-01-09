@@ -125,6 +125,14 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 
 // Stop shuts down the telemeter
 func (tel *Telemeter) Stop(ctx context.Context) error {
+	// Always stop the client tracker goroutine, even if telemetry failed to start.
+	// This prevents goroutine leaks.
+	defer func() {
+		if tel.clientTracker != nil {
+			tel.clientTracker.Stop()
+		}
+	}()
+
 	if tel.failedToStart {
 		return nil
 	}
@@ -145,6 +153,7 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 			WithField("action", "telemetry_push").
 			WithField("payload", fmt.Sprintf("%+v", payload)).
 			Info("telemetry terminated")
+
 		return nil
 	}
 }
