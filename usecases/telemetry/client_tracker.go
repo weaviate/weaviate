@@ -32,6 +32,10 @@ const (
 	ClientTypeUnknown    ClientType = "unknown"
 )
 
+// knownClientTypeCount is the number of known client types we track (excludes ClientTypeUnknown).
+// Used for map preallocation.
+const knownClientTypeCount = 5
+
 // ClientInfo represents a client SDK with its type and version
 type ClientInfo struct {
 	Type    ClientType `json:"type"`
@@ -66,7 +70,7 @@ func NewClientTracker(logger logrus.FieldLogger) *ClientTracker {
 // Uses a priority select pattern to drain all tracking events before
 // handling Get/GetAndReset requests, ensuring consistent results.
 func (ct *ClientTracker) run() {
-	counts := make(map[ClientType]map[string]int64)
+	counts := make(map[ClientType]map[string]int64, knownClientTypeCount)
 	for {
 		// Priority: drain all pending tracking events first
 		// This ensures Get/GetAndReset return accurate counts
@@ -90,7 +94,7 @@ func (ct *ClientTracker) run() {
 
 		case respChan := <-ct.resetChan:
 			respChan <- ct.deepCopy(counts)
-			counts = make(map[ClientType]map[string]int64)
+			counts = make(map[ClientType]map[string]int64, knownClientTypeCount)
 
 		case <-ct.stopChan:
 			return
@@ -112,9 +116,9 @@ func (ct *ClientTracker) processTrackEvent(counts map[ClientType]map[string]int6
 
 // deepCopy creates a deep copy of the counts map
 func (ct *ClientTracker) deepCopy(counts map[ClientType]map[string]int64) map[ClientType]map[string]int64 {
-	result := make(map[ClientType]map[string]int64)
+	result := make(map[ClientType]map[string]int64, len(counts))
 	for clientType, versions := range counts {
-		versionMap := make(map[string]int64)
+		versionMap := make(map[string]int64, len(versions))
 		for version, count := range versions {
 			versionMap[version] = count
 		}
