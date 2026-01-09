@@ -82,7 +82,7 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		shutdown:          make(chan struct{}),
 		consumer:          consumerURL,
 		pushInterval:      pushInterval,
-		clientTracker:     NewClientTracker(),
+		clientTracker:     NewClientTracker(logger),
 	}
 	return tel
 }

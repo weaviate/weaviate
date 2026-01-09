@@ -596,7 +596,8 @@ func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent stri
 
 func TestClientTracker(t *testing.T) {
 	t.Run("track and get client counts", func(t *testing.T) {
-		tracker := NewClientTracker()
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
 		defer tracker.Stop()
 
 		// Create requests for different client types
@@ -638,7 +639,8 @@ func TestClientTracker(t *testing.T) {
 	})
 
 	t.Run("identify client from User-Agent", func(t *testing.T) {
-		tracker := NewClientTracker()
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
 		defer tracker.Stop()
 
 		testCases := []struct {
@@ -706,7 +708,8 @@ func TestClientTracker(t *testing.T) {
 	})
 
 	t.Run("thread safety", func(t *testing.T) {
-		tracker := NewClientTracker()
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
 		defer tracker.Stop()
 
 		// Create requests for different clients
@@ -748,7 +751,8 @@ func TestClientTracker(t *testing.T) {
 	})
 
 	t.Run("Get and GetAndReset return nil after Stop", func(t *testing.T) {
-		tracker := NewClientTracker()
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
 
 		// Track some requests
 		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
@@ -768,7 +772,8 @@ func TestClientTracker(t *testing.T) {
 	})
 
 	t.Run("double Stop does not panic", func(t *testing.T) {
-		tracker := NewClientTracker()
+		logger, _ := test.NewNullLogger()
+		tracker := NewClientTracker(logger)
 
 		// Should not panic when called multiple times
 		assert.NotPanics(t, func() {

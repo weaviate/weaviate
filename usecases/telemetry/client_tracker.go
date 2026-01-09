@@ -15,6 +15,9 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/errors"
 )
 
 // ClientType represents the type of client SDK
@@ -47,14 +50,14 @@ type ClientTracker struct {
 }
 
 // NewClientTracker creates a new client tracker and starts its background goroutine
-func NewClientTracker() *ClientTracker {
+func NewClientTracker(logger logrus.FieldLogger) *ClientTracker {
 	ct := &ClientTracker{
 		trackChan: make(chan ClientInfo, 10000), // Buffered for 10K pending events
 		getChan:   make(chan chan map[ClientType]map[string]int64),
 		resetChan: make(chan chan map[ClientType]map[string]int64),
 		stopChan:  make(chan struct{}),
 	}
-	go ct.run()
+	errors.GoWrapper(ct.run, logger)
 	return ct
 }
 
