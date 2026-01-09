@@ -207,6 +207,41 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		assert.Equal(t, resp.Timeout, time.Duration(0))
 	})
 
+	t.Run("Success", func(t *testing.T) {
+		var (
+			sourcePath = t.TempDir()
+			sourcer    = &fakeSourcer{}
+			backend    = newFakeBackend()
+		)
+
+		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(sourcePath)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("Initialize", ctx, backupID).Return(nil)
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, backupID, GlobalSharedBackupFile+"_"+nodeName, mock.Anything).Return(nil).Once()
+		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+		m := createManager(sourcer, nil, backend, nil)
+
+		req := req
+		req.Duration = time.Hour
+		got := m.OnCanCommit(ctx, &req)
+		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		assert.Equal(t, got, want)
+
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", nil, nil})
+		assert.Nil(t, err)
+		m.backupper.waitForCompletion(20, 50)
+		assert.Equal(t, string(backup.Success), backend.meta.Status)
+		assert.Equal(t, "", backend.meta.Error)
+	})
+
 	t.Run("AbortBeforeCommit", func(t *testing.T) {
 		var (
 			sourcePath = t.TempDir()
@@ -238,6 +273,48 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), "abort")
+	})
+
+	t.Run("AbortCommit", func(t *testing.T) {
+		var (
+			sourcePath = t.TempDir()
+			sourcer    = &fakeSourcer{}
+			backend    = newFakeBackend()
+			m          = createManager(sourcer, nil, backend, nil)
+		)
+
+		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
+			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", nil, nil})
+			// give the abort request time to propagate
+			time.Sleep(10 * time.Millisecond)
+		}
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+		// backend
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(sourcePath)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("Initialize", ctx, backupID).Return(nil)
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, backupID, GlobalSharedBackupFile+"_"+nodeName, mock.Anything).Return(nil).Once()
+
+		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+
+		req := req
+		req.Duration = time.Hour
+		got := m.OnCanCommit(ctx, &req)
+		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		assert.Equal(t, got, want)
+
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", nil, nil})
+		assert.Nil(t, err)
+		m.backupper.waitForCompletion(20, 50)
+		assert.Equal(t, string(backup.Cancelled), backend.meta.Status)
+		errMsg := context.Canceled.Error()
+		assert.Equal(t, errMsg, backend.meta.Error)
+		assert.Contains(t, m.backupper.lastAsyncError.Error(), errMsg)
 	})
 
 	t.Run("ExpirationTimeout", func(t *testing.T) {

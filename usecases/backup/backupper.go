@@ -111,8 +111,12 @@ func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommi
 			b.lastAsyncError = err
 			return
 		}
-		allSyncShards := sharedBackupState.AllSyncShards
-		syncShardsToBackup := sharedBackupState.ShardsPerNode[b.node]
+		var allSyncShards map[string][]string
+		var syncShardsToBackup backup.ResultsPerNode
+		if sharedBackupState != nil {
+			allSyncShards = sharedBackupState.AllSyncShards
+			syncShardsToBackup = sharedBackupState.ShardsPerNode[b.node]
+		}
 
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
