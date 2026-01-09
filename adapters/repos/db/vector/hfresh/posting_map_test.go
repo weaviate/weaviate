@@ -62,8 +62,8 @@ func TestPostingMetadataStore(t *testing.T) {
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
 		for i, v := range posting {
-			require.Equal(t, v.ID(), m.vectors[i].ID)
-			require.Equal(t, v.Version(), m.vectors[i].Version)
+			require.Equal(t, v.ID(), m.vectors[i])
+			require.Equal(t, v.Version(), m.version[i])
 		}
 
 		count, err := store.CountVectorIDs(ctx, 42)
@@ -75,8 +75,8 @@ func TestPostingMetadataStore(t *testing.T) {
 		m, err = store.Get(ctx, 42)
 		require.NoError(t, err)
 		for i, v := range posting {
-			require.Equal(t, v.ID(), m.vectors[i].ID)
-			require.Equal(t, v.Version(), m.vectors[i].Version)
+			require.Equal(t, v.ID(), m.vectors[i])
+			require.Equal(t, v.Version(), m.version[i])
 		}
 	})
 
@@ -99,9 +99,9 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
-		require.Equal(t, uint64(100), m.vectors[0].ID)
-		require.Equal(t, VectorVersion(1), m.vectors[0].Version)
-		require.Equal(t, uint64(200), m.vectors[1].ID)
-		require.Equal(t, VectorVersion(1), m.vectors[1].Version)
+		require.Equal(t, uint64(100), m.vectors[0])
+		require.Equal(t, VectorVersion(1), m.version[0])
+		require.Equal(t, uint64(200), m.vectors[1])
+		require.Equal(t, VectorVersion(1), m.version[1])
 	})
 }
