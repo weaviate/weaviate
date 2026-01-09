@@ -65,6 +65,17 @@ func newBatchStartedMessage() *pb.BatchStreamReply {
 	}
 }
 
+func newBatchOutOfMemoryMessage(uuids, beacons []string) *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_OutOfMemory_{
+			OutOfMemory: &pb.BatchStreamReply_OutOfMemory{
+				Uuids:   uuids,
+				Beacons: beacons,
+			},
+		},
+	}
+}
+
 func newBatchBackoffMessage(batchSize int) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Backoff_{
@@ -86,14 +97,9 @@ type (
 	reportingQueue  chan *report
 )
 
-// NewProcessingQueue creates a buffered channel to store objects for batch writing.
-//
-// The buffer size can be adjusted based on expected load and performance requirements
-// to optimize throughput and resource usage. But is required so that there is a small buffer
-// that can be quickly flushed in the event of a shutdown.
-func NewProcessingQueue(numWorkers int) processingQueue {
-	bufferSize := int(math.Ceil(float64(numWorkers) / 4))
-	return make(processingQueue, bufferSize)
+// NewProcessingQueue creates a channel for batch writing.
+func NewProcessingQueue() processingQueue {
+	return make(processingQueue)
 }
 
 func NewReportingQueues() *reportingQueues {
