@@ -14,12 +14,22 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
+// PostingMetadata holds the list of vector IDs associated with a posting.
+// This value is cached in memory for fast access.
+// Any read or modification to the vectors slice must be protected by the mutex.
+type PostingMetadata struct {
+	m       sync.RWMutex
+	vectors []VectorMetadata
+}
+
+// VectorMetadata holds the ID and version of a vector.
 type VectorMetadata struct {
 	ID      uint64
 	Version VectorVersion
@@ -28,14 +38,14 @@ type VectorMetadata struct {
 // PostingMap manages various information about postings.
 type PostingMap struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, []VectorMetadata]
+	cache   *otter.Cache[uint64, *PostingMetadata]
 	bucket  *PostingMapStore
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
-	cache, _ := otter.New[uint64, []VectorMetadata](nil)
+	cache, _ := otter.New[uint64, *PostingMetadata](nil)
 
 	return &PostingMap{
 		cache:   cache,
@@ -46,9 +56,9 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 
 // Get returns the vector IDs associated with this posting.
 // The returned function must be called to release the posting back to the pool.
-func (v *PostingMap) Get(ctx context.Context, postingID uint64) ([]VectorMetadata, error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, []VectorMetadata](func(ctx context.Context, key uint64) ([]VectorMetadata, error) {
-		m, err := v.bucket.Get(ctx, postingID)
+func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
+	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
+		vids, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				return nil, otter.ErrNotFound
@@ -57,7 +67,7 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) ([]VectorMetadat
 			return nil, err
 		}
 
-		return m, nil
+		return &PostingMetadata{vectors: vids}, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
 		return nil, ErrPostingNotFound
@@ -81,7 +91,11 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 		return 0, nil
 	}
 
-	return uint32(len(m)), nil
+	m.m.RLock()
+	size := uint32(len(m.vectors))
+	m.m.RUnlock()
+
+	return size, nil
 }
 
 // SetVectorIDs sets the vector IDs for the posting with the given ID.
@@ -100,7 +114,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, vectorIDs)
+	v.cache.Set(postingID, &PostingMetadata{vectors: vectorIDs})
 
 	v.metrics.ObservePostingSize(float64(len(vectorIDs)))
 
@@ -111,28 +125,30 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64, version VectorVersion) (uint32, error) {
-	old, err := v.Get(ctx, postingID)
+	m, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
 
-	var vectors []VectorMetadata
-
-	if old != nil {
-		vectors = make([]VectorMetadata, len(old))
-		copy(vectors, old)
+	if m != nil {
+		m.m.Lock()
+		m.vectors = append(m.vectors, VectorMetadata{ID: vectorID, Version: version})
+		m.m.Unlock()
+	} else {
+		m = &PostingMetadata{
+			vectors: []VectorMetadata{{ID: vectorID, Version: version}},
+		}
 	}
-	vectors = append(vectors, VectorMetadata{ID: vectorID, Version: version})
 
-	err = v.bucket.Set(ctx, postingID, vectors)
+	err = v.bucket.Set(ctx, postingID, m.vectors)
 	if err != nil {
 		return 0, err
 	}
 
-	v.cache.Set(postingID, vectors)
+	v.cache.Set(postingID, m)
 
-	v.metrics.ObservePostingSize(float64(len(vectors)))
-	return uint32(len(vectors)), nil
+	v.metrics.ObservePostingSize(float64(len(m.vectors)))
+	return uint32(len(m.vectors)), nil
 }
 
 // PostingMapStore is a persistent store for vector IDs.
