@@ -57,8 +57,8 @@ type (
 	}
 )
 
-// newCoordinator used by the replicator
-func newCoordinator[T any](client Client,
+// NewCoordinator used by the replicator
+func NewCoordinator[T any](client Client,
 	router types.Router,
 	metrics *Metrics,
 	className, shard, requestID string,
