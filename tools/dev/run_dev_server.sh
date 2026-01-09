@@ -74,6 +74,47 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-telemetry)
+      # Single-node config for testing client telemetry.
+      # Telemetry is enabled and configured to push to http://localhost:9696.
+      #
+      # Start the dashboard separately in another terminal:
+      #   ./tools/dev/run_telemetry_dashboard.sh
+
+      if ! lsof -i :9696 -sTCP:LISTEN >/dev/null 2>&1; then
+          echo "Note: Telemetry dashboard not running on port 9696."
+          echo "Start it in another terminal: ./tools/dev/run_telemetry_dashboard.sh"
+          echo ""
+      fi
+
+      echo "Starting Weaviate with telemetry enabled (push interval: 5s)..."
+
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      DISABLE_TELEMETRY=false \
+      TELEMETRY_URL="http://localhost:9696/weaviate-telemetry" \
+      TELEMETRY_PUSH_INTERVAL="5s" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
   local-single-node-rbac)
     AUTHENTICATION_APIKEY_ENABLED=true \
     AUTHORIZATION_RBAC_ENABLED=true \

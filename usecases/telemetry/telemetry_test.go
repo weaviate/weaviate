@@ -430,7 +430,8 @@ func newTestTelemeter(opts ...telemetryOpt,
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger)
+	// Pass empty url/duration to use defaults
+	tel := New(sg, sm, logger, "", 0)
 	for _, opt := range opts {
 		opt(tel)
 	}

@@ -35,9 +35,9 @@ import (
 )
 
 const (
-	defaultConsumer = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
+	DefaultTelemetryConsumerURL = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
 		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
-	defaultPushInterval = 24 * time.Hour
+	DefaultTelemetryPushInterval = 24 * time.Hour
 )
 
 type nodesStatusGetter interface {
@@ -61,18 +61,27 @@ type Telemeter struct {
 	clientTracker     *ClientTracker
 }
 
-// New creates a new Telemeter instance
+// New creates a new Telemeter instance.
+// consumerURL should be base64-encoded. If empty, uses DefaultTelemetryConsumerURL.
+// pushInterval defaults to DefaultTelemetryPushInterval if zero.
 func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
 ) *Telemeter {
+	if consumerURL == "" {
+		consumerURL = DefaultTelemetryConsumerURL
+	}
+	if pushInterval == 0 {
+		pushInterval = DefaultTelemetryPushInterval
+	}
+
 	tel := &Telemeter{
 		machineID:         strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter: nodesStatusGetter,
 		schemaManager:     schemaManager,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
-		consumer:          defaultConsumer,
-		pushInterval:      defaultPushInterval,
+		consumer:          consumerURL,
+		pushInterval:      pushInterval,
 		clientTracker:     NewClientTracker(),
 	}
 	return tel
