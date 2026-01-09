@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Op is the kind of a backup operation
@@ -250,7 +251,10 @@ func (c *coordinator) Restore(
 	}
 	c.descriptor = desc.ResetStatus()
 
+	// Time canCommit phase (initiates file staging on all nodes)
+	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req)
+	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -271,8 +275,17 @@ func (c *coordinator) Restore(
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
+
+		// Time commit polling phase (waits for all nodes to finish staging)
+		commitStart := time.Now()
 		c.commit(ctx, &statusReq, nodes, true)
+		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
+
+		// Time schema apply phase (Raft commits for each class)
+		schemaApplyStart := time.Now()
 		c.restoreClasses(ctx, schema, req)
+		c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
+
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -286,6 +299,14 @@ func (c *coordinator) Restore(
 	enterrors.GoWrapper(g, c.log)
 
 	return nil
+}
+
+// observeRestorePhase records the duration of a restore phase to Prometheus
+func (c *coordinator) observeRestorePhase(phase string, duration time.Duration) {
+	metric, err := monitoring.GetMetrics().RestorePhaseDurations.GetMetricWithLabelValues(phase)
+	if err == nil {
+		metric.Observe(duration.Seconds())
+	}
 }
 
 // restoreClasses attempts to restore all classes.

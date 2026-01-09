@@ -59,9 +59,9 @@ type ClientService interface {
 }
 
 /*
-BackupsCancel deletes a backup
+BackupsCancel cancels a backup
 
-Deletes a backup identified by its ID from the specified backend storage.
+Cancels an ongoing backup operation identified by its ID.
 */
 func (a *Client) BackupsCancel(params *BackupsCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCancelNoContent, error) {
 	// TODO: Validate the params before sending

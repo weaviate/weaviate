@@ -18,22 +18,21 @@ import (
 	"fmt"
 	"testing"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestMultipleCrossRefTypes(t *testing.T) {
@@ -63,7 +62,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)

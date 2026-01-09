@@ -17,16 +17,54 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/replica"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
+
+func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []types.RepairResponse) {
+	xs := make([]*storobj.Object, len(ids))
+	digestR := make([]types.RepairResponse, len(ids))
+	for i, id := range ids {
+		xs[i] = &storobj.Object{
+			Object: models.Object{
+				ID:                 id,
+				LastUpdateTimeUnix: updateTime,
+			},
+			BelongsToShard: shard,
+			BelongsToNode:  node,
+		}
+		digestR[i] = types.RepairResponse{ID: ids[i].String(), UpdateTime: updateTime}
+	}
+	return xs, digestR
+}
+
+func setObjectsConsistency(xs []*storobj.Object, isConsistent bool) []*storobj.Object {
+	want := make([]*storobj.Object, len(xs))
+	for i, x := range xs {
+		cp := *x
+		cp.IsConsistent = isConsistent
+		want[i] = &cp
+	}
+	return want
+}
+
+func objectEx(id strfmt.UUID, lastTime int64, shard, node string) *storobj.Object {
+	return &storobj.Object{
+		Object: models.Object{
+			ID:                 id,
+			LastUpdateTimeUnix: lastTime,
+		},
+		BelongsToShard: shard,
+		BelongsToNode:  node,
+	}
+}
 
 func object(id strfmt.UUID, lastTime int64) *storobj.Object {
 	return &storobj.Object{
