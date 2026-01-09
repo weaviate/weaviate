@@ -22,37 +22,20 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-// PostingMetadata holds various information about a posting.
-type PostingMetadata struct {
-	// Vectors holds the IDs of the vectors in the posting.
-	Vectors []uint64
-	// Version keeps track of the version of the posting list.
-	// Versions are incremented on each Put operation to the posting list,
-	// and allow for simpler cleanup of stale data during LSMKV compactions.
-	// It uses a combination of an LSMKV store for persistence and an in-memory
-	// cache for fast access.
-	Version uint32
-
-	// indicates whether this instance has been invalided
-	// in the cache and can be reused
-	m                sync.Mutex
-	cacheInvalidated bool `msgpack:"-"`
-}
-
-// PostingMetadata manages various information about postings.
-type PostingMetadataStore struct {
+// PostingMap manages various information about postings.
+type PostingMap struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, *PostingMetadata]
+	cache   *otter.Cache[uint64, *PostingMap]
 	bucket  *PostingMetadataBucket
 	pool    sync.Pool
 }
 
-func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMetadataStore {
+func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	b := NewPostingMetadataBucket(bucket, postingMetadataBucketPrefix)
 
-	cache, _ := otter.New[uint64, *PostingMetadata](nil)
+	cache, _ := otter.New[uint64, *PostingMap](nil)
 
-	return &PostingMetadataStore{
+	return &PostingMap{
 		cache:   cache,
 		metrics: metrics,
 		bucket:  b,
@@ -65,7 +48,7 @@ func NewPostingMetadataStore(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMet
 	}
 }
 
-func (v *PostingMetadataStore) getSliceFromPool(size int, capacity int) *[]uint64 {
+func (v *PostingMap) getSliceFromPool(size int, capacity int) *[]uint64 {
 	s := v.pool.Get().(*[]uint64)
 	if cap(*s) < size {
 		if capacity <= 0 {
@@ -78,7 +61,7 @@ func (v *PostingMetadataStore) getSliceFromPool(size int, capacity int) *[]uint6
 	return s
 }
 
-func (v *PostingMetadataStore) invalidate(m *PostingMetadata) {
+func (v *PostingMap) invalidate(m *PostingMap) {
 	if m == nil {
 		return
 	}
@@ -92,8 +75,8 @@ func (v *PostingMetadataStore) invalidate(m *PostingMetadata) {
 
 // Get returns the size of the posting with the given ID.
 // The returned function must be called to release the posting back to the pool.
-func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*PostingMetadata, func(), error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
+func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMap, func(), error) {
+	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMap](func(ctx context.Context, key uint64) (*PostingMap, error) {
 		m, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
@@ -126,7 +109,7 @@ func (v *PostingMetadataStore) Get(ctx context.Context, postingID uint64) (*Post
 
 // CountVectorIDs returns the number of vector IDs in the posting with the given ID.
 // If the posting does not exist, it returns 0.
-func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
+func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
 	m, release, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
@@ -141,7 +124,7 @@ func (v *PostingMetadataStore) CountVectorIDs(ctx context.Context, postingID uin
 }
 
 // GetVersion returns the version of the posting with the given ID.
-func (v *PostingMetadataStore) GetVersion(ctx context.Context, postingID uint64) (uint32, error) {
+func (v *PostingMap) GetVersion(ctx context.Context, postingID uint64) (uint32, error) {
 	m, release, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
@@ -158,14 +141,14 @@ func (v *PostingMetadataStore) GetVersion(ctx context.Context, postingID uint64)
 // SetVectorIDs sets the vector IDs for the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
-func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
 	old, release, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return err
 	}
 	defer release()
 
-	metadata := PostingMetadata{
+	metadata := PostingMap{
 		Vectors: *v.getSliceFromPool(len(posting), 0),
 	}
 	for i, vector := range posting {
@@ -191,14 +174,14 @@ func (v *PostingMetadataStore) SetVectorIDs(ctx context.Context, postingID uint6
 // AddVectorID adds a vector ID to the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
-func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (uint32, error) {
+func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (uint32, error) {
 	old, release, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
 	defer release()
 
-	var metadata PostingMetadata
+	var metadata PostingMap
 
 	if old != nil {
 		metadata.Vectors = *v.getSliceFromPool(len(old.Vectors), len(old.Vectors)+1)
@@ -224,14 +207,14 @@ func (v *PostingMetadataStore) AddVectorID(ctx context.Context, postingID uint64
 // SetVersion sets the version for the posting with the given ID.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
-func (v *PostingMetadataStore) SetVersion(ctx context.Context, postingID uint64, newVersion uint32) error {
+func (v *PostingMap) SetVersion(ctx context.Context, postingID uint64, newVersion uint32) error {
 	old, release, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return err
 	}
 	defer release()
 
-	var metadata PostingMetadata
+	var metadata PostingMap
 	if old != nil {
 		metadata.Vectors = old.Vectors // no need to copy, we won't modify
 	}
@@ -267,7 +250,7 @@ func (p *PostingMetadataBucket) key(postingID uint64) [9]byte {
 }
 
 // Get retrieves the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
+func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*PostingMap, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
@@ -277,7 +260,7 @@ func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*Pos
 		return nil, ErrPostingNotFound
 	}
 
-	var metadata PostingMetadata
+	var metadata PostingMap
 	err = msgpack.Unmarshal(v, &metadata)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to unmarshal posting metadata for %d", postingID)
@@ -287,7 +270,7 @@ func (p *PostingMetadataBucket) Get(ctx context.Context, postingID uint64) (*Pos
 }
 
 // Set adds or replaces the posting metadata for the given posting ID.
-func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metadata *PostingMetadata) error {
+func (p *PostingMetadataBucket) Set(ctx context.Context, postingID uint64, metadata *PostingMap) error {
 	key := p.key(postingID)
 
 	data, err := msgpack.Marshal(metadata)

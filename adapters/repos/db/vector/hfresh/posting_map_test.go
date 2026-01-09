@@ -21,13 +21,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-func makePostingMetadataStore(t *testing.T) *PostingMetadataStore {
+func makePostingMetadataStore(t *testing.T) *PostingMap {
 	t.Helper()
 
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	return NewPostingMetadataStore(bucket, makeTestMetrics())
+	return NewPostingMap(bucket, makeTestMetrics())
 }
 
 func makeVectors(n, dims int) []Vector {

@@ -77,7 +77,7 @@ type HFresh struct {
 	IDs             *common.Sequence      // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap      *VersionMap           // Stores vector versions in-memory.
 	IndexMetadata   *IndexMetadataStore   // Stores metadata about the index.
-	PostingMetadata *PostingMetadataStore // Stores metadata about the postings.
+	PostingMetadata *PostingMap // Stores metadata about the postings.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -106,7 +106,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	postingMetadata := NewPostingMetadataStore(bucket, metrics)
+	postingMetadata := NewPostingMap(bucket, metrics)
 
 	postingStore, err := NewPostingStore(store, bucket, metrics, cfg.ID, cfg.Store)
 	if err != nil {
