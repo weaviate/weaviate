@@ -13,16 +13,17 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type replicaTask func(context.Context) interface{}
@@ -76,16 +77,12 @@ func (s *Shard) abortReplication(ctx context.Context, requestID string) replica.
 func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *storobj.Object) replica.SimpleResponse {
 	uuid, err := parseBytesUUID(object.ID())
 	if err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{{
-			Code: replica.StatusPreconditionFailed, Msg: err.Error(),
-		}}}
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{*replicaerrors.NewPreconditionFailedError(err)}}
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.putOne(ctx, uuid, object); err != nil {
-			resp.Errors = []replica.Error{
-				{Code: replica.StatusConflict, Msg: err.Error()},
-			}
+			resp.Errors = []replicaerrors.Error{*replicaerrors.NewConflictError(err)}
 		}
 		return resp
 	}
@@ -96,22 +93,12 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
 	uuid, err := parseBytesUUID(doc.ID)
 	if err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusPreconditionFailed, Msg: err.Error()},
-		}}
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{*replicaerrors.NewPreconditionFailedError(err)}}
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.merge(ctx, uuid, *doc); err != nil {
-			var code replica.StatusCode
-			if errors.Is(err, errObjectNotFound) {
-				code = replica.StatusObjectNotFound
-			} else {
-				code = replica.StatusConflict
-			}
-			resp.Errors = []replica.Error{
-				{Code: code, Msg: err.Error()},
-			}
+			resp.Errors = []replicaerrors.Error{*replicaerrors.NewConflictError(err)}
 		}
 		return resp
 	}
@@ -123,8 +110,8 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.DeleteObject(ctx, uuid, deletionTime); err != nil {
-			resp.Errors = []replica.Error{
-				{Code: replica.StatusConflict, Msg: err.Error()},
+			resp.Errors = []replicaerrors.Error{
+				*replicaerrors.NewReplicationError(err),
 			}
 		}
 		return resp
@@ -136,10 +123,10 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
 		rawErrs := s.putBatch(ctx, objects)
-		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
+		resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, len(rawErrs))}
 		for i, err := range rawErrs {
 			if err != nil {
-				resp.Errors[i] = replica.Error{Code: replica.StatusConflict, Msg: err.Error()}
+				resp.Errors[i] = *replicaerrors.NewConflictError(err)
 			}
 		}
 		return resp
@@ -160,7 +147,7 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 		for i, r := range result {
 			entry := replica.UUID2Error{UUID: string(r.UUID)}
 			if err := r.Err; err != nil {
-				entry.Error = replica.Error{Code: replica.StatusConflict, Msg: err.Error()}
+				entry.Error = *replicaerrors.NewConflictError(err)
 			}
 			resp.Batch[i] = entry
 		}
@@ -173,10 +160,10 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
 		rawErrs := newReferencesBatcher(s).References(ctx, refs)
-		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
+		resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, len(rawErrs))}
 		for i, err := range rawErrs {
 			if err != nil {
-				resp.Errors[i] = replica.Error{Code: replica.StatusConflict, Msg: err.Error()}
+				resp.Errors[i] = *replicaerrors.NewConflictError(err)
 			}
 		}
 		return resp
