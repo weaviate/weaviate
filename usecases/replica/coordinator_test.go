@@ -174,6 +174,7 @@ func Test_coordinatorPush(t *testing.T) {
 			// QUORUM should return quickly even if one node is down
 			// Likewise, ONE should return quickly even if two nodes are down
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
 			for {
 				select {
 				case res, ok := <-ch:
