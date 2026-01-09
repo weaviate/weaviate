@@ -238,6 +238,18 @@ type ShardDescriptor struct {
 	Chunk                 int32  `json:"chunk"`
 }
 
+type SharedBackupDescriptor struct {
+	ClassToNodeToChunk map[string]int32 `json:"classToNodeToChunk"`
+}
+
+type SharedBackupLocation struct {
+	Node  string `json:"node"`
+	Chunk int32  `json:"chunk"`
+	Shard string `json:"shard"`
+	Class string `json:"class"`
+}
+type SharedBackupLocations []SharedBackupLocation
+
 // ClearTemporary clears fields that are no longer needed once compression is done.
 // These fields are not required in versions > 1 because they are stored in the tarball.
 func (s *ShardDescriptor) ClearTemporary() {
@@ -253,11 +265,15 @@ func (s *ShardDescriptor) ClearTemporary() {
 
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
-	Name          string             `json:"name"` // DB class name, also selected by user
-	Shards        []*ShardDescriptor `json:"shards"`
-	ShardingState []byte             `json:"shardingState"`
-	Schema        []byte             `json:"schema"`
-	Aliases       []byte             `json:"aliases"`
+	Name   string             `json:"name"` // DB class name, also selected by user
+	Shards []*ShardDescriptor `json:"shards"`
+	// ShardsInSync contains all shards that are in sync for this class.
+	// This is used during distributed backups to avoid backing up multiple
+	// copies of the same shard from different nodes.
+	ShardsInSync  []string `json:"shardsInSync"`
+	ShardingState []byte   `json:"shardingState"`
+	Schema        []byte   `json:"schema"`
+	Aliases       []byte   `json:"aliases"`
 
 	// AliasesIncluded makes the old backup backward compatible when
 	// old backups are restored by newer ClassDescriptor that supports
@@ -291,6 +307,31 @@ type BackupDescriptor struct {
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
 }
+
+type SharedBackupState struct {
+	ShardsPerNode map[string]ResultsPerNode
+	AllSyncShards map[string][]string
+}
+
+func (s *SharedBackupState) AddShard(selectedNode, className, shard string) {
+	node, nodeExists := s.ShardsPerNode[selectedNode]
+	if !nodeExists {
+		node = make(ResultsPerNode)
+	}
+	class, classExists := node[className]
+	if !classExists {
+		class = []string{}
+	}
+	class = append(class, shard)
+	node[className] = class
+	s.ShardsPerNode[selectedNode] = node
+	if _, ok := s.AllSyncShards[className]; !ok {
+		s.AllSyncShards[className] = []string{}
+	}
+	s.AllSyncShards[className] = append(s.AllSyncShards[className], shard)
+}
+
+type ResultsPerNode map[string][]string
 
 // List all existing classes in d
 func (d *BackupDescriptor) GetCompressionType() CompressionType {

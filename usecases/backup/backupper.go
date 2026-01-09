@@ -84,7 +84,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // Moreover it starts a goroutine in the background which waits for the
 // next instruction from the coordinator (second phase).
 // It will start the backup as soon as it receives an ack, or abort otherwise
-func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
+func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -104,12 +104,20 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
 		defer b.lastOp.reset()
-		if err := b.waitForCoordinator(expiration, id); err != nil {
+		sharedBackupState, _, err := b.waitForCoordinator(expiration, id)
+		if err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
 			b.lastAsyncError = err
 			return
 		}
+		var allSyncShards map[string][]string
+		var syncShardsToBackup backup.ResultsPerNode
+		if sharedBackupState != nil {
+			allSyncShards = sharedBackupState.AllSyncShards
+			syncShardsToBackup = sharedBackupState.ShardsPerNode[b.node]
+		}
+
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
@@ -133,8 +141,15 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
+		logFields := logrus.Fields{
+			"action":                   "create_backup",
+			"backup_id":                req.ID,
+			"override_bucket":          req.Bucket,
+			"override_path":            req.Path,
+			"shards_per_class_in_sync": allSyncShards,
+			"sync_shards_to_backup":    syncShardsToBackup,
+		}
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, allSyncShards, syncShardsToBackup); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
@@ -142,6 +157,24 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
 		result.CompletedAt = time.Now().UTC()
+
+		// write chunks for shards that were only backed up given node
+		descr := backup.SharedBackupLocations{}
+		for _, classDescp := range result.Classes {
+			for chunkId, shards := range classDescp.Chunks {
+				for _, shard := range shards {
+					descr = append(descr, backup.SharedBackupLocation{
+						Class: classDescp.Name,
+						Shard: shard,
+						Chunk: chunkId,
+						Node:  b.node,
+					})
+				}
+			}
+		}
+		if err := globalStore.PutMeta(ctx, descr, GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
+			b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
+		}
 	}
 	enterrors.GoWrapper(f, b.logger)
 

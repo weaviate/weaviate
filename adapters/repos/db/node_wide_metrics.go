@@ -409,7 +409,7 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 				className := index.Config.ClassName.String()
 
 				// Avoid loading cold shards, as it may create I/O spikes.
-				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
+				index.ForEachLoadedShard(func(shardName string, sl *Shard) error {
 					index.shardCreateLocks.RLock(shardName)
 					defer index.shardCreateLocks.RUnlock(shardName)
 
