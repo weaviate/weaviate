@@ -25,7 +25,7 @@ import (
 // This value is cached in memory for fast access.
 // Any read or modification to the vectors slice must be protected by the mutex.
 type PostingMetadata struct {
-	m       sync.RWMutex
+	sync.RWMutex
 	vectors []VectorMetadata
 }
 
@@ -33,6 +33,16 @@ type PostingMetadata struct {
 type VectorMetadata struct {
 	ID      uint64
 	Version VectorVersion
+}
+
+// IsValid checks if the vector is outdated or deleted.
+func (v *VectorMetadata) IsValid(ctx context.Context, vmap *VersionMap) (bool, error) {
+	currentVersion, err := vmap.Get(ctx, v.ID)
+	if err != nil {
+		return false, err
+	}
+
+	return v.Version == currentVersion && !v.Version.Deleted(), nil
 }
 
 // PostingMap manages various information about postings.
@@ -55,7 +65,6 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 }
 
 // Get returns the vector IDs associated with this posting.
-// The returned function must be called to release the posting back to the pool.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
 	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
 		vids, err := v.bucket.Get(ctx, postingID)
@@ -91,9 +100,9 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 		return 0, nil
 	}
 
-	m.m.RLock()
+	m.RLock()
 	size := uint32(len(m.vectors))
-	m.m.RUnlock()
+	m.RUnlock()
 
 	return size, nil
 }
@@ -131,9 +140,9 @@ func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID
 	}
 
 	if m != nil {
-		m.m.Lock()
+		m.Lock()
 		m.vectors = append(m.vectors, VectorMetadata{ID: vectorID, Version: version})
-		m.m.Unlock()
+		m.Unlock()
 	} else {
 		m = &PostingMetadata{
 			vectors: []VectorMetadata{{ID: vectorID, Version: version}},
