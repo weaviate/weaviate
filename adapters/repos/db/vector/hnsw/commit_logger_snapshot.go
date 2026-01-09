@@ -32,6 +32,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -428,28 +429,27 @@ func (l *hnswCommitLogger) compactCommitLogsOnStartup(state *DeserializationResu
 	commitLogDir := commitLogDirectory(l.rootPath, l.id)
 	tempCommitLogDir := commitLogDir + ".tmp"
 
-	// Get all commit log files
 	allFiles, err := getCommitFiles(l.rootPath, l.id, 0, l.fs)
 	if err != nil {
 		return errors.Wrapf(err, "get commit log files")
 	}
-
-	if len(allFiles) == 0 {
-		// No files to compact
-		logger.Debug("no commit log files to compact")
+	if len(allFiles) < 10 {
+		logger.WithFields(logrus.Fields{
+			"action":     "hnsw_forced_compaction",
+			"file_count": len(allFiles),
+			"required":   10,
+		}).Info("skipping compaction: insufficient commit log files")
 		return nil
 	}
 
-	// Get files to compact (excluding the last one which may still be in use)
-	var filesToCompact []os.DirEntry
-	var lastFile os.DirEntry
-	if len(allFiles) > 1 {
-		filesToCompact = allFiles[:len(allFiles)-1]
-		lastFile = allFiles[len(allFiles)-1]
-	} else {
-		// Only one file, which is still in use - nothing to compact
-		logger.Debug("only one commit log file (still in use), skipping compaction")
-		return nil
+	// Remove temp directory if it already exists
+	if err := l.fs.RemoveAll(tempCommitLogDir); err != nil {
+		return errors.Wrapf(err, "remove existing temporary commit log directory")
+	}
+
+	// Clean up all existing snapshots (as we are compacting)
+	if err := l.cleanupSnapshots(time.Now().Unix()); err != nil {
+		return errors.Wrapf(err, "cleanup existing snapshots")
 	}
 
 	// Create temporary directory
@@ -469,82 +469,57 @@ func (l *hnswCommitLogger) compactCommitLogsOnStartup(state *DeserializationResu
 		return errors.Wrapf(err, "write condensed commit log")
 	}
 
-	// If there's a last file that's still in use, copy it to the temp directory
-	if lastFile != nil {
-		lastFileName := commitLogFileName(l.rootPath, l.id, lastFile.Name())
-		lastFileDest := filepath.Join(tempCommitLogDir, lastFile.Name())
-
-		// Copy the last file to temp directory
-		src, err := l.fs.Open(lastFileName)
-		if err != nil {
-			_ = l.fs.RemoveAll(tempCommitLogDir)
-			return errors.Wrapf(err, "open last commit log file for copying")
-		}
-		defer src.Close()
-
-		dst, err := l.fs.OpenFile(lastFileDest, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
-		if err != nil {
-			_ = l.fs.RemoveAll(tempCommitLogDir)
-			return errors.Wrapf(err, "create destination for last commit log file")
-		}
-
-		if _, err := io.Copy(dst, src); err != nil {
-			dst.Close()
-			_ = l.fs.RemoveAll(tempCommitLogDir)
-			return errors.Wrapf(err, "copy last commit log file")
-		}
-
-		if err := dst.Sync(); err != nil {
-			dst.Close()
-			_ = l.fs.RemoveAll(tempCommitLogDir)
-			return errors.Wrapf(err, "fsync copied last commit log file")
-		}
-
-		if err := dst.Close(); err != nil {
-			_ = l.fs.RemoveAll(tempCommitLogDir)
-			return errors.Wrapf(err, "close copied last commit log file")
-		}
-	}
-
 	logger.WithFields(logrus.Fields{
 		"action":         "hnsw_forced_compaction",
 		"condensed_file": condensedFileName,
-		"original_files": len(filesToCompact),
-	}).Info("condensed commit log written, performing atomic directory rename")
+	}).Info("condensed commit log written, performing atomic directory swap")
 
-	// Remove all old commit log files from the original directory
-	for _, file := range filesToCompact {
-		fileName := commitLogFileName(l.rootPath, l.id, file.Name())
-		if err := l.fs.Remove(fileName); err != nil {
-			// Clean up temp directory on error
+	l.Lock()
+	if err := l.commitLogger.Close(); err != nil {
+		l.Unlock()
+		return errors.Wrapf(err, "close commit logger before directory swap")
+	}
+	l.Unlock()
+
+	backupCommitLogDir := commitLogDir + ".old"
+
+	// rm dir.old, rename dir -> dir.old
+	if _, err := l.fs.Stat(commitLogDir); err == nil {
+		if err := l.fs.RemoveAll(backupCommitLogDir); err != nil {
 			_ = l.fs.RemoveAll(tempCommitLogDir)
-			return errors.Wrapf(err, "remove old commit log file %q", fileName)
+			return errors.Wrapf(err, "remove existing backup commit log directory")
+		}
+		if err := l.fs.Rename(commitLogDir, backupCommitLogDir); err != nil {
+			_ = l.fs.RemoveAll(tempCommitLogDir)
+			return errors.Wrapf(err, "rename original commit log directory to backup")
 		}
 	}
 
-	// If there was a last file, remove it from original (we've copied it to temp)
-	if lastFile != nil {
-		lastFileName := commitLogFileName(l.rootPath, l.id, lastFile.Name())
-		if err := l.fs.Remove(lastFileName); err != nil {
-			// Clean up temp directory on error
-			_ = l.fs.RemoveAll(tempCommitLogDir)
-			return errors.Wrapf(err, "remove last commit log file %q", lastFileName)
-		}
-	}
-
-	// Now the original directory should be empty, remove it
-	if err := l.fs.Remove(commitLogDir); err != nil {
-		// Clean up temp directory on error
-		_ = l.fs.RemoveAll(tempCommitLogDir)
-		return errors.Wrapf(err, "remove original commit log directory")
-	}
-
-	// Atomically rename the temporary directory to the original directory name
+	// rename dir.tmp -> dir
 	if err := l.fs.Rename(tempCommitLogDir, commitLogDir); err != nil {
-		// Clean up temp directory on error
+		// try to rename dir.old -> dir
+		if _, err2 := l.fs.Stat(backupCommitLogDir); err2 == nil {
+			_ = l.fs.Rename(backupCommitLogDir, commitLogDir)
+		}
 		_ = l.fs.RemoveAll(tempCommitLogDir)
 		return errors.Wrapf(err, "atomically rename commit log directory")
 	}
+
+	// rm dir.old
+	if err := l.fs.RemoveAll(backupCommitLogDir); err != nil {
+		logger.WithError(err).Warn("failed to remove backup commit log directory, but swap was successful")
+	}
+
+	fileName := fmt.Sprintf("%d", timestamp+1)
+	fd, err := l.fs.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return errors.Wrapf(err, "create new commit log file after compaction")
+	}
+
+	l.Lock()
+	l.commitLogger = commitlog.NewLoggerWithFile(fd)
+	l.Unlock()
 
 	logger.WithField("action", "hnsw_forced_compaction").Info("forced compaction completed successfully")
 	return nil

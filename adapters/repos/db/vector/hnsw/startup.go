@@ -105,9 +105,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		return errors.Wrap(err, "load commit logger state")
 	}
 
-	// Check for forced compaction on startup (when snapshots are disabled or not used)
-	if os.Getenv("HNSW_COMPACT_ON_STARTUP") != "" && state != nil {
-		// Type assert to *hnswCommitLogger to access compaction method
+	if os.Getenv("HNSW_COMPACT_ON_STARTUP") == "true" && state != nil {
 		if hnswCL, ok := cl.(*hnswCommitLogger); ok {
 			if err := hnswCL.compactCommitLogsOnStartup(state, h.logger); err != nil {
 				return errors.Wrapf(err, "forced compaction on startup")
