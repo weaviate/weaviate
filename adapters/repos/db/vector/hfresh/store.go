@@ -47,9 +47,9 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 						// don't skip on error
 						return false, fmt.Errorf("invalid key length: %d", len(key))
 					}
-					postingId := binary.LittleEndian.Uint64(key[:8])
+					postingID := binary.LittleEndian.Uint64(key[:8])
 					segmentPostingVersion := binary.LittleEndian.Uint32(key[8:])
-					currentPostingVersion, err := versions.Get(ctx, postingId)
+					currentPostingVersion, err := versions.Get(ctx, postingID)
 					if err != nil {
 						return false, errors.Wrap(err, "get posting version during compaction")
 					}

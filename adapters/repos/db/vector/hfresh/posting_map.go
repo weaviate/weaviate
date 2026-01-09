@@ -111,6 +111,15 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	if len(posting) == 0 {
+		err := v.bucket.Delete(ctx, postingID)
+		if err != nil {
+			return err
+		}
+		v.cache.Invalidate(postingID)
+		return nil
+	}
+
 	vectorIDs := make([]VectorMetadata, len(posting))
 	for i, vector := range posting {
 		vectorIDs[i] = VectorMetadata{
@@ -217,4 +226,9 @@ func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs [
 	}
 
 	return p.bucket.Put(key[:], buf)
+}
+
+func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
+	key := p.key(postingID)
+	return p.bucket.Delete(key[:])
 }
