@@ -72,7 +72,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
 
-		err = h.PostingMetadata.SetVectorIDs(ctx, postingID, filtered)
+		err = h.PostingMap.SetVectorIDs(ctx, postingID, filtered)
 		if err != nil {
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 		}
@@ -104,7 +104,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
 		}
 		// allocate and set posting size after successful persist
-		err = h.PostingMetadata.SetVectorIDs(ctx, newPostingID, result[i].Posting)
+		err = h.PostingMap.SetVectorIDs(ctx, newPostingID, result[i].Posting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
 		}
@@ -125,7 +125,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	if err != nil {
 		return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
 	}
-	err = h.PostingMetadata.SetVectorIDs(ctx, postingID, Posting{})
+	err = h.PostingMap.SetVectorIDs(ctx, postingID, Posting{})
 	if err != nil {
 		return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
 	}

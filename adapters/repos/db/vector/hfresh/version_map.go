@@ -50,18 +50,15 @@ type VersionMap struct {
 	store *VersionStore
 }
 
-func NewVersionMap(bucket *lsmkv.Bucket) (*VersionMap, error) {
-	cache, err := otter.New(&otter.Options[uint64, VectorVersion]{
+func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
+	cache, _ := otter.New(&otter.Options[uint64, VectorVersion]{
 		MaximumSize: 1_000_000,
 	})
-	if err != nil {
-		return nil, err
-	}
 
 	return &VersionMap{
 		cache: cache,
 		store: NewVersionStore(bucket),
-	}, nil
+	}
 }
 
 // Get returns the size of the vector with the given ID.
