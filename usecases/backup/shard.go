@@ -77,8 +77,12 @@ func (s *backupStat) reset() {
 
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
+	defer s.Unlock()
+	// Cancelled is terminal - don't allow overwriting
+	if s.reqState.Status == backup.Cancelled {
+		return
+	}
 	s.reqState.Status = st
-	s.Unlock()
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.

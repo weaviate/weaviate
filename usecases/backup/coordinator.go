@@ -582,7 +582,15 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	c.descriptor.Status = status
-	c.lastOp.set(status)
+	// Respect external cancellation from CancelRestore() - if lastOp was already
+	// set to Cancelled, propagate that to descriptor so storage writes are consistent
+	if c.lastOp.get().Status == backup.Cancelled {
+		c.descriptor.Status = backup.Cancelled
+		if reason == "" {
+			reason = "restore canceled by user"
+		}
+	}
+	c.lastOp.set(c.descriptor.Status)
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
