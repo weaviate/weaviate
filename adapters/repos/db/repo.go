@@ -20,11 +20,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/storobj"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -33,6 +32,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -286,6 +286,26 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil
+}
+
+// SnapshotIndices returns a snapshot of all indices while holding the read lock.
+// Returns a slice containing pointers to the Index objects (not a deep copy).
+// The returned slice can be used without holding the lock, allowing parallel
+// processing of indices without blocking index map modifications.
+func (db *DB) SnapshotIndices() []*Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	indices := make([]*Index, 0, len(db.indices))
+	for name, idx := range db.indices {
+		if idx == nil {
+			db.logger.WithField("action", "snapshot_indices").
+				Warningf("no resource found for index %q", name)
+			continue
+		}
+		indices = append(indices, idx)
+	}
+	return indices
 }
 
 // TODO-RAFT: Because of interfaces and import order we can't have this function just return the same index interface
