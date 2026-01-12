@@ -98,7 +98,7 @@ func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePat
 }
 
 func (s *objectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
-	return s.backend.Initialize(ctx, s.backupId, overrideBucket, overridePath)
+	return s.backend.Initialize(ctx, s.nodePath(), overrideBucket, overridePath)
 }
 
 // meta marshals and uploads metadata

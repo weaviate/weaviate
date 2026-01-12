@@ -177,7 +177,6 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}
-
 		res, err := m.backupper.backup(store, req)
 		if err != nil {
 			ret.Err = err.Error()
