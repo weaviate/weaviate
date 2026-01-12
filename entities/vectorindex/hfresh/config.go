@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"errors"
 	"fmt"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -24,6 +25,7 @@ const (
 	DefaultReplicas       = 4
 	DefaultRNGFactor      = 10.0
 	DefaultSearchProbe    = 64
+	DefaultRescoreLimit   = 350
 )
 
 // UserConfig defines the configuration options for the HFresh index.
@@ -35,7 +37,7 @@ type UserConfig struct {
 	RNGFactor      float32 `json:"rngFactor"`
 	SearchProbe    uint32  `json:"searchProbe"`
 	Distance       string  `json:"distance"`
-	// TODO: add quantization config
+	RescoreLimit   uint32  `json:"rescoreLimit"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -60,7 +62,7 @@ func (u *UserConfig) SetDefaults() {
 	u.RNGFactor = DefaultRNGFactor
 	u.SearchProbe = DefaultSearchProbe
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
-
+	u.RescoreLimit = DefaultRescoreLimit
 	// TODO: add quantization config
 }
 
@@ -68,6 +70,23 @@ func NewDefaultUserConfig() UserConfig {
 	var uc UserConfig
 	uc.SetDefaults()
 	return uc
+}
+
+func (u *UserConfig) validate() error {
+	var errs []error
+
+	if u.Distance != vectorIndexCommon.DistanceCosine && u.Distance != vectorIndexCommon.DistanceL2Squared {
+		errs = append(errs, fmt.Errorf(
+			"unsupported distance type '%s', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
+			u.Distance,
+		))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid hnsw config: %w", errors.Join(errs...))
+	}
+
+	return nil
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -115,6 +134,14 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 		return uc, err
 	}
 
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "rescoreLimit", func(v int) {
+		if v >= 0 {
+			uc.RescoreLimit = uint32(v)
+		}
+	}); err != nil {
+		return uc, err
+	}
+
 	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "distance", func(v string) {
 		uc.Distance = v
 	}); err != nil {
@@ -123,5 +150,5 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	// TODO: add quantization config
 
-	return uc, nil
+	return uc, uc.validate()
 }

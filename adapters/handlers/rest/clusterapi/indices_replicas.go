@@ -774,7 +774,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes)
+	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -805,7 +805,7 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

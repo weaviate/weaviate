@@ -21,7 +21,7 @@ import (
 
 	"github.com/danaugrs/go-tsne/tsne"
 	"github.com/pkg/errors"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"

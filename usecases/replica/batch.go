@@ -16,6 +16,7 @@ import (
 	"slices"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -38,7 +39,7 @@ func createBatch(xs []*storobj.Object) IndexedBatch {
 }
 
 // cluster data object by shard
-func cluster(bi IndexedBatch) []ShardPart {
+func clusterObjectByShard(bi IndexedBatch) []ShardPart {
 	index := bi.Index
 	data := bi.Data
 	slices.SortFunc(index, func(a, b int) int {
