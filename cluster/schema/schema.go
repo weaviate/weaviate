@@ -376,6 +376,14 @@ func (s *schema) deleteClass(name string) bool {
 	return true
 }
 
+func (s *schema) classExists(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, exists := s.classes[name]
+	return exists
+}
+
 // replaceClasses replaces the existing `schema.Classes` with given `classes`
 // mainly used in cases like restoring the whole schema from backup or something.
 func (s *schema) replaceClasses(classes map[string]*metaClass) {
