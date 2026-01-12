@@ -157,7 +157,7 @@ func Test_coordinatorPush(t *testing.T) {
 			}
 
 			client := clients.NewReplicationClient(&http.Client{})
-			coordinator := replica.NewCoordinator[replica.SimpleResponse](
+			coordinator := replica.NewWriteCoordinator[replica.SimpleResponse](
 				client,
 				setupRouter(cl, replicas),
 				metrics,

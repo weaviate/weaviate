@@ -58,7 +58,7 @@ type (
 )
 
 // NewCoordinator used by the replicator
-func NewCoordinator[T any](client Client,
+func NewWriteCoordinator[T any](client Client,
 	router types.Router,
 	metrics *Metrics,
 	className, shard, requestID string,

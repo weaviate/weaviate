@@ -685,7 +685,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 
-	return c.retry(ctx, MAX_RETRIES+SOME_RETRIES, try)
+	return c.retry(ctx, MAX_RETRIES, try)
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
