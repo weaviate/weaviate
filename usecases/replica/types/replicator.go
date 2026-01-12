@@ -32,8 +32,8 @@ type Replicator interface {
 	ReplicateDeletion(ctx context.Context, className, shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, className, shardName, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, className, shardName, requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse
-	CommitReplication(className, shardName, requestID string) interface{}
-	AbortReplication(className, shardName, requestID string) interface{}
+	CommitReplication(ctx context.Context, className, shardName, requestID string) interface{}
+	AbortReplication(ctx context.Context, className, shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, className, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
 	FetchObject(ctx context.Context, className, shardName string, id strfmt.UUID) (replica.Replica, error)

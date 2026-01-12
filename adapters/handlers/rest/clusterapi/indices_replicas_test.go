@@ -191,9 +191,11 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 			commitBlock := make(chan struct{})
 
 			//  Configure CommitReplication to block until signaled
-			fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything).Run(func(_ string, _ string, _ string) {
-				<-commitBlock
-			}).Return(replica.SimpleResponse{})
+			fakeReplicator.EXPECT().
+				CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Run(func(_ context.Context, _ string, _ string, _ string) {
+					<-commitBlock
+				}).Return(replica.SimpleResponse{})
 
 			logger, _ := test.NewNullLogger()
 			indices := clusterapi.NewReplicatedIndices(fakeReplicator, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger, func() bool { return true })
@@ -370,13 +372,15 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	doneSignal := make(chan struct{})
 
 	// Configure CommitReplication to signal start and block until done
-	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything).Run(func(_ string, _ string, _ string) {
-		select {
-		case startSignal <- struct{}{}:
-		default:
-		}
-		<-doneSignal
-	}).Return(replica.SimpleResponse{})
+	fakeReplicator.EXPECT().
+		CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, _ string, _ string) {
+			select {
+			case startSignal <- struct{}{}:
+			default:
+			}
+			<-doneSignal
+		}).Return(replica.SimpleResponse{})
 
 	logger, _ := test.NewNullLogger()
 
@@ -510,13 +514,15 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 	doneSignal := make(chan struct{})
 
 	// Configure CommitReplication to signal start and block until done
-	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything).Run(func(_ string, _ string, _ string) {
-		select {
-		case startSignal <- struct{}{}:
-		default:
-		}
-		<-doneSignal
-	}).Return(replica.SimpleResponse{})
+	fakeReplicator.EXPECT().
+		CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ string, _ string, _ string) {
+			select {
+			case startSignal <- struct{}{}:
+			default:
+			}
+			<-doneSignal
+		}).Return(replica.SimpleResponse{})
 
 	logger, _ := test.NewNullLogger()
 

@@ -45,17 +45,17 @@ func (_m *MockReplicator) EXPECT() *MockReplicator_Expecter {
 	return &MockReplicator_Expecter{mock: &_m.Mock}
 }
 
-// AbortReplication provides a mock function with given fields: className, shardName, requestID
-func (_m *MockReplicator) AbortReplication(className string, shardName string, requestID string) interface{} {
-	ret := _m.Called(className, shardName, requestID)
+// AbortReplication provides a mock function with given fields: ctx, className, shardName, requestID
+func (_m *MockReplicator) AbortReplication(ctx context.Context, className string, shardName string, requestID string) interface{} {
+	ret := _m.Called(ctx, className, shardName, requestID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for AbortReplication")
 	}
 
 	var r0 interface{}
-	if rf, ok := ret.Get(0).(func(string, string, string) interface{}); ok {
-		r0 = rf(className, shardName, requestID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) interface{}); ok {
+		r0 = rf(ctx, className, shardName, requestID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(interface{})
@@ -71,16 +71,17 @@ type MockReplicator_AbortReplication_Call struct {
 }
 
 // AbortReplication is a helper method to define mock.On call
+//   - ctx context.Context
 //   - className string
 //   - shardName string
 //   - requestID string
-func (_e *MockReplicator_Expecter) AbortReplication(className interface{}, shardName interface{}, requestID interface{}) *MockReplicator_AbortReplication_Call {
-	return &MockReplicator_AbortReplication_Call{Call: _e.mock.On("AbortReplication", className, shardName, requestID)}
+func (_e *MockReplicator_Expecter) AbortReplication(ctx interface{}, className interface{}, shardName interface{}, requestID interface{}) *MockReplicator_AbortReplication_Call {
+	return &MockReplicator_AbortReplication_Call{Call: _e.mock.On("AbortReplication", ctx, className, shardName, requestID)}
 }
 
-func (_c *MockReplicator_AbortReplication_Call) Run(run func(className string, shardName string, requestID string)) *MockReplicator_AbortReplication_Call {
+func (_c *MockReplicator_AbortReplication_Call) Run(run func(ctx context.Context, className string, shardName string, requestID string)) *MockReplicator_AbortReplication_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
@@ -90,22 +91,22 @@ func (_c *MockReplicator_AbortReplication_Call) Return(_a0 interface{}) *MockRep
 	return _c
 }
 
-func (_c *MockReplicator_AbortReplication_Call) RunAndReturn(run func(string, string, string) interface{}) *MockReplicator_AbortReplication_Call {
+func (_c *MockReplicator_AbortReplication_Call) RunAndReturn(run func(context.Context, string, string, string) interface{}) *MockReplicator_AbortReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// CommitReplication provides a mock function with given fields: className, shardName, requestID
-func (_m *MockReplicator) CommitReplication(className string, shardName string, requestID string) interface{} {
-	ret := _m.Called(className, shardName, requestID)
+// CommitReplication provides a mock function with given fields: ctx, className, shardName, requestID
+func (_m *MockReplicator) CommitReplication(ctx context.Context, className string, shardName string, requestID string) interface{} {
+	ret := _m.Called(ctx, className, shardName, requestID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CommitReplication")
 	}
 
 	var r0 interface{}
-	if rf, ok := ret.Get(0).(func(string, string, string) interface{}); ok {
-		r0 = rf(className, shardName, requestID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) interface{}); ok {
+		r0 = rf(ctx, className, shardName, requestID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(interface{})
@@ -121,16 +122,17 @@ type MockReplicator_CommitReplication_Call struct {
 }
 
 // CommitReplication is a helper method to define mock.On call
+//   - ctx context.Context
 //   - className string
 //   - shardName string
 //   - requestID string
-func (_e *MockReplicator_Expecter) CommitReplication(className interface{}, shardName interface{}, requestID interface{}) *MockReplicator_CommitReplication_Call {
-	return &MockReplicator_CommitReplication_Call{Call: _e.mock.On("CommitReplication", className, shardName, requestID)}
+func (_e *MockReplicator_Expecter) CommitReplication(ctx interface{}, className interface{}, shardName interface{}, requestID interface{}) *MockReplicator_CommitReplication_Call {
+	return &MockReplicator_CommitReplication_Call{Call: _e.mock.On("CommitReplication", ctx, className, shardName, requestID)}
 }
 
-func (_c *MockReplicator_CommitReplication_Call) Run(run func(className string, shardName string, requestID string)) *MockReplicator_CommitReplication_Call {
+func (_c *MockReplicator_CommitReplication_Call) Run(run func(ctx context.Context, className string, shardName string, requestID string)) *MockReplicator_CommitReplication_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
@@ -140,7 +142,7 @@ func (_c *MockReplicator_CommitReplication_Call) Return(_a0 interface{}) *MockRe
 	return _c
 }
 
-func (_c *MockReplicator_CommitReplication_Call) RunAndReturn(run func(string, string, string) interface{}) *MockReplicator_CommitReplication_Call {
+func (_c *MockReplicator_CommitReplication_Call) RunAndReturn(run func(context.Context, string, string, string) interface{}) *MockReplicator_CommitReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
