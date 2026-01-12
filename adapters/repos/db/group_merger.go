@@ -93,7 +93,7 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 			hits = append(hits, g.Hits...)
 		}
 
-		slices.SortFunc(hits, func(a, b map[string]interface{}) int {
+		slices.SortStableFunc(hits, func(a, b map[string]interface{}) int {
 			B := a["_additional"].(*additional.GroupHitAdditional).Distance
 			A := b["_additional"].(*additional.GroupHitAdditional).Distance
 			return cmp.Compare(A, B)

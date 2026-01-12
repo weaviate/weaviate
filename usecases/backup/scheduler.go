@@ -336,7 +336,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		return nil, err
 	}
 
-	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
+	slices.SortStableFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {

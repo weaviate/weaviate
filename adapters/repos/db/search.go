@@ -259,7 +259,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 		return nil, errors.New(msg.String())
 	}
 
-	slices.SortFunc(found, func(a, b search.Result) int {
+	slices.SortStableFunc(found, func(a, b search.Result) int {
 		return cmp.Compare(a.Dist, b.Dist)
 	})
 	// not enriching by refs, as a vector search result cannot provide

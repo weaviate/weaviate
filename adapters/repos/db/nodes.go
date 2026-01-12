@@ -53,7 +53,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 		return nil, err
 	}
 
-	slices.SortFunc(nodeStatuses, func(a, b *models.NodeStatus) int {
+	slices.SortStableFunc(nodeStatuses, func(a, b *models.NodeStatus) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
 	return nodeStatuses, nil
