@@ -64,7 +64,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 
 		coordinator := *fc.coordinator()
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: req.ID, path: "", bucket: ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.NotNil(t, err)
 	})
@@ -91,7 +91,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: req.ID, path: "", bucket: ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
@@ -169,7 +169,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: req.ID, path: "", bucket: ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
@@ -214,7 +214,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 
 		coordinator := *fc.coordinator()
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: req.ID, path: "", bucket: ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
@@ -226,7 +226,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			fc          = newFakeCoordinator(nodeResolver)
 			coordinator = *fc.coordinator()
 			req         = newReq(classes, backendName, backupID)
-			store       = coordStore{objectStore{fc.backend, req.ID, "", ""}}
+			store       = coordStore{objectStore{backend: fc.backend, backupId: req.ID, path: "", bucket: ""}}
 		)
 		coordinator.timeoutNodeDown = 0
 		mockBackendProvider := NewMockBackupBackendProvider(t)
@@ -304,7 +304,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
 
 		req := newReq(classes, backendName, backupID)
-		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: req.ID, path: "", bucket: ""}}
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
@@ -405,7 +405,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 
 		coordinator := *fc.coordinator()
-		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: backupID, path: "", bucket: ""}}
 
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil, nil)
@@ -422,7 +422,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
-		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: backupID, path: "", bucket: ""}}
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil, nil)
 		assert.ErrorIs(t, err, errCannotCommit)
@@ -441,7 +441,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
-		store := coordStore{objectStore{fc.backend, backupID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: backupID, path: "", bucket: ""}}
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, genReq(), nil, nil)
 		assert.ErrorIs(t, err, ErrAny)
@@ -520,7 +520,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 		coordinator := *fc.coordinator()
 		descReq := genReq()
-		store := coordStore{objectStore{fc.backend, descReq.ID, "", ""}}
+		store := coordStore{objectStore{backend: fc.backend, backupId: descReq.ID, path: "", bucket: ""}}
 		req := newReq([]string{}, backendName, "")
 		err := coordinator.Restore(ctx, store, &req, descReq, nil, nil)
 		assert.Nil(t, err)

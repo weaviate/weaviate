@@ -84,7 +84,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // Moreover it starts a goroutine in the background which waits for the
 // next instruction from the coordinator (second phase).
 // It will start the backup as soon as it receives an ack, or abort otherwise
-func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommitResponse, error) {
+func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -172,7 +172,7 @@ func (b *backupper) backup(store, globalStore nodeStore, req *Request) (CanCommi
 				}
 			}
 		}
-		if err := globalStore.PutMeta(ctx, descr, GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
+		if err := store.PutMetaGlobal(ctx, descr, GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
 		}
 	}
