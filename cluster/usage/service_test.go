@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
 	"time"
 
 	"github.com/go-openapi/strfmt"
