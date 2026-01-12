@@ -19,11 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-const (
-	counterMask   = 0x7F // 0111 1111, masks out the lower 7 bits
-	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
-)
-
 // A compressed vector is structured as follows:
 // - 8 bytes for the vector ID (uint64, little endian)
 // - 1 byte for the version (VectorVersion)
@@ -98,23 +93,23 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	return p, nil
 }
 
-func (p Posting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
+func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
 	data := make([][]float32, 0, len(p))
 
 	for _, v := range p {
-		data = append(data, quantizer.Decode(v.Data()))
+		data = append(data, quantizer.Decode(quantizer.FromCompressedBytes(v.Data())))
 	}
 
 	return data
 }
 
 type Distancer struct {
-	quantizer *compressionhelpers.RotationalQuantizer
+	quantizer *compressionhelpers.BinaryRotationalQuantizer
 	distancer distancer.Provider
 }
 
 func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, error) {
-	return d.quantizer.DistanceBetweenCompressedVectors(a, b)
+	return d.quantizer.DistanceBetweenCompressedVectors(d.quantizer.FromCompressedBytes(a), d.quantizer.FromCompressedBytes(b))
 }
 
 func (d *Distancer) DistanceBetweenVectors(a, b []float32) (float32, error) {

@@ -13,7 +13,7 @@ package local
 
 import (
 	"github.com/sirupsen/logrus"
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"

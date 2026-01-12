@@ -12,7 +12,7 @@
 package parameters
 
 import (
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/gqlparser"
 )
 
