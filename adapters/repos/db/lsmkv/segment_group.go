@@ -563,6 +563,18 @@ func (sg *SegmentGroup) addInitializedSegment(segment Segment) (err error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
+	// add tombstones to previous segment
+	if sg.strategy == StrategyInverted && len(sg.segments) > 0 {
+		// avoid crashing if segment has no tombstones
+		tombstonesNext, err := segment.ReadOnlyTombstones()
+		if err != nil {
+			return fmt.Errorf("add initialized segment %s: load tombstones %w", segment.getPath(), err)
+		}
+		if _, err := sg.segments[len(sg.segments)-1].MergeTombstones(tombstonesNext); err != nil {
+			return fmt.Errorf("add initialized segment %s: merge tombstones %w", segment.getPath(), err)
+		}
+	}
+
 	sg.segments = append(sg.segments, segment)
 	return nil
 }
