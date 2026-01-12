@@ -47,6 +47,7 @@ func New(config config.Authentication,
 			"or remove the header for anonymous access")
 	}
 }
+
 func pickAuthSchemeDynamically(
 	apiKey authValidator, oidc authValidator,
 ) TokenFunc {
