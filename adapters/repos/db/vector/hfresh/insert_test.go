@@ -62,7 +62,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 		require.NoError(t, err)
 
 		maxPostingSize := index.maxPostingSize
-		require.Equal(t, 99, int(maxPostingSize))
+		require.Equal(t, 1311, int(maxPostingSize))
 	})
 
 	t.Run("max posting size set by the user", func(t *testing.T) {
