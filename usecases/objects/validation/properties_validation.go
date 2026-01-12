@@ -765,7 +765,7 @@ func ParseUUIDArray(in any) ([]uuid.UUID, error) {
 func dateVal(val interface{}) (time.Time, error) {
 	if dateStr, ok := val.(string); ok {
 		// Fix for #9602: Reject timezone offsets with minutes >= 60 (e.g., +14:60)
-		if invalid, _ := regexp.MatchString(`[+-][0-9]{2}:[6-9][0-9]$`, dateStr); !invalid {
+		if invalid, err := regexp.MatchString(`[+-][0-9]{2}:[6-9][0-9]$`, dateStr); err == nil && !invalid {
 			if date, err := time.Parse(time.RFC3339, dateStr); err == nil {
 				return date, nil
 			}
