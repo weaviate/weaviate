@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 func (h *HFresh) wrapAllowList(ctx context.Context, allowList helpers.AllowList) helpers.AllowList {
@@ -11,6 +12,7 @@ func (h *HFresh) wrapAllowList(ctx context.Context, allowList helpers.AllowList)
 		wrapped: allowList,
 		ctx:     ctx,
 		h:       h,
+		visited: visited.NewList(1_000_000),
 	}
 }
 
@@ -18,17 +20,29 @@ type hfAllowList struct {
 	wrapped helpers.AllowList
 	ctx     context.Context
 	h       *HFresh
+	visited visited.ListSet
 }
 
 func (a *hfAllowList) Contains(id uint64) bool {
-	p, release, err := a.h.PostingMetadata.Get(a.ctx, id)
+	p, err := a.h.PostingMap.Get(a.ctx, id)
 	if err != nil {
-		return false
+		return true
 	}
-	defer release()
 
-	for _, vid := range p.Vectors {
-		if a.wrapped.Contains(vid) {
+	p.RLock()
+	defer p.RUnlock()
+
+	for _, metadata := range p.Iter() {
+		/*valid, err := metadata.IsValid(a.ctx, a.h.VersionMap)
+		if err != nil {
+			continue
+		}
+		if !valid {
+			continue
+		}*/
+		//ToDo: vid is valid and not deleted...
+		if !a.visited.Visited(metadata.ID) && a.wrapped.Contains(metadata.ID) {
+			a.visited.Visit(metadata.ID)
 			return true
 		}
 	}
