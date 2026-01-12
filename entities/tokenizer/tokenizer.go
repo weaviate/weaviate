@@ -116,7 +116,7 @@ func init_gse() {
 	defer gseLock.Unlock()
 	if gseTokenizer == nil {
 		startTime := time.Now()
-		ensureGoPath() 
+		ensureGoPath()
 		seg, err := gse.New("ja")
 		if err != nil {
 			return
@@ -131,7 +131,7 @@ func init_gse_ch() {
 	defer gseLock.Unlock()
 	if gseTokenizerCh == nil {
 		startTime := time.Now()
-		ensureGoPath() 
+		ensureGoPath()
 		seg, err := gse.New("zh")
 		if err != nil {
 			return
