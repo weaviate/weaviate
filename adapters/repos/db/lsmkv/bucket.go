@@ -1948,15 +1948,17 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		segment := view.Disk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
 		var tombstones *sroar.Bitmap
-		var err error
 		if j < len(view.Disk)-1 {
 			tombstones, err = view.Disk[j+1].ReadOnlyTombstones()
+			if err != nil {
+				view.Release()
+				return nil, nil, func() {}, fmt.Errorf("segment tombstones: %w", err)
+			}
+			if memTombstones != nil && !memTombstones.IsEmpty() {
+				tombstones.Or(memTombstones)
+			}
 		} else {
 			tombstones = memTombstones
-		}
-		if err != nil {
-			view.Release()
-			return nil, nil, func() {}, fmt.Errorf("segment tombstones: %w", err)
 		}
 
 		for i, key := range query {
