@@ -277,15 +277,6 @@ func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucke
 	return ns, nil
 }
 
-func globalBackend(provider BackupBackendProvider, backend, id, bucket, path string) (nodeStore, error) {
-	caps, err := provider.BackupBackend(backend)
-	if err != nil {
-		return nodeStore{}, err
-	}
-	ns := nodeStore{objectStore{backend: caps, backupId: id, bucket: bucket, path: path}}
-	return ns, nil
-}
-
 // basePath of the backup
 func basePath(backendType, backupID string) string {
 	return fmt.Sprintf("%s/%s", backendType, backupID)
