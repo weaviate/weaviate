@@ -259,7 +259,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if class.VectorIndexConfig != nil || update.VectorIndexConfig != nil {
+	if class.VectorIndexConfig != nil && update.VectorIndexConfig != nil {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		vIdxConfigU, ok2 := update.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok1 || !ok2 {
@@ -517,27 +517,8 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 				vecName, initialCfg.VectorIndexType, updatedCfg.VectorIndexType)
 		}
 
-		// immutable vectorizer
-		if imap, ok := initialCfg.Vectorizer.(map[string]interface{}); ok && len(imap) == 1 {
-			umap, ok := updatedCfg.Vectorizer.(map[string]interface{})
-			if !ok || len(umap) != 1 {
-				return fmt.Errorf("invalid vectorizer config for vector %q", vecName)
-			}
-
-			ivectorizer := ""
-			for k := range imap {
-				ivectorizer = k
-			}
-			uvectorizer := ""
-			for k := range umap {
-				uvectorizer = k
-			}
-
-			if ivectorizer != uvectorizer {
-				return fmt.Errorf("vectorizer of vector %q is immutable: attempted change from %q to %q",
-					vecName, ivectorizer, uvectorizer)
-			}
-		}
+		// Vectorizer is now mutable to allow switching between providers
+		// Users can change vectorizers for the same embedding model across different providers
 	}
 	return nil
 }

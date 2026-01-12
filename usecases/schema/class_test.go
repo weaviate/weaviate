@@ -1402,12 +1402,10 @@ func Test_UpdateClass(t *testing.T) {
 						"attempted change from \"InitialName\" to \"UpdatedName\""),
 			},
 			{
-				name:    "ModifyVectorizer",
-				initial: &models.Class{Class: "InitialName", Vectorizer: "model1", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
-				update:  &models.Class{Class: "InitialName", Vectorizer: "model2", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
-				expectedError: fmt.Errorf(
-					"vectorizer is immutable: " +
-						"attempted change from \"model1\" to \"model2\""),
+				name:          "ModifyVectorizer",
+				initial:       &models.Class{Class: "InitialName", Vectorizer: "model1", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update:        &models.Class{Class: "InitialName", Vectorizer: "model2", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				expectedError: nil, // Vectorizer is now mutable to allow switching between providers
 			},
 			{
 				name:    "ModifyVectorIndexType",
@@ -2115,7 +2113,7 @@ func Test_UpdateClass(t *testing.T) {
 					},
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
-				expectedError: fmt.Errorf("vectorizer is immutable"),
+				expectedError: nil, // Vectorizer is now mutable
 			},
 			{
 				name: "removing existing named vector",
@@ -2163,7 +2161,7 @@ func Test_UpdateClass(t *testing.T) {
 					Class:             "InitialName",
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
-				expectedError: fmt.Errorf("vectorizer is immutable"),
+				expectedError: nil, // Vectorizer is now mutable - users can remove it
 			},
 			{
 				name: "adding named vector with reserved named on a collection with legacy index",
