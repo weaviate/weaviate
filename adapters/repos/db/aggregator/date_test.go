@@ -62,7 +62,7 @@ func TestDateAggregator(t *testing.T) {
 					} else {
 						timeParsed, err := time.Parse(time.RFC3339, fullDate)
 						assert.Nil(t, err)
-						ts := newTimestamp(timeParsed.UnixNano())
+						ts := newTimestamp(timeParsed.UnixMilli())
 						err = agg.addRow(ts, 1)
 						assert.Nil(t, err)
 					}

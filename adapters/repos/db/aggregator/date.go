@@ -117,7 +117,7 @@ func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	}
 
 	ts := timestamp{
-		epochNano: t.UnixNano(),
+		epochNano: t.UnixMilli(),
 		rfc3339:   rfc3339,
 	}
 	return a.addRow(ts, 1)

@@ -544,7 +544,7 @@ func (q *shardsQueue) getWhenReady(ctx context.Context) (key string, tasks []Sha
 }
 
 func (q *shardsQueue) timeToId(tm time.Time) uint64 {
-	return uint64(-tm.UnixNano())
+	return uint64(-tm.UnixMilli())
 }
 
 func (q *shardsQueue) idToTime(id uint64) time.Time {

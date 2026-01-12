@@ -35,7 +35,7 @@ func TestProcessingQueue(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, expKey, key)
 		assert.ElementsMatch(t, expTasks, tasks)
-		assert.LessOrEqual(t, expTime.UnixNano(), after.UnixNano())
+		assert.LessOrEqual(t, expTime.UnixMilli(), after.UnixMilli())
 	})
 
 	t.Run("multiple keys", func(t *testing.T) {
@@ -78,27 +78,27 @@ func TestProcessingQueue(t *testing.T) {
 		require.NoError(t, err1)
 		assert.Equal(t, expKey1, key1)
 		assert.ElementsMatch(t, expTasks1, tasks1)
-		assert.LessOrEqual(t, expTime1.UnixNano(), after1.UnixNano())
+		assert.LessOrEqual(t, expTime1.UnixMilli(), after1.UnixMilli())
 
 		require.NoError(t, err2)
 		assert.Equal(t, expKey2, key2)
 		assert.ElementsMatch(t, expTasks2, tasks2)
-		assert.LessOrEqual(t, expTime2.UnixNano(), after2.UnixNano())
+		assert.LessOrEqual(t, expTime2.UnixMilli(), after2.UnixMilli())
 
 		require.NoError(t, err3)
 		assert.Equal(t, expKey3, key3)
 		assert.ElementsMatch(t, expTasks3, tasks3)
-		assert.LessOrEqual(t, expTime3.UnixNano(), after3.UnixNano())
+		assert.LessOrEqual(t, expTime3.UnixMilli(), after3.UnixMilli())
 
 		require.NoError(t, err4)
 		assert.Equal(t, expKey4, key4)
 		assert.ElementsMatch(t, expTasks4, tasks4)
-		assert.LessOrEqual(t, expTime4.UnixNano(), after4.UnixNano())
+		assert.LessOrEqual(t, expTime4.UnixMilli(), after4.UnixMilli())
 
 		require.NoError(t, err5)
 		assert.Equal(t, expKey5, key5)
 		assert.ElementsMatch(t, expTasks5, tasks5)
-		assert.LessOrEqual(t, expTime5.UnixNano(), after5.UnixNano())
+		assert.LessOrEqual(t, expTime5.UnixMilli(), after5.UnixMilli())
 	})
 
 	t.Run("multiple keys, cancelled context", func(t *testing.T) {
@@ -144,27 +144,27 @@ func TestProcessingQueue(t *testing.T) {
 		require.NoError(t, err1)
 		assert.Equal(t, expKey1, key1)
 		assert.ElementsMatch(t, expTasks1, tasks1)
-		assert.LessOrEqual(t, expTime1.UnixNano(), after1.UnixNano())
+		assert.LessOrEqual(t, expTime1.UnixMilli(), after1.UnixMilli())
 
 		require.NoError(t, err2)
 		assert.Equal(t, expKey2, key2)
 		assert.ElementsMatch(t, expTasks2, tasks2)
-		assert.LessOrEqual(t, expTime2.UnixNano(), after2.UnixNano())
+		assert.LessOrEqual(t, expTime2.UnixMilli(), after2.UnixMilli())
 
 		require.Error(t, err3)
 		assert.Empty(t, key3)
 		assert.Empty(t, tasks3)
-		assert.Greater(t, expTime3.UnixNano(), after3.UnixNano())
+		assert.Greater(t, expTime3.UnixMilli(), after3.UnixMilli())
 
 		require.Error(t, err4)
 		assert.Empty(t, key4)
 		assert.Empty(t, tasks4)
-		assert.Greater(t, expTime3.UnixNano(), after4.UnixNano())
+		assert.Greater(t, expTime3.UnixMilli(), after4.UnixMilli())
 
 		require.Error(t, err5)
 		assert.Empty(t, key5)
 		assert.Empty(t, tasks5)
-		assert.Greater(t, expTime3.UnixNano(), after5.UnixNano())
+		assert.Greater(t, expTime3.UnixMilli(), after5.UnixMilli())
 	})
 }
 
