@@ -19,19 +19,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // asyncStatusInterval is the polling interval to check the status of the
@@ -538,6 +538,10 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing hydrating replication operation")
 
+	// For multi-tenant collections, we need to activate the tenant and store the resulting schema version.
+	// The schema version ensures schema consistency across nodes during replication.
+	// For non-multi-tenant collections, op.Status.SchemaVersion remains at its initial value (typically 0),
+	// which is acceptable as schema version synchronization is not required.
 	if c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
 		schemaVersion, err := c.leaderClient.UpdateTenants(ctx, op.Op.TargetShard.CollectionId, &api.UpdateTenantsRequest{
 			Tenants: []*api.Tenant{
@@ -561,6 +565,9 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
 			return api.ShardReplicationState(""), err
 		}
+		// Update the local operation status with the stored schema version so it's available
+		// when processFinalizingOp is called in the next state transition
+		op.Status.SchemaVersion = schemaVersion
 	}
 
 	if ctx.Err() != nil {
