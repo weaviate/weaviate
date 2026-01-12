@@ -142,6 +142,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				for _, x := range actives {
 					resChan <- x
 				}
+				return
 			}
 			resChan <- r
 		}
