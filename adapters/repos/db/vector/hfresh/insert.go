@@ -14,7 +14,6 @@ package hfresh
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync/atomic"
 	"time"
 
@@ -99,6 +98,8 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 
 	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
 	v = NewVector(id, version, compressed)
+	vectorID := v.ID()
+	vectorVersion := v.Version()
 
 	targets, _, err := h.RNGSelect(vector, 0)
 	if err != nil {
@@ -114,6 +115,10 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	}
 
 	for id := range targets.Iter() {
+		uncompressedCentroid, _ := h.getUncompressedCentroid(id)
+		rq := h.residualVector(vector, uncompressedCentroid)
+		compressedRQ := h.quantizer.CompressedBytes(h.quantizer.Encode(rq))
+		v = NewVector(vectorID, vectorVersion, compressedRQ)
 		_, err = h.append(ctx, v, id, false)
 		if err != nil {
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, id)
@@ -195,17 +200,6 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		h.postingLocks.Unlock(centroidID)
 		return false, nil
 	}
-
-	uncompressedCentroid, _ := h.getUncompressedCentroid(centroidID)
-	unNormalizedVec, _ := h.config.VectorForIDThunk(ctx, vector.ID())
-	fq := h.normalizeVec(unNormalizedVec)
-	if len(fq) != len(uncompressedCentroid) {
-		fmt.Println("centroidID", centroidID)
-		os.Exit(1)
-	}
-	rq := h.residualVector(fq, uncompressedCentroid)
-	compressedRQ := h.quantizer.CompressedBytes(h.quantizer.Encode(rq))
-	vector = NewVector(vector.ID(), vector.Version(), compressedRQ)
 
 	// append the new vector to the existing posting
 	err := h.PostingStore.Append(ctx, centroidID, vector)

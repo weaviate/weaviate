@@ -82,9 +82,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		}
 
 		uncompressedCentroid, _ := h.getUncompressedCentroid(id)
-		unNormalizedVec, _ := h.config.VectorForIDThunk(ctx, newVector.ID())
-		fq := h.normalizeVec(unNormalizedVec)
-		rq := h.residualVector(fq, uncompressedCentroid)
+		rq := h.residualVector(q, uncompressedCentroid)
 		newVector = NewVector(newVector.ID(), newVector.Version(), h.quantizer.CompressedBytes(h.quantizer.Encode(rq)))
 		added, err := h.append(ctx, newVector, id, true)
 		if err != nil {
