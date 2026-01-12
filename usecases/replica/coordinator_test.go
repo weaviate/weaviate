@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,14 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+)
+
+type errorType string
+
+const (
+	broadcastError          errorType = "broadcast"
+	commitError             errorType = "commit"
+	broadcastAndCommitError errorType = "both"
 )
 
 func Test_coordinatorPush(t *testing.T) {
@@ -101,13 +110,34 @@ func Test_coordinatorPush(t *testing.T) {
 		require.NoError(t, err)
 		w.Write(b)
 	}
-	failure := func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		b, err := json.Marshal(replica.SimpleResponse{
-			Errors: []replica.Error{{Msg: "simulated error"}},
-		})
-		require.NoError(t, err)
-		w.Write(b)
+	failure := func(status int, msg string, typ errorType) func(w http.ResponseWriter, r *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if typ == broadcastError && strings.Contains(r.URL.Path, "commit") {
+				success(w, r)
+				return
+			}
+			if typ == commitError && !strings.Contains(r.URL.Path, "commit") {
+				success(w, r)
+				return
+			}
+			w.WriteHeader(status)
+			b, err := json.Marshal(replica.SimpleResponse{
+				Errors: []replica.Error{{Msg: msg}},
+			})
+			require.NoError(t, err)
+			w.Write(b)
+		}
+	}
+	eventualSuccess := func(failures int, typ errorType) func(w http.ResponseWriter, r *http.Request) {
+		count := 0
+		return func(w http.ResponseWriter, r *http.Request) {
+			if count < failures {
+				failure(http.StatusInternalServerError, "temporary failure", typ)(w, r)
+				count++
+				return
+			}
+			success(w, r)
+		}
 	}
 	newServer := func(handler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(handler))
@@ -121,25 +151,46 @@ func Test_coordinatorPush(t *testing.T) {
 		node3 *httptest.Server
 	}{
 		{
-			"SUCCESS:CL.ALL",
+			"SUCCESS:CL.ALL;broadcast and commit errors",
 			types.ConsistencyLevelAll,
-			newServer(success),
-			newServer(success),
-			newServer(success),
+			newServer(eventualSuccess(0, broadcastAndCommitError)),
+			newServer(eventualSuccess(1, broadcastAndCommitError)),
+			newServer(eventualSuccess(2, broadcastAndCommitError)),
 		},
 		{
-			"SUCCESS:CL.QUORUM",
+			"SUCCESS:CL.QUORUM;broadcast failure on one node",
 			types.ConsistencyLevelQuorum,
 			newServer(success),
 			newServer(success),
-			newServer(failure),
+			newServer(failure(http.StatusInternalServerError, "node3 failed", broadcastError)),
 		},
 		{
-			"SUCCESS:CL.ONE",
+			"SUCCESS:CL.QUORUM;commit failure on one node",
+			types.ConsistencyLevelQuorum,
+			newServer(success),
+			newServer(success),
+			newServer(failure(http.StatusInternalServerError, "node3 failed", commitError)),
+		},
+		{
+			"SUCCESS:CL.ONE;two broadcast failures",
 			types.ConsistencyLevelOne,
 			newServer(success),
-			newServer(failure),
-			newServer(failure),
+			newServer(failure(http.StatusInternalServerError, "node2 failed", broadcastError)),
+			newServer(failure(http.StatusInternalServerError, "node3 failed", broadcastError)),
+		},
+		{
+			"SUCCESS:CL.ONE;one broadcast and one commit failures",
+			types.ConsistencyLevelOne,
+			newServer(success),
+			newServer(failure(http.StatusInternalServerError, "node2 failed", broadcastError)),
+			newServer(failure(http.StatusInternalServerError, "node3 failed", commitError)),
+		},
+		{
+			"SUCCESS:CL.ONE;two commit failures",
+			types.ConsistencyLevelOne,
+			newServer(success),
+			newServer(failure(http.StatusInternalServerError, "node2 failed", commitError)),
+			newServer(failure(http.StatusInternalServerError, "node3 failed", commitError)),
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,6 +229,8 @@ func Test_coordinatorPush(t *testing.T) {
 			for {
 				select {
 				case res, ok := <-ch:
+					require.Nil(t, res.Err)
+					require.Nil(t, res.Value.FirstError())
 					if !ok {
 						return
 					}
