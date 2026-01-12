@@ -238,11 +238,6 @@ type ShardDescriptor struct {
 	Version               []byte `json:"version,omitempty"`
 	Chunk                 int32  `json:"chunk"`
 }
-
-type SharedBackupDescriptor struct {
-	ClassToNodeToChunk map[string]int32 `json:"classToNodeToChunk"`
-}
-
 type SharedBackupLocation struct {
 	StoredOnNode   string   `json:"storedOnNode"`
 	Chunk          int32    `json:"chunk"`
@@ -269,7 +264,7 @@ func (s *ShardDescriptor) ClearTemporary() {
 type ClassDescriptor struct {
 	Name   string             `json:"name"` // DB class name, also selected by user
 	Shards []*ShardDescriptor `json:"shards"`
-	// ShardsInSync contains all shards that are in sync for this class.
+	// ShardsInSync contains all shards that are in sync between different nodes for this class.
 	// This is used during distributed backups to avoid backing up multiple
 	// copies of the same shard from different nodes.
 	ShardsInSync  []string `json:"shardsInSync"`

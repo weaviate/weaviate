@@ -637,7 +637,6 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, backupID string, share
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
 			shard := shard
-			// read from hardcoded bucket that is specific to this node
 			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
 		}
 		return eg.Wait()
