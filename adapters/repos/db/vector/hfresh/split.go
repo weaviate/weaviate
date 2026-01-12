@@ -179,11 +179,13 @@ func (h *HFresh) splitPosting(posting Posting, postingID uint64) ([]SplitResult,
 		results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(enc.Centroid(byte(i))))
 	}
 
+	oldCentroid, _ := h.getUncompressedCentroid(postingID)
 	for i, v := range idsAssignments {
-		originalVec, _ := h.config.VectorForIDThunk(context.TODO(), posting[i].ID())
-		originalVecNormalized := h.normalizeVec(originalVec)
+		compressedRQ := h.quantizer.FromCompressedBytes(posting[i].Data())
+		fqResidual := h.quantizer.Decode(compressedRQ)
+		fq := undoResidualVector(fqResidual, oldCentroid)
 		normalizedCentroid := h.normalizeVec(results[v].Uncompressed)
-		rq := h.residualVector(originalVecNormalized, normalizedCentroid)
+		rq := h.residualVector(fq, normalizedCentroid)
 		results[v].Posting = results[v].Posting.AddVector(NewVector(posting[i].ID(), posting[i].Version(), h.quantizer.CompressedBytes(h.quantizer.Encode(rq))))
 	}
 
