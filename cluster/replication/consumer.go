@@ -567,7 +567,9 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		}
 		// Update the local operation status with the stored schema version so it's available
 		// when processFinalizingOp is called in the next state transition
-		op.Status.SchemaVersion = schemaVersion
+		if schemaVersion > op.Status.SchemaVersion {
+			op.Status.SchemaVersion = schemaVersion
+		}
 	}
 
 	if ctx.Err() != nil {
