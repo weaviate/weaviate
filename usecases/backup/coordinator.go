@@ -73,7 +73,7 @@ type Selector interface {
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
 
-	ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (*backup.SharedBackupState, error)
+	ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (backup.SharedBackupState, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -213,19 +213,36 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	f := func() {
 		defer c.lastOp.reset()
 
-		// check async replication if nodes are in sync. If yes we do not need to backup shards on all nodes
+		// check all shards if nodes are in sync. The idea is to backup shards that are identical on all nodes only once
+		// and not separately on each node to save storage space and network bandwidth.
+		// the high level overview of is:
+		// backup create:
+		// - check which shards are in sync across all nodes using async replication
+		// - select a random node for each shard that is in sync to perform the backup
+		// - for shards that are not in sync, back them up from each node separately
+		// - sync information is persisted in the global backup descriptor for restoration
+		// - on upload there is no difference between shared and non-shared shards. They are all uploaded to the backend
+		//   into the nodes subfolder
+		// backup restore:
+		// - read the sync information from the global backup descriptor
+		// - "local" shards (== shards that the node made) are downloaded from the backend as usual
+		// - "shared" shards are downloaded from the node that backed them up
+		//
+		// This information cannot be put in the GlobalBackupFile, because the coordinator needs to upload this before
+		// starting the backup and at this point we do not know which shard will end up in which chunk
+
 		inSyncShards, err := c.selector.ListShardsSync(req.Classes, startedAt, _AsyncReplicationTimeout)
 		if err != nil {
 			c.log.Errorf("coordinator: could not list shards sync status: %v", err)
 		}
 
 		statusReq := StatusRequest{
-			Method:       OpCreate,
-			ID:           req.ID,
-			Backend:      req.Backend,
-			Bucket:       req.Bucket,
-			Path:         req.Path,
-			InSyncShards: inSyncShards,
+			Method:                 OpCreate,
+			ID:                     req.ID,
+			Backend:                req.Backend,
+			Bucket:                 req.Bucket,
+			Path:                   req.Path,
+			CreatSharedBackupState: inSyncShards,
 		}
 
 		ctx := context.Background()
@@ -251,7 +268,7 @@ func (c *coordinator) Restore(
 	store coordStore,
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
-	sharedChunks *backup.SharedBackupLocations,
+	sharedChunks backup.SharedBackupLocations,
 	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
@@ -287,12 +304,12 @@ func (c *coordinator) Restore(
 	}
 
 	statusReq := StatusRequest{
-		Method:         OpRestore,
-		ID:             desc.ID,
-		Backend:        req.Backend,
-		Bucket:         overrideBucket,
-		Path:           overridePath,
-		ChunksPerClass: sharedChunks,
+		Method:                       OpRestore,
+		ID:                           desc.ID,
+		Backend:                      req.Backend,
+		Bucket:                       overrideBucket,
+		Path:                         overridePath,
+		RestoreSharedBackupLocations: sharedChunks,
 	}
 	g := func() {
 		defer c.lastOp.reset()

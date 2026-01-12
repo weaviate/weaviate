@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -116,11 +117,15 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
+		// filter out shared chunks that belong to this node. These will be downloaded normally
 		sharedChunksForNode := backup.SharedBackupLocations{}
 		if sharedChunks != nil {
-			for _, sharedChunk := range *sharedChunks {
-				if sharedChunk.Node == r.node {
+			for _, sharedChunk := range sharedChunks {
+				if sharedChunk.StoredOnNode == r.node {
 					continue // normal download
+				}
+				if !slices.Contains(sharedChunk.BelongsToNodes, r.node) {
+					continue // only restore to nodes that contained shard
 				}
 				sharedChunksForNode = append(sharedChunksForNode, sharedChunk)
 			}

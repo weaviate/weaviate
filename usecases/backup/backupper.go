@@ -111,12 +111,6 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
-		var allSyncShards map[string][]string
-		var syncShardsToBackup backup.ResultsPerNode
-		if sharedBackupState != nil {
-			allSyncShards = sharedBackupState.AllSyncShards
-			syncShardsToBackup = sharedBackupState.ShardsPerNode[b.node]
-		}
 
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
@@ -142,32 +136,32 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 
 		logFields := logrus.Fields{
-			"action":                   "create_backup",
-			"backup_id":                req.ID,
-			"override_bucket":          req.Bucket,
-			"override_path":            req.Path,
-			"shards_per_class_in_sync": allSyncShards,
-			"sync_shards_to_backup":    syncShardsToBackup,
+			"action":              "create_backup",
+			"backup_id":           req.ID,
+			"override_bucket":     req.Bucket,
+			"override_path":       req.Path,
+			"shared_backup_state": sharedBackupState,
 		}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, allSyncShards, syncShardsToBackup); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, sharedBackupState); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
 		} else {
 			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
-		result.CompletedAt = time.Now().UTC()
 
-		// write chunks for shards that were only backed up given node
+		// write which shards were backed up from this node. On restore, we can check which node contains a shared
+		// backup
 		descr := backup.SharedBackupLocations{}
 		for _, classDescp := range result.Classes {
 			for chunkId, shards := range classDescp.Chunks {
 				for _, shard := range shards {
 					descr = append(descr, backup.SharedBackupLocation{
-						Class: classDescp.Name,
-						Shard: shard,
-						Chunk: chunkId,
-						Node:  b.node,
+						Class:          classDescp.Name,
+						Shard:          shard,
+						Chunk:          chunkId,
+						StoredOnNode:   b.node,
+						BelongsToNodes: sharedBackupState.ClassShardsToNodes[classDescp.Name][shard],
 					})
 				}
 			}
@@ -175,6 +169,8 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		if err := store.PutMetaGlobal(ctx, descr, GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
 		}
+
+		result.CompletedAt = time.Now().UTC()
 	}
 	enterrors.GoWrapper(f, b.logger)
 

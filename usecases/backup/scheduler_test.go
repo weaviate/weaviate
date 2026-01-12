@@ -307,7 +307,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Backend: backendName,
 		}
 		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", "", nil, nil}
+		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
 
@@ -450,7 +450,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		keyNodeA    = backupID + "/" + nodeA
 		keyNodeB    = backupID + "/" + nodeB
 		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, nil}
+		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 	meta := backup.DistributedBackupDescriptor{

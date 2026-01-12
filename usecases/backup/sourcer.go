@@ -32,8 +32,7 @@ type Sourcer interface { // implemented by the index
 	// If an error happens a descriptor with an error will be written to the channel just before closing it.
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
-	BackupDescriptors(_ context.Context, bakid string, classes []string, shardsInSync map[string][]string, syncShardsToBackup backup.ResultsPerNode,
-	) <-chan backup.ClassDescriptor
+	BackupDescriptors(_ context.Context, bakid string, classes []string, shardBackupState backup.SharedBackupState) <-chan backup.ClassDescriptor
 
 	// ClassExists checks whether a class exits or not
 	ClassExists(name string) bool

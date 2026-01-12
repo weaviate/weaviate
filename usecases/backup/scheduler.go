@@ -242,7 +242,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, nil, nil}
+	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, backup.SharedBackupState{}, nil}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -260,7 +260,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, nil, nil}
+	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, backup.SharedBackupState{}, nil}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -439,7 +439,7 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 	return nil
 }
 
-func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, *backup.SharedBackupLocations, error) {
+func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, backup.SharedBackupLocations, error) {
 	if !store.backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
 		return nil, nil, errLocalBackendDBRO
 	}
@@ -507,7 +507,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		sharedChunks = append(sharedChunks, sharedChunksPerNode...)
 	}
 
-	return meta, &sharedChunks, nil
+	return meta, sharedChunks, nil
 }
 
 // fetchSchema retrieves and returns the latest schema for all classes

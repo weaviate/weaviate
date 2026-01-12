@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -243,10 +244,11 @@ type SharedBackupDescriptor struct {
 }
 
 type SharedBackupLocation struct {
-	Node  string `json:"node"`
-	Chunk int32  `json:"chunk"`
-	Shard string `json:"shard"`
-	Class string `json:"class"`
+	StoredOnNode   string   `json:"storedOnNode"`
+	Chunk          int32    `json:"chunk"`
+	Shard          string   `json:"shard"`
+	Class          string   `json:"class"`
+	BelongsToNodes []string `json:"belongsToNodes"`
 }
 type SharedBackupLocations []SharedBackupLocation
 
@@ -309,11 +311,12 @@ type BackupDescriptor struct {
 }
 
 type SharedBackupState struct {
-	ShardsPerNode map[string]ResultsPerNode
-	AllSyncShards map[string][]string
+	ShardsPerNode      map[string]ResultsPerNode // node -> class -> shards
+	AllSyncShards      map[string][]string
+	ClassShardsToNodes map[string]map[string][]string // class => shard => owner nodes
 }
 
-func (s *SharedBackupState) AddShard(selectedNode, className, shard string) {
+func (s *SharedBackupState) AddShard(selectedNode, className, shard string, ownerNodes []string) {
 	node, nodeExists := s.ShardsPerNode[selectedNode]
 	if !nodeExists {
 		node = make(ResultsPerNode)
@@ -329,6 +332,27 @@ func (s *SharedBackupState) AddShard(selectedNode, className, shard string) {
 		s.AllSyncShards[className] = []string{}
 	}
 	s.AllSyncShards[className] = append(s.AllSyncShards[className], shard)
+
+	if _, classExists := s.ClassShardsToNodes[className]; !classExists {
+		s.ClassShardsToNodes[className] = make(map[string][]string)
+	}
+	s.ClassShardsToNodes[className][shard] = ownerNodes
+}
+
+func (s *SharedBackupState) ShardsToBackupForNodeAndClass(locaNode, className string) []string {
+	var shardsInSync []string
+	shardsInSyncTmp := s.AllSyncShards[className] // may be nil, which is fine
+	if s.ShardsPerNode[locaNode] != nil {
+		if syncShardsForClassToBackup, ok := s.ShardsPerNode[locaNode][className]; ok {
+			for _, shard := range shardsInSyncTmp {
+				if !slices.Contains(syncShardsForClassToBackup, shard) {
+					shardsInSync = append(shardsInSync, shard)
+				}
+			}
+		}
+	}
+
+	return shardsInSync
 }
 
 type ResultsPerNode map[string][]string

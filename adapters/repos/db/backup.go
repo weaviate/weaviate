@@ -42,8 +42,8 @@ type BackupState struct {
 // ListShardsSync returns which class+shard combination is in sync between different nodes to enable to back those shards
 // only up once.
 // A shard is considered in sync when its last async replication run finished after the backup start time.
-func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeout time.Duration) (*backup.SharedBackupState, error) {
-	sharedBackupState := &backup.SharedBackupState{ShardsPerNode: make(map[string]backup.ResultsPerNode), AllSyncShards: make(map[string][]string, len(classes))}
+func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeout time.Duration) (backup.SharedBackupState, error) {
+	sharedBackupState := backup.SharedBackupState{ShardsPerNode: make(map[string]backup.ResultsPerNode), AllSyncShards: make(map[string][]string, len(classes))}
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	timeOutTime := backupStartedAt.Add(timeout)
@@ -60,7 +60,7 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 		shardCounterInt := int(shardCounter.Add(1) - 1)
 		selectedNode := ownerNodes[shardCounterInt%len(ownerNodes)]
 		mu.Lock()
-		sharedBackupState.AddShard(selectedNode, className, shard)
+		sharedBackupState.AddShard(selectedNode, className, shard, ownerNodes)
 		mu.Unlock()
 	}
 
@@ -68,7 +68,7 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
 		if idx == nil || idx.Config.ClassName != className {
-			return nil, fmt.Errorf("class %v doesn't exist", c)
+			return backup.SharedBackupState{}, fmt.Errorf("class %v doesn't exist", c)
 		}
 		if !idx.Config.AsyncReplicationEnabled {
 			continue // without async replication there is no (easy) way to know if shard is in sync
@@ -111,12 +111,12 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return backup.SharedBackupState{}, err
 		}
 	}
 
 	if err := eg.Wait(); err != nil {
-		return nil, err
+		return backup.SharedBackupState{}, err
 	}
 
 	return sharedBackupState, nil
@@ -152,8 +152,7 @@ func (db *DB) ListBackupable() []string {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, shardsPerClassInSync map[string][]string,
-	syncShardsPerClassToBackup backup.ResultsPerNode,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, shardBackupState backup.SharedBackupState,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
@@ -165,26 +164,15 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
 					return
 				}
-				var shardsInSync []string
-				if shardsPerClassInSync != nil {
-					shardsInSyncTmp := shardsPerClassInSync[c] // may be nil, which is fine
-					if syncShardsPerClassToBackup != nil {
-						if syncShardsForClassToBackup, ok := syncShardsPerClassToBackup[c]; ok {
-							for _, shard := range shardsInSyncTmp {
-								if !slices.Contains(syncShardsForClassToBackup, shard) {
-									shardsInSync = append(shardsInSync, shard)
-								}
-							}
-						}
-					}
-				}
+				syncShardsToBackup := shardBackupState.ShardsToBackupForNodeAndClass(db.localNodeName, c)
+
 				idx.closeLock.RLock()
 				defer idx.closeLock.RUnlock()
 				if idx.closed {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
-				if err := idx.descriptor(ctx, bakid, &desc, shardsInSync); err != nil {
+				if err := idx.descriptor(ctx, bakid, &desc, syncShardsToBackup); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
 			}()
@@ -355,7 +343,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, shardsInSync []string) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, syncShardsToBackup []string) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -367,7 +355,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		if slices.Contains(shardsInSync, name) {
+		if slices.Contains(syncShardsToBackup, name) {
 			desc.ShardsInSync = append(desc.ShardsInSync, name)
 			return nil
 		}

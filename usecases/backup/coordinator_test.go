@@ -45,9 +45,9 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Compression: req.Compression,
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", nil, nil}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", nil, nil}
+		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
@@ -383,9 +383,9 @@ func TestCoordinatedRestore(t *testing.T) {
 			},
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, nil}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", nil, nil}
+		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -496,7 +496,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			},
 		}
 		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", nil, nil}
+		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 
@@ -531,8 +531,8 @@ type fakeSelector struct {
 	mock.Mock
 }
 
-func (s *fakeSelector) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (*backup.SharedBackupState, error) {
-	return nil, nil
+func (s *fakeSelector) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (backup.SharedBackupState, error) {
+	return backup.SharedBackupState{}, nil
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {

@@ -85,11 +85,13 @@ type StatusRequest struct {
 	Path string
 
 	// Only relevant for create backup
-	// InSyncShards specifies which shards are in sync and do not need to be backed up per node
-	InSyncShards *backup.SharedBackupState
+	// CreatSharedBackupState specifies which shards are in sync and which node has to back up those shards
+	CreatSharedBackupState backup.SharedBackupState
 
 	// Only relevant for restore
-	ChunksPerClass *backup.SharedBackupLocations
+	// RestoreSharedBackupLocations contains all shards that are shared among nodes and all info needed to restore them
+	// on each node
+	RestoreSharedBackupLocations backup.SharedBackupLocations
 }
 
 type StatusResponse struct {

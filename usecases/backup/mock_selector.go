@@ -131,24 +131,22 @@ func (_c *MockSelector_ListClasses_Call) RunAndReturn(run func(context.Context) 
 }
 
 // ListShardsSync provides a mock function with given fields: classes, startedAt, timeout
-func (_m *MockSelector) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (*entitiesbackup.SharedBackupState, error) {
+func (_m *MockSelector) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (entitiesbackup.SharedBackupState, error) {
 	ret := _m.Called(classes, startedAt, timeout)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListShardsSync")
 	}
 
-	var r0 *entitiesbackup.SharedBackupState
+	var r0 entitiesbackup.SharedBackupState
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]string, time.Time, time.Duration) (*entitiesbackup.SharedBackupState, error)); ok {
+	if rf, ok := ret.Get(0).(func([]string, time.Time, time.Duration) (entitiesbackup.SharedBackupState, error)); ok {
 		return rf(classes, startedAt, timeout)
 	}
-	if rf, ok := ret.Get(0).(func([]string, time.Time, time.Duration) *entitiesbackup.SharedBackupState); ok {
+	if rf, ok := ret.Get(0).(func([]string, time.Time, time.Duration) entitiesbackup.SharedBackupState); ok {
 		r0 = rf(classes, startedAt, timeout)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entitiesbackup.SharedBackupState)
-		}
+		r0 = ret.Get(0).(entitiesbackup.SharedBackupState)
 	}
 
 	if rf, ok := ret.Get(1).(func([]string, time.Time, time.Duration) error); ok {
@@ -180,12 +178,12 @@ func (_c *MockSelector_ListShardsSync_Call) Run(run func(classes []string, start
 	return _c
 }
 
-func (_c *MockSelector_ListShardsSync_Call) Return(_a0 *entitiesbackup.SharedBackupState, _a1 error) *MockSelector_ListShardsSync_Call {
+func (_c *MockSelector_ListShardsSync_Call) Return(_a0 entitiesbackup.SharedBackupState, _a1 error) *MockSelector_ListShardsSync_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSelector_ListShardsSync_Call) RunAndReturn(run func([]string, time.Time, time.Duration) (*entitiesbackup.SharedBackupState, error)) *MockSelector_ListShardsSync_Call {
+func (_c *MockSelector_ListShardsSync_Call) RunAndReturn(run func([]string, time.Time, time.Duration) (entitiesbackup.SharedBackupState, error)) *MockSelector_ListShardsSync_Call {
 	_c.Call.Return(run)
 	return _c
 }

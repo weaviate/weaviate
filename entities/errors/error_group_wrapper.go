@@ -85,13 +85,14 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 func (egw *ErrorGroupWrapper) setDeferFunc() {
 	disable := entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
 	if !disable {
-		var cancelOnce sync.Once
+		var cancelOnce sync.Once // ensure cancelCtx is called only once in case multiple goroutines panic
 
 		egw.deferFunc = func(localVars ...interface{}) {
 			if r := recover(); r != nil {
 				entsentry.Recover(r)
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				debug.PrintStack()
+				// avoid races when setting returnError from multiple goroutines without loosing any information
 				egw.returnErrorMu.Lock()
 				if egw.returnError != nil {
 					egw.returnError = fmt.Errorf("panic occurred: %v", r)
