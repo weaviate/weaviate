@@ -6166,6 +6166,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -15523,6 +15528,11 @@ func init() {
         "path": {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
+        },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
         },
         "startedAt": {
           "description": "Timestamp when the backup process started",
