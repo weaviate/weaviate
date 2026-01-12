@@ -1955,7 +1955,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 				return nil, nil, func() {}, fmt.Errorf("segment tombstones: %w", err)
 			}
 			if memTombstones != nil && !memTombstones.IsEmpty() {
-				tombstones.Or(memTombstones)
+				tombstones = tombstones.Or(memTombstones)
 			}
 		} else {
 			tombstones = memTombstones
