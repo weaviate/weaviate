@@ -46,7 +46,7 @@ func BenchmarkBQFromCompressedBytes(b *testing.B) {
 
 func BenchmarkBQFromCompressedBytesWithSubsliceBuffer(b *testing.B) {
 	bq := NewBinaryQuantizer(nil)
-	iterations := 1000
+	iterations := 100000
 	encoded := make([][]uint64, iterations)
 	for i := range encoded {
 		encoded[i] = make([]uint64, 6)

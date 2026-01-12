@@ -86,7 +86,12 @@ func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []by
 	}
 
 	if len(*buffer) < l {
-		*buffer = make([]uint64, 1000*l)
+		// reuse existing buffer if it's big enough
+		if cap(*buffer) > l {
+			*buffer = (*buffer)[:cap(*buffer)]
+		} else {
+			*buffer = make([]uint64, 1000*l)
+		}
 	}
 
 	// take from end so we can address the start of the buffer
@@ -113,7 +118,12 @@ func (pq *ProductQuantizer) FromCompressedBytes(compressed []byte) []byte {
 
 func (pq *ProductQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]byte) []byte {
 	if len(*buffer) < len(compressed) {
-		*buffer = make([]byte, len(compressed)*1000)
+		// reuse existing buffer if it's big enough
+		if cap(*buffer) > len(compressed) {
+			*buffer = (*buffer)[:cap(*buffer)]
+		} else {
+			*buffer = make([]byte, len(compressed)*1000)
+		}
 	}
 
 	// take from end so we can address the start of the buffer
