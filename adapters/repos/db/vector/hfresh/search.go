@@ -29,7 +29,7 @@ const (
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	rescoreLimit := int(h.rescoreLimit)
 	vector = h.normalizeVec(vector)
-	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+	var queryVector Vector
 
 	var selectedCentroids []uint64
 	var postings []Posting
