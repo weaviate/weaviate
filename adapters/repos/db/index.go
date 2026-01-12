@@ -2264,17 +2264,10 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						return nil
 					}
 
-					started := time.Now()
-					l := i.logger.WithFields(logrus.Fields{
-						"shards": []string{tenant},
-						"count":  len(tenants2uuids[tenant]),
-					})
-					l.Debug("TTL BATCH DELETE (MT) started")
 					wg := new(sync.WaitGroup)
 					i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, wg, deletionTime, "", tenant,
 						tenants2uuids[tenant], countDeleted, replProps, schemaVersion)
 					wg.Wait()
-					l.WithField("took", time.Since(started).String()).Debug("TTL BATCH DELETE (MT) finished")
 				}
 			})
 			if ctx.Err() != nil {
@@ -2309,18 +2302,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return nil
 			}
 
-			shards := []string{}
-			count := 0
-			for shard, uuids := range shards2uuids {
-				shards = append(shards, shard)
-				count += len(uuids)
-			}
-			started := time.Now()
-			l := i.logger.WithFields(logrus.Fields{
-				"shards": shards,
-				"count":  count,
-			})
-			l.Debug("TTL BATCH DELETE (ST) started")
 			wg := new(sync.WaitGroup)
 			for shard, uuids := range shards2uuids {
 				i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, wg, deletionTime, shard, "",
@@ -2332,7 +2313,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				}
 			}
 			wg.Wait()
-			l.WithField("took", time.Since(started).String()).Debug("TTL BATCH DELETE (ST) finished")
 		}
 	})
 }
@@ -3127,25 +3107,6 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
 
-	var shard string
-	var uuid1st strfmt.UUID
-	var count int
-	for s, u := range shardUUIDs {
-		shard = s
-		uuid1st = u[0]
-		count = len(u)
-		break
-	}
-	l := i.logger.WithFields(logrus.Fields{
-		"shard":    shard,
-		"uuid_1st": uuid1st,
-		"count":    count,
-	})
-	l.Debug("BATCH DELETE (coordinator) started")
-	defer func() {
-		l.WithField("took", time.Since(before).String()).Debug("BATCH DELETE (coordinator) finished")
-	}()
-
 	type result struct {
 		objs objects.BatchSimpleObjects
 	}
@@ -3179,27 +3140,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 						i.backupLock.RLock(shardName)
 						defer i.backupLock.RUnlock(shardName)
 						defer release()
-
-						func() {
-							started := time.Now()
-							count := len(uuids)
-							var uuid1st strfmt.UUID
-							if count > 0 {
-								uuid1st = uuids[0]
-							}
-							l := i.logger.WithFields(logrus.Fields{
-								"uuid_1st": uuid1st,
-								"count":    count,
-								"method":   "Index::batchDeleteObjects",
-								"shard":    shardName,
-							})
-							l.Debug("BATCH DELETE (local) started")
-							defer func() {
-								l.WithField("took", time.Since(started).String()).Debug("BATCH DELETE (local) finished")
-							}()
-
-							objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
-						}()
+						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 					}()
 				} else {
 					objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
@@ -3236,25 +3177,7 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	}
 	defer release()
 
-	return func() objects.BatchSimpleObjects {
-		started := time.Now()
-		count := len(uuids)
-		var uuid1st strfmt.UUID
-		if count > 0 {
-			uuid1st = uuids[0]
-		}
-		l := i.logger.WithFields(logrus.Fields{
-			"uuid_1st": uuid1st,
-			"count":    count,
-			"method":   "Index::IncomingDeleteObjectBatch",
-			"shard":    shardName,
-		})
-		l.Debug("BATCH DELETE (remote) started")
-		defer func() {
-			l.WithField("took", time.Since(started).String()).Debug("BATCH DELETE (remote) finished")
-		}()
-		return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
-	}()
+	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
 func defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {

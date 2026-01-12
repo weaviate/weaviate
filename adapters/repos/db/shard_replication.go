@@ -20,7 +20,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -153,27 +152,7 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
-		result := func() objects.BatchSimpleObjects {
-			started := time.Now()
-			count := len(uuids)
-			var uuid1st strfmt.UUID
-			if count > 0 {
-				uuid1st = uuids[0]
-			}
-			l := s.index.logger.WithFields(logrus.Fields{
-				"uuid_1st": uuid1st,
-				"count":    count,
-				"method":   "Shard::prepareDeleteObjects",
-				"shard":    s.name,
-			})
-			l.Debug("BATCH DELETE (replication) started")
-			defer func() {
-				l.WithField("took", time.Since(started).String()).Debug("BATCH DELETE (replication) finished")
-			}()
-
-			return newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
-		}()
-
+		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
 		resp := replica.DeleteBatchResponse{
 			Batch: make([]replica.UUID2Error, len(result)),
 		}
