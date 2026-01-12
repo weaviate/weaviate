@@ -63,12 +63,6 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	batch []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
 	before := time.Now()
-
-	fmt.Printf("  ==> deleteObjectsBatcher::deleteSingleBatchInLSM started at [%s], len [%d]\n", before, len(batch))
-	defer func() {
-		fmt.Printf("  ==> deleteObjectsBatcher::deleteSingleBatchInLSM finished took [%s]\n", time.Since(before))
-	}()
-
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
 	result := make(objects.BatchSimpleObjects, len(batch))
