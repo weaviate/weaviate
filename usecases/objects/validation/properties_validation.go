@@ -394,17 +394,6 @@ func boolVal(val interface{}) (bool, error) {
 	return typed, nil
 }
 
-func dateVal(val interface{}) (time.Time, error) {
-	if dateStr, ok := val.(string); ok {
-		if date, err := time.Parse(time.RFC3339, dateStr); err == nil {
-			return date, nil
-		}
-	}
-
-	errorInvalidDate := "requires a string with a RFC3339 formatted date, but the given value is '%v'"
-	return time.Time{}, fmt.Errorf(errorInvalidDate, val)
-}
-
 func uuidVal(val interface{}) (uuid.UUID, error) {
 	if uuidStr, ok := val.(string); ok {
 		if uuid, err := uuid.Parse(uuidStr); err == nil {
@@ -771,4 +760,18 @@ func ParseUUIDArray(in any) ([]uuid.UUID, error) {
 	}
 
 	return d, nil
+}
+
+func dateVal(val interface{}) (time.Time, error) {
+	if dateStr, ok := val.(string); ok {
+		// Fix for #9602: Reject timezone offsets with minutes >= 60 (e.g., +14:60)
+		if invalid, _ := regexp.MatchString(`[+-][0-9]{2}:[6-9][0-9]$`, dateStr); !invalid {
+			if date, err := time.Parse(time.RFC3339, dateStr); err == nil {
+				return date, nil
+			}
+		}
+	}
+
+	errorInvalidDate := "requires a string with a RFC3339 formatted date, but the given value is '%v'"
+	return time.Time{}, fmt.Errorf(errorInvalidDate, val)
 }
