@@ -103,11 +103,20 @@ func InitOptionalTokenizers() {
 	}
 }
 
+// ensureGoPath sets GOPATH to /go if it is not set.
+// This is required for gse to find dictionaries in Docker environments where GOPATH might be stripped.
+func ensureGoPath() {
+	if os.Getenv("GOPATH") == "" {
+		os.Setenv("GOPATH", "/go")
+	}
+}
+
 func init_gse() {
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	if gseTokenizer == nil {
 		startTime := time.Now()
+		ensureGoPath() 
 		seg, err := gse.New("ja")
 		if err != nil {
 			return
@@ -122,6 +131,7 @@ func init_gse_ch() {
 	defer gseLock.Unlock()
 	if gseTokenizerCh == nil {
 		startTime := time.Now()
+		ensureGoPath() 
 		seg, err := gse.New("zh")
 		if err != nil {
 			return
