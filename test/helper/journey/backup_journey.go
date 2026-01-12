@@ -93,7 +93,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			if err != nil {
 				// If backup is still in progress from a previous operation, fail this iteration
 				// so EventuallyWithT will retry until the slot is released
-				if assert.Contains(t1, err.Error(), "already in progress") {
+				if assert.Contains(t1, err.Error(), "already in progress", err) {
 					assert.Fail(t1, "backup still in progress, retrying", err.Error())
 				}
 				return
