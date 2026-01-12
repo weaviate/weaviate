@@ -37,7 +37,6 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
-	tombstones := m.tombstones
 
 	docIdsLengths := make(map[uint64]uint32)
 	propLengthSum := uint64(0)
@@ -62,7 +61,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				}
 				docIdsLengths[docId] = uint32(fieldLength)
 			} else {
-				tombstones.Set(docId)
+				m.tombstones.Set(docId)
 			}
 		}
 
@@ -83,8 +82,8 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	}
 
 	tombstoneBuffer := make([]byte, 0)
-	if !tombstones.IsEmpty() {
-		tombstoneBuffer = tombstones.ToBuffer()
+	if !m.tombstones.IsEmpty() {
+		tombstoneBuffer = m.tombstones.ToBuffer()
 	}
 
 	header := segmentindex.Header{
@@ -266,5 +265,5 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	ff.Seek(int64(totalWritten), io.SeekStart)
 
-	return keys[:actuallyWritten], tombstones, nil
+	return keys[:actuallyWritten], m.tombstones, nil
 }
