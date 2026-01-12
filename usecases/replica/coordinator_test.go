@@ -19,7 +19,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -110,6 +109,7 @@ func Test_coordinatorPush(t *testing.T) {
 		require.NoError(t, err)
 		w.Write(b)
 	}
+
 	failure := func(status int, msg string, typ errorType) func(w http.ResponseWriter, r *http.Request) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if typ == broadcastError && strings.Contains(r.URL.Path, "commit") {
@@ -128,6 +128,11 @@ func Test_coordinatorPush(t *testing.T) {
 			w.Write(b)
 		}
 	}
+
+	parse := func(level int, commitCh <-chan replica.Result[replica.SimpleResponse]) []error {
+		return replica.NewStream().Read(1, level, commitCh)
+	}
+
 	eventualSuccess := func(failures int, typ errorType) func(w http.ResponseWriter, r *http.Request) {
 		count := 0
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +144,7 @@ func Test_coordinatorPush(t *testing.T) {
 			success(w, r)
 		}
 	}
+
 	newServer := func(handler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(handler))
 	}
@@ -208,7 +214,7 @@ func Test_coordinatorPush(t *testing.T) {
 			}
 
 			client := clients.NewReplicationClient(&http.Client{})
-			coordinator := replica.NewWriteCoordinator[replica.SimpleResponse](
+			coordinator := replica.NewWriteCoordinator[replica.SimpleResponse, error](
 				client,
 				setupRouter(cl, replicas),
 				metrics,
@@ -218,28 +224,9 @@ func Test_coordinatorPush(t *testing.T) {
 				logger,
 			)
 
-			ch, _, err := coordinator.Push(context.Background(), cl, broadcast(client), commit(client))
+			errs, err := coordinator.Push(context.Background(), cl, broadcast(client), commit(client), parse)
 			require.NoError(t, err)
-
-			// If this timeouts then something inside coordinator.Push is retrying/hanging when it shouldn't
-			// QUORUM should return quickly even if one node is down
-			// Likewise, ONE should return quickly even if two nodes are down
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
-			for {
-				select {
-				case res, ok := <-ch:
-					require.Nil(t, res.Err)
-					require.Nil(t, res.Value.FirstError())
-					if !ok {
-						return
-					}
-					require.NoError(t, res.Err)
-				case <-ctx.Done():
-					cancel()
-					t.Fatal("timeout exceeded")
-				}
-			}
+			require.Len(t, errs, 0)
 		})
 	}
 }

@@ -19,16 +19,20 @@ import (
 )
 
 type (
-	// replicatorStream represents an incoming stream of responses
+	// stream represents an incoming stream of responses
 	// to replication requests sent to replicas
-	replicatorStream struct{}
+	stream struct{}
 )
+
+func NewStream() stream {
+	return stream{}
+}
 
 // readErrors reads errors from incoming responses.
 // It returns as soon as the specified consistency level l has been reached
-func (r replicatorStream) readErrors(batchSize int,
+func (s stream) Read(batchSize int,
 	level int,
-	ch <-chan _Result[SimpleResponse],
+	ch <-chan Result[SimpleResponse],
 ) []error {
 	urs := make([]SimpleResponse, 0, level)
 	var firstError error
@@ -41,21 +45,21 @@ func (r replicatorStream) readErrors(batchSize int,
 		} else {
 			level--
 			if level == 0 { // consistency level reached
-				return make([]error, batchSize)
+				return []error{}
 			}
 		}
 	}
 	if level > 0 && firstError == nil {
 		firstError = fmt.Errorf("commit: %w", ErrReplicas)
 	}
-	return r.flattenErrors(batchSize, urs, firstError)
+	return s.flattenErrors(batchSize, urs, firstError)
 }
 
 // readDeletions reads deletion results from incoming responses.
 // It returns as soon as the specified consistency level l has been reached
-func (r replicatorStream) readDeletions(batchSize int,
+func (s stream) ReadDeletions(batchSize int,
 	level int,
-	ch <-chan _Result[DeleteBatchResponse],
+	ch <-chan Result[DeleteBatchResponse],
 ) []objects.BatchSimpleObject {
 	rs := make([]DeleteBatchResponse, 0, level)
 	urs := make([]DeleteBatchResponse, 0, level)
@@ -70,7 +74,7 @@ func (r replicatorStream) readDeletions(batchSize int,
 			level--
 			rs = append(rs, x.Value)
 			if level == 0 { // consistency level reached
-				return r.flattenDeletions(batchSize, rs, nil)
+				return s.flattenDeletions(batchSize, rs, nil)
 			}
 		}
 	}
@@ -78,12 +82,12 @@ func (r replicatorStream) readDeletions(batchSize int,
 		firstError = fmt.Errorf("commit: %w", ErrReplicas)
 	}
 	urs = append(urs, rs...)
-	return r.flattenDeletions(batchSize, urs, firstError)
+	return s.flattenDeletions(batchSize, urs, firstError)
 }
 
 // flattenErrors extracts errors from responses
 
-func (replicatorStream) flattenErrors(batchSize int,
+func (stream) flattenErrors(batchSize int,
 	rs []SimpleResponse,
 	defaultErr error,
 ) []error {
@@ -111,7 +115,7 @@ func (replicatorStream) flattenErrors(batchSize int,
 }
 
 // flattenDeletions extracts deletion results from responses
-func (replicatorStream) flattenDeletions(batchSize int,
+func (stream) flattenDeletions(batchSize int,
 	rs []DeleteBatchResponse,
 	defaultErr error,
 ) []objects.BatchSimpleObject {

@@ -41,8 +41,10 @@ type (
 	// readOp defines a generic read operation
 	readOp[T any] func(_ context.Context, host string, fullRead bool) (T, error)
 
+	parseErrs[T, R any] func(level int, commitCh <-chan Result[T]) []R
+
 	// coordinator coordinates replication of write and read requests
-	coordinator[T any] struct {
+	coordinator[T, R any] struct {
 		Client
 		Router  types.Router
 		metrics *Metrics
@@ -58,13 +60,13 @@ type (
 )
 
 // NewCoordinator used by the replicator
-func NewWriteCoordinator[T any](client Client,
+func NewWriteCoordinator[T any, R any](client Client,
 	router types.Router,
 	metrics *Metrics,
 	className, shard, requestID string,
 	l logrus.FieldLogger,
-) *coordinator[T] {
-	return &coordinator[T]{
+) *coordinator[T, R] {
+	return &coordinator[T, R]{
 		Client:                        client,
 		Router:                        router,
 		metrics:                       metrics,
@@ -78,12 +80,12 @@ func NewWriteCoordinator[T any](client Client,
 }
 
 // newCoordinator used by the Finder to read objects from replicas
-func newReadCoordinator[T any](router types.Router,
+func newReadCoordinator[T, R any](router types.Router,
 	metrics *Metrics,
 	className, shard, deletionStrategy string,
 	log logrus.FieldLogger,
-) *coordinator[T] {
-	return &coordinator[T]{
+) *coordinator[T, R] {
+	return &coordinator[T, R]{
 		Router:                        router,
 		Class:                         className,
 		Shard:                         shard,
@@ -96,13 +98,13 @@ func newReadCoordinator[T any](router types.Router,
 }
 
 // broadcast sends write request to all replicas (first phase of a two-phase commit)
-func (c *coordinator[T]) broadcast(ctx context.Context,
+func (c *coordinator[T, R]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
-) <-chan _Result[string] {
+) <-chan Result[string] {
 	// prepare tells replicas to be ready
-	prepare := func() <-chan _Result[string] {
-		resChan := make(chan _Result[string], len(replicas))
+	prepare := func() <-chan Result[string] {
+		resChan := make(chan Result[string], len(replicas))
 		f := func() { // broadcast
 			defer close(resChan)
 			var wg sync.WaitGroup
@@ -112,7 +114,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				g := func() {
 					defer wg.Done()
 					err := op(ctx, replica, c.TxID)
-					resChan <- _Result[string]{replica, err}
+					resChan <- Result[string]{replica, err}
 				}
 				enterrors.GoWrapper(g, c.log)
 			}
@@ -123,10 +125,10 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	}
 
 	// handle responses to prepare requests
-	resChan := make(chan _Result[string], len(replicas))
+	resChan := make(chan Result[string], len(replicas))
 	f := func() {
 		defer close(resChan)
-		actives := make([]_Result[string], 0, level) // cache for active replicas
+		actives := make([]Result[string], 0, level) // cache for active replicas
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
@@ -142,7 +144,6 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				for _, x := range actives {
 					resChan <- x
 				}
-				return
 			}
 			resChan <- r
 		}
@@ -152,7 +153,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
+			resChan <- Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -161,12 +162,12 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 
 // commitAll tells replicas to commit pending updates related to a specific request
 // (second phase of a two-phase commit)
-func (c *coordinator[T]) commitAll(ctx context.Context,
-	broadcastCh <-chan _Result[string],
+func (c *coordinator[T, R]) commitAll(ctx context.Context,
+	broadcastCh <-chan Result[string],
 	op commitOp[T],
 	callback func(successful int),
-) <-chan _Result[T] {
-	replyCh := make(chan _Result[T], cap(broadcastCh))
+) <-chan Result[T] {
+	replyCh := make(chan Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
 		// tells active replicas to commit
 
@@ -182,7 +183,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 
 		for res := range broadcastCh {
 			if res.Err != nil {
-				replyCh <- _Result[T]{Err: res.Err}
+				replyCh <- Result[T]{Err: res.Err}
 				continue
 			}
 			replica := res.Value
@@ -193,7 +194,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 				if err == nil {
 					successful.Add(1)
 				}
-				replyCh <- _Result[T]{resp, err}
+				replyCh <- Result[T]{resp, err}
 			}
 			enterrors.GoWrapper(g, c.log)
 		}
@@ -207,15 +208,16 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 }
 
 // Push pushes updates to all replicas of a specific shard
-func (c *coordinator[T]) Push(ctx context.Context,
+func (c *coordinator[T, R]) Push(ctx context.Context,
 	cl types.ConsistencyLevel,
 	ask readyOp,
 	com commitOp[T],
-) (<-chan _Result[T], int, error) {
+	parseErrs parseErrs[T, R],
+) ([]R, error) {
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, "")
 	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(options)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+		return nil, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 
 	level := writeRoutingPlan.IntConsistencyLevel
@@ -262,7 +264,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
 	}
 
-	return commitCh, level, nil
+	return parseErrs(level, commitCh), nil
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
@@ -276,11 +278,11 @@ func (c *coordinator[T]) Push(ctx context.Context,
 // - Only send error messages on replyCh once it's unlikely we'll ever reach level successes
 //
 // Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
-func (c *coordinator[T]) Pull(ctx context.Context,
+func (c *coordinator[T, R]) Pull(ctx context.Context,
 	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
-) (<-chan _Result[T], int, error) {
+) (<-chan Result[T], int, error) {
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
 	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
@@ -288,7 +290,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := readRoutingPlan.IntConsistencyLevel
 	hosts := readRoutingPlan.HostAddresses()
-	replyCh := make(chan _Result[T], level)
+	replyCh := make(chan Result[T], level)
 	f := func() {
 		start := time.Now()
 		var successful atomic.Int32
@@ -335,13 +337,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
 					successful.Add(1)
-					replyCh <- _Result[T]{resp, err}
+					replyCh <- Result[T]{resp, err}
 					return
 				}
 				// this host failed op on the first try, put it on the retry queue
 				select {
 				case <-workerCtx.Done():
-					replyCh <- _Result[T]{Err: workerCtx.Err()}
+					replyCh <- Result[T]{Err: workerCtx.Err()}
 					return
 				default:
 					hostRetryQueue <- hostRetry{
@@ -354,7 +356,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				for hr := range hostRetryQueue {
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
-						replyCh <- _Result[T]{resp, err}
+						replyCh <- Result[T]{resp, err}
 						return
 					}
 					nextBackOff := hr.currentBackOff.NextBackOff()
@@ -363,7 +365,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						// we have the worker exit here with the assumption that once we've reached
 						// this many failures for this host, we've tried all other hosts enough
 						// that we're not going to reach level successes
-						replyCh <- _Result[T]{resp, err}
+						replyCh <- Result[T]{resp, err}
 						return
 					}
 
@@ -371,7 +373,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					select {
 					case <-workerCtx.Done():
 						timer.Stop()
-						replyCh <- _Result[T]{resp, err}
+						replyCh <- Result[T]{resp, err}
 						return
 					case <-timer.C:
 						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}

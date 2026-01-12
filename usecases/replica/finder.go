@@ -104,7 +104,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	props search.SelectProperties,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
-	c := newReadCoordinator[findOneReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	c := newReadCoordinator[findOneReply, any](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
@@ -146,7 +146,7 @@ func (f *Finder) GetOne(ctx context.Context,
 func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
-	c := newReadCoordinator[[]strfmt.UUID](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	c := newReadCoordinator[[]strfmt.UUID, any](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
@@ -231,7 +231,7 @@ func (f *Finder) Exists(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
-	c := newReadCoordinator[existReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	c := newReadCoordinator[existReply, any](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
 		var x types.RepairResponse
@@ -278,7 +278,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c         = newReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
+		c         = newReadCoordinator[BatchReply, any](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
