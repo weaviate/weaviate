@@ -304,7 +304,7 @@ func (p *Parser) validatePropertiesForUpdate(existing []*models.Property, new []
 		return cmp.Compare(a.Name, b.Name)
 	})
 
-	slices.SortStableFunc(existing, func(a, b *models.Property) int {
+	slices.SortStableFunc(new, func(a, b *models.Property) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
 
