@@ -67,6 +67,7 @@ type Status struct {
 	CompletedAt time.Time
 	Status      backup.Status
 	Err         string
+	Size        float64
 }
 
 type Handler struct {

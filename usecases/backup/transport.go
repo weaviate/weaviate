@@ -55,6 +55,11 @@ type Request struct {
 	// Additional path prefix override
 	Path string
 
+	// NodeName is the target node name for this backup operation
+	NodeName string
+	// NodeHost is the target node's hostname for this backup operation
+	NodeHost string
+
 	RbacRestoreOption string
 	UserRestoreOption string
 
