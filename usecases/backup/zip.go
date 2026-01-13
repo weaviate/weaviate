@@ -44,6 +44,8 @@ const (
 	NoCompression
 )
 
+const ShardHeaderPAXRecord = "WEAVIATE.shard"
+
 type compressor interface {
 	Flush() error
 	Write(p []byte) (n int, err error)
@@ -203,7 +205,10 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath, shardName
 	}
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
-	header.Gname = shardName
+	header.PAXRecords = map[string]string{
+		ShardHeaderPAXRecord: shardName,
+	}
+
 	if err := z.w.WriteHeader(header); err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// we ignore in case the ctx was cancelled
@@ -311,8 +316,9 @@ func (u *unzip) ReadChunk(shardsToWrite []string) (written int64, err error) {
 		if header == nil {
 			continue
 		}
-		shardName := header.Gname
-		if shardsToWrite != nil && !slices.Contains(shardsToWrite, shardName) {
+		// we stored the shard name in PAX records, empty for backups before 1.36
+		shardName, ok := header.PAXRecords[ShardHeaderPAXRecord]
+		if shardsToWrite != nil && ok && !slices.Contains(shardsToWrite, shardName) {
 			// skip this shard
 			continue
 		}

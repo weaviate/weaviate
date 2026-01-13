@@ -334,11 +334,11 @@ func (s *SharedBackupState) AddShard(selectedNode, className, shard string, owne
 	s.ClassShardsToNodes[className][shard] = ownerNodes
 }
 
-func (s *SharedBackupState) ShardsToBackupForNodeAndClass(locaNode, className string) []string {
+func (s *SharedBackupState) ShardsToSkipForNodeAndClass(localNode, className string) []string {
 	var shardsInSync []string
 	shardsInSyncTmp := s.AllSyncShards[className] // may be nil, which is fine
-	if s.ShardsPerNode[locaNode] != nil {
-		if syncShardsForClassToBackup, ok := s.ShardsPerNode[locaNode][className]; ok {
+	if s.ShardsPerNode[localNode] != nil {
+		if syncShardsForClassToBackup, ok := s.ShardsPerNode[localNode][className]; ok {
 			for _, shard := range shardsInSyncTmp {
 				if !slices.Contains(syncShardsForClassToBackup, shard) {
 					shardsInSync = append(shardsInSync, shard)

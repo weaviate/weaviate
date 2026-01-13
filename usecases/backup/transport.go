@@ -90,8 +90,8 @@ type StatusRequest struct {
 	Path string
 
 	// Only relevant for create backup
-	// CreatSharedBackupState specifies which shards are in sync and which node has to back up those shards
-	CreatSharedBackupState backup.SharedBackupState
+	// CreateSharedBackupState specifies which shards are in sync and which node has to back up those shards
+	CreateSharedBackupState backup.SharedBackupState
 
 	// Only relevant for restore
 	// RestoreSharedBackupLocations contains all shards that are shared among nodes and all info needed to restore them

@@ -117,7 +117,7 @@ func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) (backup.S
 				}
 			case StatusRequest:
 				if v.ID == id {
-					return v.CreatSharedBackupState, v.RestoreSharedBackupLocations, nil
+					return v.CreateSharedBackupState, v.RestoreSharedBackupLocations, nil
 				}
 			}
 		}

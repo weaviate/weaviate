@@ -94,7 +94,7 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 				debug.PrintStack()
 				// avoid races when setting returnError from multiple goroutines without loosing any information
 				egw.returnErrorMu.Lock()
-				if egw.returnError != nil {
+				if egw.returnError == nil {
 					egw.returnError = fmt.Errorf("panic occurred: %v", r)
 				} else {
 					egw.returnError = fmt.Errorf("panic occurred: %v, with previous error: %w", r, egw.returnError)

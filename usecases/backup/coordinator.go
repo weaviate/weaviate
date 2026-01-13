@@ -237,12 +237,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		}
 
 		statusReq := StatusRequest{
-			Method:                 OpCreate,
-			ID:                     req.ID,
-			Backend:                req.Backend,
-			Bucket:                 req.Bucket,
-			Path:                   req.Path,
-			CreatSharedBackupState: inSyncShards,
+			Method:                  OpCreate,
+			ID:                      req.ID,
+			Backend:                 req.Backend,
+			Bucket:                  req.Bucket,
+			Path:                    req.Path,
+			CreateSharedBackupState: inSyncShards,
 		}
 
 		ctx := context.Background()
