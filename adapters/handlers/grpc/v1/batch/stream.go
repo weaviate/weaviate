@@ -448,10 +448,8 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			}
 
 			// Split the client-sent objects into batches according to the current batch size
-			// This allows clients to send however many objects they want without overwhelming
-			// the downstream workers. If there is an OOM during the processing of a batch, then the
-			// uuids sent back as part of the OOM message are those remaining objects that were not processed
-			// prior to the OOM occurring.
+			// This allows clients to send however many objects they want (if misbehaving) without
+			// overwhelming the downstream workers
 			batchSize := h.workerStats(streamId).getBatchSize()
 			var batch []*pb.BatchObject
 			if len(objs) > batchSize {
