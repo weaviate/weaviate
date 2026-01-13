@@ -230,7 +230,9 @@ type Shard struct {
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
 	asyncReplicationLastRun         atomic.Pointer[time.Time]
-	asyncReplicationLastRunStart    atomic.Pointer[time.Time]
+	// this is the time the last async replication run started (regardless of whether it included object propagation)
+	// we now that the shard was fully replicated up to this time
+	asyncReplicationLastRunStart atomic.Pointer[time.Time]
 	// the time the last async replication run started which included object propagation. This means that imports before
 	// this time are guaranteed to have been propagated to all nodes
 	asyncReplicationLastRunStartWithObjectPropagation atomic.Pointer[time.Time]

@@ -783,6 +783,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 							lastHashbeatMux.Unlock()
 							return
 						}
+						s.asyncReplicationLastRunStartWithObjectPropagation.Store(&start)
 
 						if time.Since(lastLog) >= config.loggingFrequency {
 							lastLog = time.Now()
@@ -803,6 +804,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						lastHashbeatMux.Unlock()
 						return
 					}
+					s.asyncReplicationLastRunStartWithObjectPropagation.Store(&start)
 
 					statsHaveObjectsPropagated := false
 					if time.Since(lastLog) >= config.loggingFrequency {
@@ -832,9 +834,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					now := time.Now()
 					s.asyncReplicationLastRun.Store(&now)
 					lastHashbeatPropagatedObjects = statsHaveObjectsPropagated
-					if lastHashbeatPropagatedObjects {
-						s.asyncReplicationLastRunStartWithObjectPropagation.Store(&start)
-					}
+
 					lastHashbeatMux.Unlock()
 				}()
 			}
