@@ -354,18 +354,6 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 	return index
 }
 
-// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
-}
-
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
