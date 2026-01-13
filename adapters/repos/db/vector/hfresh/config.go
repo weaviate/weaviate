@@ -162,12 +162,17 @@ func (h *HFresh) computeMaxPostingSize(dims int) uint32 {
 	return uint32(math.Ceil(float64(maxBytes) / vBytes))
 }
 
-func (h *HFresh) setMaxPostingSize() {
-	if h.maxPostingSize == 0 {
-		h.maxPostingSize = max(h.computeMaxPostingSize(int(h.dims)), maxPostingSizeFloor)
+func (h *HFresh) setMaxPostingSize() error {
+	if h.dims == 0 || h.maxPostingSizeKB < ent.MaxPostingSizeKBFloor {
+		return errors.New("unable to set max posting size")
+	}
+	h.maxPostingSize = max(h.computeMaxPostingSize(int(h.dims)), maxPostingSizeFloor)
+	h.minPostingSize = max(h.maxPostingSize/3, minPostingSizeFloor)
+
+	if h.minPostingSize >= h.maxPostingSize {
+		return errors.New("min posting size must be less than max posting size")
 	}
 
-	h.minPostingSize = max(h.maxPostingSize/3, minPostingSizeFloor)
 	h.logger.WithFields(
 		logrus.Fields{
 			"action":           "hfresh_configure",
@@ -177,4 +182,5 @@ func (h *HFresh) setMaxPostingSize() {
 			"maxPostingSizeKB": h.maxPostingSizeKB,
 		},
 	).Warn("hfresh posting sizes configured")
+	return nil
 }

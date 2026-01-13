@@ -21,6 +21,7 @@ import (
 
 const (
 	DefaultMaxPostingSizeKB = 48
+	MaxPostingSizeKBFloor   = 8
 	DefaultReplicas         = 4
 	DefaultRNGFactor        = 10.0
 	DefaultSearchProbe      = 64
@@ -79,10 +80,11 @@ func (u *UserConfig) validate() error {
 		))
 	}
 
-	if u.MaxPostingSizeKB < 8 {
+	if u.MaxPostingSizeKB < MaxPostingSizeKBFloor {
 		errs = append(errs, fmt.Errorf(
-			"maxPostingSizeKB is '%d' but must be at least 8",
+			"maxPostingSizeKB is '%d' but must be at least %d",
 			u.MaxPostingSizeKB,
+			MaxPostingSizeKBFloor,
 		))
 	}
 
