@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/loadlimiter"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -101,7 +103,8 @@ type DB struct {
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
 
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter  *loadlimiter.LoadLimiter
+	bucketLoadLimiter *loadlimiter.LoadLimiter
 
 	reindexer ShardReindexerV3
 
@@ -196,7 +199,8 @@ func New(logger logrus.FieldLogger, config Config,
 		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:   newResourceScanState(),
 		memMonitor:          memMonitor,
-		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
+		shardLoadLimiter:    loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
+		bucketLoadLimiter:   loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
 		reindexer:           NewShardReindexerV3Noop(),
 		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:  func() {},
@@ -265,6 +269,7 @@ type Config struct {
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
+	MaximumConcurrentBucketLoads        int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 
