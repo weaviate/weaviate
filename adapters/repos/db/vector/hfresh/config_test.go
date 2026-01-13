@@ -49,14 +49,8 @@ func TestHFreshUserConfigUpdates(t *testing.T) {
 			},
 			{
 				name:          "changing maxPostingSize",
-				initial:       ent.UserConfig{MaxPostingSize: 50},
-				update:        ent.UserConfig{MaxPostingSize: 100},
-				expectedError: nil,
-			},
-			{
-				name:          "changing minPostingSize",
-				initial:       ent.UserConfig{MinPostingSize: 10},
-				update:        ent.UserConfig{MinPostingSize: 20},
+				initial:       ent.UserConfig{MaxPostingSizeKB: 50},
+				update:        ent.UserConfig{MaxPostingSizeKB: 100},
 				expectedError: nil,
 			},
 			{
@@ -79,14 +73,14 @@ func TestHFreshUserConfigUpdates(t *testing.T) {
 			},
 			{
 				name:          "changing multiple mutable fields",
-				initial:       ent.UserConfig{MaxPostingSize: 50, MinPostingSize: 10, RescoreLimit: 350},
-				update:        ent.UserConfig{MaxPostingSize: 100, MinPostingSize: 20, RescoreLimit: 500},
+				initial:       ent.UserConfig{MaxPostingSizeKB: 50, RescoreLimit: 350},
+				update:        ent.UserConfig{MaxPostingSizeKB: 100, RescoreLimit: 500},
 				expectedError: nil,
 			},
 			{
 				name:          "keeping immutable fields unchanged",
-				initial:       ent.UserConfig{Distance: "cosine", Replicas: 4, MaxPostingSize: 50},
-				update:        ent.UserConfig{Distance: "cosine", Replicas: 4, MaxPostingSize: 100},
+				initial:       ent.UserConfig{Distance: "cosine", Replicas: 4, MaxPostingSizeKB: 50},
+				update:        ent.UserConfig{Distance: "cosine", Replicas: 4, MaxPostingSizeKB: 100},
 				expectedError: nil,
 			},
 		}
