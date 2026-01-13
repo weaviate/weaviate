@@ -242,7 +242,9 @@ func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, 
 	limit := m.localLimitOrGlobalLimit(int64(offset), paramLimit)
 
 	if int64(offset+limit) > m.config.Config.QueryMaximumResults {
-		return 0, 0, errors.New("query maximum results exceeded")
+		return 0, 0, fmt.Errorf(
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QueryMaximumResults '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
+			offset, limit, m.config.Config.QueryMaximumResults)
 	}
 
 	return offset, limit, nil
