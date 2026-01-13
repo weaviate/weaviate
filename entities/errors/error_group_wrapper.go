@@ -92,7 +92,7 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 				entsentry.Recover(r)
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				debug.PrintStack()
-				// avoid races when setting returnError from multiple goroutines without loosing any information
+				// avoid races when setting returnError from multiple goroutines without losing any information
 				egw.returnErrorMu.Lock()
 				if egw.returnError == nil {
 					egw.returnError = fmt.Errorf("panic occurred: %v", r)

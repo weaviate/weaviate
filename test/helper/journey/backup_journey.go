@@ -90,7 +90,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
-			require.NoError(t, err)
+			require.NoError(t1, err)
 			require.NotNil(t1, resp)
 			require.NotNil(t1, resp.Payload)
 			assert.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
