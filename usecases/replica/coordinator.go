@@ -86,7 +86,7 @@ func NewWriteCoordinator[T any](client Client,
 }
 
 // newCoordinator used by the Finder to read objects from replicas
-func newReadCoordinator[T, R any](router types.Router,
+func newReadCoordinator[T any](router types.Router,
 	metrics *Metrics,
 	className, shard, deletionStrategy string,
 	log logrus.FieldLogger,
