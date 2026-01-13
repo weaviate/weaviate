@@ -61,14 +61,14 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 		size := uint32(len(vector))
 		atomic.StoreUint32(&h.dims, size)
 		h.setMaxPostingSize()
-		err = h.Metadata.SetDimensions(size)
+		err = h.IndexMetadata.SetDimensions(size)
 		if err != nil {
 			err = errors.Wrap(err, "could not persist dimensions")
 			return // Fail the entire initialization
 		}
-
-		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
+		h.quantizer = compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
 		h.Centroids.SetQuantizer(h.quantizer)
+
 		if err = h.persistQuantizationData(); err != nil {
 			err = errors.Wrap(err, "could not persist RQ data")
 			return // Fail the entire initialization
@@ -96,7 +96,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 
 	var v Vector
 
-	compressed := h.quantizer.Encode(vector)
+	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
 	v = NewVector(id, version, compressed)
 
 	targets, _, err := h.RNGSelect(vector, 0)
@@ -199,7 +199,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// increment the size of the posting
-	count, err := h.PostingSizes.Inc(ctx, centroidID, 1)
+	count, err := h.PostingMetadata.AddVectorID(ctx, centroidID, vector.ID())
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err

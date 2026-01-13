@@ -67,18 +67,21 @@ type PrometheusMetrics struct {
 	QueryDimensions                     *prometheus.CounterVec
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
-	BackupRestoreDurations              *prometheus.SummaryVec
-	BackupStoreDurations                *prometheus.SummaryVec
-	BucketPauseDurations                *prometheus.SummaryVec
-	BackupRestoreClassDurations         *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations    *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
-	BackupRestoreDataTransferred        *prometheus.CounterVec
-	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
 	FileIOReads                         *prometheus.SummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
+
+	// Backup/Restore metrics
+	BackupRestoreDurations            *prometheus.SummaryVec
+	BackupStoreDurations              *prometheus.SummaryVec
+	BucketPauseDurations              *prometheus.SummaryVec
+	BackupRestoreClassDurations       *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations *prometheus.SummaryVec
+	BackupRestoreDataTransferred      *prometheus.CounterVec
+	BackupStoreDataTransferred        *prometheus.CounterVec
+	RestorePhaseDurations             *prometheus.HistogramVec
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -736,6 +739,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		RestorePhaseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_restore_phase_duration_seconds",
+			Help:    "Duration of restore phases (prepare, object_storage_download, schema_apply)",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
+		}, []string{"phase"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{

@@ -57,7 +57,7 @@ type DB struct {
 	indices           map[string]*Index
 	remoteIndex       sharding.RemoteIndexClient
 	replicaClient     replica.Client
-	nodeResolver      nodeResolver
+	nodeResolver      cluster.NodeResolver
 	remoteNode        *sharding.RemoteNode
 	promMetrics       *monitoring.PrometheusMetrics
 	indexCheckpoints  *indexcheckpoint.Checkpoints
@@ -166,7 +166,7 @@ type IndexLike interface {
 }
 
 func New(logger logrus.FieldLogger, localNodeName string, config Config,
-	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteIndex sharding.RemoteIndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
@@ -346,18 +346,6 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
 func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
-}
-
-// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil

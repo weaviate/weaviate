@@ -149,6 +149,12 @@ func (m *JinaAIModule) VectorizeInput(ctx context.Context,
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
+func (m *JinaAIModule) MigrateProperties() []modulecapabilities.MigrateProperty {
+	return []modulecapabilities.MigrateProperty{
+		{Name: "baseURL"},
+	}
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
@@ -156,4 +162,5 @@ var (
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
+	_ = modulecapabilities.MigrateProperties(New())
 )

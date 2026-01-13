@@ -239,7 +239,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		hfreshConfigID := s.vectorIndexID(targetVector)
-		rootPath := filepath.Join(s.path(), "hfresh")
+		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
+
 		hfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
 			Scheduler:         s.index.scheduler,

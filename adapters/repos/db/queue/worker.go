@@ -132,8 +132,14 @@ func (w *Worker) do(batch *Batch) (err error) {
 }
 
 func (w *Worker) calculateBackoff(attempts int) time.Duration {
-	backoff := time.Duration(1<<uint(attempts-1)) * time.Second
-	return min(backoff, maxBackoffDuration)
+	// Cap attempts to prevent bit-shift overflow
+	const maxAttemptsBeforeCap = 5
+
+	if attempts > maxAttemptsBeforeCap {
+		return maxBackoffDuration
+	}
+
+	return time.Second << (attempts - 1)
 }
 
 func hasTransientErrors(errs []error) bool {

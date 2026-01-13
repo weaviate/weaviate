@@ -1731,6 +1731,11 @@
           "description": "Timestamp when the backup process completed (successfully or with failure)",
           "type": "string",
           "format": "date-time"
+        },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
         }
       }
     },
@@ -8735,8 +8740,8 @@
         }
       },
       "delete": {
-        "summary": "Delete a backup",
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "summary": "Cancel a backup",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "operationId": "backups.cancel",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -8757,7 +8762,7 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed)."
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed)."
           },
           {
             "name": "bucket",
@@ -8776,7 +8781,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -8788,13 +8793,13 @@
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
