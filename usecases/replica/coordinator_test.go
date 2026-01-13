@@ -129,8 +129,17 @@ func Test_coordinatorPush(t *testing.T) {
 		}
 	}
 
-	parse := func(level int, commitCh <-chan replica.Result[replica.SimpleResponse]) []error {
-		return replica.NewStream().Read(1, level, commitCh)
+	read := func(x replica.Result[replica.SimpleResponse], successes []replica.SimpleResponse, failures []replica.SimpleResponse) ([]replica.SimpleResponse, []replica.SimpleResponse, bool, error) {
+		var err error
+		decreaseLevel := true
+		if x.Err != nil {
+			failures = append(failures, x.Value)
+			if len(x.Value.Errors) == 0 {
+				err = x.Err
+			}
+			decreaseLevel = false
+		}
+		return successes, failures, decreaseLevel, err
 	}
 
 	eventualSuccess := func(failures int, typ errorType) func(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +238,7 @@ func Test_coordinatorPush(t *testing.T) {
 			}
 
 			client := clients.NewReplicationClient(&http.Client{})
-			coordinator := replica.NewWriteCoordinator[replica.SimpleResponse, error](
+			coordinator := replica.NewWriteCoordinator[replica.SimpleResponse](
 				client,
 				setupRouter(cl, replicas),
 				metrics,
@@ -239,14 +248,16 @@ func Test_coordinatorPush(t *testing.T) {
 				logger,
 			)
 
-			errs, err := coordinator.Push(context.Background(), cl, broadcast(client), commit(client), parse)
+			res, err := coordinator.Push(context.Background(), cl, broadcast(client), commit(client), read)
 			if tt.shouldErr {
 				require.NoError(t, err)
-				require.Greater(t, len(errs), 0)
+				require.Greater(t, len(res.Values), 0)
+				require.NotNil(t, res.DefaultError)
 				return
 			}
 			require.NoError(t, err)
-			require.Len(t, errs, 0)
+			require.Len(t, res.Values, 0)
+			require.Nil(t, res.DefaultError)
 		})
 	}
 }

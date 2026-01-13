@@ -41,10 +41,11 @@ type (
 	// readOp defines a generic read operation
 	readOp[T any] func(_ context.Context, host string, fullRead bool) (T, error)
 
-	parseErrs[T, R any] func(level int, commitCh <-chan Result[T]) []R
+	// onResult defines a hook called when the coordinator reads a result from the commitCh
+	onResult[T any] func(result Result[T], successes []T, failures []T) ([]T, []T, bool, error)
 
 	// coordinator coordinates replication of write and read requests
-	coordinator[T, R any] struct {
+	coordinator[T any] struct {
 		Client
 		Router  types.Router
 		metrics *Metrics
@@ -57,16 +58,21 @@ type (
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
 	}
+
+	result[T any] struct {
+		Values       []T
+		DefaultError error
+	}
 )
 
 // NewCoordinator used by the replicator
-func NewWriteCoordinator[T any, R any](client Client,
+func NewWriteCoordinator[T any](client Client,
 	router types.Router,
 	metrics *Metrics,
 	className, shard, requestID string,
 	l logrus.FieldLogger,
-) *coordinator[T, R] {
-	return &coordinator[T, R]{
+) *coordinator[T] {
+	return &coordinator[T]{
 		Client:                        client,
 		Router:                        router,
 		metrics:                       metrics,
@@ -84,8 +90,8 @@ func newReadCoordinator[T, R any](router types.Router,
 	metrics *Metrics,
 	className, shard, deletionStrategy string,
 	log logrus.FieldLogger,
-) *coordinator[T, R] {
-	return &coordinator[T, R]{
+) *coordinator[T] {
+	return &coordinator[T]{
 		Router:                        router,
 		Class:                         className,
 		Shard:                         shard,
@@ -98,7 +104,7 @@ func newReadCoordinator[T, R any](router types.Router,
 }
 
 // broadcast sends write request to all replicas (first phase of a two-phase commit)
-func (c *coordinator[T, R]) broadcast(ctx context.Context,
+func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
 ) <-chan Result[string] {
@@ -162,7 +168,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 
 // commitAll tells replicas to commit pending updates related to a specific request
 // (second phase of a two-phase commit)
-func (c *coordinator[T, R]) commitAll(ctx context.Context,
+func (c *coordinator[T]) commitAll(ctx context.Context,
 	broadcastCh <-chan Result[string],
 	op commitOp[T],
 	callback func(successful int),
@@ -207,17 +213,51 @@ func (c *coordinator[T, R]) commitAll(ctx context.Context,
 	return replyCh
 }
 
+func (c *coordinator[T]) read(
+	level int,
+	ch <-chan Result[T],
+	onResult onResult[T],
+) result[T] {
+	failures := make([]T, 0, level)
+	successes := make([]T, 0, level)
+	var firstError error
+	for x := range ch {
+		var err error
+		var shouldDecreaseLevel bool
+		successes, failures, shouldDecreaseLevel, err = onResult(x, successes, failures)
+		if err != nil && firstError == nil {
+			firstError = err
+		}
+		if shouldDecreaseLevel {
+			level--
+		}
+		if level == 0 { // consistency level reached
+			return result[T]{
+				Values: successes,
+			}
+		}
+	}
+	if level > 0 && firstError == nil {
+		firstError = fmt.Errorf("commit: %w", ErrReplicas)
+	}
+	failures = append(failures, successes...)
+	return result[T]{
+		Values:       failures,
+		DefaultError: firstError,
+	}
+}
+
 // Push pushes updates to all replicas of a specific shard
-func (c *coordinator[T, R]) Push(ctx context.Context,
+func (c *coordinator[T]) Push(ctx context.Context,
 	cl types.ConsistencyLevel,
 	ask readyOp,
 	com commitOp[T],
-	parseErrs parseErrs[T, R],
-) ([]R, error) {
+	onResult onResult[T],
+) (result[T], error) {
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, "")
 	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(options)
 	if err != nil {
-		return nil, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+		return result[T]{}, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 
 	level := writeRoutingPlan.IntConsistencyLevel
@@ -264,7 +304,7 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
 	}
 
-	return parseErrs(level, commitCh), nil
+	return c.read(level, commitCh, onResult), nil
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
@@ -278,7 +318,7 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 // - Only send error messages on replyCh once it's unlikely we'll ever reach level successes
 //
 // Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
-func (c *coordinator[T, R]) Pull(ctx context.Context,
+func (c *coordinator[T]) Pull(ctx context.Context,
 	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
