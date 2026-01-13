@@ -150,11 +150,12 @@ func Test_coordinatorPush(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name  string
-		cl    types.ConsistencyLevel
-		node1 *httptest.Server
-		node2 *httptest.Server
-		node3 *httptest.Server
+		name      string
+		cl        types.ConsistencyLevel
+		node1     *httptest.Server
+		node2     *httptest.Server
+		node3     *httptest.Server
+		shouldErr bool
 	}{
 		{
 			"SUCCESS:CL.ALL;broadcast and commit errors",
@@ -162,6 +163,15 @@ func Test_coordinatorPush(t *testing.T) {
 			newServer(eventualSuccess(0, broadcastAndCommitError)),
 			newServer(eventualSuccess(1, broadcastAndCommitError)),
 			newServer(eventualSuccess(2, broadcastAndCommitError)),
+			false,
+		},
+		{
+			"FAILURE:CL.ALL;non-retriable broadcast error",
+			types.ConsistencyLevelAll,
+			newServer(success),
+			newServer(success),
+			newServer(failure(http.StatusTeapot, "what a weird error", broadcastError)),
+			true,
 		},
 		{
 			"SUCCESS:CL.QUORUM;broadcast failure on one node",
@@ -169,6 +179,7 @@ func Test_coordinatorPush(t *testing.T) {
 			newServer(success),
 			newServer(success),
 			newServer(failure(http.StatusInternalServerError, "node3 failed", broadcastError)),
+			false,
 		},
 		{
 			"SUCCESS:CL.QUORUM;commit failure on one node",
@@ -176,6 +187,7 @@ func Test_coordinatorPush(t *testing.T) {
 			newServer(success),
 			newServer(success),
 			newServer(failure(http.StatusInternalServerError, "node3 failed", commitError)),
+			false,
 		},
 		{
 			"SUCCESS:CL.ONE;two broadcast failures",
@@ -183,6 +195,7 @@ func Test_coordinatorPush(t *testing.T) {
 			newServer(success),
 			newServer(failure(http.StatusInternalServerError, "node2 failed", broadcastError)),
 			newServer(failure(http.StatusInternalServerError, "node3 failed", broadcastError)),
+			false,
 		},
 		{
 			"SUCCESS:CL.ONE;one broadcast and one commit failures",
@@ -190,6 +203,7 @@ func Test_coordinatorPush(t *testing.T) {
 			newServer(success),
 			newServer(failure(http.StatusInternalServerError, "node2 failed", broadcastError)),
 			newServer(failure(http.StatusInternalServerError, "node3 failed", commitError)),
+			false,
 		},
 		{
 			"SUCCESS:CL.ONE;two commit failures",
@@ -197,6 +211,7 @@ func Test_coordinatorPush(t *testing.T) {
 			newServer(success),
 			newServer(failure(http.StatusInternalServerError, "node2 failed", commitError)),
 			newServer(failure(http.StatusInternalServerError, "node3 failed", commitError)),
+			false,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -225,6 +240,11 @@ func Test_coordinatorPush(t *testing.T) {
 			)
 
 			errs, err := coordinator.Push(context.Background(), cl, broadcast(client), commit(client), parse)
+			if tt.shouldErr {
+				require.NoError(t, err)
+				require.Greater(t, len(errs), 0)
+				return
+			}
 			require.NoError(t, err)
 			require.Len(t, errs, 0)
 		})
