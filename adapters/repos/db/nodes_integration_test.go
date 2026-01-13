@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -242,7 +243,7 @@ func TestLazyLoadedShards(t *testing.T) {
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		DisableLazyLoadShards: false, // we have to make sure lazyload shard disabled to load directly
 
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),

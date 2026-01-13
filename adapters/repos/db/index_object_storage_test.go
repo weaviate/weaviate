@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -165,7 +166,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
-				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
@@ -336,7 +337,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
 		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
@@ -424,7 +425,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
 		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
