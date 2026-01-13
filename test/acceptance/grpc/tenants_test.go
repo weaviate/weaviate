@@ -64,7 +64,7 @@ func TestGRPCTenantsGet(t *testing.T) {
 		}
 		for _, tenant := range resp.Tenants {
 			require.Equal(t, slices.Contains(tenantNames, tenant.Name), true)
-			require.Equal(t, tenant.ActivityStatus, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT)
+			require.Equal(t, tenant.ActivityStatus, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE)
 		}
 	})
 
@@ -82,10 +82,10 @@ func TestGRPCTenantsGet(t *testing.T) {
 		}
 		require.Equal(t, resp.Tenants, []*pb.Tenant{{
 			Name:           tenantNames[0],
-			ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
+			ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE,
 		}, {
 			Name:           tenantNames[2],
-			ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
+			ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE,
 		}})
 	})
 
