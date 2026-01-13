@@ -123,6 +123,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	if err := firstError(errs); err != nil {
 		r.log.WithField("op", "put").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
+		return err
 	}
 	return nil
 }
@@ -160,6 +161,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		if errors.As(err, &replicaErr) && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
 			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
 		}
+		return err
 	}
 	return nil
 }
@@ -194,6 +196,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	if err := firstError(errs); err != nil {
 		r.log.WithField("op", "put").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", id).Error(err)
+		return err
 	}
 	return nil
 }
@@ -232,6 +235,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	if err := firstError(errs); err != nil {
 		r.log.WithField("op", "put.many").WithField("class", r.class).
 			WithField("shard", shard).Error(errs)
+		return errs
 	}
 	return nil
 }
@@ -283,8 +287,9 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	if err := firstBatchError(rs); err != nil {
 		r.log.WithField("op", "put.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(rs)
+		return rs
 	}
-	return rs
+	return nil
 }
 
 func (r *Replicator) AddReferences(ctx context.Context,
@@ -321,8 +326,9 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	if err := firstError(errs); err != nil {
 		r.log.WithField("op", "put.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(errs)
+		return errs
 	}
-	return errs
+	return nil
 }
 
 // simpleCommit generate commit function for the coordinator
