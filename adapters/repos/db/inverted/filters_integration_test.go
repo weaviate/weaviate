@@ -44,7 +44,7 @@ func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -334,7 +334,7 @@ func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -1104,7 +1104,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
