@@ -296,7 +296,7 @@ func MatchesInLists(control []uint64, results []uint64) uint64 {
 func NewDummyStore(t testing.TB) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
 	storeDir := t.TempDir()
-	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -306,7 +306,7 @@ func NewDummyStore(t testing.TB) *lsmkv.Store {
 
 func NewDummyStoreFromFolder(storeDir string, t testing.TB) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
