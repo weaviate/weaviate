@@ -132,7 +132,7 @@ func (s *Shard) initLSMStore() error {
 		}
 	}
 
-	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
+	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics, s.index.bucketLoadLimiter,
 		s.cycleCallbacks.compactionCallbacks,
 		s.cycleCallbacks.compactionAuxCallbacks,
 		s.cycleCallbacks.flushCallbacks)
