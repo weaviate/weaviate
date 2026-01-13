@@ -78,8 +78,13 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 			continue // without async replication there is no (easy) way to know if shard is in sync
 		}
 		err := idx.ForEachLoadedShard(func(name string, shard *Shard) error {
+			// shards are in sync when
+			// - their last async replication run finished after the backup started
+			// - there was no object propagation after the backup started, because that would mean new data arrived
+			//   which would not be part of the backup
 			lastRun := shard.asyncReplicationLastRun.Load()
-			if lastRun != nil && (*lastRun).After(backupStartedAt) {
+			lastRunObjectPropagation := shard.asyncReplicationLastRunStartWithObjectPropagation.Load()
+			if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
 				addToResult(c, name, idx, lastRun)
 				return nil
 			}
@@ -105,7 +110,8 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 						return nil // we do not return error here, just leave the shard out of the list
 					case <-ticker.C:
 						lastRun := shard.asyncReplicationLastRun.Load()
-						if lastRun != nil && (*lastRun).After(backupStartedAt) {
+						lastRunObjectPropagation := shard.asyncReplicationLastRunStartWithObjectPropagation.Load()
+						if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
 							addToResult(c, name, idx, lastRun)
 							return nil
 						}

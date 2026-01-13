@@ -707,6 +707,8 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				func() {
 					s.asyncReplicationRunning.Store(true)
 					defer s.asyncReplicationRunning.Store(false)
+					start := time.Now()
+					defer s.asyncReplicationLastRunStart.Store(&start)
 
 					if (!s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
 						(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
@@ -830,6 +832,9 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					now := time.Now()
 					s.asyncReplicationLastRun.Store(&now)
 					lastHashbeatPropagatedObjects = statsHaveObjectsPropagated
+					if lastHashbeatPropagatedObjects {
+						s.asyncReplicationLastRunStartWithObjectPropagation.Store(&start)
+					}
 					lastHashbeatMux.Unlock()
 				}()
 			}
