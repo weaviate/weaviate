@@ -20,24 +20,23 @@ import (
 )
 
 const (
-	DefaultMaxPostingSize = 50 // If set to 0, it means that it will be computed dynamically by the index
-	DefaultMinPostingSize = 10
-	DefaultReplicas       = 4
-	DefaultRNGFactor      = 10.0
-	DefaultSearchProbe    = 64
-	DefaultRescoreLimit   = 350
+	DefaultMaxPostingSizeKB = 48
+	MaxPostingSizeKBFloor   = 8
+	DefaultReplicas         = 4
+	DefaultRNGFactor        = 10.0
+	DefaultSearchProbe      = 64
+	DefaultRescoreLimit     = 350
 )
 
 // UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
-	MaxPostingSize uint32  `json:"maxPostingSize"`
-	MinPostingSize uint32  `json:"minPostingSize"`
-	Replicas       uint32  `json:"replicas"`
-	RNGFactor      float32 `json:"rngFactor"`
-	SearchProbe    uint32  `json:"searchProbe"`
-	Distance       string  `json:"distance"`
-	RescoreLimit   uint32  `json:"rescoreLimit"`
+	MaxPostingSizeKB uint32  `json:"maxPostingSizeKB"`
+	Replicas         uint32  `json:"replicas"`
+	RNGFactor        float32 `json:"rngFactor"`
+	SearchProbe      uint32  `json:"searchProbe"`
+	Distance         string  `json:"distance"`
+	RescoreLimit     uint32  `json:"rescoreLimit"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -56,8 +55,7 @@ func (u UserConfig) IsMultiVector() bool {
 
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
-	u.MaxPostingSize = DefaultMaxPostingSize
-	u.MinPostingSize = DefaultMinPostingSize
+	u.MaxPostingSizeKB = DefaultMaxPostingSizeKB
 	u.Replicas = DefaultReplicas
 	u.RNGFactor = DefaultRNGFactor
 	u.SearchProbe = DefaultSearchProbe
@@ -79,6 +77,14 @@ func (u *UserConfig) validate() error {
 		errs = append(errs, fmt.Errorf(
 			"unsupported distance type '%s', HFresh only supports 'cosine' or 'l2-squared' for the distance metric",
 			u.Distance,
+		))
+	}
+
+	if u.MaxPostingSizeKB < MaxPostingSizeKBFloor {
+		errs = append(errs, fmt.Errorf(
+			"maxPostingSizeKB is '%d' but must be at least %d",
+			u.MaxPostingSizeKB,
+			MaxPostingSizeKBFloor,
 		))
 	}
 
@@ -104,14 +110,8 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 		return uc, fmt.Errorf("input must be a non-nil map")
 	}
 
-	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "maxPostingSize", func(v int) {
-		uc.MaxPostingSize = uint32(v)
-	}); err != nil {
-		return uc, err
-	}
-
-	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "minPostingSize", func(v int) {
-		uc.MinPostingSize = uint32(v)
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "maxPostingSizeKB", func(v int) {
+		uc.MaxPostingSizeKB = uint32(v)
 	}); err != nil {
 		return uc, err
 	}
