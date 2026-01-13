@@ -260,7 +260,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				HNSWConfig: &hnsw.Config{
 					Logger:                    s.index.logger,
 					RootPath:                  rootPath,
-					ID:                        "centroids",
+					ID:                        hfreshConfigID + "_centroids",
 					ShardName:                 s.name,
 					ClassName:                 s.index.Config.ClassName.String(),
 					PrometheusMetrics:         s.promMetrics,
