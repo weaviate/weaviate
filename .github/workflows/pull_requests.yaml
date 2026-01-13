@@ -524,6 +524,10 @@ jobs:
             test: "--only-module-text2vec-cohere"
           - name: "reranker-cohere"
             test: "--only-module-reranker-cohere"
+          - name: "text2vec-voyageai"
+            test: "--only-module-text2vec-voyageai"
+          - name: "multi2vec-voyageai"
+            test: "--only-module-multi2vec-voyageai"
     steps:
       - uses: actions/checkout@v6
         with:

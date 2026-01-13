@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -387,7 +388,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		shardCreateLocks:       esync.NewKeyRWLocker(),
 		backupLock:             esync.NewKeyRWLocker(),
 		scheduler:              repo.scheduler,
-		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())

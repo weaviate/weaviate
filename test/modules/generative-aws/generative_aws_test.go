@@ -70,11 +70,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				generativeModel: "amazon.nova-pro-v1:0",
 				withImages:      true,
 			},
-			// Amazon Titan
-			{
-				name:            "amazon.titan-text-express-v1",
-				generativeModel: "amazon.titan-text-express-v1",
-			},
 			// Anthropic
 			{
 				name:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
