@@ -604,7 +604,7 @@ type fakeSelector struct {
 
 func (s *fakeSelector) ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (backup.SharedBackupState, error) {
 	args := s.Called(classes, startedAt, timeout)
-	return backup.SharedBackupState{}, args.Error(1)
+	return args.Get(0).(backup.SharedBackupState), args.Error(1)
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
