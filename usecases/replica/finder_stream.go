@@ -16,13 +16,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/cluster/router/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/router/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // pullSteam is used by the finder to pull objects from replicas
@@ -67,7 +67,7 @@ func (f *finderStream) readOne(ctx context.Context,
 				f.log.WithField("op", "get").WithField("replica", resp.sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- ObjResult{nil, ErrRead}
+				resultCh <- ObjResult{nil, replicaerrors.NewReadError(r.Err)}
 				return
 			}
 			if !resp.DigestRead {
@@ -106,7 +106,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			return
 		}
 
-		resultCh <- ObjResult{nil, errors.Wrap(err, ErrRepair.Error())}
+		resultCh <- ObjResult{nil, replicaerrors.NewRepairError(err)}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
@@ -153,7 +153,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- _Result[bool]{false, ErrRead}
+				resultCh <- _Result[bool]{false, replicaerrors.NewReadError(r.Err)}
 				return
 			}
 
@@ -183,7 +183,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 			resultCh <- _Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- _Result[bool]{false, errors.Wrap(err, ErrRepair.Error())}
+		resultCh <- _Result[bool]{false, replicaerrors.NewRepairError(err)}
 
 		var sb strings.Builder
 		for i, c := range votes {
@@ -224,7 +224,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
 					WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
-				resultCh <- batchResult{nil, ErrRead}
+				resultCh <- batchResult{nil, replicaerrors.NewReadError(r.Err)}
 				return
 			}
 			if !resp.IsDigest {
@@ -262,7 +262,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
-			resultCh <- batchResult{nil, ErrRepair}
+			resultCh <- batchResult{nil, replicaerrors.NewRepairError(err)}
 			f.log.WithField("op", "repair_batch").WithField("class", f.class).
 				WithField("shard", batch.Shard).WithField("uuids", ids).Error(err)
 			return

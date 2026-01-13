@@ -15,7 +15,9 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type (
@@ -45,8 +47,9 @@ func (r replicatorStream) readErrors(batchSize int,
 			}
 		}
 	}
+
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("commit: %w", ErrReplicas)
+		firstError = replicaerrors.NewReplicasError(fmt.Errorf("commit: %w", firstError))
 	}
 	return r.flattenErrors(batchSize, urs, firstError)
 }
@@ -75,7 +78,7 @@ func (r replicatorStream) readDeletions(batchSize int,
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("commit: %w", ErrReplicas)
+		firstError = replicaerrors.NewReplicasError(fmt.Errorf("commit: %w", firstError))
 	}
 	urs = append(urs, rs...)
 	return r.flattenDeletions(batchSize, urs, firstError)

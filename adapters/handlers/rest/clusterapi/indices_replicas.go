@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -974,13 +975,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 }
 
 func localIndexNotReady(resp replica.SimpleResponse) bool {
-	if err := resp.FirstError(); err != nil {
-		var replicaErr *replica.Error
-		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
-			return true
-		}
-	}
-	return false
+	return replicaerrors.IsNotReadyError(resp.FirstError())
 }
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish

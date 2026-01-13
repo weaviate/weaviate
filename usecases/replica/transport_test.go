@@ -17,51 +17,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/replica"
-
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 func TestReplicationErrorTimeout(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithDeadline(ctx, time.Now())
 	defer cancel()
-	err := &replica.Error{Err: ctx.Err()}
+	err := &replicaerrors.Error{Err: ctx.Err()}
 	assert.True(t, err.Timeout())
 	err = err.Clone()
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestReplicationErrorMarshal(t *testing.T) {
-	rawErr := replica.Error{Code: replica.StatusClassNotFound, Msg: "Article", Err: errors.New("error cannot be marshalled")}
-	bytes, err := json.Marshal(&rawErr)
-	assert.Nil(t, err)
-	got := replica.NewError(0, "")
-	assert.Nil(t, json.Unmarshal(bytes, got))
-	want := &replica.Error{Code: replica.StatusClassNotFound, Msg: "Article"}
-	assert.Equal(t, want, got)
-}
+	rawErr := replicaerrors.NewClassNotFoundError("Article", errors.New("error cannot be marshalled"))
 
-func TestReplicationErrorStatus(t *testing.T) {
-	tests := []struct {
-		code replica.StatusCode
-		desc string
-	}{
-		{-1, ""},
-		{replica.StatusOK, "ok"},
-		{replica.StatusClassNotFound, "class not found"},
-		{replica.StatusShardNotFound, "shard not found"},
-		{replica.StatusNotFound, "not found"},
-		{replica.StatusAlreadyExisted, "already existed"},
-		{replica.StatusConflict, "conflict"},
-		{replica.StatusPreconditionFailed, "precondition failed"},
-		{replica.StatusReadOnly, "read only"},
-	}
-	for _, test := range tests {
-		got := replica.StatusText(test.code)
-		if got != test.desc {
-			t.Errorf("StatusText(%d) want %v got %v", test.code, test.desc, got)
-		}
-	}
+	bytes, err := json.Marshal(rawErr)
+	assert.Nil(t, err)
+
+	got := &replicaerrors.Error{}
+	assert.Nil(t, json.Unmarshal(bytes, got))
+
+	assert.Equal(t, rawErr.Code, got.Code)
+	assert.Equal(t, rawErr.Msg, got.Msg)
 }
