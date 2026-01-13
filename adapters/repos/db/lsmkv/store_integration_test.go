@@ -41,7 +41,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 	logger := nullLogger()
 
 	t.Run("cycle 1", func(t *testing.T) {
-		store, err := New(dirName, dirName, logger, nil,
+		store, err := New(dirName, dirName, logger, nil, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop())
@@ -70,7 +70,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 	})
 
 	t.Run("cycle 2", func(t *testing.T) {
-		store, err := New(dirName, dirName, logger, nil,
+		store, err := New(dirName, dirName, logger, nil, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop())
