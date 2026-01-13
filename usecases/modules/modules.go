@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sync"
@@ -1145,6 +1146,53 @@ func (p *Provider) UsageEnabled() bool {
 	for _, module := range p.GetAll() {
 		if module.Type() == modulecapabilities.Usage {
 			return true
+		}
+	}
+	return false
+}
+
+// MigrateVectorizerSettings compares and migrates module settings if module settings
+// changed, an example would be renaming of baseUrl property setting to baseURL
+// in that case we need to migrate baseURL value to new property name.
+func (p *Provider) MigrateVectorizerSettings(oldVectorizerConfig, newVectorizerConfig any) bool {
+	migratedSettings := false
+	oldVectorizerCfg, oldVectorizerCfgOk := oldVectorizerConfig.(map[string]any)
+	newVectorizerCfg, newVectorizerCfgOk := newVectorizerConfig.(map[string]any)
+	if oldVectorizerCfgOk && newVectorizerCfgOk {
+		for modName, modSettings := range newVectorizerCfg {
+			migratedNewVectorizer := p.migrateVectorizerSettings(modName, modSettings)
+			migratedOldVectorizer := p.migrateVectorizerSettings(modName, oldVectorizerCfg[modName])
+			if settings, ok := modSettings.(map[string]any); ok {
+				if oldSettings, ok := oldVectorizerCfg[modName].(map[string]any); ok {
+					maps.Copy(oldSettings, settings)
+				}
+			}
+			if migratedNewVectorizer || migratedOldVectorizer {
+				migratedSettings = true
+			}
+		}
+	}
+	return migratedSettings
+}
+
+func (p *Provider) migrateVectorizerSettings(modName string, moduleSettings any) bool {
+	if mod := p.GetByName(modName); mod != nil {
+		if migrate, ok := mod.(modulecapabilities.MigrateProperties); ok {
+			if settings, ok := moduleSettings.(map[string]any); ok {
+				migratedSettings := false
+				for _, prop := range migrate.MigrateProperties() {
+					if oldValue, ok := settings[prop.Name]; ok && oldValue != "" {
+						if prop.NewName != "" {
+							settings[prop.NewName] = oldValue
+							delete(settings, prop.Name)
+						} else if prop.IsDeleted {
+							delete(settings, prop.Name)
+						}
+						migratedSettings = true
+					}
+				}
+				return migratedSettings
+			}
 		}
 	}
 	return false
