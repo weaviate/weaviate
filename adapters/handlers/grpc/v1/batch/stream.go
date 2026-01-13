@@ -34,10 +34,8 @@ import (
 
 const SHUTDOWN_GRACE_PERIOD = 75 * time.Second
 
-var ErrShutdown = errors.New("server has shutdown")
-
 func errShutdown(err error) error {
-	return status.Error(codes.Aborted, err.Error())
+	return status.Error(codes.Unavailable, err.Error())
 }
 
 type authenticator interface {
