@@ -20,14 +20,13 @@ import (
 )
 
 const (
-	defaultShardLoadingLimit = 500
+	defaultLoadingLimit = 100
 )
 
-// LoadLimiter is a limiter to control how many shards are loaded concurrently.
-// If too many shards are loaded in parallel, it throttles the loading instead of rejecting.
-// The motivation of this limiter is the fact that loading a shard requires multiple syscalls
-// which create a new OS thread is there is no unused ones. In case we try to load thousands of shards in parallel,
-// we might hit internal thread count limit of Go runtime.
+// LoadLimiter is a limiter to control loading concurrency.
+// It throttles the loading instead of rejecting.
+// The motivation of this limiter is the fact that loading requires multiple syscalls
+// which can create a new OS threads and might result in hitting the internal thread count limit of Go runtime.
 type LoadLimiter struct {
 	sema *semaphore.Weighted
 
@@ -38,7 +37,7 @@ type LoadLimiter struct {
 func NewLoadLimiter(reg prometheus.Registerer, name string, limit int) *LoadLimiter {
 	r := promauto.With(reg)
 	if limit == 0 {
-		limit = defaultShardLoadingLimit
+		limit = defaultLoadingLimit
 	}
 
 	return &LoadLimiter{

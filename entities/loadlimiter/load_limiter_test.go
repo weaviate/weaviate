@@ -35,7 +35,7 @@ func TestNewLoadLimiter_DefaultLimit(t *testing.T) {
 		{
 			name:          "with default limit",
 			limit:         0,
-			expectedLimit: defaultShardLoadingLimit,
+			expectedLimit: defaultLoadingLimit,
 		},
 	}
 
