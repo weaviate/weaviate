@@ -275,3 +275,69 @@ func marshalMeta(m backup.BackupDescriptor) []byte {
 	bytes, _ := json.MarshalIndent(m, "", "")
 	return bytes
 }
+
+func TestRestoreAllCancellation(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx      = context.Background()
+		backupID = "test-backup"
+		cls      = "TestClass"
+	)
+
+	t.Run("CancellationBeforeRestore", func(t *testing.T) {
+		backend := newFakeBackend()
+		sourcer := &fakeSourcer{}
+		backend.On("SourceDataPath").Return(t.TempDir())
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
+
+		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend})
+		restorer.lastOp.set(backup.Transferring)
+
+		desc := &backup.BackupDescriptor{
+			ID:            backupID,
+			ServerVersion: "1.23", // Use version >= 1.23 to skip migration
+			Version:       "1",
+			StartedAt:     time.Now().UTC(),
+			Classes: []backup.ClassDescriptor{
+				{Name: cls, Shards: []*backup.ShardDescriptor{}},
+			},
+		}
+
+		// Create a cancelled context
+		cancelledCtx, cancel := context.WithCancel(ctx)
+		cancel() // Cancel immediately
+
+		err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
+			objectStore: objectStore{backend: backend, backupId: backupID},
+		}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore)
+
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "restore cancelled")
+		assert.Equal(t, backup.Cancelled, restorer.lastOp.get().Status)
+	})
+}
+
+func TestWithCancellation(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx      = context.Background()
+		backupID = "test-backup"
+	)
+
+	t.Run("OnAbortSendsSignal", func(t *testing.T) {
+		shardChan := shardSyncChan{coordChan: make(chan interface{}, 5)}
+		shardChan.lastOp.reqState = reqState{ID: backupID}
+
+		abortReq := AbortRequest{Method: OpRestore, ID: backupID}
+		err := shardChan.OnAbort(ctx, &abortReq)
+		assert.Nil(t, err)
+
+		// Check that signal was sent
+		select {
+		case received := <-shardChan.coordChan:
+			assert.Equal(t, abortReq, received)
+		case <-time.After(100 * time.Millisecond):
+			t.Error("abort signal should have been sent")
+		}
+	})
+}

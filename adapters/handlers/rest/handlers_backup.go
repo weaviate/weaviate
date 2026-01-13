@@ -303,6 +303,37 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	return backups.NewBackupsCancelNoContent()
 }
 
+func (s *backupHandlers) cancelRestore(params backups.BackupsRestoreCancelParams,
+	principal *models.Principal,
+) middleware.Responder {
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	err := s.manager.CancelRestore(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+	if err != nil {
+		s.metricRequestsTotal.logError("", err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return backups.NewBackupsRestoreCancelForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &backup.ErrUnprocessable{}):
+			return backups.NewBackupsRestoreCancelUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return backups.NewBackupsRestoreCancelInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk("")
+	return backups.NewBackupsRestoreCancelNoContent()
+}
+
 func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -342,6 +373,7 @@ func setupBackupHandlers(api *operations.WeaviateAPI,
 	api.BackupsBackupsRestoreStatusHandler = backups.
 		BackupsRestoreStatusHandlerFunc(h.restoreBackupStatus)
 	api.BackupsBackupsCancelHandler = backups.BackupsCancelHandlerFunc(h.cancel)
+	api.BackupsBackupsRestoreCancelHandler = backups.BackupsRestoreCancelHandlerFunc(h.cancelRestore)
 	api.BackupsBackupsListHandler = backups.BackupsListHandlerFunc(h.list)
 }
 

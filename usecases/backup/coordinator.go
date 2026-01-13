@@ -260,6 +260,10 @@ func (c *coordinator) Restore(
 		return err
 	}
 
+	// Set status to Transferring now that staging has begun
+	c.descriptor.Status = backup.Transferring
+	c.lastOp.set(backup.Transferring)
+
 	overrideBucket := req.Bucket
 	overridePath := req.Path
 
@@ -281,10 +285,26 @@ func (c *coordinator) Restore(
 		c.commit(ctx, &statusReq, nodes, true)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
+		// Block cancellation by setting status to Finalizing before schema apply
+		// Only proceed if staging was successful (Transferred = staging complete)
+		if c.descriptor.Status == backup.Transferred {
+			c.descriptor.Status = backup.Finalizing
+			c.lastOp.set(backup.Finalizing)
+			if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+				c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
+			}
+		}
+
 		// Time schema apply phase (Raft commits for each class)
 		schemaApplyStart := time.Now()
 		c.restoreClasses(ctx, schema, req)
 		c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
+
+		// Set final status - restoreClasses may have set Failed, otherwise set Success
+		if c.descriptor.Status == backup.Finalizing {
+			c.descriptor.Status = backup.Success
+		}
+		c.lastOp.set(c.descriptor.Status)
 
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
@@ -319,7 +339,16 @@ func (c *coordinator) restoreClasses(
 	schema []backup.ClassDescriptor,
 	req *Request,
 ) {
-	if c.descriptor.Status != backup.Success {
+	// Only proceed if status is Finalizing (set by caller before schema apply)
+	if c.descriptor.Status != backup.Finalizing {
+		c.log.WithFields(logrus.Fields{
+			"action":          "restore_classes",
+			"backup_id":       c.descriptor.ID,
+			"expected_status": backup.Finalizing,
+			"actual_status":   c.descriptor.Status,
+		}).Error("unexpected status before schema apply")
+		c.descriptor.Error = fmt.Sprintf("unexpected status %q before schema apply, expected %q", c.descriptor.Status, backup.Finalizing)
+		c.descriptor.Status = backup.Failed
 		return
 	}
 	errors := make([]string, 0, 5)
@@ -471,7 +500,12 @@ func (c *coordinator) commit(ctx context.Context,
 		c.abortAll(context.Background(), req, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
+	// For restore operations, successful staging means "Transferred" (ready for schema apply)
+	// For backup operations, successful staging means "Success" (operation complete)
 	status := backup.Success
+	if req.Method == OpRestore {
+		status = backup.Transferred
+	}
 	reason := ""
 	groups := c.descriptor.Nodes
 	var totalPreCompressionSize int64
@@ -481,12 +515,20 @@ func (c *coordinator) commit(ctx context.Context,
 		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
 		if p.Status != backup.Success {
-			status = backup.Failed
-			reason = p.Reason
-
-			if strings.Contains(p.Reason, context.Canceled.Error()) {
+			if p.Status == backup.Cancelled {
 				status = backup.Cancelled
 				st.Status = backup.Cancelled
+				if reason == "" {
+					reason = p.Reason
+				}
+			} else {
+				status = backup.Failed
+				reason = p.Reason
+
+				if strings.Contains(p.Reason, context.Canceled.Error()) {
+					status = backup.Cancelled
+					st.Status = backup.Cancelled
+				}
 			}
 		} else {
 			// Try to read the node's backup descriptor to get pre-compression size
@@ -525,6 +567,15 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	c.descriptor.Status = status
+	// Respect external cancellation from CancelRestore() - if lastOp was already
+	// set to Cancelled, propagate that to descriptor so storage writes are consistent
+	if c.lastOp.get().Status == backup.Cancelled {
+		c.descriptor.Status = backup.Cancelled
+		if reason == "" {
+			reason = "restore canceled by user"
+		}
+	}
+	c.lastOp.set(c.descriptor.Status)
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
@@ -567,7 +618,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 			if r.Status == backup.Success {
 				delete(nodes, r.node)
 			}
-			if r.Status == backup.Failed {
+			if r.Status == backup.Failed || r.Status == backup.Cancelled {
 				delete(nodes, r.node)
 				n++
 			}
@@ -614,11 +665,12 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	nFailures := 0
 	for x := range errChan {
 		st := c.Participants[x.node]
-		st.Status = backup.Failed
-		if strings.Contains(st.Reason, context.Canceled.Error()) {
-			st.Status = backup.Cancelled
-		}
 		st.Reason = "might be down:" + x.err.Error()
+		if strings.Contains(x.err.Error(), context.Canceled.Error()) {
+			st.Status = backup.Cancelled
+		} else {
+			st.Status = backup.Failed
+		}
 		c.Participants[x.node] = st
 		c.log.WithField("action", req.Method).
 			WithField("backup_id", req.ID).
