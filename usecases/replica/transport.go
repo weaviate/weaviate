@@ -211,7 +211,7 @@ type RClient interface {
 	// number of bytes transferred over the network when fetching a replicated
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
-		ids []strfmt.UUID) ([]types.RepairResponse, error)
+		ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
@@ -248,10 +248,10 @@ func (fc FinderClient) HashTreeLevel(ctx context.Context,
 // DigestReads reads digests of all specified objects
 func (fc FinderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
-	ids []strfmt.UUID,
+	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
 	n := len(ids)
-	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids)
+	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	if err == nil && len(rs) != n {
 		err = fmt.Errorf("malformed digest read response: length expected %d got %d", n, len(rs))
 	}

@@ -111,7 +111,7 @@ func (f *Finder) GetOne(ctx context.Context,
 
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 
 			var x types.RepairResponse
 
@@ -233,7 +233,7 @@ func (f *Finder) Exists(ctx context.Context,
 ) (bool, error) {
 	c := newReadCoordinator[existReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
-		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x types.RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]
@@ -286,7 +286,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		if fullRead { // we already have the content
 			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids)
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
 			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}

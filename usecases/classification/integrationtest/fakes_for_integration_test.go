@@ -614,7 +614,7 @@ func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
 }
 
 func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID,
+	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []types.RepairResponse, err error) {
 	return nil, nil
 }

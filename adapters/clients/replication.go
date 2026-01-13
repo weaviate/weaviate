@@ -74,7 +74,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID,
+	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []types.RepairResponse, err error) {
 	var resp []types.RepairResponse
 	body, err := json.Marshal(ids)
@@ -87,7 +87,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, &resp, NO_RETRIES)
+	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, &resp, numRetries)
 	return resp, err
 }
 
