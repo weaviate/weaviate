@@ -13,9 +13,7 @@ package hfresh
 
 import (
 	"context"
-	"encoding/binary"
 	stderrors "errors"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -280,13 +278,6 @@ func (h *HFresh) ContainsDoc(id uint64) bool {
 
 func (h *HFresh) Iterate(fn func(id uint64) bool) {
 	h.logger.Warn("Iterate is not implemented for HFresh index")
-}
-
-func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
-	return slice
 }
 
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
