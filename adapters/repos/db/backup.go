@@ -82,7 +82,7 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 			// - their last async replication run finished after the backup started
 			// - there was no object propagation after the backup started, because that would mean new data arrived
 			//   which would not be part of the backup
-			lastRun := shard.asyncReplicationLastRun.Load()
+			lastRun := shard.asyncReplicationLastRunStart.Load()
 			lastRunObjectPropagation := shard.asyncReplicationLastRunStartWithObjectPropagation.Load()
 			if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
 				addToResult(c, name, idx, lastRun)
@@ -109,7 +109,7 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 					case <-timeoutTimer.C:
 						return nil // we do not return error here, just leave the shard out of the list
 					case <-ticker.C:
-						lastRun := shard.asyncReplicationLastRun.Load()
+						lastRun := shard.asyncReplicationLastRunStart.Load()
 						lastRunObjectPropagation := shard.asyncReplicationLastRunStartWithObjectPropagation.Load()
 						if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
 							addToResult(c, name, idx, lastRun)
