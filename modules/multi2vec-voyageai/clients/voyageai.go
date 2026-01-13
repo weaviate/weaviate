@@ -23,19 +23,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/voyageai"
 )
 
-var rateLimitPerModel = map[string]voyageai.VoyageRLModel{
-	"voyage-multimodal-3.5": {TokenLimit: 2_000_000, RequestLimit: 2000},
-	"voyage-multimodal-3":   {TokenLimit: 2_000_000, RequestLimit: 2000},
-	"default":               {TokenLimit: 1_000_000, RequestLimit: 1000},
-}
-
-func getLimitForModel(model string) voyageai.VoyageRLModel {
-	if rl, ok := rateLimitPerModel[model]; ok {
-		return rl
-	}
-	return rateLimitPerModel["default"]
-}
-
 type voyageaiUrlBuilder struct {
 	origin   string
 	pathMask string
@@ -111,14 +98,4 @@ func (v *vectorizer) VectorizeVideoQuery(ctx context.Context,
 		Truncate:  settings.Truncate(),
 		InputType: voyageai.Query,
 	})
-}
-
-func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	return v.client.GetApiKeyHash(ctx, cfg)
-}
-
-func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	settings := ent.NewClassSettings(cfg)
-	modelRL := getLimitForModel(settings.Model())
-	return v.client.GetVectorizerRateLimit(ctx, modelRL)
 }
