@@ -23,8 +23,7 @@ const (
 	defaultLoadingLimit = 100
 )
 
-// LoadLimiter is a limiter to control loading concurrency.
-// It throttles the loading instead of rejecting.
+// LoadLimiter is a limiter to control loading concurrency and it throttles the loading instead of rejecting.
 // The motivation of this limiter is the fact that loading requires multiple syscalls
 // which can create a new OS threads and might result in hitting the internal thread count limit of Go runtime.
 type LoadLimiter struct {
