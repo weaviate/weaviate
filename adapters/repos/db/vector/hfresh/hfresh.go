@@ -13,10 +13,7 @@ package hfresh
 
 import (
 	"context"
-	"encoding/binary"
 	stderrors "errors"
-	"fmt"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -284,30 +280,13 @@ func (h *HFresh) Iterate(fn func(id uint64) bool) {
 	h.logger.Warn("Iterate is not implemented for HFresh index")
 }
 
-func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
-	return slice
-}
-
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
-	var bucketName string
-	if h.config.TargetVector != "" {
-		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, h.config.TargetVector)
-	} else {
-		bucketName = helpers.VectorsBucketLSM
-	}
-
 	distFunc := func(id uint64) (float32, error) {
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := h.store.Bucket(bucketName).Get(buf[:])
+		vector, err := h.vectorForId(h.ctx, id)
 		if err != nil {
 			return 0, err
 		}
-
-		dist, err := h.config.DistanceProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := h.config.DistanceProvider.SingleDist(queryVector, vector)
 		if err != nil {
 			return 0, err
 		}
