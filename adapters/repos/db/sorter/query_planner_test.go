@@ -186,7 +186,7 @@ func TestQueryPlanner(t *testing.T) {
 				logger, _ = test.NewNullLogger()
 				ctx       = context.Background()
 			)
-			store, err := lsmkv.New(dirName, dirName, logger, nil,
+			store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop())

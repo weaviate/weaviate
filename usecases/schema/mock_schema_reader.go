@@ -1372,8 +1372,7 @@ func (_c *MockSchemaReader_WaitForUpdate_Call) RunAndReturn(run func(context.Con
 func NewMockSchemaReader(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockSchemaReader {
+}) *MockSchemaReader {
 	mock := &MockSchemaReader{}
 	mock.Mock.Test(t)
 

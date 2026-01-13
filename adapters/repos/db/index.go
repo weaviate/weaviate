@@ -29,6 +29,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -284,7 +285,8 @@ type Index struct {
 
 	replicationConfigLock sync.RWMutex
 
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter  *loadlimiter.LoadLimiter
+	bucketLoadLimiter *loadlimiter.LoadLimiter
 
 	closed bool
 
@@ -381,6 +383,7 @@ func NewIndex(
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
+		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
 		shardResolver:           shardResolver,
@@ -830,7 +833,8 @@ type IndexConfig struct {
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
-	ShardLoadLimiter                    ShardLoadLimiter
+	ShardLoadLimiter                    *loadlimiter.LoadLimiter
+	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
