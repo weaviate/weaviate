@@ -55,7 +55,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
@@ -80,7 +80,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
@@ -141,7 +141,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return([]string{}, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("Abort", any, any, any).Return(nil)
 
@@ -228,7 +228,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
@@ -265,7 +265,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
@@ -327,7 +327,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		coordinator.timeoutNodeDown = 0
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
@@ -436,7 +436,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
@@ -569,7 +569,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolverWithNodeMapping)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
-		fc.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fc.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fc.client.On("CanCommit", any, newNodes[0], mock.MatchedBy(func(r *Request) bool {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&

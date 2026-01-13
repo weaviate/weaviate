@@ -119,16 +119,14 @@ func (r *restorer) restore(
 
 		// filter out shared chunks that belong to this node. These will be downloaded normally
 		sharedChunksForNode := backup.SharedBackupLocations{}
-		if sharedChunks != nil {
-			for _, sharedChunk := range sharedChunks {
-				if sharedChunk.StoredOnNode == r.node {
-					continue // normal download
-				}
-				if !slices.Contains(sharedChunk.BelongsToNodes, r.node) {
-					continue // only restore to nodes that contained shard
-				}
-				sharedChunksForNode = append(sharedChunksForNode, sharedChunk)
+		for _, sharedChunk := range sharedChunks {
+			if sharedChunk.StoredOnNode == r.node {
+				continue // normal download
 			}
+			if !slices.Contains(sharedChunk.BelongsToNodes, r.node) {
+				continue // only restore to nodes that contained shard
+			}
+			sharedChunksForNode = append(sharedChunksForNode, sharedChunk)
 		}
 
 		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, sharedChunksForNode, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)

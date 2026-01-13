@@ -335,7 +335,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req1.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
-		fs.selector.On("ListShardsSync", any, any, any).Return(nil, nil)
+		fs.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -409,7 +409,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
-		fs.selector.On("ListShardsSync", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+		fs.selector.On("ListShardsSync", mock.Anything, mock.Anything, mock.Anything).Return(backup.SharedBackupState{}, nil)
 
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
