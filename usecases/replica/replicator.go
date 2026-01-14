@@ -272,9 +272,8 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	if err := firstBatchError(rs); err != nil {
 		r.log.WithField("op", "put.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(rs)
-		return rs
 	}
-	return nil
+	return rs
 }
 
 func (r *Replicator) AddReferences(ctx context.Context,
