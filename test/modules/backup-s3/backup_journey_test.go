@@ -100,7 +100,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 }
 
 func TestLocal(t *testing.T) {
-	// t.Skip("only for local testing with minio")
+	t.Skip("only for local testing with minio")
 	clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard_local", "weaviate-backups", "localhost:9000", "", "localhost:8080", "localhost:8081", "localhost:8082")
 }
 
