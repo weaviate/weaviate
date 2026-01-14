@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -2274,4 +2276,189 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 
 	}
 	return nil
+}
+
+func TestBucket_ExistsWithConsistentView(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "bucket_Exists_MemtableOnly",
+			f:    bucket_Exists_MemtableOnly,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "bucket_Exists_WithSegments",
+			f:    bucket_Exists_WithSegments,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "bucket_Exists_TombstoneInMemtable",
+			f:    bucket_Exists_TombstoneInMemtable,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithKeepTombstones(true),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []BucketOption) {
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(context.Background()))
+	})
+
+	// Prevent automatic flushes
+	b.SetMemtableThreshold(1e9)
+
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	t.Run("key does not exist initially", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		err := b.existsWithConsistentView(key, view)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("key exists after put", func(t *testing.T) {
+		err := b.Put(key, value)
+		require.NoError(t, err)
+
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		err = b.existsWithConsistentView(key, view)
+		require.NoError(t, err)
+	})
+
+	t.Run("exists returns same result as get", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		existsErr := b.existsWithConsistentView(key, view)
+		_, getErr := b.getWithConsistentView(key, view)
+
+		// Both should succeed for existing key
+		assert.NoError(t, existsErr)
+		assert.NoError(t, getErr)
+	})
+}
+
+func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []BucketOption) {
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(context.Background()))
+	})
+
+	b.SetMemtableThreshold(1e9)
+
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	t.Run("put and flush to segment", func(t *testing.T) {
+		err := b.Put(key, value)
+		require.NoError(t, err)
+
+		err = b.FlushAndSwitch()
+		require.NoError(t, err)
+	})
+
+	t.Run("key exists in segment", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		err := b.existsWithConsistentView(key, view)
+		require.NoError(t, err)
+	})
+
+	t.Run("nonexistent key returns NotFound", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		err := b.existsWithConsistentView([]byte("nonexistent"), view)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("exists returns same result as get for segment data", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		existsErr := b.existsWithConsistentView(key, view)
+		_, getErr := b.getWithConsistentView(key, view)
+
+		assert.NoError(t, existsErr)
+		assert.NoError(t, getErr)
+
+		existsErr = b.existsWithConsistentView([]byte("nonexistent"), view)
+		_, getErr = b.getWithConsistentView([]byte("nonexistent"), view)
+
+		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
+		assert.ErrorIs(t, getErr, lsmkv.NotFound)
+	})
+}
+
+func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(context.Background()))
+	})
+
+	b.SetMemtableThreshold(1e9)
+
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	t.Run("put to segment, delete in memtable", func(t *testing.T) {
+		err := b.Put(key, value)
+		require.NoError(t, err)
+
+		err = b.FlushAndSwitch()
+		require.NoError(t, err)
+
+		// Delete in memtable (creates tombstone)
+		err = b.Delete(key)
+		require.NoError(t, err)
+	})
+
+	t.Run("exists returns Deleted for tombstoned key", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		err := b.existsWithConsistentView(key, view)
+		assert.True(t, errors.Is(err, lsmkv.Deleted))
+	})
+
+	t.Run("exists and get return consistent Deleted error", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.Release()
+
+		existsErr := b.existsWithConsistentView(key, view)
+		_, getErr := b.getWithConsistentView(key, view)
+
+		// Both should return Deleted
+		assert.True(t, errors.Is(existsErr, lsmkv.Deleted))
+		assert.True(t, errors.Is(getErr, lsmkv.Deleted))
+	})
 }

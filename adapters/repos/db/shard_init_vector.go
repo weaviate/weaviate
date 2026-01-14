@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -95,17 +96,19 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			vecIdxID := s.vectorIndexID(targetVector)
 
 			vi, err := hnsw.New(hnsw.Config{
-				Logger:                    s.index.logger,
-				RootPath:                  s.path(),
-				ID:                        vecIdxID,
-				ShardName:                 s.name,
-				ClassName:                 s.index.Config.ClassName.String(),
-				PrometheusMetrics:         s.promMetrics,
-				VectorForIDThunk:          hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-				MultiVectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
-				TempVectorForIDThunk:      hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
-				TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
-				DistanceProvider:          distProv,
+				Logger:                            s.index.logger,
+				RootPath:                          s.path(),
+				ID:                                vecIdxID,
+				ShardName:                         s.name,
+				ClassName:                         s.index.Config.ClassName.String(),
+				PrometheusMetrics:                 s.promMetrics,
+				VectorForIDThunk:                  hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
+				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+				GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
+				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
+				DistanceProvider:                  distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -190,16 +193,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 
 		vi, err := dynamic.New(dynamic.Config{
-			ID:                   vecIdxID,
-			TargetVector:         targetVector,
-			Logger:               s.index.logger,
-			DistanceProvider:     distProv,
-			RootPath:             s.path(),
-			ShardName:            s.name,
-			ClassName:            s.index.Config.ClassName.String(),
-			PrometheusMetrics:    s.promMetrics,
-			VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-			TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
+			ID:                           vecIdxID,
+			TargetVector:                 targetVector,
+			Logger:                       s.index.logger,
+			DistanceProvider:             distProv,
+			RootPath:                     s.path(),
+			ShardName:                    s.name,
+			ClassName:                    s.index.Config.ClassName.String(),
+			PrometheusMetrics:            s.promMetrics,
+			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
+			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -260,15 +264,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: spfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
-					Logger:                    s.index.logger,
-					RootPath:                  s.path(),
-					ID:                        spfreshConfigID + "_centroids",
-					ShardName:                 s.name,
-					ClassName:                 s.index.Config.ClassName.String(),
-					PrometheusMetrics:         s.promMetrics,
-					TempVectorForIDThunk:      hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
-					TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
-					DistanceProvider:          distProv,
+					Logger:                            s.index.logger,
+					RootPath:                          s.path(),
+					ID:                                spfreshConfigID + "_centroids",
+					ShardName:                         s.name,
+					ClassName:                         s.index.Config.ClassName.String(),
+					PrometheusMetrics:                 s.promMetrics,
+					TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+					GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
+					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+					TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
+					DistanceProvider:                  distProv,
 					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 						return hnsw.NewCommitLogger(s.path(), spfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,

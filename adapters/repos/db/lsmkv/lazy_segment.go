@@ -384,6 +384,13 @@ func (s *lazySegment) existsKey(key []byte) (bool, error) {
 	return s.segment.existsKey(key)
 }
 
+func (s *lazySegment) exists(key []byte) error {
+	if err := s.load(); err != nil {
+		return fmt.Errorf("lazySegment::exists: %w", err)
+	}
+	return s.segment.exists(key)
+}
+
 func (s *lazySegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
 	if err := s.load(); err != nil {
 		return fmt.Errorf("lazySegment::stripTmpExtensions: %w", err)

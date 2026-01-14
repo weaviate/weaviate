@@ -195,8 +195,9 @@ func TestAcornPercentage(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AcornFilterRatio:     0.4,
+			GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AcornFilterRatio:             0.4,
 		}, ent.UserConfig{
 			MaxConnections:        16,
 			EFConstruction:        16,
@@ -305,8 +306,11 @@ func TestRescore(t *testing.T) {
 				h := &hnsw{
 					rescoreConcurrency: test.concurrency,
 					logger:             logger,
-					TempVectorForIDThunk: func(
-						ctx context.Context, id uint64, container *common.VectorSlice,
+					GetViewThunk: func() common.BucketView {
+						return &noopBucketView{}
+					},
+					TempVectorForIDWithViewThunk: func(
+						ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView,
 					) ([]float32, error) {
 						return vectors[id], nil
 					},
@@ -355,3 +359,8 @@ func (f *fakeCompressionDistancer) DistanceToNode(id uint64) (float32, error) {
 func (f *fakeCompressionDistancer) DistanceToFloat(vec []float32) (float32, error) {
 	return f.distFn(f.queryVec, vec), nil
 }
+
+// noopBucketView is a no-op implementation of common.BucketView for testing
+type noopBucketView struct{}
+
+func (n *noopBucketView) Release() {}
