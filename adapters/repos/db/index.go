@@ -1759,26 +1759,21 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenant, shardName)
-		if err != nil {
-			return fmt.Errorf("error getting read replicas location for shard %s: %w", shardName, err)
-		}
-		if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
-			// fast path to call remote to avoid initating locally
-			return remoteSearch(shardName)
-		}
-
-		// We need to getOrInit here because the shard might not yet be loaded due to eventual consistency on the schema update
-		// triggering the shard loading in the database
-		shard, release, err := i.getOrInitShard(ctx, shardName)
+		// ExecuteForEachShard already ensures this shard belongs to the local node.
+		// Use GetShard first to avoid creating empty shards. If shard doesn't exist yet
+		// The remote nodes that have the data will serve the query.
+		shard, release, err := i.GetShard(ctx, shardName)
 		defer release()
 		if err != nil {
 			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
 		}
 		if shard == nil {
-			// This will make the code hit other remote replicas, and usually resolve any kind of eventual consistency issues just thanks to delaying
-			// the search to the other replica.
-			// This is not ideal, but it works for now.
+			return remoteSearch(shardName)
+		}
+
+		// Check if shard is still loading. If replication is enabled, return error so caller can try another node.
+		// Otherwise, GetStatus() will wait for lazy shard to load, so StatusLoading shouldn't happen.
+		if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
 			return remoteSearch(shardName)
 		}
 
@@ -2145,6 +2140,18 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	// Check if shard belongs to this node before initializing to avoid creating empty shards
+	// on nodes that don't have the data (e.g., RF=2 with 3 nodes, the 3rd node doesn't have the shard)
+	if i.router != nil {
+		// In multi-tenant setups, shardName is the tenant name
+		tenantName := shardName
+		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenantName, shardName)
+		if err == nil && !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
+			// Shard doesn't belong to this node, return error so caller can try another node
+			return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("shard %s does not belong to this node", shardName))
+		}
+	}
+
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
