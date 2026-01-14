@@ -1035,7 +1035,7 @@ const (
 // The shard will be nil if the shard is not found, or if the local shard should not be used.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName string, shardName string, operation localShardOperation) (ShardLike, func(), error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
 	// see Index.getOptInitLocalShard for more details.
 	if err != nil {
@@ -1419,7 +1419,6 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	if err != nil {
 		return obj, err
 	}
-	defer release()
 
 	if shard != nil {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
@@ -2140,18 +2139,6 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	// Check if shard belongs to this node before initializing to avoid creating empty shards
-	// on nodes that don't have the data (e.g., RF=2 with 3 nodes, the 3rd node doesn't have the shard)
-	if i.router != nil {
-		// In multi-tenant setups, shardName is the tenant name
-		tenantName := shardName
-		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenantName, shardName)
-		if err == nil && !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
-			// Shard doesn't belong to this node, return error so caller can try another node
-			return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("shard %s does not belong to this node", shardName))
-		}
-	}
-
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
