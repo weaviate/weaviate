@@ -93,7 +93,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		})
 
 		t.Run("one copy per shard", func(t *testing.T) {
-			clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard", minioURL, s3BackupJourneyBucketName, overridePath,
+			clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard", minioURL, s3BackupJourneyBucketName, overridePath,
 				compose.GetWeaviateNode(1).URI(), compose.GetWeaviateNode(2).URI(), compose.GetWeaviateNode(3).URI())
 		})
 	})
@@ -101,11 +101,11 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 
 func TestLocal(t *testing.T) {
 	t.Skip("only for local testing with minio")
-	clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard_local", "weaviate-backups", "localhost:9000", "", "localhost:8080", "localhost:8081", "localhost:8082")
+	clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard_local", "weaviate-backups", "localhost:9000", "", "localhost:8080", "localhost:8081", "localhost:8082")
 }
 
 // only run this on s3 as we will check minio directly for the correct sizes
-func clusterOneBackupPerShardTest(t *testing.T, backend, backupID, bucket, minioURL, overridePath string, nodeEndpoints ...string) {
+func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bucket, minioURL, overridePath string, nodeEndpoints ...string) {
 	uploaderEndpoint := nodeEndpoints[rand.Intn(len(nodeEndpoints))]
 	helper.SetupClient(uploaderEndpoint)
 
@@ -113,7 +113,7 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, backupID, bucket, minio
 
 	t.Logf("uploader selected -> %s:%s", helper.ServerHost, helper.ServerPort)
 	class := &models.Class{
-		Class: t.Name(),
+		Class: className,
 		Properties: []*models.Property{
 			{
 				Name:         "contents",
