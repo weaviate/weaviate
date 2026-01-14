@@ -26,6 +26,7 @@ func createErrorResponseObject(messages ...string) *models.ErrorResponse {
 	for _, message := range messages {
 		er.Error = append(er.Error, &models.ErrorResponseErrorItems0{
 			Message: message,
+			Code:    500,
 		})
 	}
 
@@ -35,5 +36,6 @@ func createErrorResponseObject(messages ...string) *models.ErrorResponse {
 func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
 		Message: fmt.Sprintf("%s", err),
+		Code:    500,
 	}}}
 }
