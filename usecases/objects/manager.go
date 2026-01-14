@@ -101,6 +101,7 @@ type objectsMetrics interface {
 	UpdateObjectDec()
 	MergeObjectInc()
 	MergeObjectDec()
+	MergeObjectVectorPresence(hasVector bool)
 	DeleteObjectInc()
 	DeleteObjectDec()
 	GetObjectInc()
