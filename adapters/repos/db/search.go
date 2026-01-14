@@ -463,7 +463,7 @@ func (db *DB) getTotalLimit(pagination *filters.Pagination, addl additional.Prop
 	}
 	if !addl.ReferenceQuery && totalLimit > int(db.config.QueryMaximumResults) {
 		return 0, fmt.Errorf(
-			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QueryMaximumResults '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
 			pagination.Offset, db.getLimit(pagination.Limit), db.config.QueryMaximumResults)
 	}
 	return totalLimit, nil
