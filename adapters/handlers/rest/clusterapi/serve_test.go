@@ -41,19 +41,24 @@ func Test_staticRoute(t *testing.T) {
 			expected: "/indices",
 		},
 		{
-			name:     "un-matched route with dynamic path",
-			req:      newRequest(t, "/indices/objects/Movies"), // un-matched route, but /indices/ paths now use indicesStaticRoute
+			name:     "indices route with dynamic path",
+			req:      newRequest(t, "/indices/objects/Movies"), // /indices/ paths now use indicesStaticRoute
 			expected: "/indices/",                              // falls back to /indices/ for unknown patterns
 		},
 		{
 			name:     "matched route with dynamic path",
-			req:      newRequest(t, "/replicas/objects/Movies"), // matched route.
+			req:      newRequest(t, "/replicas/objects/Movies"), // matched route (not /replicas/indices/)
 			expected: "/replicas/",                              // yay!
 		},
 		{
 			name:     "matched route with dynamic path 2",
 			req:      newRequest(t, "/replicas/objects/Movies2"), // matched route.
 			expected: "/replicas/",                               // yay!
+		},
+		{
+			name:     "replicas/indices route with dynamic path",
+			req:      newRequest(t, "/replicas/indices/Movies/shards/shard0/objects"),
+			expected: "/replicas/indices/{class}/shards/{shard}/objects",
 		},
 	}
 
@@ -144,9 +149,49 @@ func Test_indicesStaticRoute(t *testing.T) {
 	}
 }
 
+func Test_replicasIndicesStaticRoute(t *testing.T) {
+	cases := []struct {
+		path     string
+		expected string
+	}{
+		// Objects batch operations
+		{"/replicas/indices/MyClass/shards/shard0/objects", "/replicas/indices/{class}/shards/{shard}/objects"},
+
+		// Single object by ID
+		{"/replicas/indices/MyClass/shards/shard0/objects/550e8400-e29b-41d4-a716-446655440000", "/replicas/indices/{class}/shards/{shard}/objects/{id}"},
+		{"/replicas/indices/MyClass/shards/shard0/objects/some-uuid-here", "/replicas/indices/{class}/shards/{shard}/objects/{id}"},
+
+		// Object with deletion timestamp
+		{"/replicas/indices/MyClass/shards/shard0/objects/some-uuid/1234567890123", "/replicas/indices/{class}/shards/{shard}/objects/{id}/{timestamp}"},
+
+		// References
+		{"/replicas/indices/MyClass/shards/shard0/objects/references", "/replicas/indices/{class}/shards/{shard}/objects/references"},
+
+		// Commit phases
+		{"/replicas/indices/MyClass/shards/shard0:commit", "/replicas/indices/{class}/shards/{shard}:commit"},
+		{"/replicas/indices/MyClass/shards/shard0:abort", "/replicas/indices/{class}/shards/{shard}:abort"},
+
+		// Various class and shard name formats
+		{"/replicas/indices/My_Class_123/shards/shard_0/objects", "/replicas/indices/{class}/shards/{shard}/objects"},
+		{"/replicas/indices/A/shards/B/objects", "/replicas/indices/{class}/shards/{shard}/objects"},
+
+		// Fallback for unknown patterns
+		{"/replicas/indices/", "/replicas/indices/"},
+		{"/replicas/indices/unknown/path/here", "/replicas/indices/"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			got := replicasIndicesStaticRoute(tc.path)
+			assert.Equal(t, tc.expected, got, "path: %s", tc.path)
+		})
+	}
+}
+
 func Test_staticRoute_indicesIntegration(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/indices/", okHandler)
+	mux.HandleFunc("/replicas/indices/", okHandler)
 
 	cases := []struct {
 		name     string
@@ -172,6 +217,26 @@ func Test_staticRoute_indicesIntegration(t *testing.T) {
 			name:     "indices status route",
 			path:     "/indices/Movies/shards/shard0/status",
 			expected: "/indices/{class}/shards/{shard}/status",
+		},
+		{
+			name:     "replicas/indices objects route",
+			path:     "/replicas/indices/Movies/shards/shard0/objects",
+			expected: "/replicas/indices/{class}/shards/{shard}/objects",
+		},
+		{
+			name:     "replicas/indices single object route",
+			path:     "/replicas/indices/Movies/shards/shard0/objects/some-uuid",
+			expected: "/replicas/indices/{class}/shards/{shard}/objects/{id}",
+		},
+		{
+			name:     "replicas/indices commit route",
+			path:     "/replicas/indices/Movies/shards/shard0:commit",
+			expected: "/replicas/indices/{class}/shards/{shard}:commit",
+		},
+		{
+			name:     "replicas/indices references route",
+			path:     "/replicas/indices/Movies/shards/shard0/objects/references",
+			expected: "/replicas/indices/{class}/shards/{shard}/objects/references",
 		},
 	}
 
