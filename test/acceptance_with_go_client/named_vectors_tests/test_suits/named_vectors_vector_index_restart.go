@@ -12,13 +12,14 @@
 package test_suits
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
 	"context"
 	"fmt"
 	"io"
 	"strings"
 	"testing"
 	"time"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -534,6 +535,5 @@ func testLegacyAndNamedVectorRestart(compose *docker.DockerCompose) func(t *test
 				})
 			})
 		}
-
 	}
 }
