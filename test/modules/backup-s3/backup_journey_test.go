@@ -122,6 +122,11 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 			},
 		},
 		ReplicationConfig: &models.ReplicationConfig{Factor: 3, AsyncEnabled: true},
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": false,
+			},
+		},
 	}
 	helper.DeleteClass(t, class.Class)
 	helper.CreateClass(t, class)
