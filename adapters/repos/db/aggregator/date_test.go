@@ -20,7 +20,7 @@ import (
 
 const (
 	DateYearMonthDayHourMinute = "2022-06-16T17:30:"
-	DateNanoSecondsTimeZone    = ".451235Z"
+	DateNanoSecondsTimeZone    = ".451Z"
 )
 
 func TestDateAggregator(t *testing.T) {
