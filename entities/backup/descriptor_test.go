@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExcludeClasses(t *testing.T) {
@@ -472,4 +473,30 @@ func TestShardDescriptorClear(t *testing.T) {
 	}
 	s.ClearTemporary()
 	assert.Equal(t, want, s)
+}
+
+func TestSharedBackupState(t *testing.T) {
+	s := NewSharedBackupState(2)
+
+	s.AddShard("node1", "class2", "shard1", []string{"node1", "node2", "node3"})
+	s.AddShard("node2", "class2", "shard2", []string{"node1", "node2", "node3"})
+	s.AddShard("node3", "class2", "shard3", []string{"node1", "node2", "node3"})
+	s.AddShard("node1", "class2", "shard4", []string{"node1", "node2", "node3"})
+	s.AddShard("node1", "class1", "shard1", []string{"node1", "node2", "node3"})
+
+	tests := []struct {
+		node           string
+		expectedShards []string
+	}{
+		{node: "node1", expectedShards: []string{"shard2", "shard3"}},
+		{node: "node2", expectedShards: []string{"shard1", "shard3", "shard4"}},
+		{node: "node0", expectedShards: []string{"shard1", "shard2", "shard3", "shard4"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.node, func(t *testing.T) {
+			shardsToSkip := s.ShardsToSkipForNodeAndClass(tt.node, "class2")
+			require.ElementsMatch(t, shardsToSkip, tt.expectedShards)
+		})
+	}
 }

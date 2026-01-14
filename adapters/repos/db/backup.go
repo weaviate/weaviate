@@ -43,11 +43,7 @@ type BackupState struct {
 // only up once.
 // A shard is considered in sync when its last async replication run finished after the backup start time.
 func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeout time.Duration) (backup.SharedBackupState, error) {
-	sharedBackupState := backup.SharedBackupState{
-		ShardsPerNode:      make(map[string]backup.ResultsPerNode),
-		AllSyncShards:      make(map[string][]string, len(classes)),
-		ClassShardsToNodes: make(map[string]map[string][]string),
-	}
+	sharedBackupState := backup.NewSharedBackupState(len(classes))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	timeOutTime := backupStartedAt.Add(timeout)
@@ -383,7 +379,6 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		}
 
 		desc.Shards = append(desc.Shards, &sd)
-
 		return nil
 	}); err != nil {
 		return err

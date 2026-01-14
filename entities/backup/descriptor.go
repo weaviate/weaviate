@@ -311,6 +311,14 @@ type SharedBackupState struct {
 	ClassShardsToNodes map[string]map[string][]string // class => shard => owner nodes
 }
 
+func NewSharedBackupState(numClasses int) SharedBackupState {
+	return SharedBackupState{
+		ShardsPerNode:      make(map[string]ResultsPerNode),
+		AllSyncShards:      make(map[string][]string, numClasses),
+		ClassShardsToNodes: make(map[string]map[string][]string),
+	}
+}
+
 func (s *SharedBackupState) AddShard(selectedNode, className, shard string, ownerNodes []string) {
 	node, nodeExists := s.ShardsPerNode[selectedNode]
 	if !nodeExists {
@@ -334,20 +342,28 @@ func (s *SharedBackupState) AddShard(selectedNode, className, shard string, owne
 	s.ClassShardsToNodes[className][shard] = ownerNodes
 }
 
+// ShardsToSkipForNodeAndClass returns all shards for className that are in sync but not assigned to localNode. These
+// shards should be skipped during backup on localNode.
 func (s *SharedBackupState) ShardsToSkipForNodeAndClass(localNode, className string) []string {
-	var shardsInSync []string
-	shardsInSyncTmp := s.AllSyncShards[className] // may be nil, which is fine
-	if s.ShardsPerNode[localNode] != nil {
-		if syncShardsForClassToBackup, ok := s.ShardsPerNode[localNode][className]; ok {
-			for _, shard := range shardsInSyncTmp {
-				if !slices.Contains(syncShardsForClassToBackup, shard) {
-					shardsInSync = append(shardsInSync, shard)
-				}
-			}
+	var shardsInSyncToSkip []string
+	shardsInSyncTmp, ok := s.AllSyncShards[className]
+	if !ok {
+		return shardsInSyncToSkip
+	}
+
+	syncShardsForClassToBackup, ok := s.ShardsPerNode[localNode][className]
+	if !ok {
+		return shardsInSyncTmp
+	}
+
+	// collect shards that are in sync but not assigned to localNode
+	for _, shard := range shardsInSyncTmp {
+		if !slices.Contains(syncShardsForClassToBackup, shard) {
+			shardsInSyncToSkip = append(shardsInSyncToSkip, shard)
 		}
 	}
 
-	return shardsInSync
+	return shardsInSyncToSkip
 }
 
 type ResultsPerNode map[string][]string
