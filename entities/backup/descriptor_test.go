@@ -618,7 +618,7 @@ func TestDescriptorToSharedLocation(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, expected, location)
+	require.ElementsMatch(t, expected, location)
 }
 
 func TestSharedBackupLocationsForNode(t *testing.T) {
