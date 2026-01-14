@@ -56,7 +56,6 @@ type Replicator struct {
 	client         Client
 	log            logrus.FieldLogger
 	requestCounter atomic.Uint64
-	stream         stream
 	*Finder
 }
 
@@ -110,7 +109,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 		}
 		return nil
 	}
-	errs, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard), r.readSimpleResponse, r.stream.flattenErrors, 1)
+	errs, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
 		r.log.WithField("op", "push.one").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -142,7 +141,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		}
 		return nil
 	}
-	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.stream.flattenErrors, 1)
+	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
 		r.log.WithField("op", "push.merge").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -178,7 +177,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 		}
 		return nil
 	}
-	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.stream.flattenErrors, 1)
+	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
 		r.log.WithField("op", "push.delete").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -209,7 +208,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 		}
 		return nil
 	}
-	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.stream.flattenErrors, len(objs))
+	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(objs))
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -257,7 +256,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		}
 		return resp, err
 	}
-	rs, err := coord.Push(ctx, l, op, commit, r.readDeleteBatchResponse, r.stream.flattenDeletions, len(uuids))
+	rs, err := coord.Push(ctx, l, op, commit, r.readDeleteBatchResponse, r.flattenDeletions, len(uuids))
 	if err != nil {
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -292,7 +291,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 		}
 		return nil
 	}
-	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.stream.flattenErrors, len(refs))
+	errs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(refs))
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -338,6 +337,63 @@ func (r *Replicator) readSimpleResponse(x Result[SimpleResponse], successes []Si
 	return successes, failures, decreaseLevel, err
 }
 
+func (*Replicator) flattenErrors(batchSize int,
+	rs []SimpleResponse,
+	defaultErr error,
+) []error {
+	errs := make([]error, batchSize)
+	n := 0
+	for _, resp := range rs {
+		if len(resp.Errors) != batchSize {
+			continue
+		}
+		n++
+		for i, err := range resp.Errors {
+			if !err.Empty() && errs[i] == nil {
+				errs[i] = err.Clone()
+			}
+		}
+	}
+	if n == 0 || n != len(rs) {
+		for i := range errs {
+			if errs[i] == nil {
+				errs[i] = defaultErr
+			}
+		}
+	}
+	return errs
+}
+
+func (*Replicator) flattenDeletions(batchSize int,
+	rs []DeleteBatchResponse,
+	defaultErr error,
+) []objects.BatchSimpleObject {
+	ret := make([]objects.BatchSimpleObject, batchSize)
+	n := 0
+	for _, resp := range rs {
+		if len(resp.Batch) != batchSize {
+			continue
+		}
+		n++
+		for i, x := range resp.Batch {
+			if !x.Error.Empty() && ret[i].Err == nil {
+				ret[i].Err = x.Error.Clone()
+			}
+			if ret[i].UUID == "" && x.UUID != "" {
+				ret[i].UUID = strfmt.UUID(x.UUID)
+			}
+		}
+	}
+	if n == 0 || n != len(rs) {
+		for i := range ret {
+			if ret[i].Err == nil {
+				ret[i].Err = defaultErr
+			}
+		}
+	}
+	return ret
+}
+
 func (r *Replicator) readDeleteBatchResponse(x Result[DeleteBatchResponse], successes []DeleteBatchResponse, failures []DeleteBatchResponse) ([]DeleteBatchResponse, []DeleteBatchResponse, bool, error) {
 	var err error
 	decreaseLevel := true
@@ -351,6 +407,24 @@ func (r *Replicator) readDeleteBatchResponse(x Result[DeleteBatchResponse], succ
 		successes = append(successes, x.Value)
 	}
 	return successes, failures, decreaseLevel, err
+}
+
+func firstError(es []error) error {
+	for _, e := range es {
+		if e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func firstBatchError(xs []objects.BatchSimpleObject) error {
+	for _, x := range xs {
+		if x.Err != nil {
+			return x.Err
+		}
+	}
+	return nil
 }
 
 // requestID returns ID as [CoordinatorName-OpCode-TimeStamp-Counter].
