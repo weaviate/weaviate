@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"sync"
 	"time"
 
@@ -117,17 +116,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		// filter out shared chunks that belong to this node. These will be downloaded normally
-		sharedChunksForNode := backup.SharedBackupLocations{}
-		for _, sharedChunk := range sharedChunks {
-			if sharedChunk.StoredOnNode == r.node {
-				continue // normal download
-			}
-			if !slices.Contains(sharedChunk.BelongsToNodes, r.node) {
-				continue // only restore to nodes that contained shard
-			}
-			sharedChunksForNode = append(sharedChunksForNode, sharedChunk)
-		}
+		sharedChunksForNode := sharedChunks.ForNode(r.node)
 
 		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, sharedChunksForNode, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
@@ -165,14 +154,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	for _, cdesc := range desc.Classes {
-		var sharedBackupsPerClass backup.SharedBackupLocations
-		for _, sharedChunk := range sharedChunks {
-			if sharedChunk.Class != cdesc.Name {
-				continue
-			}
-
-			sharedBackupsPerClass = append(sharedBackupsPerClass, sharedChunk)
-		}
+		sharedBackupsPerClass := sharedChunks.ForClass(cdesc.Name)
 
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, desc.ID, sharedBackupsPerClass, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)

@@ -258,6 +258,34 @@ func (s SharedBackupLocations) SharedChunksPerNode() map[string]map[int32][]stri
 	return sharedChunksPerNode
 }
 
+// ForNode returns all shared backup locations that are needed for restoring on the given node. It excludes chunks that
+// are stored on the local node (normal download) and chunks that do not belong to shards assigned to the local node.
+func (s SharedBackupLocations) ForNode(localNode string) SharedBackupLocations {
+	sharedChunksForNode := SharedBackupLocations{}
+	for _, sharedChunk := range s {
+		if sharedChunk.StoredOnNode == localNode {
+			continue // normal download
+		}
+		if !slices.Contains(sharedChunk.BelongsToNodes, localNode) {
+			continue // only restore to nodes that contained shard
+		}
+		sharedChunksForNode = append(sharedChunksForNode, sharedChunk)
+	}
+	return sharedChunksForNode
+}
+
+func (s SharedBackupLocations) ForClass(class string) SharedBackupLocations {
+	var sharedBackupsPerClass SharedBackupLocations
+	for _, sharedChunk := range s {
+		if sharedChunk.Class != class {
+			continue
+		}
+
+		sharedBackupsPerClass = append(sharedBackupsPerClass, sharedChunk)
+	}
+	return sharedBackupsPerClass
+}
+
 // ClearTemporary clears fields that are no longer needed once compression is done.
 // These fields are not required in versions > 1 because they are stored in the tarball.
 func (s *ShardDescriptor) ClearTemporary() {
