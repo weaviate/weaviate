@@ -13,7 +13,7 @@ package lib
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -28,8 +28,7 @@ type LatencyStats struct {
 
 func AnalyzeLatencies(in []time.Duration) LatencyStats {
 	out := LatencyStats{}
-	sort.Slice(in, func(a, b int) bool { return in[a] < in[b] })
-
+	slices.Sort(in)
 	out.Min = in[0]
 	out.Max = in[len(in)-1]
 
