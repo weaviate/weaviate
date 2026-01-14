@@ -95,6 +95,23 @@ func TestDeleteObject_RbacResolveAlias(t *testing.T) {
 	assert.Contains(t, auth.Calls()[0].Resources[0], class) // make sure rbac is called with "resolved class" name
 }
 
+func Test_DeleteObject_NotFound(t *testing.T) {
+	var (
+		cls = "MyClass"
+		id  = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	)
+
+	manager, repo, _, _ := newDeleteDependency()
+
+	// return not found error if deleteObject() fails because the object does not exist
+	repo.On("DeleteObject", cls, id, mock.Anything).Return(NewErrNotFound("not found")).Once()
+	err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
+	if !errors.As(err, &ErrNotFound{}) {
+		t.Errorf("error type got: %T want: ErrNotFound", err)
+	}
+	repo.AssertExpectations(t)
+}
+
 func newDeleteDependency() (*Manager, *fakeVectorRepo, *mocks.FakeAuthorizer, *fakeSchemaManager) {
 	vectorRepo := new(fakeVectorRepo)
 	logger, _ := test.NewNullLogger()
