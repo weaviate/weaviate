@@ -658,15 +658,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, backupID string, share
 	}
 
 	// now process shared chunks that are stored on other nodes
-	sharedChunksPerNode := make(map[string]map[int32][]string)
-	for _, shared := range sharedChunks {
-		if _, ok := sharedChunksPerNode[shared.StoredOnNode]; !ok {
-			sharedChunksPerNode[shared.StoredOnNode] = make(map[int32][]string)
-		}
-		sharedChunksPerNode[shared.StoredOnNode][shared.Chunk] = append(sharedChunksPerNode[shared.StoredOnNode][shared.Chunk], shared.Shard)
-	}
-
-	for node, shared := range sharedChunksPerNode {
+	for node, shared := range sharedChunks.SharedChunksPerNode() {
 		for chunk, shards := range shared {
 			chunkKey := chunkKey(desc.Name, chunk)
 			backupLocation := fmt.Sprintf("%s/%s", backupID, node)

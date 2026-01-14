@@ -500,3 +500,123 @@ func TestSharedBackupState(t *testing.T) {
 		})
 	}
 }
+
+func TestSharedBackupLocations(t *testing.T) {
+	s := make(SharedBackupLocations, 0)
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node1",
+		Class:          "class1",
+		Shard:          "shard1",
+		Chunk:          1,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node1",
+		Class:          "class1",
+		Shard:          "shard2",
+		Chunk:          1,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node1",
+		Class:          "class1",
+		Shard:          "shard3",
+		Chunk:          1,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node2",
+		Class:          "class1",
+		Shard:          "shard3",
+		Chunk:          2,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node2",
+		Class:          "class1",
+		Shard:          "shard4",
+		Chunk:          3,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	chunksPerNode := s.SharedChunksPerNode()
+
+	expectedChunksPerNode := map[string]map[int32][]string{
+		"node1": {
+			1: {"shard1", "shard2", "shard3"},
+		},
+		"node2": {
+			2: {"shard3"},
+			3: {"shard4"},
+		},
+	}
+	require.Equal(t, expectedChunksPerNode, chunksPerNode)
+}
+
+func TestDescriptorToSharedLocation(t *testing.T) {
+	desc := BackupDescriptor{
+		ID: "backup1",
+		Classes: []ClassDescriptor{
+			{
+				Name: "Class1",
+				Chunks: map[int32][]string{
+					1: {"shard1", "shard2"},
+					2: {"shard3"},
+				},
+			},
+			{
+				Name: "Class2",
+				Chunks: map[int32][]string{
+					1: {"shardA"},
+				},
+			},
+		},
+	}
+
+	state := SharedBackupState{
+		ClassShardsToNodes: map[string]map[string][]string{
+			"Class1": {
+				"shard1": {"node1", "node2"},
+				"shard2": {"node1"},
+				"shard3": {"node1", "node3"},
+			},
+			"Class2": {
+				"shardA": {"node1", "node2", "node3"},
+			},
+		},
+	}
+
+	location := desc.ToSharedBackupLocation("node1", state)
+
+	expected := SharedBackupLocations{
+		{
+			Class:          "Class1",
+			Shard:          "shard1",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node2"},
+		},
+		{
+			Class:          "Class1",
+			Shard:          "shard2",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1"},
+		},
+		{
+			Class:          "Class1",
+			Shard:          "shard3",
+			Chunk:          2,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node3"},
+		},
+		{
+			Class:          "Class2",
+			Shard:          "shardA",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node2", "node3"},
+		},
+	}
+
+	require.Equal(t, expected, location)
+}

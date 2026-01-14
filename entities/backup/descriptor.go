@@ -247,6 +247,17 @@ type SharedBackupLocation struct {
 }
 type SharedBackupLocations []SharedBackupLocation
 
+func (s SharedBackupLocations) SharedChunksPerNode() map[string]map[int32][]string {
+	sharedChunksPerNode := make(map[string]map[int32][]string)
+	for _, shared := range s {
+		if _, ok := sharedChunksPerNode[shared.StoredOnNode]; !ok {
+			sharedChunksPerNode[shared.StoredOnNode] = make(map[int32][]string)
+		}
+		sharedChunksPerNode[shared.StoredOnNode][shared.Chunk] = append(sharedChunksPerNode[shared.StoredOnNode][shared.Chunk], shared.Shard)
+	}
+	return sharedChunksPerNode
+}
+
 // ClearTemporary clears fields that are no longer needed once compression is done.
 // These fields are not required in versions > 1 because they are stored in the tarball.
 func (s *ShardDescriptor) ClearTemporary() {
@@ -303,6 +314,26 @@ type BackupDescriptor struct {
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
+}
+
+// ToSharedBackupLocation converts BackupDescriptor to SharedBackupLocations for a specific node which contain all the
+// chunks stored on that node along with the nodes that own the shards belonging to those chunks.
+func (b *BackupDescriptor) ToSharedBackupLocation(node string, sharedState SharedBackupState) SharedBackupLocations {
+	descr := SharedBackupLocations{}
+	for _, classDescp := range b.Classes {
+		for chunkId, shards := range classDescp.Chunks {
+			for _, shard := range shards {
+				descr = append(descr, SharedBackupLocation{
+					Class:          classDescp.Name,
+					Shard:          shard,
+					Chunk:          chunkId,
+					StoredOnNode:   node,
+					BelongsToNodes: sharedState.ClassShardsToNodes[classDescp.Name][shard],
+				})
+			}
+		}
+	}
+	return descr
 }
 
 type SharedBackupState struct {

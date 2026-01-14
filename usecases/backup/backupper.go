@@ -111,7 +111,6 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
-
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
@@ -152,21 +151,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 
 		// write which shards were backed up from this node. On restore, we can check which node contains a shared
 		// backup
-		descr := backup.SharedBackupLocations{}
-		for _, classDescp := range result.Classes {
-			for chunkId, shards := range classDescp.Chunks {
-				for _, shard := range shards {
-					descr = append(descr, backup.SharedBackupLocation{
-						Class:          classDescp.Name,
-						Shard:          shard,
-						Chunk:          chunkId,
-						StoredOnNode:   b.node,
-						BelongsToNodes: sharedBackupState.ClassShardsToNodes[classDescp.Name][shard],
-					})
-				}
-			}
-		}
-		if err := store.PutMetaGlobal(ctx, descr, GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
+		if err := store.PutMetaGlobal(ctx, result.ToSharedBackupLocation(b.node, sharedBackupState), GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
 		}
 
