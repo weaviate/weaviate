@@ -1430,14 +1430,17 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return obj, err
 	}
 
-	if shard != nil {
-		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
-			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
-		}
-	} else {
+	if shard == nil || shard.GetStatus() == storagestate.StatusLoading {
+		// Shard doesn't exist or is still loading, try remote
 		if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 		}
+		return obj, nil
+	}
+
+	// Shard exists and is ready, use it
+	if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
+		return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 	}
 
 	return obj, nil
@@ -1776,13 +1779,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		if err != nil {
 			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
 		}
-		if shard == nil {
-			return remoteSearch(shardName)
-		}
-
-		// Check if shard is still loading. If replication is enabled, return error so caller can try another node.
-		// Otherwise, GetStatus() will wait for lazy shard to load, so StatusLoading shouldn't happen.
-		if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
+		if shard == nil || shard.GetStatus() == storagestate.StatusLoading {
+			// Shard doesn't exist or is still loading, try remote
 			return remoteSearch(shardName)
 		}
 
