@@ -642,14 +642,14 @@ func TestSharedBackupLocationsForNode(t *testing.T) {
 			Shard:          "shard3",
 			Chunk:          3,
 			StoredOnNode:   "node2",
-			BelongsToNodes: []string{"node2", "node3"},
+			BelongsToNodes: []string{"node2", "node1"},
 		},
 		{
 			Class:          "Class2",
 			Shard:          "shardB",
 			Chunk:          2,
 			StoredOnNode:   "node1",
-			BelongsToNodes: []string{"node3"},
+			BelongsToNodes: []string{"node3", "node1"},
 		},
 	}
 
@@ -665,11 +665,11 @@ func TestSharedBackupLocationsForNode(t *testing.T) {
 				BelongsToNodes: []string{"node1", "node2"},
 			},
 			{
-				Class:          "Class2",
-				Shard:          "shardA",
-				Chunk:          1,
-				StoredOnNode:   "node3",
-				BelongsToNodes: []string{"node1", "node2", "node3"},
+				Class:          "Class1",
+				Shard:          "shard3",
+				Chunk:          3,
+				StoredOnNode:   "node2",
+				BelongsToNodes: []string{"node2", "node1"},
 			},
 		}
 
@@ -737,8 +737,8 @@ func TestSharedBackupLocationsForClass(t *testing.T) {
 		emptyLocations := SharedBackupLocations{}
 		result := emptyLocations.ForClass("Class1")
 
-		expected := SharedBackupLocations{}
+		var nilExpected SharedBackupLocations = nil
 
-		require.Equal(t, expected, result)
+		require.Equal(t, nilExpected, result)
 	})
 }
