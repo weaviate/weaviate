@@ -223,9 +223,8 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	if err := firstError(errs); err != nil {
 		r.log.WithField("op", "put.many").WithField("class", r.class).
 			WithField("shard", shard).Error(errs)
-		return errs
 	}
-	return nil
+	return errs
 }
 
 func (r *Replicator) DeleteObjects(ctx context.Context,
@@ -307,9 +306,8 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	if err := firstError(errs); err != nil {
 		r.log.WithField("op", "put.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(errs)
-		return errs
 	}
-	return nil
+	return errs
 }
 
 // simpleCommit generate commit function for the coordinator

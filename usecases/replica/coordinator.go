@@ -61,11 +61,6 @@ type (
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
 	}
-
-	result[T any] struct {
-		Values       []T
-		DefaultError error
-	}
 )
 
 // NewCoordinator used by the replicator
