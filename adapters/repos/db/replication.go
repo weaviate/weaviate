@@ -708,12 +708,15 @@ func (i *Index) DigestObjects(ctx context.Context,
 ) (result []types.RepairResponse, err error) {
 	result = make([]types.RepairResponse, len(ids))
 
-	s, release, err := i.getOrInitShard(ctx, shardName)
+	s, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
-
 	defer release()
+
+	if s == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shardName)
+	}
 
 	if s.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -814,12 +817,16 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
 ) (replica.Replica, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	defer release()
+
+	if shard == nil {
+		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return replica.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
