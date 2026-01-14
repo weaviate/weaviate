@@ -13,10 +13,7 @@ package hfresh
 
 import (
 	"context"
-	"encoding/binary"
 	stderrors "errors"
-	"fmt"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -50,18 +46,19 @@ var _ common.VectorIndex = (*HFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type HFresh struct {
-	id             string
-	logger         logrus.FieldLogger
-	config         *Config // Config contains internal configuration settings.
-	metrics        *Metrics
-	scheduler      *queue.Scheduler
-	maxPostingSize uint32
-	minPostingSize uint32
-	replicas       uint32
-	rngFactor      float32
-	searchProbe    uint32
-	rescoreLimit   uint32
-	store          *lsmkv.Store
+	id               string
+	logger           logrus.FieldLogger
+	config           *Config // Config contains internal configuration settings.
+	metrics          *Metrics
+	scheduler        *queue.Scheduler
+	maxPostingSizeKB uint32 // User configurable i/o budget
+	maxPostingSize   uint32
+	minPostingSize   uint32
+	replicas         uint32
+	rngFactor        float32
+	searchProbe      uint32
+	rescoreLimit     uint32
+	store            *lsmkv.Store
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -135,13 +132,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		postingLocks:    common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:    visited.NewPool(1, 512, -1),
-		maxPostingSize: uc.MaxPostingSize,
-		minPostingSize: uc.MinPostingSize,
-		replicas:       uc.Replicas,
-		rngFactor:      uc.RNGFactor,
-		searchProbe:    uc.SearchProbe,
-		rescoreLimit:   uc.RescoreLimit,
+		visitedPool:      visited.NewPool(1, 512, -1),
+		maxPostingSizeKB: uc.MaxPostingSizeKB,
+		replicas:         uc.Replicas,
+		rngFactor:        uc.RNGFactor,
+		searchProbe:      uc.SearchProbe,
+		rescoreLimit:     uc.RescoreLimit,
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -298,30 +294,13 @@ func (h *HFresh) Iterate(fn func(id uint64) bool) {
 	h.logger.Warn("Iterate is not implemented for HFresh index")
 }
 
-func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
-	return slice
-}
-
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
-	var bucketName string
-	if h.config.TargetVector != "" {
-		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, h.config.TargetVector)
-	} else {
-		bucketName = helpers.VectorsBucketLSM
-	}
-
 	distFunc := func(id uint64) (float32, error) {
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := h.store.Bucket(bucketName).Get(buf[:])
+		vector, err := h.vectorForId(h.ctx, id)
 		if err != nil {
 			return 0, err
 		}
-
-		dist, err := h.config.DistanceProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := h.config.DistanceProvider.SingleDist(queryVector, vector)
 		if err != nil {
 			return 0, err
 		}

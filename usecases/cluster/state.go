@@ -621,7 +621,7 @@ func configureMemberlistSettings(cfg *memberlist.Config, userConfig Config, raft
 	// Configure timeouts and failure detection
 	if userConfig.MemberlistFastFailureDetection {
 		cfg.SuspicionMult = 1
-		cfg.DeadNodeReclaimTime = 5 * time.Second
+		cfg.DeadNodeReclaimTime = 1 * time.Second
 	}
 
 	// Set TCP timeout based on configuration type

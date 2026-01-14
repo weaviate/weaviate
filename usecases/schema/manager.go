@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -228,80 +229,6 @@ func NewManager(validator validator,
 
 	return m, nil
 }
-
-// func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
-// 	// introduced when Weaviate started supporting multi-shards per class in v1.8
-// 	if err := m.checkSingleShardMigration(ctx, localSchema); err != nil {
-// 		return errors.Wrap(err, "migrating sharding state from previous version")
-// 	}
-
-// 	// introduced when Weaviate started supporting replication in v1.17
-// 	if err := m.checkShardingStateForReplication(ctx, localSchema); err != nil {
-// 		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
-// 	}
-
-// 	// if other migrations become necessary in the future, you can add them here.
-// 	return nil
-// }
-
-// func (m *Manager) checkSingleShardMigration(ctx context.Context, localSchema *State) error {
-// 	for _, c := range localSchema.ObjectSchema.Classes {
-// 		if _, ok := localSchema.ShardingState[c.Class]; ok { // there is sharding state for this class. Nothing to do
-// 			continue
-// 		}
-
-// 		m.logger.WithField("className", c.Class).WithField("action", "initialize_schema").
-// 			Warningf("No sharding state found for class %q, initializing new state. "+
-// 				"This is expected behavior if the schema was created with an older Weaviate "+
-// 				"version, prior to supporting multi-shard indices.", c.Class)
-
-// 		// there is no sharding state for this class, let's create the correct
-// 		// config. This class must have been created prior to the sharding feature,
-// 		// so we now that the shardCount==1 - we do not care about any of the other
-// 		// parameters and simply use the defaults for those
-// 		c.ShardingConfig = map[string]interface{}{
-// 			"desiredCount": 1,
-// 		}
-// 		if err := m.praser.parseShardingConfig(c); err != nil {
-// 			return err
-// 		}
-
-// 		if err := replica.ValidateConfig(c, m.config.Replication); err != nil {
-// 			return fmt.Errorf("validate replication config: %w", err)
-// 		}
-// 		shardState, err := sharding.InitState(c.Class,
-// 			c.ShardingConfig.(sharding.Config),
-// 			m.clusterState, c.ReplicationConfig.Factor,
-// 			schema.MultiTenancyEnabled(c))
-// 		if err != nil {
-// 			return errors.Wrap(err, "init sharding state")
-// 		}
-
-// 		if localSchema.ShardingState == nil {
-// 			localSchema.ShardingState = map[string]*sharding.State{}
-// 		}
-// 		localSchema.ShardingState[c.Class] = shardState
-
-// 	}
-
-// 	return nil
-// }
-
-// func (m *Manager) checkShardingStateForReplication(ctx context.Context, localSchema *State) error {
-// 	for _, classState := range localSchema.ShardingState {
-// 		classState.MigrateFromOldFormat()
-// 	}
-// 	return nil
-// }
-
-// func newSchema() *State {
-// 	return &State{
-// 		ObjectSchema: &models.Schema{
-// 			Classes: []*models.Class{},
-// 		},
-// 		ShardingState: map[string]*sharding.State{},
-// 	}
-// }
 
 func (m *Manager) ClusterHealthScore() int {
 	return m.clusterState.ClusterHealthScore()

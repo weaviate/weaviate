@@ -60,7 +60,10 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	h.initDimensionsOnce.Do(func() {
 		size := uint32(len(vector))
 		atomic.StoreUint32(&h.dims, size)
-		h.setMaxPostingSize()
+		err = h.setMaxPostingSize()
+		if err != nil {
+			return
+		}
 		err = h.IndexMetadata.SetDimensions(size)
 		if err != nil {
 			err = errors.Wrap(err, "could not persist dimensions")
