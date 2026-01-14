@@ -548,8 +548,8 @@ func (q *shardsQueue) timeToId(tm time.Time) uint64 {
 }
 
 func (q *shardsQueue) idToTime(id uint64) time.Time {
-	nsec := -int64(id)
-	return time.Unix(0, nsec)
+	msec := -int64(id)
+	return time.UnixMilli(msec)
 }
 
 func (q *shardsQueue) deadlineCtx(deadline time.Time) (context.Context, context.CancelFunc) {
