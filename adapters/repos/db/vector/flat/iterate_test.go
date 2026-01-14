@@ -30,7 +30,7 @@ func createTestIndex(t *testing.T) *flat {
 	logger, _ := test.NewNullLogger()
 	distancer := distancer.NewCosineDistanceProvider()
 
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
