@@ -92,7 +92,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 	}
 
 	// Object bucket must be available, initAsyncReplication depends on it
-	if s.index.asyncReplicationEnabled() {
+	if s.index.AsyncReplicationEnabledForShard(s.name) {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
 

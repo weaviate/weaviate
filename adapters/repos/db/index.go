@@ -230,6 +230,8 @@ type Index struct {
 	shardReindexer ShardReindexerV3
 
 	bitmapBufPool roaringset.BitmapBufPool
+
+	router *router.Router
 }
 
 func (i *Index) ID() string {
@@ -304,6 +306,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,
 		bitmapBufPool:           bitmapBufPool,
+		router:                  router,
 	}
 
 	getDeletionStrategy := func() string {
@@ -648,10 +651,10 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+		if err := shard.SetAsyncReplicationEnabled(ctx, i.AsyncReplicationEnabledForShard(name)); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -875,6 +878,22 @@ func (i *Index) asyncReplicationEnabled() bool {
 	defer i.replicationConfigLock.RUnlock()
 
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+}
+
+func (i *Index) replicationEnabledForShard(shardName string) bool {
+	plan, err := i.router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
+		Collection:       i.Config.ClassName.String(),
+		Shard:            shardName,
+		ConsistencyLevel: types.ConsistencyLevel(types.ConsistencyLevelAll),
+	})
+	if err != nil {
+		return false
+	}
+	return len(plan.Replicas) > 1
+}
+
+func (i *Index) AsyncReplicationEnabledForShard(shardName string) bool {
+	return i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled() && i.replicationEnabledForShard(shardName)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
