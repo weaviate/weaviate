@@ -1759,19 +1759,28 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		// Use GetShard for read requests. don't initialize to avoid creating empty shards
-		// on non-owner nodes. If shard doesn't exist locally, fall back to remote search.
-		// this because of eventual consistency on the schema updates on READ requests.
-		shard, release, err := i.GetShard(ctx, shardName)
+		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenant, shardName)
+		if err != nil {
+			return fmt.Errorf("error getting read replicas location for shard %s: %w", shardName, err)
+		}
+		if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
+			// fast path to call remote to avoid initating locally
+			return remoteSearch(shardName)
+		}
+
+		// We need to getOrInit here because the shard might not yet be loaded due to eventual consistency on the schema update
+		// triggering the shard loading in the database
+		shard, release, err := i.getOrInitShard(ctx, shardName)
+		defer release()
 		if err != nil {
 			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
 		}
 		if shard == nil {
-			// Shard doesn't exist locally, fall back to remote search
-			// This will query other nodes that should have the shard loaded
+			// This will make the code hit other remote replicas, and usually resolve any kind of eventual consistency issues just thanks to delaying
+			// the search to the other replica.
+			// This is not ideal, but it works for now.
 			return remoteSearch(shardName)
 		}
-		defer release()
 
 		localCtx := helpers.InitSlowQueryDetails(ctx)
 		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
