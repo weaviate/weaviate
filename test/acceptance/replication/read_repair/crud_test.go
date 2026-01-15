@@ -259,6 +259,157 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		})
 	})
 
+	t.Run("PatchObjectVectorPreservation", func(t *testing.T) {
+		// This test verifies that vectors are preserved when PATCH only updates properties
+		// Uses an Article object which gets vectorized by text2vec-contextionary
+		// NOTE: Depends on CreateSchema and InsertArticlesIndividually having run first
+
+		// Create a dedicated test article with a title that will be vectorized
+		// NOTE: Title must match "Article#*" pattern so BatchAllObjects cleanup works
+		testArticleID := strfmt.UUID("b1c2d3e4-f5a6-7890-bcde-f12345678901")
+		testArticle := articles.NewArticle().
+			WithID(testArticleID).
+			WithTitle("Article#PatchTest").
+			Object()
+
+		err := common.CreateObjectCL(t, compose.ContainerURI(3), testArticle, types.ConsistencyLevelAll)
+		require.Nil(t, err)
+
+		// Get the original object with its generated vector
+		original, err := common.GetObjectWithVector(t, compose.ContainerURI(3), "Article", testArticleID)
+		require.Nil(t, err)
+		require.NotEmpty(t, original.Vector, "object should have a vector from vectorizer")
+		originalVector := original.Vector
+
+		// New title still matches "Article#*" pattern for cleanup
+		newTitle := "Article#PatchTestUpdated"
+
+		t.Run("PatchOnNode-3", func(t *testing.T) {
+			patch := &models.Object{
+				ID:         testArticleID,
+				Class:      "Article",
+				Properties: map[string]interface{}{"title": newTitle},
+				// Vector is intentionally NOT included
+			}
+			err := common.PatchObjectCL(t, compose.ContainerURI(3), patch, types.ConsistencyLevelQuorum)
+			require.Nil(t, err)
+		})
+
+		t.Run("StopNode-3", func(t *testing.T) {
+			common.StopNodeAt(ctx, t, compose, 3)
+		})
+
+		t.Run("VectorPreservedOnNode-1", func(t *testing.T) {
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Article", testArticleID, "node1")
+			require.Nil(t, err)
+
+			// Verify property was updated
+			newVal, ok := after.Properties.(map[string]interface{})["title"]
+			require.True(t, ok)
+			require.Equal(t, newTitle, newVal)
+
+			// Verify vector is preserved
+			require.NotEmpty(t, after.Vector, "vector should be preserved after patch")
+			require.Equal(t, originalVector, after.Vector, "vector should match original")
+		})
+
+		t.Run("VectorPreservedOnNode-2", func(t *testing.T) {
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Article", testArticleID, "node2")
+			require.Nil(t, err)
+			require.NotEmpty(t, after.Vector)
+			require.Equal(t, originalVector, after.Vector)
+		})
+
+		t.Run("RestartNode-3", func(t *testing.T) {
+			require.Nil(t, compose.StartAt(ctx, 3))
+		})
+
+		t.Run("VectorPreservedOnNode-3AfterRestart", func(t *testing.T) {
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Article", testArticleID, "node3")
+			require.Nil(t, err)
+			require.NotEmpty(t, after.Vector)
+			require.Equal(t, originalVector, after.Vector)
+		})
+	})
+
+	t.Run("PatchObjectCustomVectorPreservation", func(t *testing.T) {
+		// This test verifies that custom vectors are preserved when PATCH only updates properties
+		// Uses Paragraph class with Vectorizer: "none" to ensure no re-vectorization happens
+		// NOTE: Depends on CreateSchema having run first (Paragraph class with Vectorizer: "none")
+
+		// Define a custom vector
+		customVector := []float32{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8}
+
+		// Create a new paragraph with explicit custom vector
+		customVecParagraphID := strfmt.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+		customVecParagraph := articles.NewParagraph().
+			WithID(customVecParagraphID).
+			WithContents("Custom vector paragraph").
+			WithVector(customVector).
+			Object()
+
+		t.Run("CreateCustomVectorObjectOnNode-3", func(t *testing.T) {
+			err := common.CreateObjectCL(t, compose.ContainerURI(3), customVecParagraph, types.ConsistencyLevelAll)
+			require.Nil(t, err)
+		})
+
+		// Verify the custom vector was stored
+		t.Run("VerifyCustomVectorStored", func(t *testing.T) {
+			obj, err := common.GetObjectWithVector(t, compose.ContainerURI(3), "Paragraph", customVecParagraphID)
+			require.Nil(t, err)
+			require.Equal(t, customVector, []float32(obj.Vector), "custom vector should be stored")
+		})
+
+		newContents := "Updated contents without vector"
+
+		t.Run("PatchOnNode-3", func(t *testing.T) {
+			patch := &models.Object{
+				ID:         customVecParagraphID,
+				Class:      "Paragraph",
+				Properties: map[string]interface{}{"contents": newContents},
+				// Vector is intentionally NOT included - should preserve original
+			}
+			err := common.PatchObjectCL(t, compose.ContainerURI(3), patch, types.ConsistencyLevelQuorum)
+			require.Nil(t, err)
+		})
+
+		t.Run("StopNode-3", func(t *testing.T) {
+			common.StopNodeAt(ctx, t, compose, 3)
+		})
+
+		t.Run("CustomVectorPreservedOnNode-1", func(t *testing.T) {
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(1), "Paragraph", customVecParagraphID, "node1")
+			require.Nil(t, err)
+
+			// Verify property was updated
+			newVal, ok := after.Properties.(map[string]interface{})["contents"]
+			require.True(t, ok)
+			require.Equal(t, newContents, newVal)
+
+			// Verify custom vector is preserved (critical for non-vectorizer case!)
+			require.NotEmpty(t, after.Vector, "custom vector should be preserved after patch")
+			require.Equal(t, customVector, []float32(after.Vector), "custom vector should match original")
+		})
+
+		t.Run("CustomVectorPreservedOnNode-2", func(t *testing.T) {
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(2), "Paragraph", customVecParagraphID, "node2")
+			require.Nil(t, err)
+			require.NotEmpty(t, after.Vector)
+			require.Equal(t, customVector, []float32(after.Vector))
+		})
+
+		t.Run("RestartNode-3", func(t *testing.T) {
+			require.Nil(t, compose.StartAt(ctx, 3))
+		})
+
+		t.Run("CustomVectorPreservedOnNode-3AfterRestart", func(t *testing.T) {
+			after, err := common.GetObjectFromNodeWithVector(t, compose.ContainerURI(3), "Paragraph", customVecParagraphID, "node3")
+			require.Nil(t, err)
+			require.NotEmpty(t, after.Vector)
+			require.Equal(t, customVector, []float32(after.Vector))
+		})
+	})
+
 	t.Run("DeleteObject", func(t *testing.T) {
 		t.Run("OnNode-3", func(t *testing.T) {
 			common.DeleteObject(t, compose.ContainerURI(3), "Article", articleIDs[0], types.ConsistencyLevelAll)
