@@ -12,6 +12,7 @@
 package test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -73,6 +74,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
+			WithWeaviateEnv("LOG_LEVEL", "warning").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -93,6 +95,30 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		})
 
 		t.Run("one copy per shard", func(t *testing.T) {
+			defer func() {
+				if t.Failed() {
+					// When a test fails, dump logs of all compose containers.
+					for _, container := range compose.Containers() {
+						logs, err := container.Container().Logs(context.Background())
+						if err != nil {
+							t.Logf("failed to get logs for container %s: %v", container.Name(), err)
+							continue
+						}
+						func() {
+							defer logs.Close()
+							t.Logf("=== start for container %s ===\n=== start logs ===", container.Name())
+
+							scanner := bufio.NewScanner(logs)
+
+							for scanner.Scan() {
+								line := scanner.Text()
+								t.Log(line)
+							}
+							t.Logf("=== logs for container %s ===\n=== end logs ===", container.Name())
+						}()
+					}
+				}
+			}()
 			clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard", s3BackupJourneyBucketName, minioURL, overridePath,
 				compose.GetWeaviateNode(1).URI(), compose.GetWeaviateNode(2).URI(), compose.GetWeaviateNode(3).URI())
 		})
@@ -100,7 +126,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 }
 
 func TestLocal(t *testing.T) {
-	t.Skip("only for local testing with minio")
+	// t.Skip("only for local testing with minio")
 	clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard_local", "weaviate-backups", "localhost:9000", "testtesttest", "localhost:8080", "localhost:8081", "localhost:8082")
 }
 
