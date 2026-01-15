@@ -251,10 +251,15 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 }
 
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) interface{} {
-	localShard, release, err := i.getOrInitShard(ctx, shard)
+	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
+		}}
+	}
+	if localShard == nil {
+		return replica.SimpleResponse{Errors: []replica.Error{
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
 
@@ -266,10 +271,15 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 }
 
 func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) interface{} {
-	localShard, release, err := i.getOrInitShard(ctx, shard)
+	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
+		}}
+	}
+	if localShard == nil {
+		return replica.SimpleResponse{Errors: []replica.Error{
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
 
