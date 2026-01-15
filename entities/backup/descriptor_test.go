@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExcludeClasses(t *testing.T) {
@@ -472,4 +473,272 @@ func TestShardDescriptorClear(t *testing.T) {
 	}
 	s.ClearTemporary()
 	assert.Equal(t, want, s)
+}
+
+func TestSharedBackupState(t *testing.T) {
+	s := NewSharedBackupState(2)
+
+	s.AddShard("node1", "class2", "shard1", []string{"node1", "node2", "node3"})
+	s.AddShard("node2", "class2", "shard2", []string{"node1", "node2", "node3"})
+	s.AddShard("node3", "class2", "shard3", []string{"node1", "node2", "node3"})
+	s.AddShard("node1", "class2", "shard4", []string{"node1", "node2", "node3"})
+	s.AddShard("node1", "class1", "shard1", []string{"node1", "node2", "node3"})
+
+	tests := []struct {
+		node           string
+		expectedShards []string
+	}{
+		{node: "node1", expectedShards: []string{"shard2", "shard3"}},
+		{node: "node2", expectedShards: []string{"shard1", "shard3", "shard4"}},
+		{node: "node0", expectedShards: []string{"shard1", "shard2", "shard3", "shard4"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.node, func(t *testing.T) {
+			shardsToSkip := s.ShardsToSkipForNodeAndClass(tt.node, "class2")
+			require.ElementsMatch(t, shardsToSkip, tt.expectedShards)
+		})
+	}
+}
+
+func TestSharedBackupLocations(t *testing.T) {
+	s := make(SharedBackupLocations, 0)
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node1",
+		Class:          "class1",
+		Shard:          "shard1",
+		Chunk:          1,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node1",
+		Class:          "class1",
+		Shard:          "shard2",
+		Chunk:          1,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node1",
+		Class:          "class1",
+		Shard:          "shard3",
+		Chunk:          1,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node2",
+		Class:          "class1",
+		Shard:          "shard3",
+		Chunk:          2,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	s = append(s, SharedBackupLocation{
+		StoredOnNode:   "node2",
+		Class:          "class1",
+		Shard:          "shard4",
+		Chunk:          3,
+		BelongsToNodes: []string{"node1", "node2", "node3"},
+	})
+	chunksPerNode := s.SharedChunksPerNode()
+
+	expectedChunksPerNode := map[string]map[int32][]string{
+		"node1": {
+			1: {"shard1", "shard2", "shard3"},
+		},
+		"node2": {
+			2: {"shard3"},
+			3: {"shard4"},
+		},
+	}
+	require.Equal(t, expectedChunksPerNode, chunksPerNode)
+}
+
+func TestDescriptorToSharedLocation(t *testing.T) {
+	desc := BackupDescriptor{
+		ID: "backup1",
+		Classes: []ClassDescriptor{
+			{
+				Name: "Class1",
+				Chunks: map[int32][]string{
+					1: {"shard1", "shard2"},
+					2: {"shard3"},
+				},
+			},
+			{
+				Name: "Class2",
+				Chunks: map[int32][]string{
+					1: {"shardA"},
+				},
+			},
+		},
+	}
+
+	state := SharedBackupState{
+		ClassShardsToNodes: map[string]map[string][]string{
+			"Class1": {
+				"shard1": {"node1", "node2"},
+				"shard2": {"node1"},
+				"shard3": {"node1", "node3"},
+			},
+			"Class2": {
+				"shardA": {"node1", "node2", "node3"},
+			},
+		},
+	}
+
+	location := desc.ToSharedBackupLocation("node1", state)
+
+	expected := SharedBackupLocations{
+		{
+			Class:          "Class1",
+			Shard:          "shard1",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node2"},
+		},
+		{
+			Class:          "Class1",
+			Shard:          "shard2",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1"},
+		},
+		{
+			Class:          "Class1",
+			Shard:          "shard3",
+			Chunk:          2,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node3"},
+		},
+		{
+			Class:          "Class2",
+			Shard:          "shardA",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node2", "node3"},
+		},
+	}
+
+	require.ElementsMatch(t, expected, location)
+}
+
+func TestSharedBackupLocationsForNode(t *testing.T) {
+	locations := SharedBackupLocations{
+		{
+			Class:          "Class1",
+			Shard:          "shard1",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node2"},
+		},
+		{
+			Class:          "Class1",
+			Shard:          "shard2",
+			Chunk:          2,
+			StoredOnNode:   "node2",
+			BelongsToNodes: []string{"node1", "node2"},
+		},
+		{
+			Class:          "Class1",
+			Shard:          "shard3",
+			Chunk:          3,
+			StoredOnNode:   "node2",
+			BelongsToNodes: []string{"node2", "node1"},
+		},
+		{
+			Class:          "Class2",
+			Shard:          "shardB",
+			Chunk:          2,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node3", "node1"},
+		},
+	}
+
+	t.Run("node1 should get chunks stored elsewhere that belong to it", func(t *testing.T) {
+		result := locations.ForNode("node1")
+
+		expected := SharedBackupLocations{
+			{
+				Class:          "Class1",
+				Shard:          "shard2",
+				Chunk:          2,
+				StoredOnNode:   "node2",
+				BelongsToNodes: []string{"node1", "node2"},
+			},
+			{
+				Class:          "Class1",
+				Shard:          "shard3",
+				Chunk:          3,
+				StoredOnNode:   "node2",
+				BelongsToNodes: []string{"node2", "node1"},
+			},
+		}
+
+		require.Equal(t, expected, result)
+	})
+
+	t.Run("node4 should get nothing as it doesn't belong to any shards", func(t *testing.T) {
+		result := locations.ForNode("node4")
+
+		expected := SharedBackupLocations{}
+
+		require.Equal(t, expected, result)
+	})
+}
+
+func TestSharedBackupLocationsForClass(t *testing.T) {
+	locations := SharedBackupLocations{
+		{
+			Class:          "Class1",
+			Shard:          "shard1",
+			Chunk:          1,
+			StoredOnNode:   "node1",
+			BelongsToNodes: []string{"node1", "node2"},
+		},
+		{
+			Class:          "Class1",
+			Shard:          "shard2",
+			Chunk:          2,
+			StoredOnNode:   "node2",
+			BelongsToNodes: []string{"node1", "node2"},
+		},
+		{
+			Class:          "Class3",
+			Shard:          "shardX",
+			Chunk:          1,
+			StoredOnNode:   "node2",
+			BelongsToNodes: []string{"node2"},
+		},
+	}
+
+	t.Run("filter by Class1", func(t *testing.T) {
+		result := locations.ForClass("Class1")
+
+		expected := SharedBackupLocations{
+			{
+				Class:          "Class1",
+				Shard:          "shard1",
+				Chunk:          1,
+				StoredOnNode:   "node1",
+				BelongsToNodes: []string{"node1", "node2"},
+			},
+			{
+				Class:          "Class1",
+				Shard:          "shard2",
+				Chunk:          2,
+				StoredOnNode:   "node2",
+				BelongsToNodes: []string{"node1", "node2"},
+			},
+		}
+
+		require.Equal(t, expected, result)
+	})
+
+	t.Run("filter empty locations", func(t *testing.T) {
+		emptyLocations := SharedBackupLocations{}
+		result := emptyLocations.ForClass("Class1")
+
+		var nilExpected SharedBackupLocations = nil
+
+		require.Equal(t, nilExpected, result)
+	})
 }

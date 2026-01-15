@@ -1206,7 +1206,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		clients.NewClusterBackups(appState.ClusterHttpClient),
 		appState.DB, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
-		appState.SchemaManager,
+		appState.SchemaManager, appState.ServerConfig.Config.Backup,
 		appState.Logger)
 	return backupScheduler
 }

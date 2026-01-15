@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,6 +37,100 @@ import (
 type BackupState struct {
 	BackupID   string
 	InProgress bool
+}
+
+// ListShardsSync returns which class+shard combination is in sync between different nodes to enable to back those shards
+// only up once.
+// A shard is considered in sync when its last async replication run finished after the backup start time.
+func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeout time.Duration) (backup.SharedBackupState, error) {
+	sharedBackupState := backup.NewSharedBackupState(len(classes))
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
+	eg.SetLimit(_NUMCPU)
+	timeOutTime := backupStartedAt.Add(timeout)
+	shardCounter := atomic.Int32{}
+	var mu sync.Mutex
+
+	addToResult := func(className, shard string, idx *Index, lastRun *time.Time) {
+		ownerNodes, err := idx.schemaReader.ShardReplicasWithVersion(context.Background(), className, shard, 0)
+		if err != nil {
+			db.logger.WithField("class", className).WithField("shard", shard).
+				Errorf("unable to get shard owners: %v", err)
+			return
+		}
+		shardCounterInt := int(shardCounter.Add(1) - 1)
+		selectedNode := ownerNodes[shardCounterInt%len(ownerNodes)]
+		mu.Lock()
+		sharedBackupState.AddShard(selectedNode, className, shard, ownerNodes)
+		mu.Unlock()
+	}
+
+	for _, c := range classes {
+		className := schema.ClassName(c)
+		idx := db.GetIndex(className)
+		if idx == nil || idx.Config.ClassName != className {
+			return backup.SharedBackupState{}, fmt.Errorf("class %v doesn't exist", c)
+		}
+		if !idx.Config.AsyncReplicationEnabled {
+			continue // without async replication there is no (easy) way to know if shard is in sync
+		}
+		err := idx.ForEachLoadedShard(func(name string, shard *Shard) error {
+			// shards are in sync when
+			// - their last async replication run finished after the backup started
+			// - there was no object propagation after the backup started, because that would mean new data arrived
+			//   which would not be part of the backup
+			lastRun := shard.asyncReplicationLastRunStart.Load()
+			lastRunObjectPropagation := shard.asyncReplicationLastRunStartWithObjectPropagation.Load()
+			if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
+				addToResult(c, name, idx, lastRun)
+				return nil
+			} else if lastRunObjectPropagation != nil && (*lastRunObjectPropagation).After(backupStartedAt) {
+				// if object propagation is running after backup started, we cannot consider the shard in sync
+				return nil
+			}
+
+			// trigger an async replication run to recheck if the shard is in sync. If it is not, async replication
+			// will start to bring it in sync which can take too long to wait for it.
+			eg.Go(func() error {
+				shard.triggerAsyncReplication()
+				ticker := time.NewTicker(100 * time.Millisecond)
+				defer ticker.Stop()
+
+				timeoutDuration := time.Until(timeOutTime)
+				if timeoutDuration <= 0 {
+					// timeout already expired - do not wait and just leave the shard out of the list
+					return nil
+				}
+				timeoutTimer := time.NewTimer(timeoutDuration)
+				defer timeoutTimer.Stop()
+
+				for {
+					select {
+					case <-timeoutTimer.C:
+						return nil // we do not return error here, just leave the shard out of the list
+					case <-ticker.C:
+						lastRun := shard.asyncReplicationLastRunStart.Load()
+						lastRunObjectPropagation := shard.asyncReplicationLastRunStartWithObjectPropagation.Load()
+						if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
+							addToResult(c, name, idx, lastRun)
+							return nil
+						} else if lastRunObjectPropagation != nil && (*lastRunObjectPropagation).After(backupStartedAt) {
+							return nil
+						}
+					}
+				}
+			})
+			return nil
+		})
+		if err != nil {
+			return backup.SharedBackupState{}, err
+		}
+	}
+
+	if err := eg.Wait(); err != nil {
+		return backup.SharedBackupState{}, err
+	}
+
+	return sharedBackupState, nil
 }
 
 // Backupable returns whether all given class can be backed up.
@@ -67,7 +163,7 @@ func (db *DB) ListBackupable() []string {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, shardBackupState backup.SharedBackupState,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
@@ -79,13 +175,15 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
 					return
 				}
+				syncShardsToSkip := shardBackupState.ShardsToSkipForNodeAndClass(db.localNodeName, c)
+
 				idx.closeLock.RLock()
 				defer idx.closeLock.RUnlock()
 				if idx.closed {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
-				if err := idx.descriptor(ctx, bakid, &desc); err != nil {
+				if err := idx.descriptor(ctx, bakid, &desc, syncShardsToSkip); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
 			}()
@@ -256,7 +354,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, syncShardsToSkip []string) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -268,6 +366,11 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
+		if slices.Contains(syncShardsToSkip, name) {
+			desc.ShardsInSync = append(desc.ShardsInSync, name)
+			return nil
+		}
+
 		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}

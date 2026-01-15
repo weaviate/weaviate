@@ -90,14 +90,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
-			if err != nil {
-				// If backup is still in progress from a previous operation, fail this iteration
-				// so EventuallyWithT will retry until the slot is released
-				if assert.Contains(t1, err.Error(), "already in progress") {
-					assert.Fail(t1, "backup still in progress, retrying", err.Error())
-				}
-				return
-			}
+			require.NoError(t1, err)
 			require.NotNil(t1, resp)
 			require.NotNil(t1, resp.Payload)
 			assert.Equal(t1, cfg.Bucket, resp.Payload.Bucket)

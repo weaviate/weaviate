@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -237,6 +238,53 @@ type ShardDescriptor struct {
 	Version               []byte `json:"version,omitempty"`
 	Chunk                 int32  `json:"chunk"`
 }
+type SharedBackupLocation struct {
+	StoredOnNode   string   `json:"storedOnNode"`
+	Chunk          int32    `json:"chunk"`
+	Shard          string   `json:"shard"`
+	Class          string   `json:"class"`
+	BelongsToNodes []string `json:"belongsToNodes"`
+}
+type SharedBackupLocations []SharedBackupLocation
+
+func (s SharedBackupLocations) SharedChunksPerNode() map[string]map[int32][]string {
+	sharedChunksPerNode := make(map[string]map[int32][]string)
+	for _, shared := range s {
+		if _, ok := sharedChunksPerNode[shared.StoredOnNode]; !ok {
+			sharedChunksPerNode[shared.StoredOnNode] = make(map[int32][]string)
+		}
+		sharedChunksPerNode[shared.StoredOnNode][shared.Chunk] = append(sharedChunksPerNode[shared.StoredOnNode][shared.Chunk], shared.Shard)
+	}
+	return sharedChunksPerNode
+}
+
+// ForNode returns all shared backup locations that are needed for restoring on the given node. It excludes chunks that
+// are stored on the local node (normal download) and chunks that do not belong to shards assigned to the local node.
+func (s SharedBackupLocations) ForNode(localNode string) SharedBackupLocations {
+	sharedChunksForNode := SharedBackupLocations{}
+	for _, sharedChunk := range s {
+		if sharedChunk.StoredOnNode == localNode {
+			continue // normal download
+		}
+		if !slices.Contains(sharedChunk.BelongsToNodes, localNode) {
+			continue // only restore to nodes that contained shard
+		}
+		sharedChunksForNode = append(sharedChunksForNode, sharedChunk)
+	}
+	return sharedChunksForNode
+}
+
+func (s SharedBackupLocations) ForClass(class string) SharedBackupLocations {
+	var sharedBackupsPerClass SharedBackupLocations
+	for _, sharedChunk := range s {
+		if sharedChunk.Class != class {
+			continue
+		}
+
+		sharedBackupsPerClass = append(sharedBackupsPerClass, sharedChunk)
+	}
+	return sharedBackupsPerClass
+}
 
 // ClearTemporary clears fields that are no longer needed once compression is done.
 // These fields are not required in versions > 1 because they are stored in the tarball.
@@ -253,11 +301,15 @@ func (s *ShardDescriptor) ClearTemporary() {
 
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
-	Name          string             `json:"name"` // DB class name, also selected by user
-	Shards        []*ShardDescriptor `json:"shards"`
-	ShardingState []byte             `json:"shardingState"`
-	Schema        []byte             `json:"schema"`
-	Aliases       []byte             `json:"aliases"`
+	Name   string             `json:"name"` // DB class name, also selected by user
+	Shards []*ShardDescriptor `json:"shards"`
+	// ShardsInSync contains all shards that are in sync between different nodes for this class.
+	// This is used during distributed backups to avoid backing up multiple
+	// copies of the same shard from different nodes.
+	ShardsInSync  []string `json:"shardsInSync"`
+	ShardingState []byte   `json:"shardingState"`
+	Schema        []byte   `json:"schema"`
+	Aliases       []byte   `json:"aliases"`
 
 	// AliasesIncluded makes the old backup backward compatible when
 	// old backups are restored by newer ClassDescriptor that supports
@@ -291,6 +343,89 @@ type BackupDescriptor struct {
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
 }
+
+// ToSharedBackupLocation converts BackupDescriptor to SharedBackupLocations for a specific node which contain all the
+// chunks stored on that node along with the nodes that own the shards belonging to those chunks.
+func (b *BackupDescriptor) ToSharedBackupLocation(node string, sharedState SharedBackupState) SharedBackupLocations {
+	descr := SharedBackupLocations{}
+	for _, classDescp := range b.Classes {
+		for chunkId, shards := range classDescp.Chunks {
+			for _, shard := range shards {
+				descr = append(descr, SharedBackupLocation{
+					Class:          classDescp.Name,
+					Shard:          shard,
+					Chunk:          chunkId,
+					StoredOnNode:   node,
+					BelongsToNodes: sharedState.ClassShardsToNodes[classDescp.Name][shard],
+				})
+			}
+		}
+	}
+	return descr
+}
+
+type SharedBackupState struct {
+	ShardsPerNode      map[string]ResultsPerNode // node -> class -> shards
+	AllSyncShards      map[string][]string
+	ClassShardsToNodes map[string]map[string][]string // class => shard => owner nodes
+}
+
+func NewSharedBackupState(numClasses int) SharedBackupState {
+	return SharedBackupState{
+		ShardsPerNode:      make(map[string]ResultsPerNode),
+		AllSyncShards:      make(map[string][]string, numClasses),
+		ClassShardsToNodes: make(map[string]map[string][]string),
+	}
+}
+
+func (s *SharedBackupState) AddShard(selectedNode, className, shard string, ownerNodes []string) {
+	node, nodeExists := s.ShardsPerNode[selectedNode]
+	if !nodeExists {
+		node = make(ResultsPerNode)
+	}
+	class, classExists := node[className]
+	if !classExists {
+		class = []string{}
+	}
+	class = append(class, shard)
+	node[className] = class
+	s.ShardsPerNode[selectedNode] = node
+	if _, ok := s.AllSyncShards[className]; !ok {
+		s.AllSyncShards[className] = []string{}
+	}
+	s.AllSyncShards[className] = append(s.AllSyncShards[className], shard)
+
+	if _, classExists := s.ClassShardsToNodes[className]; !classExists {
+		s.ClassShardsToNodes[className] = make(map[string][]string)
+	}
+	s.ClassShardsToNodes[className][shard] = ownerNodes
+}
+
+// ShardsToSkipForNodeAndClass returns all shards for className that are in sync but not assigned to localNode. These
+// shards should be skipped during backup on localNode.
+func (s *SharedBackupState) ShardsToSkipForNodeAndClass(localNode, className string) []string {
+	var shardsInSyncToSkip []string
+	shardsInSyncTmp, ok := s.AllSyncShards[className]
+	if !ok {
+		return shardsInSyncToSkip
+	}
+
+	syncShardsForClassToBackup, ok := s.ShardsPerNode[localNode][className]
+	if !ok {
+		return shardsInSyncTmp
+	}
+
+	// collect shards that are in sync but not assigned to localNode
+	for _, shard := range shardsInSyncTmp {
+		if !slices.Contains(syncShardsForClassToBackup, shard) {
+			shardsInSyncToSkip = append(shardsInSyncToSkip, shard)
+		}
+	}
+
+	return shardsInSyncToSkip
+}
+
+type ResultsPerNode map[string][]string
 
 // List all existing classes in d
 func (d *BackupDescriptor) GetCompressionType() CompressionType {

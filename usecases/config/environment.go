@@ -592,6 +592,12 @@ func FromEnv(config *Config) error {
 		config.Origin = v
 	}
 
+	if entcfg.Enabled(os.Getenv("BACKUP_SHARED_SHARDS_ENABLED")) {
+		config.Backup.SharedBackupsEnabled = true
+	} else {
+		config.Backup.SharedBackupsEnabled = false
+	}
+
 	if v := os.Getenv("CONTEXTIONARY_URL"); v != "" {
 		config.Contextionary.URL = v
 	}

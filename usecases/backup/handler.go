@@ -273,7 +273,7 @@ func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucke
 	if err != nil {
 		return nodeStore{}, err
 	}
-	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path}}
+	ns := nodeStore{objectStore{backend: caps, backupId: id, nodeId: node, bucket: bucket, path: path}}
 	return ns, nil
 }
 

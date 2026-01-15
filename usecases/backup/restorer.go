@@ -105,8 +105,8 @@ func (r *restorer) restore(
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
 			r.lastOp.reset()
 		}()
-
-		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
+		_, sharedChunks, err := r.waitForCoordinator(expiration, req.ID)
+		if err != nil {
 			r.logger.WithField("action", "restore_backup").
 				Error(err)
 			r.lastAsyncError = err
@@ -116,7 +116,9 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		sharedChunksForNode := sharedChunks.ForNode(r.node)
+
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, sharedChunksForNode, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -133,7 +135,7 @@ func (r *restorer) restore(
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+	store nodeStore, sharedChunks backup.SharedBackupLocations, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
 	compressionType := desc.GetCompressionType()
 	compressed := desc.Version > version1
@@ -152,7 +154,9 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		sharedBackupsPerClass := sharedChunks.ForClass(cdesc.Name)
+
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, desc.ID, sharedBackupsPerClass, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -172,7 +176,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
+	desc *backup.ClassDescriptor, serverVersion, backupID string, sharedChunks backup.SharedBackupLocations, compressionType backup.CompressionType,
 	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
@@ -198,7 +202,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, overrideBucket, overridePath, compressionType); err != nil {
+	if err := fw.Write(ctx, desc, backupID, sharedChunks, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 

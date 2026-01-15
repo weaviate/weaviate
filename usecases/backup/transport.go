@@ -88,6 +88,15 @@ type StatusRequest struct {
 	Bucket string
 	// Path specify the path
 	Path string
+
+	// Only relevant for create backup
+	// CreateSharedBackupState specifies which shards are in sync and which node has to back up those shards
+	CreateSharedBackupState backup.SharedBackupState
+
+	// Only relevant for restore
+	// RestoreSharedBackupLocations contains all shards that are shared among nodes and all info needed to restore them
+	// on each node
+	RestoreSharedBackupLocations backup.SharedBackupLocations
 }
 
 type StatusResponse struct {

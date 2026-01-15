@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -163,7 +164,7 @@ func Test_Authorization(t *testing.T) {
 				selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
 				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
 
-				s := NewScheduler(authorizer, nil, selector, backupProvider, nodeResolver, &fakeSchemaManger{}, logger)
+				s := NewScheduler(authorizer, nil, selector, backupProvider, nodeResolver, &fakeSchemaManger{}, config.Backup{SharedBackupsEnabled: false}, logger)
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {

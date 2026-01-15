@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -45,12 +44,13 @@ var (
 )
 
 const (
-	_BookingPeriod      = time.Second * 20
-	_TimeoutNodeDown    = 7 * time.Minute
-	_TimeoutQueryStatus = 5 * time.Second
-	_TimeoutCanCommit   = 8 * time.Second
-	_NextRoundPeriod    = 10 * time.Second
-	_MaxNumberConns     = 16
+	_BookingPeriod           = time.Second * 20
+	_AsyncReplicationTimeout = time.Minute
+	_TimeoutNodeDown         = 7 * time.Minute
+	_TimeoutQueryStatus      = 5 * time.Second
+	_TimeoutCanCommit        = 8 * time.Second
+	_NextRoundPeriod         = 10 * time.Second
+	_MaxNumberConns          = 16
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
@@ -72,6 +72,8 @@ type Selector interface {
 
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
+
+	ListShardsSync(classes []string, startedAt time.Time, timeout time.Duration) (backup.SharedBackupState, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -108,6 +110,7 @@ type coordinator struct {
 	timeoutQueryStatus time.Duration
 	timeoutCanCommit   time.Duration
 	timeoutNextRound   time.Duration
+	config             config.Backup
 }
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
@@ -118,6 +121,7 @@ func newCoordinator(
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
+	config config.Backup,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -131,6 +135,7 @@ func newCoordinator(
 		timeoutQueryStatus: _TimeoutQueryStatus,
 		timeoutCanCommit:   _TimeoutCanCommit,
 		timeoutNextRound:   _NextRoundPeriod,
+		config:             config,
 	}
 }
 
@@ -160,6 +165,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
+	startedAt := time.Now().UTC()
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
 		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
@@ -178,7 +184,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
-		StartedAt:       time.Now().UTC(),
+		StartedAt:       startedAt,
 		Status:          backup.Started,
 		ID:              req.ID,
 		Nodes:           groups,
@@ -191,6 +197,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
+
+	req.Duration = _BookingPeriod + _AsyncReplicationTimeout
 
 	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
@@ -205,16 +213,43 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
 
-	statusReq := StatusRequest{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
-		Bucket:  req.Bucket,
-		Path:    req.Path,
-	}
-
 	f := func() {
 		defer c.lastOp.reset()
+
+		// check all shards if nodes are in sync. The idea is to backup shards that are identical on all nodes only once
+		// and not separately on each node to save storage space and network bandwidth.
+		// the high level overview of is:
+		// backup create:
+		// - check which shards are in sync across all nodes using async replication
+		// - select a random node for each shard that is in sync to perform the backup
+		// - for shards that are not in sync, back them up from each node separately
+		// - sync information is persisted in the global backup descriptor for restoration
+		// - on upload there is no difference between shared and non-shared shards. They are all uploaded to the backend
+		//   into the nodes subfolder
+		// backup restore:
+		// - read the sync information from the global backup descriptor
+		// - "local" shards (== shards that the node made) are downloaded from the backend as usual
+		// - "shared" shards are downloaded from the node that backed them up
+		//
+		// This information cannot be put in the GlobalBackupFile, because the coordinator needs to upload this before
+		// starting the backup and at this point we do not know which shard will end up in which chunk
+		var inSyncShards backup.SharedBackupState
+		if len(c.descriptor.Nodes) > 1 && c.config.SharedBackupsEnabled {
+			inSyncShards, err = c.selector.ListShardsSync(req.Classes, startedAt, _AsyncReplicationTimeout)
+			if err != nil {
+				c.log.Errorf("coordinator: could not list shards sync status: %v", err)
+			}
+		}
+
+		statusReq := StatusRequest{
+			Method:                  OpCreate,
+			ID:                      req.ID,
+			Backend:                 req.Backend,
+			Bucket:                  req.Bucket,
+			Path:                    req.Path,
+			CreateSharedBackupState: inSyncShards,
+		}
+
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
@@ -238,9 +273,11 @@ func (c *coordinator) Restore(
 	store coordStore,
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
+	sharedChunks backup.SharedBackupLocations,
 	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
+	req.Duration = _BookingPeriod
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
@@ -271,7 +308,14 @@ func (c *coordinator) Restore(
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
+	statusReq := StatusRequest{
+		Method:                       OpRestore,
+		ID:                           desc.ID,
+		Backend:                      req.Backend,
+		Bucket:                       overrideBucket,
+		Path:                         overridePath,
+		RestoreSharedBackupLocations: sharedChunks,
+	}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
@@ -408,7 +452,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				ID:                c.descriptor.ID,
 				Backend:           req.Backend,
 				Classes:           gr.Classes,
-				Duration:          _BookingPeriod,
+				Duration:          req.Duration,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
 				Bucket:            req.Bucket,

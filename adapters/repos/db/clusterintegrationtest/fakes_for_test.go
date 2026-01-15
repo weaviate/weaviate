@@ -160,7 +160,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, config.Backup{SharedBackupsEnabled: false}, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 

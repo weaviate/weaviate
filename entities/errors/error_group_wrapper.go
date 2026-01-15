@@ -17,6 +17,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 
@@ -29,6 +30,7 @@ import (
 type ErrorGroupWrapper struct {
 	*errgroup.Group
 	returnError    error
+	returnErrorMu  sync.Mutex
 	variables      []interface{}
 	logger         logrus.FieldLogger
 	deferFunc      func(localVars ...interface{})
@@ -41,10 +43,11 @@ type ErrorGroupWrapper struct {
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
 func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *ErrorGroupWrapper {
 	egw := &ErrorGroupWrapper{
-		Group:       new(errgroup.Group),
-		returnError: nil,
-		variables:   vars,
-		logger:      logger,
+		Group:         new(errgroup.Group),
+		returnError:   nil,
+		returnErrorMu: sync.Mutex{},
+		variables:     vars,
+		logger:        logger,
 
 		// this dummy func makes it safe to call cancelCtx even if a wrapper without a
 		// context is used. Avoids a nil check later on.
@@ -63,11 +66,12 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 	ctx, cancel := context.WithCancel(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
 	egw := &ErrorGroupWrapper{
-		Group:       eg,
-		returnError: nil,
-		variables:   vars,
-		logger:      logger,
-		cancelCtx:   cancel,
+		Group:         eg,
+		returnError:   nil,
+		returnErrorMu: sync.Mutex{},
+		variables:     vars,
+		logger:        logger,
+		cancelCtx:     cancel,
 	}
 	egw.setDeferFunc()
 
@@ -81,13 +85,24 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 func (egw *ErrorGroupWrapper) setDeferFunc() {
 	disable := entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
 	if !disable {
+		var cancelOnce sync.Once // ensure cancelCtx is called only once in case multiple goroutines panic
+
 		egw.deferFunc = func(localVars ...interface{}) {
 			if r := recover(); r != nil {
 				entsentry.Recover(r)
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				debug.PrintStack()
-				egw.returnError = fmt.Errorf("panic occurred: %v", r)
-				egw.cancelCtx()
+				// avoid races when setting returnError from multiple goroutines without losing any information
+				egw.returnErrorMu.Lock()
+				if egw.returnError == nil {
+					egw.returnError = fmt.Errorf("panic occurred: %v", r)
+				} else {
+					egw.returnError = fmt.Errorf("panic occurred: %v, with previous error: %w", r, egw.returnError)
+				}
+				egw.returnErrorMu.Unlock()
+				cancelOnce.Do(func() {
+					egw.cancelCtx()
+				})
 			}
 		}
 	} else {
@@ -132,5 +147,7 @@ func (egw *ErrorGroupWrapper) Wait() error {
 	if err := egw.Group.Wait(); err != nil {
 		return err
 	}
+	egw.returnErrorMu.Lock()
+	defer egw.returnErrorMu.Unlock()
 	return egw.returnError
 }

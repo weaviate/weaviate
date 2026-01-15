@@ -172,7 +172,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
-		backend.On("Initialize", ctx, nodeHome).Return(errors.New("init meta failed"))
+		backend.On("Initialize", ctx, mock.Anything).Return(errors.New("init meta failed"))
 		bm := createManager(sourcer, nil, backend, nil)
 
 		resp := bm.OnCanCommit(ctx, &req)
@@ -223,7 +223,9 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("Initialize", ctx, backupID).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, backupID, GlobalSharedBackupFile+"_"+nodeName, mock.Anything).Return(nil).Once()
 		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
 		m := createManager(sourcer, nil, backend, nil)
 
@@ -233,7 +235,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", backup.SharedBackupState{}, nil})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Equal(t, string(backup.Success), backend.meta.Status)
@@ -256,7 +258,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		backend.On("SourceDataPath").Return(sourcePath)
 
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
-		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
 		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
 		m := createManager(sourcer, nil, backend, nil)
@@ -267,7 +269,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", ""})
+		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", backup.SharedBackupState{}, nil})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), "abort")
@@ -284,7 +286,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
-			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", ""})
+			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", backup.SharedBackupState{}, nil})
 			// give the abort request time to propagate
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -294,7 +296,10 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("Initialize", ctx, backupID).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, backupID, GlobalSharedBackupFile+"_"+nodeName, mock.Anything).Return(nil).Once()
+
 		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
 
 		req := req
@@ -303,7 +308,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", backup.SharedBackupState{}, nil})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Equal(t, string(backup.Cancelled), backend.meta.Status)
@@ -327,7 +332,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
-		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
 		backend.On("Write", mock.Anything, backupID, mock.Anything, mock.Anything).Return(any, nil)
 		m := createManager(sourcer, nil, backend, nil)

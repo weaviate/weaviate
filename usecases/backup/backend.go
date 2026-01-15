@@ -26,7 +26,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -50,9 +49,10 @@ const (
 	// BackupFile used by a node to store its metadata
 	BackupFile = "backup.json"
 	// GlobalBackupFile used by coordinator to store its metadata
-	GlobalBackupFile  = "backup_config.json"
-	GlobalRestoreFile = "restore_config.json"
-	TempDirectory     = ".backup.tmp"
+	GlobalBackupFile       = "backup_config.json"
+	GlobalSharedBackupFile = "backup_shared_config.json"
+	GlobalRestoreFile      = "restore_config.json"
+	TempDirectory          = ".backup.tmp"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -61,16 +61,24 @@ type objectStore struct {
 	backend modulecapabilities.BackupBackend
 
 	backupId string // use supplied backup id
+	nodeId   string // node id for which this store is created. Empty for global store
 	bucket   string // Override bucket for one call
 	path     string // Override path for one call
 }
 
+func (s *objectStore) nodePath() string {
+	if s.nodeId == "" {
+		return s.backupId
+	}
+	return fmt.Sprintf("%s/%s", s.backupId, s.nodeId)
+}
+
 func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
-	return s.backend.HomeDir(s.backupId, overrideBucket, overridePath)
+	return s.backend.HomeDir(s.nodePath(), overrideBucket, overridePath)
 }
 
 func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
-	return s.backend.WriteToFile(ctx, s.backupId, key, destPath, overrideBucket, overridePath)
+	return s.backend.WriteToFile(ctx, s.nodePath(), key, destPath, overrideBucket, overridePath)
 }
 
 // SourceDataPath is data path of all source files
@@ -79,33 +87,36 @@ func (s *objectStore) SourceDataPath() string {
 }
 
 func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	return s.backend.Write(ctx, s.backupId, key, overrideBucket, overridePath, r)
+	return s.backend.Write(ctx, s.nodePath(), key, overrideBucket, overridePath, r)
 }
 
-func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
-	return s.backend.Read(ctx, s.backupId, key, overrideBucket, overridePath, w)
+func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePath, coordinatorBackupId string, w io.WriteCloser) (int64, error) {
+	if coordinatorBackupId != "" {
+		return s.backend.Read(ctx, coordinatorBackupId, key, overrideBucket, overridePath, w)
+	}
+	return s.backend.Read(ctx, s.nodePath(), key, overrideBucket, overridePath, w)
 }
 
 func (s *objectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
-	return s.backend.Initialize(ctx, s.backupId, overrideBucket, overridePath)
+	return s.backend.Initialize(ctx, s.nodePath(), overrideBucket, overridePath)
 }
 
 // meta marshals and uploads metadata
-func (s *objectStore) putMeta(ctx context.Context, key, overrideBucket, overridePath string, desc interface{}) error {
+func (s *objectStore) putMeta(ctx context.Context, backupID, key, overrideBucket, overridePath string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
 		return fmt.Errorf("putMeta: marshal meta file %q: %w", key, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.backend.PutObject(ctx, s.backupId, key, overrideBucket, overridePath, bytes); err != nil {
+	if err := s.backend.PutObject(ctx, backupID, key, overrideBucket, overridePath, bytes); err != nil {
 		return fmt.Errorf("putMeta: upload meta file %q into bucket %v, path %v: %w", key, overrideBucket, overridePath, err)
 	}
 	return nil
 }
 
 func (s *objectStore) meta(ctx context.Context, key, overrideBucket, overridePath string, dest interface{}) error {
-	bytes, err := s.backend.GetObject(ctx, s.backupId, key, overrideBucket, overridePath)
+	bytes, err := s.backend.GetObject(ctx, s.nodePath(), key, overrideBucket, overridePath)
 	if err != nil {
 		return err
 	}
@@ -120,10 +131,6 @@ type nodeStore struct {
 	objectStore
 }
 
-func NewNodeStore(backend modulecapabilities.BackupBackend, backupId, bucket, path string) *nodeStore {
-	return &nodeStore{objectStore: objectStore{backend, backupId, bucket, path}}
-}
-
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
@@ -131,7 +138,7 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath} // for backward compatibility
+		cs := &objectStore{backend: s.backend, backupId: backupID, bucket: overrideBucket, path: overridePath, nodeId: s.nodeId} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
 			if adjustBasePath {
 				s.objectStore.backupId = backupID
@@ -143,9 +150,23 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	return &result, err
 }
 
+func (s *nodeStore) GetSharedChunks(ctx context.Context, fileName, overrideBucket, overridePath string) (*backup.SharedBackupLocations, error) {
+	var result backup.SharedBackupLocations
+
+	if err := s.meta(ctx, fileName, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // meta marshals and uploads metadata
-func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor, overrideBucket, overridePath string) error {
-	return s.putMeta(ctx, BackupFile, overrideBucket, overridePath, desc)
+func (s *nodeStore) PutMetaNode(ctx context.Context, desc interface{}, fileName, overrideBucket, overridePath string) error {
+	return s.putMeta(ctx, s.nodePath(), fileName, overrideBucket, overridePath, desc)
+}
+
+func (s *nodeStore) PutMetaGlobal(ctx context.Context, desc interface{}, fileName, overrideBucket, overridePath string) error {
+	return s.putMeta(ctx, s.backupId, fileName, overrideBucket, overridePath, desc)
 }
 
 type coordStore struct {
@@ -154,7 +175,7 @@ type coordStore struct {
 
 // PutMeta puts coordinator's global metadata into object store
 func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.DistributedBackupDescriptor, overrideBucket, overridePath string) error {
-	return s.putMeta(ctx, filename, overrideBucket, overridePath, desc)
+	return s.putMeta(ctx, s.nodePath(), filename, overrideBucket, overridePath, desc)
 }
 
 // Meta gets coordinator's global metadata from object store
@@ -168,6 +189,16 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 		}
 	}
 	return &result, err
+}
+
+// Meta gets coordinator's global metadata from object store
+func (s *coordStore) GetSharedChunks(ctx context.Context, filename, overrideBucket, overridePath string) (backup.SharedBackupLocations, error) {
+	var result backup.SharedBackupLocations
+	err := s.meta(ctx, filename, overrideBucket, overridePath, &result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // uploader uploads backup artifacts. This includes db files and metadata
@@ -203,10 +234,12 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket,
+	overridePath string, shardBackupState backup.SharedBackupState,
+) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, shardBackupState)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions
@@ -218,7 +251,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// Handle success case first
 		if err == nil {
 			u.log.Info("start uploading metadata")
-			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
+			if err = u.backend.PutMetaNode(ctx, desc, BackupFile, overrideBucket, overridePath); err != nil {
 				desc.Status = string(backup.Transferred)
 			}
 			u.setStatus(backup.Success)
@@ -235,7 +268,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
+		if metaErr := u.backend.PutMetaNode(ctx, desc, BackupFile, overrideBucket, overridePath); metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
@@ -566,13 +599,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
-	if len(desc.Shards) == 0 { // nothing to copy
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, backupID string, sharedChunks backup.SharedBackupLocations, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
+	if len(desc.Shards) == 0 && len(desc.ShardsInSync) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
+	if err := fw.writeTempFiles(ctx, backupID, sharedChunks, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -588,7 +621,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, backupID string, sharedChunks backup.SharedBackupLocations, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -617,11 +650,29 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			uz, w := NewUnzip(classTempDir, compressionType)
 
 			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, "", w)
 			}, fw.logger)
-			_, err := uz.ReadChunk()
+			_, err := uz.ReadChunk(nil)
 			return err
 		})
+	}
+
+	// now process shared chunks that are stored on other nodes
+	for node, shared := range sharedChunks.SharedChunksPerNode() {
+		for chunk, shards := range shared {
+			chunkKey := chunkKey(desc.Name, chunk)
+			backupLocation := fmt.Sprintf("%s/%s", backupID, node)
+			eg.Go(func() error {
+				uz, w := NewUnzip(classTempDir, compressionType)
+
+				enterrors.GoWrapper(func() {
+					fw.backend.Read(ctx, chunkKey, overrideBucket, overridePath, backupLocation, w)
+				}, fw.logger)
+				// only write shards that were actually shared. A chunk can contain more shards
+				_, err := uz.ReadChunk(shards)
+				return err
+			})
+		}
 	}
 	return eg.Wait()
 }
