@@ -20,6 +20,7 @@ package helper
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/go-openapi/runtime"
 )
@@ -32,12 +33,14 @@ var (
 	ServerGRPCHost string
 	ServerScheme   string
 	DebugHTTP      bool
+	serverConfigMu sync.RWMutex // Protects global server configuration variables
 )
 
 // Credentials for the root key
 var RootAuth runtime.ClientAuthInfoWriterFunc
 
 func init() {
+	serverConfigMu.Lock()
 	if ServerScheme == "" {
 		ServerScheme = "http"
 	}
@@ -45,21 +48,30 @@ func init() {
 	if ServerPort == "" {
 		ServerPort = "8080"
 	}
+	serverConfigMu.Unlock()
 
 	RootAuth = nil
 }
 
 func ResetClient() {
+	serverConfigMu.Lock()
 	ServerScheme = "http"
 	ServerPort = "8080"
 	ServerGRPCPort = ""
+	serverConfigMu.Unlock()
 	RootAuth = nil
 }
 
 func GetWeaviateURL() string {
-	return fmt.Sprintf("%s://%s:%s", ServerScheme, ServerHost, ServerPort)
+	serverConfigMu.RLock()
+	scheme, host, port := ServerScheme, ServerHost, ServerPort
+	serverConfigMu.RUnlock()
+	return fmt.Sprintf("%s://%s:%s", scheme, host, port)
 }
 
 func GetWeaviateGRPCURL() string {
-	return fmt.Sprintf("%s:%s", ServerGRPCHost, ServerGRPCPort)
+	serverConfigMu.RLock()
+	host, port := ServerGRPCHost, ServerGRPCPort
+	serverConfigMu.RUnlock()
+	return fmt.Sprintf("%s:%s", host, port)
 }
