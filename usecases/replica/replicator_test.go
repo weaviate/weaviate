@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,17 +173,22 @@ func TestReplicatorPutObject(t *testing.T) {
 			f := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
 			resp := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			for _, n := range nodes[:2] {
 				f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 				f.WClient.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 			}
 			f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: []replica.Error{{Msg: "e3"}}}
 			}
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 123)
 			assert.Nil(t, err)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelQuorumDifferentSourceNode_%v", tc.variant), func(t *testing.T) {
@@ -488,9 +494,12 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
+				wg.Add(1)
 				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+					defer wg.Done()
 					resp := args[5].(*replica.DeleteBatchResponse)
 					*resp = replica.DeleteBatchResponse{
 						Batch: []replica.UUID2Error{{"1", replica.Error{}}, {"2", replica.Error{Msg: "e1"}}},
@@ -501,6 +510,8 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: &replica.Error{Msg: "e1"}}, result[1])
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelAll_%v", tc.variant), func(t *testing.T) {
@@ -509,9 +520,12 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
+				wg.Add(1)
 				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+					defer wg.Done()
 					resp := args[5].(*replica.DeleteBatchResponse)
 					*resp = replica.DeleteBatchResponse{
 						Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}},
@@ -522,6 +536,8 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: nil}, result[1])
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelOne_%v", tc.variant), func(t *testing.T) {
@@ -530,9 +546,12 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			client.On("DeleteObjects", mock.Anything, nodes[0], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
 			client.On("DeleteObjects", mock.Anything, nodes[1], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, errAny)
+			wg.Add(1)
 			client.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+				defer wg.Done()
 				resp := args[5].(*replica.DeleteBatchResponse)
 				*resp = replica.DeleteBatchResponse{
 					Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}},
@@ -541,6 +560,8 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelOne, 123)
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyQuorum_%v", tc.variant), func(t *testing.T) {
@@ -550,18 +571,23 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			for _, n := range nodesQuorum {
 				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
 			}
 			for _, n := range nodesQuorum[:2] {
+				wg.Add(1)
 				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+					defer wg.Done()
 					resp := args[5].(*replica.DeleteBatchResponse)
 					*resp = replica.DeleteBatchResponse{
 						Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}},
 					}
 				}
 			}
+			wg.Add(1)
 			client.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+				defer wg.Done()
 				resp := args[5].(*replica.DeleteBatchResponse)
 				*resp = replica.DeleteBatchResponse{
 					Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2", Error: replica.Error{Msg: "e2"}}},
@@ -570,6 +596,8 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelQuorum, 123)
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 	}
 }
@@ -624,33 +652,45 @@ func TestReplicatorPutObjects(t *testing.T) {
 				})
 
 			// Commit only on the successful node.
+			var wg sync.WaitGroup
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, "A", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replica.Error, 3)}
 			}
 
 			errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelOne, 0)
 			assert.Equal(t, []error{nil, nil, nil}, errs)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelQuorum_%v", tc.variant), func(t *testing.T) {
 			nodes := []string{"A", "B", "C"}
 			f := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
+			var wg sync.WaitGroup
 			for _, n := range nodes[:2] {
 				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
+				wg.Add(1)
 				f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+					defer wg.Done()
 					resp := a[5].(*replica.SimpleResponse)
 					*resp = replica.SimpleResponse{Errors: []replica.Error{{}}}
 				}
 			}
 			f.WClient.On("PutObjects", mock.Anything, "C", cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: []replica.Error{{Msg: "e3"}}}
 			}
 			errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelQuorum, 0)
 			assert.Equal(t, []error{nil, nil, nil}, errs)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("PhaseOneConnectionError_%v", tc.variant), func(t *testing.T) {
@@ -685,10 +725,13 @@ func TestReplicatorPutObjects(t *testing.T) {
 		t.Run(fmt.Sprintf("PhaseTwoDecodingError_%v", tc.variant), func(t *testing.T) {
 			f := newFakeFactory(t, cls, shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
 			}
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replica.Error, 3)}
 			}
@@ -699,20 +742,27 @@ func TestReplicatorPutObjects(t *testing.T) {
 			assert.ErrorIs(t, errs[0], errAny)
 			assert.ErrorIs(t, errs[1], errAny)
 			assert.ErrorIs(t, errs[2], errAny)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("PhaseTwoUnsuccessfulResponse_%v", tc.variant), func(t *testing.T) {
 			f := newFakeFactory(t, cls, shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
 			node2Errs := []replica.Error{{Msg: "E1"}, {}, {Msg: "E3"}}
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
 			}
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replica.Error, 3)}
 			}
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: node2Errs}
 			}
@@ -721,6 +771,8 @@ func TestReplicatorPutObjects(t *testing.T) {
 			assert.Equal(t, len(errs), len(objs))
 
 			wantError := []error{&node2Errs[0], nil, &node2Errs[2]}
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 			assert.Equal(t, wantError, errs)
 		})
 	}
