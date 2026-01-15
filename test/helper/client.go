@@ -44,7 +44,10 @@ import (
 // Create a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.
 func Client(t *testing.T) *apiclient.Weaviate {
-	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/v1", []string{ServerScheme})
+	serverConfigMu.RLock()
+	host, port, scheme := ServerHost, ServerPort, ServerScheme
+	serverConfigMu.RUnlock()
+	transport := httptransport.New(fmt.Sprintf("%s:%s", host, port), "/v1", []string{scheme})
 
 	// If a test case is provided, and we want to dump HTTP traffic,
 	// create a simple logger that logs HTTP traffic to the test case.
@@ -65,7 +68,10 @@ func CreateAuth(apiKey string) runtime.ClientAuthInfoWriterFunc {
 }
 
 func ClientGRPC(t *testing.T) pb.WeaviateClient {
-	conn, err := CreateGrpcConnectionClient(fmt.Sprintf("%s:%s", ServerGRPCHost, ServerGRPCPort))
+	serverConfigMu.RLock()
+	grpcHost, grpcPort := ServerGRPCHost, ServerGRPCPort
+	serverConfigMu.RUnlock()
+	conn, err := CreateGrpcConnectionClient(fmt.Sprintf("%s:%s", grpcHost, grpcPort))
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 	grpcClient := CreateGrpcWeaviateClient(conn)

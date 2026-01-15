@@ -41,8 +41,10 @@ func SetupClient(uri string) {
 	if len(res) == 2 {
 		host, port = res[0], res[1]
 	}
+	serverConfigMu.Lock()
 	ServerHost = host
 	ServerPort = port
+	serverConfigMu.Unlock()
 }
 
 // parseScheme extracts the scheme from a URI if present, defaulting to "http".
@@ -115,8 +117,10 @@ func SetupGRPCClient(t *testing.T, uri string) {
 	if len(res) == 2 {
 		host, port = res[0], res[1]
 	}
+	serverConfigMu.Lock()
 	ServerGRPCHost = host
 	ServerGRPCPort = port
+	serverConfigMu.Unlock()
 }
 
 func CreateClass(t *testing.T, class *models.Class) {
