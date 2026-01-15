@@ -164,7 +164,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
-				Vectors: map[string]models.Vector{},
+				Vectors: nil, // nil because named vectors haven't changed
 			},
 			errMerge: errAny,
 			wantCode: StatusInternalServerError,
@@ -220,7 +220,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
-				Vectors: map[string]models.Vector{},
+				Vectors: nil, // nil because named vectors haven't changed
 			},
 			stage: stageCount,
 		},
@@ -252,7 +252,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "another name",
 				},
-				Vectors: map[string]models.Vector{},
+				Vectors: nil, // nil because named vectors haven't changed
 			},
 			stage: stageCount,
 		},
@@ -275,7 +275,7 @@ func Test_MergeObject(t *testing.T) {
 				ID:              uuid,
 				Vector:          []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{},
-				Vectors:         map[string]models.Vector{},
+				Vectors:         nil, // nil because named vectors haven't changed
 			},
 			stage: stageCount,
 		},
@@ -327,7 +327,7 @@ func Test_MergeObject(t *testing.T) {
 					},
 					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
 				},
-				Vectors: map[string]models.Vector{},
+				Vectors: nil, // nil because named vectors haven't changed
 			},
 			stage: stageCount,
 		},
@@ -369,7 +369,7 @@ func Test_MergeObject(t *testing.T) {
 						To:   crossrefMustParse("weaviate://localhost/AnimalAction/a8ffc82c-9845-4014-876c-11369353c33c"),
 					},
 				},
-				Vectors: map[string]models.Vector{},
+				Vectors: nil, // nil because named vectors haven't changed
 			},
 			stage: stageCount,
 		},
@@ -394,7 +394,7 @@ func Test_MergeObject(t *testing.T) {
 				ID:              uuid,
 				Vector:          []float32{0.66, 0.22},
 				PrimitiveSchema: map[string]interface{}{},
-				Vectors:         map[string]models.Vector{},
+				Vectors:         nil, // nil because named vectors haven't changed
 			},
 			stage: stageCount,
 		},
@@ -414,16 +414,101 @@ func Test_MergeObject(t *testing.T) {
 					"description": "this description was updated",
 				},
 			},
-			vectorizerCalledWith: nil,
+			// vectorizerCalledWith is set to ensure the mock is configured even though
+			// no new vector is computed (the mock returns nil, keeping previous vector)
+			vectorizerCalledWith: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "this description was updated",
+				},
+			},
+			// Vector is nil because the vector hasn't changed - this optimization
+			// reduces network bandwidth when replicating patches. The replica-side
+			// code preserves the existing vector when Vector is nil.
 			expectedOutput: &MergeDocument{
 				UpdateTime: lastTime,
 				Class:      "NotVectorized",
 				ID:         uuid,
-				Vector:     []float32{0.7, 0.3},
+				Vector:     nil,
 				PrimitiveSchema: map[string]interface{}{
 					"description": "this description was updated",
 				},
-				Vectors: map[string]models.Vector{},
+				Vectors: nil, // nil because named vectors haven't changed
+			},
+			stage: stageCount,
+		},
+		// Test cases for vector optimization in MergeDocument
+		{
+			name: "legacy vector explicitly changed in update",
+			previous: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "original description",
+				},
+				Vector: []float32{0.7, 0.8},
+			},
+			updated: &models.Object{
+				Class: "NotVectorized",
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"description": "updated description",
+				},
+				// Explicitly providing new legacy vector
+				Vector: []float32{0.9, 1.0},
+			},
+			vectorizerCalledWith: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "updated description",
+				},
+			},
+			// Legacy vector included because it changed
+			expectedOutput: &MergeDocument{
+				UpdateTime: lastTime,
+				Class:      "NotVectorized",
+				ID:         uuid,
+				Vector:     []float32{0.9, 1.0},
+				PrimitiveSchema: map[string]interface{}{
+					"description": "updated description",
+				},
+				Vectors: nil,
+			},
+			stage: stageCount,
+		},
+		{
+			name: "same vector explicitly provided is still omitted",
+			previous: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "original description",
+				},
+				Vector: []float32{0.7, 0.8},
+			},
+			updated: &models.Object{
+				Class: "NotVectorized",
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"description": "updated description",
+				},
+				// Explicitly providing same vector as previous
+				Vector: []float32{0.7, 0.8},
+			},
+			vectorizerCalledWith: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "updated description",
+				},
+			},
+			// Vector omitted because it's the same as previous (optimization)
+			expectedOutput: &MergeDocument{
+				UpdateTime: lastTime,
+				Class:      "NotVectorized",
+				ID:         uuid,
+				Vector:     nil,
+				PrimitiveSchema: map[string]interface{}{
+					"description": "updated description",
+				},
+				Vectors: nil,
 			},
 			stage: stageCount,
 		},
@@ -443,6 +528,7 @@ func Test_MergeObject(t *testing.T) {
 						Schema:    tc.previous.Properties,
 						ClassName: tc.previous.Class,
 						Vector:    tc.previous.Vector,
+						Vectors:   tc.previous.Vectors,
 					}, nil)
 			} else if tc.stage >= stageAuthorization {
 				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
@@ -522,4 +608,291 @@ func (f fakeTimeSource) Now() int64 {
 
 func ptFloat32(in float32) *float32 {
 	return &in
+}
+
+func Test_namedVectorsEqual(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		prev     models.Vectors
+		next     models.Vectors
+		expected bool
+	}{
+		{
+			name:     "both nil",
+			prev:     nil,
+			next:     nil,
+			expected: true,
+		},
+		{
+			name:     "both empty",
+			prev:     models.Vectors{},
+			next:     models.Vectors{},
+			expected: true,
+		},
+		{
+			name:     "nil vs empty",
+			prev:     nil,
+			next:     models.Vectors{},
+			expected: true,
+		},
+		{
+			name:     "empty vs nil",
+			prev:     models.Vectors{},
+			next:     nil,
+			expected: true,
+		},
+		{
+			name: "single vector equal",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			next: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			expected: true,
+		},
+		{
+			name: "single vector different values",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			next: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 4.0},
+			},
+			expected: false,
+		},
+		{
+			name: "single vector different lengths",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			next: models.Vectors{
+				"vec1": []float32{1.0, 2.0},
+			},
+			expected: false,
+		},
+		{
+			name: "different number of vectors",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			next: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+				"vec2": []float32{4.0, 5.0, 6.0},
+			},
+			expected: false,
+		},
+		{
+			name: "different vector names",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			next: models.Vectors{
+				"vec2": []float32{1.0, 2.0, 3.0},
+			},
+			expected: false,
+		},
+		{
+			name: "multiple vectors equal",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+				"vec2": []float32{4.0, 5.0, 6.0},
+			},
+			next: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+				"vec2": []float32{4.0, 5.0, 6.0},
+			},
+			expected: true,
+		},
+		{
+			name: "multiple vectors one different",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+				"vec2": []float32{4.0, 5.0, 6.0},
+			},
+			next: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+				"vec2": []float32{4.0, 5.0, 7.0},
+			},
+			expected: false,
+		},
+		{
+			name: "multi-vectors equal",
+			prev: models.Vectors{
+				"vec1": [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			},
+			next: models.Vectors{
+				"vec1": [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			},
+			expected: true,
+		},
+		{
+			name: "multi-vectors different",
+			prev: models.Vectors{
+				"vec1": [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			},
+			next: models.Vectors{
+				"vec1": [][]float32{{1.0, 2.0}, {3.0, 5.0}},
+			},
+			expected: false,
+		},
+		{
+			name: "multi-vectors different length",
+			prev: models.Vectors{
+				"vec1": [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			},
+			next: models.Vectors{
+				"vec1": [][]float32{{1.0, 2.0}},
+			},
+			expected: false,
+		},
+		{
+			name: "mixed single and multi vectors equal",
+			prev: models.Vectors{
+				"single": []float32{1.0, 2.0, 3.0},
+				"multi":  [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			},
+			next: models.Vectors{
+				"single": []float32{1.0, 2.0, 3.0},
+				"multi":  [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			},
+			expected: true,
+		},
+		{
+			name: "type mismatch single vs multi",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			next: models.Vectors{
+				"vec1": [][]float32{{1.0, 2.0, 3.0}},
+			},
+			expected: false,
+		},
+		{
+			name: "prev has vector next is empty",
+			prev: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			next:     models.Vectors{},
+			expected: false,
+		},
+		{
+			name: "prev is empty next has vector",
+			prev: models.Vectors{},
+			next: models.Vectors{
+				"vec1": []float32{1.0, 2.0, 3.0},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := namedVectorsEqual(tc.prev, tc.next)
+			if result != tc.expected {
+				t.Errorf("namedVectorsEqual() = %v, want %v", result, tc.expected)
+			}
+		})
+	}
+}
+
+func Test_vectorEqual(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		prev     models.Vector
+		next     models.Vector
+		expected bool
+	}{
+		{
+			name:     "both nil",
+			prev:     nil,
+			next:     nil,
+			expected: true,
+		},
+		{
+			name:     "single vectors equal",
+			prev:     []float32{1.0, 2.0, 3.0},
+			next:     []float32{1.0, 2.0, 3.0},
+			expected: true,
+		},
+		{
+			name:     "single vectors different",
+			prev:     []float32{1.0, 2.0, 3.0},
+			next:     []float32{1.0, 2.0, 4.0},
+			expected: false,
+		},
+		{
+			name:     "single vectors different length",
+			prev:     []float32{1.0, 2.0, 3.0},
+			next:     []float32{1.0, 2.0},
+			expected: false,
+		},
+		{
+			name:     "multi vectors equal",
+			prev:     [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			next:     [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			expected: true,
+		},
+		{
+			name:     "multi vectors different",
+			prev:     [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			next:     [][]float32{{1.0, 2.0}, {3.0, 5.0}},
+			expected: false,
+		},
+		{
+			name:     "multi vectors different outer length",
+			prev:     [][]float32{{1.0, 2.0}, {3.0, 4.0}},
+			next:     [][]float32{{1.0, 2.0}},
+			expected: false,
+		},
+		{
+			name:     "type mismatch single vs multi",
+			prev:     []float32{1.0, 2.0, 3.0},
+			next:     [][]float32{{1.0, 2.0, 3.0}},
+			expected: false,
+		},
+		{
+			name:     "type mismatch multi vs single",
+			prev:     [][]float32{{1.0, 2.0, 3.0}},
+			next:     []float32{1.0, 2.0, 3.0},
+			expected: false,
+		},
+		{
+			name:     "single vector vs nil",
+			prev:     []float32{1.0, 2.0, 3.0},
+			next:     nil,
+			expected: false,
+		},
+		{
+			name:     "nil vs single vector",
+			prev:     nil,
+			next:     []float32{1.0, 2.0, 3.0},
+			expected: false,
+		},
+		{
+			name:     "empty single vectors",
+			prev:     []float32{},
+			next:     []float32{},
+			expected: true,
+		},
+		{
+			name:     "empty multi vectors",
+			prev:     [][]float32{},
+			next:     [][]float32{},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := vectorEqual(tc.prev, tc.next)
+			if result != tc.expected {
+				t.Errorf("vectorEqual() = %v, want %v", result, tc.expected)
+			}
+		})
+	}
 }
