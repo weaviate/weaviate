@@ -110,7 +110,6 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 		}
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
-
 	}
 	return dist, nil
 }
