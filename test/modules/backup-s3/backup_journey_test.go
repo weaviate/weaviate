@@ -112,6 +112,8 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 	backupID += fmt.Sprintf("%v", rand.Intn(2000)) // ensure unique backup ID per test run
 
 	t.Logf("uploader selected -> %s:%s", helper.ServerHost, helper.ServerPort)
+	t.Logf("Test parameters: backend=%s, className=%s, backupID=%s, bucket=%s, minioURL=%s, overridePath=%s",
+		backend, className, backupID, bucket, minioURL, overridePath)
 	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
@@ -145,19 +147,30 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 	}
 
 	// create backup and wait for completion
+	t.Logf("Creating backup with config: bucket=%s, path=%s", bucket, overridePath)
 	_, err := helper.CreateBackup(t, &models.BackupConfig{Bucket: bucket, Path: overridePath}, class.Class, backend, backupID)
 	require.NoError(t, err)
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, bucket, overridePath)
+		if err != nil {
+			t.Logf("CreateBackupStatus error: %v", err)
+		}
 		require.NoError(t1, err)
 		require.NotNil(t1, statusResp)
 		require.NotNil(t1, statusResp.Payload)
 		require.NotNil(t1, statusResp.Payload.Status)
+
+		t.Logf("Backup status: ID=%s, Status=%s, Error=%s, Path=%s",
+			statusResp.Payload.ID, *statusResp.Payload.Status,
+			statusResp.Payload.Error, statusResp.Payload.Path)
+
 		assert.Equal(t1, backupID, statusResp.Payload.ID)
 		assert.Equal(t1, backend, statusResp.Payload.Backend)
 		assert.Contains(t1, statusResp.Payload.Path, bucket)
-		assert.Contains(t1, statusResp.Payload.Path, overridePath)
+		if overridePath != "" {
+			assert.Contains(t1, statusResp.Payload.Path, overridePath)
+		}
 
 		assert.Equal(t1, string(backup.Success), *statusResp.Payload.Status,
 			statusResp.Payload.Error)
@@ -169,26 +182,42 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 	// we have 3 shards on 3 nodes each = 9 shards in total. If
 	// - each node backs up its own shards we would get 9 chunks in the backup
 	// - each shard is backed up only once we would get 3 chunks in the backup
+	t.Logf("Checking folder chunks with minioURL=%s, bucket=%s, backupID=%s", minioURL, bucket, backupID)
 	chunks, err := getFolderChunks(t, minioURL, bucket, backupID)
+	if err != nil {
+		t.Logf("getFolderChunks error: %v", err)
+	}
 	require.NoError(t, err)
+	t.Logf("Found %d chunks", chunks)
 	require.Equal(t, 3, chunks, "expected one backup chunk per shard (3)")
 
 	helper.DeleteClass(t, class.Class) // delete class before restore
 
 	// restore backup
+	t.Logf("Restoring backup with config: bucket=%s, path=%s", bucket, overridePath)
 	_, err = helper.RestoreBackup(t, &models.RestoreConfig{Bucket: bucket, Path: overridePath}, class.Class, backend, backupID, nil, false)
 	require.NoError(t, err)
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID, bucket, overridePath)
+		if err != nil {
+			t.Logf("RestoreBackupStatus error: %v", err)
+		}
 		require.NoError(t1, err)
 		require.NotNil(t1, statusResp)
 		require.NotNil(t1, statusResp.Payload)
 		require.NotNil(t1, statusResp.Payload.Status)
+
+		t.Logf("Restore status: ID=%s, Status=%s, Error=%s, Path=%s",
+			statusResp.Payload.ID, *statusResp.Payload.Status,
+			statusResp.Payload.Error, statusResp.Payload.Path)
+
 		assert.Equal(t1, backupID, statusResp.Payload.ID)
 		assert.Equal(t1, backend, statusResp.Payload.Backend)
 		assert.Contains(t1, statusResp.Payload.Path, bucket)
-		assert.Contains(t1, statusResp.Payload.Path, overridePath)
+		if overridePath != "" {
+			assert.Contains(t1, statusResp.Payload.Path, overridePath)
+		}
 
 		assert.Equal(t1, string(backup.Success), *statusResp.Payload.Status,
 			statusResp.Payload.Error)
