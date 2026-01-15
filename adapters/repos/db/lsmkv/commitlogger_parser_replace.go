@@ -110,7 +110,7 @@ func (p *commitloggerParser) doReplaceRecordV1(nodeCache map[string]segmentRepla
 // final memtable yet. A second step is required to parse from the cache into
 // the actual memtable.
 func (p *commitloggerParser) parseReplaceNode(r io.Reader, nodeCache map[string]segmentReplaceNode) error {
-	n, err := ParseReplaceNode(r, p.memtable.secondaryIndices)
+	n, err := ParseReplaceNode(r, nil, p.memtable.secondaryIndices)
 	if err != nil {
 		return err
 	}

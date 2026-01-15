@@ -177,7 +177,7 @@ func (s *segmentCursorReplace) nextWithAllKeys() (n segmentReplaceNode, err erro
 
 	s.currOffset = nextOffset
 
-	n, err = s.parseReplaceNode(nodeOffset{start: s.currOffset})
+	n, err = s.parseReplaceNode(nodeOffset{start: s.currOffset}, s.reusableNode)
 
 	s.reusableNode = &n
 
@@ -192,21 +192,24 @@ func (s *segmentCursorReplace) firstWithAllKeys() (n segmentReplaceNode, err err
 
 	s.currOffset = firstOffset
 
-	n, err = s.parseReplaceNode(nodeOffset{start: s.currOffset})
+	n, err = s.parseReplaceNode(nodeOffset{start: s.currOffset}, s.reusableNode)
 
 	s.reusableNode = &n
 
 	return n, err
 }
 
-func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
+func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset, reusableNode *segmentReplaceNode) (segmentReplaceNode, error) {
 	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
 	if err != nil {
 		return segmentReplaceNode{}, err
 	}
 	defer r.Release()
 
-	out, err := ParseReplaceNode(r, s.segment.secondaryIndexCount)
+	out, err := ParseReplaceNode(r, reusableNode, s.segment.secondaryIndexCount)
+	if err != nil {
+		return out, err
+	}
 	if out.tombstone {
 		return out, lsmkv.Deleted
 	}
