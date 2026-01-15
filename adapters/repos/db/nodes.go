@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -182,19 +181,6 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		// if shardName is provided, only return the status for the specified shard
 		if shardName != "" && shardName != name {
 			return nil
-		}
-
-		localNodeName := i.replicator.LocalNodeName()
-		tenant := ""
-		if i.partitioningEnabled {
-			tenant = name
-		}
-		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenant, name)
-		if err == nil {
-			if len(rs.NodeNames()) > 0 && !slices.Contains(rs.NodeNames(), localNodeName) {
-				// Shard exists in schema with replicas, but local node is not one of them
-				return nil
-			}
 		}
 
 		// Don't force load a lazy shard to get nodes status
