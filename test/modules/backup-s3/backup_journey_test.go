@@ -183,13 +183,15 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 	// - each node backs up its own shards we would get 9 chunks in the backup
 	// - each shard is backed up only once we would get 3 chunks in the backup
 	t.Logf("Checking folder chunks with minioURL=%s, bucket=%s, backupID=%s", minioURL, bucket, backupID)
-	chunks, err := getFolderChunks(t, minioURL, bucket, backupID)
-	if err != nil {
-		t.Logf("getFolderChunks error: %v", err)
-	}
-	require.NoError(t, err)
-	t.Logf("Found %d chunks", chunks)
-	require.Equal(t, 3, chunks, "expected one backup chunk per shard (3)")
+	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
+		chunks, err := getFolderChunks(t, minioURL, bucket, backupID)
+		if err != nil {
+			t.Logf("getFolderChunks error: %v", err)
+		}
+		require.NoError(t1, err)
+		t.Logf("Found %d chunks", chunks)
+		require.Equal(t1, 3, chunks, "expected one backup chunk per shard (3)")
+	}, 30*time.Second, time.Second)
 
 	helper.DeleteClass(t, class.Class) // delete class before restore
 
