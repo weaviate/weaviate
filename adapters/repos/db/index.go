@@ -1425,10 +1425,10 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
-	defer release()
 	if err != nil {
 		return obj, err
 	}
+	defer release()
 
 	if shard != nil {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
@@ -1509,14 +1509,13 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	out := make([]*storobj.Object, len(query))
 
 	for shardName, group := range byShard {
-		var objects []*storobj.Object
-		var err error
-
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
 		if err != nil {
 			return nil, err
 		}
 
+		// Try local first
+		var objects []*storobj.Object
 		if shard != nil {
 			objects, err = shard.MultiObjectByID(ctx, group.ids)
 			if err != nil {
@@ -1524,38 +1523,53 @@ func (i *Index) multiObjectByID(ctx context.Context,
 			}
 		}
 
-		// Always try remote to fill in missing objects (consistent with objectByID)
-		remoteObjects, remoteErr := i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
-		if remoteErr == nil {
-			if objects == nil {
-				objects = remoteObjects
-			} else {
-				// Merge: prefer local, use remote for missing (nil) objects
-				for i, remoteObj := range remoteObjects {
-					if i < len(objects) && objects[i] == nil && remoteObj != nil {
-						objects[i] = remoteObj
-					}
+		// Try remote if we need more objects (consistent with objectByID)
+		if objects == nil || hasNilObjects(objects) {
+			remoteObjects, remoteErr := i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
+			if remoteErr == nil {
+				if objects == nil {
+					objects = remoteObjects
+				} else {
+					mergeObjects(objects, remoteObjects)
 				}
+				err = nil
+			} else if objects == nil {
+				release()
+				return nil, errors.Wrapf(remoteErr, "remote shard %s", shardName)
 			}
-			err = nil
-		} else if err == nil {
-			err = errors.Wrapf(remoteErr, "remote shard %s", shardName)
+			// If we have local objects, ignore remote error
 		}
 
 		if err != nil {
-			release() // Release before returning error
+			release()
 			return nil, err
 		}
 
 		for i, obj := range objects {
-			desiredPos := group.pos[i]
-			out[desiredPos] = obj
+			out[group.pos[i]] = obj
 		}
 
-		release() // Release at the end of each iteration
+		release()
 	}
 
 	return out, nil
+}
+
+func hasNilObjects(objects []*storobj.Object) bool {
+	for _, obj := range objects {
+		if obj == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeObjects(local, remote []*storobj.Object) {
+	for i, remoteObj := range remote {
+		if i < len(local) && local[i] == nil && remoteObj != nil {
+			local[i] = remoteObj
+		}
+	}
 }
 
 func extractIDsFromMulti(in []multi.Identifier) []strfmt.UUID {

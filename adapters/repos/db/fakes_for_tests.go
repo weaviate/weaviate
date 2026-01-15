@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -442,8 +443,8 @@ func (f *FakeNodeResolver) AllHostnames() []string {
 	return nil
 }
 
-func (f *FakeNodeResolver) NodeHostname(string) (string, bool) {
-	return "", false
+func (f *FakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
+	return nodeName, true
 }
 
 type FakeRemoteNodeClient struct{}
