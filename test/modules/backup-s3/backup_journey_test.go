@@ -101,7 +101,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 
 func TestLocal(t *testing.T) {
 	t.Skip("only for local testing with minio")
-	clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard_local", "weaviate-backups", "localhost:9000", "", "localhost:8080", "localhost:8081", "localhost:8082")
+	clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard_local", "weaviate-backups", "localhost:9000", "testtesttest", "localhost:8080", "localhost:8081", "localhost:8082")
 }
 
 // only run this on s3 as we will check minio directly for the correct sizes
@@ -145,7 +145,7 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 	}
 
 	// create backup and wait for completion
-	_, err := helper.CreateBackup(t, &models.BackupConfig{Bucket: bucket}, class.Class, backend, backupID)
+	_, err := helper.CreateBackup(t, &models.BackupConfig{Bucket: bucket, Path: overridePath}, class.Class, backend, backupID)
 	require.NoError(t, err)
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
@@ -176,7 +176,7 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 	helper.DeleteClass(t, class.Class) // delete class before restore
 
 	// restore backup
-	_, err = helper.RestoreBackup(t, &models.RestoreConfig{Bucket: bucket}, class.Class, backend, backupID, nil, false)
+	_, err = helper.RestoreBackup(t, &models.RestoreConfig{Bucket: bucket, Path: overridePath}, class.Class, backend, backupID, nil, false)
 	require.NoError(t, err)
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
