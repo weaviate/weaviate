@@ -1430,14 +1430,17 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return obj, err
 	}
 
-	if shard != nil {
+	if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
-	} else {
-		if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
-			return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
+		if obj != nil {
+			return obj, nil
 		}
+	}
+	// Fall back to remote if shard is nil, StatusLoading, or object not found locally
+	if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
+		return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 	}
 	return obj, nil
 }
@@ -1512,15 +1515,17 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
 		if err != nil {
 			return nil, err
-		} else if shard != nil {
-			func() {
-				defer release()
-				objects, err = shard.MultiObjectByID(ctx, group.ids)
-				if err != nil {
-					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
-				}
-			}()
-		} else {
+		}
+		defer release()
+
+		if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
+			objects, err = shard.MultiObjectByID(ctx, group.ids)
+			if err != nil {
+				err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+			}
+		}
+		// Fall back to remote if shard is nil, StatusLoading, or if local query failed
+		if objects == nil || err != nil {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
 				return nil, errors.Wrapf(err, "remote shard %s", shardName)
