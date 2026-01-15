@@ -571,6 +571,10 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	}
 	defer release()
 
+	if s.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard))
+	}
+
 	var result []types.RepairResponse
 
 	updateBatch := make([]*storobj.Object, 0, len(updates))

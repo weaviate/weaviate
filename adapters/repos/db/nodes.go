@@ -187,8 +187,8 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		localNodeName := i.replicator.LocalNodeName()
 		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), "", name)
 		if err == nil {
-			// If shard exists in router but local node is not in replicas, filter it out
-			if !slices.Contains(rs.NodeNames(), localNodeName) {
+			if len(rs.NodeNames()) > 0 && !slices.Contains(rs.NodeNames(), localNodeName) {
+				// Shard exists in schema with replicas, but local node is not one of them
 				return nil
 			}
 		}
