@@ -1430,7 +1430,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return obj, err
 	}
 
-	if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
+	if shard != nil {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
@@ -1438,7 +1438,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 			return obj, nil
 		}
 	}
-	// Fall back to remote if shard is nil, StatusLoading, or object not found locally
+
 	if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
 		return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 	}
@@ -1517,19 +1517,34 @@ func (i *Index) multiObjectByID(ctx context.Context,
 			return nil, err
 		}
 
-		if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
+		if shard != nil {
 			objects, err = shard.MultiObjectByID(ctx, group.ids)
 			if err != nil {
 				err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
 			}
 		}
-		// Fall back to remote if shard is nil, StatusLoading, or if local query failed
-		if objects == nil || err != nil {
-			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
-			if err != nil {
-				release() // Release before returning error
-				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+
+		// Always try remote to fill in missing objects (consistent with objectByID)
+		remoteObjects, remoteErr := i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
+		if remoteErr == nil {
+			if objects == nil {
+				objects = remoteObjects
+			} else {
+				// Merge: prefer local, use remote for missing (nil) objects
+				for i, remoteObj := range remoteObjects {
+					if i < len(objects) && objects[i] == nil && remoteObj != nil {
+						objects[i] = remoteObj
+					}
+				}
 			}
+			err = nil
+		} else if err == nil {
+			err = errors.Wrapf(remoteErr, "remote shard %s", shardName)
+		}
+
+		if err != nil {
+			release() // Release before returning error
+			return nil, err
 		}
 
 		for i, obj := range objects {
