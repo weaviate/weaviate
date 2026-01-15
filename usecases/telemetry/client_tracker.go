@@ -56,7 +56,10 @@ type ClientTracker struct {
 // NewClientTracker creates a new client tracker and starts its background goroutine
 func NewClientTracker(logger logrus.FieldLogger) *ClientTracker {
 	ct := &ClientTracker{
-		trackChan: make(chan ClientInfo, 10000), // Buffered for 10K pending events
+		// Buffered for 1024 pending events. This is a somewhat arbitrary number that
+		// should be enough to handle most cases without blocking, and only requires
+		// ~32KB of memory.
+		trackChan: make(chan ClientInfo, 1024),
 		getChan:   make(chan chan map[ClientType]map[string]int64),
 		resetChan: make(chan chan map[ClientType]map[string]int64),
 		stopChan:  make(chan struct{}),
