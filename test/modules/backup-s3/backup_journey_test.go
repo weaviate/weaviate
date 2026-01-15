@@ -93,7 +93,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		})
 
 		t.Run("one copy per shard", func(t *testing.T) {
-			clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard", minioURL, s3BackupJourneyBucketName, overridePath,
+			clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard", s3BackupJourneyBucketName, minioURL, overridePath,
 				compose.GetWeaviateNode(1).URI(), compose.GetWeaviateNode(2).URI(), compose.GetWeaviateNode(3).URI())
 		})
 	})
@@ -199,6 +199,7 @@ func clusterOneBackupPerShardTest(t *testing.T, backend, className, backupID, bu
 
 // getFolderChunks gets all the chunks for a given backupID from the specified S3 bucket
 func getFolderChunks(t *testing.T, minioURL, bucketName, backupId string) (int, error) {
+	t.Helper()
 	client, err := minio.New(minioURL, &minio.Options{
 		Creds:  credentials.NewStaticV4(s3BackupJourneyAccessKey, s3BackupJourneySecretKey, ""),
 		Secure: false,
@@ -226,6 +227,7 @@ func getFolderChunks(t *testing.T, minioURL, bucketName, backupId string) (int, 
 }
 
 func checkEndpoints(t *testing.T, nodeEndpoints []string, classname string, numObjects int) {
+	t.Helper()
 	for i := range nodeEndpoints {
 		helper.SetupClient(nodeEndpoints[i])
 		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
