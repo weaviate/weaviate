@@ -185,7 +185,11 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		}
 
 		localNodeName := i.replicator.LocalNodeName()
-		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), "", name)
+		tenant := ""
+		if i.partitioningEnabled {
+			tenant = name
+		}
+		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenant, name)
 		if err == nil {
 			if len(rs.NodeNames()) > 0 && !slices.Contains(rs.NodeNames(), localNodeName) {
 				// Shard exists in schema with replicas, but local node is not one of them
