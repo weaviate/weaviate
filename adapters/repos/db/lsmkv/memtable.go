@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -146,6 +148,9 @@ type Memtable struct {
 	// function to decide whether a key should be skipped
 	// during flush for the SetCollection strategy
 	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)
+
+	rcounter *atomic.Int32
+	wcounter *atomic.Int32
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
@@ -176,6 +181,8 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		bm25config:                   bm25config,
 		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
 		shouldSkipKeyFunc:            shouldSkipKeyFunc,
+		rcounter:                     new(atomic.Int32),
+		wcounter:                     new(atomic.Int32),
 	}
 
 	if m.secondaryIndices > 0 {
@@ -194,6 +201,30 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 	return m, nil
 }
 
+func (m *Memtable) callers() func(rcount, wcount int32) {
+	th := 50 * time.Millisecond
+	n := 15
+
+	pc := make([]uintptr, n)
+	read := runtime.Callers(2, pc)
+
+	strs := make([]string, read)
+	for i := range read {
+		fun := runtime.FuncForPC(pc[i])
+		// file, line := fun.FileLine(pc[i])
+		strs[i] = fmt.Sprintf("      %s", fun.Name())
+		// strs[i+2] = fmt.Sprintf("              [%s:%d]", file, line)
+	}
+	callers := fmt.Sprintf("%s\n\n", strings.Join(strs, "\n"))
+	before := time.Now()
+
+	return func(rcount, wcount int32) {
+		if d := time.Since(before); d > th {
+			fmt.Printf("  ==> memtable mutex took [%s] waiting readers [%d] waiting writers [%d]\n%s", d, rcount, wcount, callers)
+		}
+	}
+}
+
 func (m *Memtable) get(key []byte) ([]byte, error) {
 	start := time.Now()
 	defer m.metrics.observeGet(start.UnixNano())
@@ -202,7 +233,10 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
+	m.rcounter.Add(1)
+	printCallers := m.callers()
 	m.RLock()
+	printCallers(m.rcounter.Add(-1), m.wcounter.Load())
 	defer m.RUnlock()
 
 	return m.key.get(key)
@@ -216,7 +250,10 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
+	m.rcounter.Add(1)
+	printCallers := m.callers()
 	m.RLock()
+	printCallers(m.rcounter.Add(-1), m.wcounter.Load())
 	defer m.RUnlock()
 
 	primary := m.secondaryToPrimary[pos][string(key)]
@@ -235,7 +272,17 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
+	m.wcounter.Add(1)
+	printCallers := m.callers()
 	m.Lock()
+	printCallers(m.rcounter.Load(), m.wcounter.Add(-1))
+
+	t := time.Now()
+	defer func() {
+		if lockedTook := time.Since(t); lockedTook > 25*time.Millisecond {
+			fmt.Printf("  ==> Memtable::put locked took [%s]\n\n", lockedTook)
+		}
+	}()
 	defer m.Unlock()
 	m.writesSinceLastSync = true
 
@@ -284,10 +331,6 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -297,14 +340,29 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 			}
 		}
 	}
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               nil,
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
+	}
+
+	m.wcounter.Add(1)
+	printCallers := m.callers()
+	m.Lock()
+	printCallers(m.rcounter.Load(), m.wcounter.Add(-1))
+
+	t := time.Now()
+	defer func() {
+		if lockedTook := time.Since(t); lockedTook > 25*time.Millisecond {
+			fmt.Printf("  ==> Memtable::setTombstone locked took [%s]\n\n", lockedTook)
+		}
+	}()
+	defer m.Unlock()
+	m.writesSinceLastSync = true
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -324,10 +382,6 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -339,21 +393,48 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	}
 
 	tombstonedVal := tombstonedValue(deletionTime)
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               tombstonedVal[:],
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
-		return errors.Wrap(err, "write into commit log")
 	}
 
+	m.wcounter.Add(1)
+	printCallers := m.callers()
+	m.Lock()
+	printCallers(m.rcounter.Load(), m.wcounter.Add(-1))
+
+	var commitlogTook, treeTook, internalsTook, unlockTook time.Duration
+	t := time.Now()
+	defer func() {
+		if lockedTook := time.Since(t); lockedTook > 25*time.Millisecond {
+			fmt.Printf("  ==> Memtable::setTombstoneWith locked took [%s], commitlog took [%s] tree took [%s] internals took [%s] unlock took [%s] TOTAL TOOK [%s]\n\n",
+				lockedTook, commitlogTook, treeTook, internalsTook, unlockTook, time.Since(start))
+		}
+	}()
+	defer func() {
+		tu := time.Now()
+		m.Unlock()
+		unlockTook = time.Since(tu)
+	}()
+
+	ti := time.Now()
+	m.writesSinceLastSync = true
+	tc := time.Now()
+	if err := m.commitlog.put(node); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
+	commitlogTook = time.Since(tc)
+
+	tt := time.Now()
 	m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
+	treeTook = time.Since(tt)
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	internalsTook = time.Since(ti)
 
 	return nil
 }
