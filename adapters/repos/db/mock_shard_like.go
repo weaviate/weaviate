@@ -33,6 +33,8 @@ import (
 
 	hashtree "github.com/weaviate/weaviate/usecases/replica/hashtree"
 
+	helpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	indexcounter "github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 
 	inverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -2016,9 +2018,9 @@ func (_c *MockShardLike_ObjectDigestsInRange_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// ObjectList provides a mock function with given fields: ctx, limit, sort, cursor, _a4, className
-func (_m *MockShardLike) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
-	ret := _m.Called(ctx, limit, sort, cursor, _a4, className)
+// ObjectList provides a mock function with given fields: ctx, limit, sort, cursor, _a4, className, allowlist
+func (_m *MockShardLike) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName, allowlist helpers.AllowList) ([]*storobj.Object, error) {
+	ret := _m.Called(ctx, limit, sort, cursor, _a4, className, allowlist)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectList")
@@ -2026,19 +2028,19 @@ func (_m *MockShardLike) ObjectList(ctx context.Context, limit int, sort []filte
 
 	var r0 []*storobj.Object
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName) ([]*storobj.Object, error)); ok {
-		return rf(ctx, limit, sort, cursor, _a4, className)
+	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) ([]*storobj.Object, error)); ok {
+		return rf(ctx, limit, sort, cursor, _a4, className, allowlist)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName) []*storobj.Object); ok {
-		r0 = rf(ctx, limit, sort, cursor, _a4, className)
+	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) []*storobj.Object); ok {
+		r0 = rf(ctx, limit, sort, cursor, _a4, className, allowlist)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*storobj.Object)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName) error); ok {
-		r1 = rf(ctx, limit, sort, cursor, _a4, className)
+	if rf, ok := ret.Get(1).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) error); ok {
+		r1 = rf(ctx, limit, sort, cursor, _a4, className, allowlist)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -2058,13 +2060,14 @@ type MockShardLike_ObjectList_Call struct {
 //   - cursor *filters.Cursor
 //   - _a4 additional.Properties
 //   - className schema.ClassName
-func (_e *MockShardLike_Expecter) ObjectList(ctx interface{}, limit interface{}, sort interface{}, cursor interface{}, _a4 interface{}, className interface{}) *MockShardLike_ObjectList_Call {
-	return &MockShardLike_ObjectList_Call{Call: _e.mock.On("ObjectList", ctx, limit, sort, cursor, _a4, className)}
+//   - allowlist helpers.AllowList
+func (_e *MockShardLike_Expecter) ObjectList(ctx interface{}, limit interface{}, sort interface{}, cursor interface{}, _a4 interface{}, className interface{}, allowlist interface{}) *MockShardLike_ObjectList_Call {
+	return &MockShardLike_ObjectList_Call{Call: _e.mock.On("ObjectList", ctx, limit, sort, cursor, _a4, className, allowlist)}
 }
 
-func (_c *MockShardLike_ObjectList_Call) Run(run func(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName)) *MockShardLike_ObjectList_Call {
+func (_c *MockShardLike_ObjectList_Call) Run(run func(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName, allowlist helpers.AllowList)) *MockShardLike_ObjectList_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int), args[2].([]filters.Sort), args[3].(*filters.Cursor), args[4].(additional.Properties), args[5].(schema.ClassName))
+		run(args[0].(context.Context), args[1].(int), args[2].([]filters.Sort), args[3].(*filters.Cursor), args[4].(additional.Properties), args[5].(schema.ClassName), args[6].(helpers.AllowList))
 	})
 	return _c
 }
@@ -2074,7 +2077,7 @@ func (_c *MockShardLike_ObjectList_Call) Return(_a0 []*storobj.Object, _a1 error
 	return _c
 }
 
-func (_c *MockShardLike_ObjectList_Call) RunAndReturn(run func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName) ([]*storobj.Object, error)) *MockShardLike_ObjectList_Call {
+func (_c *MockShardLike_ObjectList_Call) RunAndReturn(run func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) ([]*storobj.Object, error)) *MockShardLike_ObjectList_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4949,7 +4952,8 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 
