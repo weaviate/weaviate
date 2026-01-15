@@ -103,6 +103,9 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, 
 	}, nil
 }
 
+// ParseReplaceNode parses a single replace-strategy node from r.
+// If existingNode is non-nil, its underlying byte slices are reused and resized as needed to avoid additional
+// allocations. Callers may pass nil to have a fresh segmentReplaceNode allocated.
 func ParseReplaceNode(r io.Reader, existingNode *segmentReplaceNode, secondaryIndexCount uint16) (segmentReplaceNode, error) {
 	if existingNode == nil {
 		existingNode = &segmentReplaceNode{}
@@ -120,7 +123,7 @@ func ParseReplaceNode(r io.Reader, existingNode *segmentReplaceNode, secondaryIn
 
 	existingNode.tombstone = tmpBuf[0] == 0x1
 	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
-	if len(existingNode.value) < int(valueLength) {
+	if cap(existingNode.value) < int(valueLength) {
 		existingNode.value = make([]byte, valueLength)
 	} else {
 		existingNode.value = existingNode.value[:valueLength]
@@ -156,6 +159,8 @@ func ParseReplaceNode(r io.Reader, existingNode *segmentReplaceNode, secondaryIn
 		} else {
 			existingNode.secondaryKeys = existingNode.secondaryKeys[:secondaryIndexCount]
 		}
+	} else {
+		existingNode.secondaryKeys = nil
 	}
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
