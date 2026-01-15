@@ -238,6 +238,10 @@ func TestLazyLoadedShards(t *testing.T) {
 			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
 			AdditionalReplicas: nil,
 		}, nil).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(className, tenantNamePopulated, tenantNamePopulated).
+		Return(types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
+		}, nil).Maybe()
 	// Create index with lazy loading disabled to test active calculation methods
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
