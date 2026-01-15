@@ -499,13 +499,15 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 
 	sharedChunks := backup.SharedBackupLocations{}
 	// old backups do not have this file, so do not log errors if it is missing
-	for node := range meta.Nodes {
-		sharedChunksPerNode, err := store.GetSharedChunks(ctx, GlobalSharedBackupFile+"_"+node, req.Bucket, req.Path)
-		if err != nil {
-			s.logger.Infof("failed to retrieve shared chunks: %v", err)
-			continue
+	if len(meta.Nodes) > 1 {
+		for node := range meta.Nodes {
+			sharedChunksPerNode, err := store.GetSharedChunks(ctx, GlobalSharedBackupFile+"_"+node, req.Bucket, req.Path)
+			if err != nil {
+				s.logger.Infof("failed to retrieve shared chunks: %v", err)
+				continue
+			}
+			sharedChunks = append(sharedChunks, sharedChunksPerNode...)
 		}
-		sharedChunks = append(sharedChunks, sharedChunksPerNode...)
 	}
 
 	return meta, sharedChunks, nil

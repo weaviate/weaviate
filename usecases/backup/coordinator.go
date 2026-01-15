@@ -230,10 +230,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		//
 		// This information cannot be put in the GlobalBackupFile, because the coordinator needs to upload this before
 		// starting the backup and at this point we do not know which shard will end up in which chunk
-
-		inSyncShards, err := c.selector.ListShardsSync(req.Classes, startedAt, _AsyncReplicationTimeout)
-		if err != nil {
-			c.log.Errorf("coordinator: could not list shards sync status: %v", err)
+		var inSyncShards backup.SharedBackupState
+		if len(c.descriptor.Nodes) > 1 {
+			inSyncShards, err = c.selector.ListShardsSync(req.Classes, startedAt, _AsyncReplicationTimeout)
+			if err != nil {
+				c.log.Errorf("coordinator: could not list shards sync status: %v", err)
+			}
 		}
 
 		statusReq := StatusRequest{
