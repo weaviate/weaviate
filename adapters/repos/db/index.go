@@ -1515,7 +1515,6 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		defer release()
 
 		if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
 			objects, err = shard.MultiObjectByID(ctx, group.ids)
@@ -1527,6 +1526,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		if objects == nil || err != nil {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
+				release() // Release before returning error
 				return nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
 		}
@@ -1535,6 +1535,8 @@ func (i *Index) multiObjectByID(ctx context.Context,
 			desiredPos := group.pos[i]
 			out[desiredPos] = obj
 		}
+
+		release() // Release at the end of each iteration
 	}
 
 	return out, nil
