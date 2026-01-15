@@ -202,7 +202,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// increment the size of the posting
-	count, err := h.PostingMetadata.AddVectorID(ctx, centroidID, vector.ID())
+	count, err := h.PostingMap.AddVectorID(ctx, centroidID, vector.ID(), vector.Version())
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err
