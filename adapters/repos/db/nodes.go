@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -199,6 +200,21 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
+				return nil
+			}
+		}
+
+		// For loaded shards, filter based on router ownership
+		localNodeName := i.replicator.LocalNodeName()
+		tenant := ""
+		if i.partitioningEnabled {
+			tenant = name
+		}
+		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenant, name)
+		if err == nil {
+			if len(rs.NodeNames()) > 0 && !slices.Contains(rs.NodeNames(), localNodeName) {
+				// Shard exists in schema with replicas, but local node is not one of them
+				// Filter it out since it's loaded and doesn't belong to this node
 				return nil
 			}
 		}
