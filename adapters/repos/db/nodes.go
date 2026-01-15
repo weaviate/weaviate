@@ -14,9 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
-
-	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/pkg/errors"
 
@@ -24,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
@@ -182,6 +182,15 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		// if shardName is provided, only return the status for the specified shard
 		if shardName != "" && shardName != name {
 			return nil
+		}
+
+		localNodeName := i.replicator.LocalNodeName()
+		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), "", name)
+		if err == nil {
+			// If shard exists in router but local node is not in replicas, filter it out
+			if !slices.Contains(rs.NodeNames(), localNodeName) {
+				return nil
+			}
 		}
 
 		// Don't force load a lazy shard to get nodes status
