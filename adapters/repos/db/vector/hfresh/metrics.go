@@ -272,6 +272,14 @@ func (m *Metrics) IncSplitCount() {
 	m.splitCount.Inc()
 }
 
+func (m *Metrics) SetSplitCount(count int64) {
+	if !m.enabled {
+		return
+	}
+
+	m.splitsPending.Set(float64(count))
+}
+
 func (m *Metrics) EnqueueMergeTask() {
 	if !m.enabled {
 		return
@@ -304,6 +312,14 @@ func (m *Metrics) IncMergeCount() {
 	m.mergeCount.Inc()
 }
 
+func (m *Metrics) SetMergeCount(count int64) {
+	if !m.enabled {
+		return
+	}
+
+	m.mergesPending.Set(float64(count))
+}
+
 func (m *Metrics) EnqueueReassignTask() {
 	if !m.enabled {
 		return
@@ -334,6 +350,14 @@ func (m *Metrics) IncReassignCount() {
 	}
 
 	m.reassignCount.Inc()
+}
+
+func (m *Metrics) SetReassignCount(count int64) {
+	if !m.enabled {
+		return
+	}
+
+	m.reassignsPending.Set(float64(count))
 }
 
 func (m *Metrics) CentroidSearchDuration(start time.Time) {
