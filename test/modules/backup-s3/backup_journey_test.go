@@ -131,7 +131,7 @@ func printLogsOnError(t *testing.T, compose *docker.DockerCompose) {
 }
 
 func TestLocal(t *testing.T) {
-	// t.Skip("only for local testing with minio")
+	t.Skip("only for local testing with minio")
 	clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard_local", "weaviate-backups", "localhost:9000", "testtesttest", "localhost:8080", "localhost:8081", "localhost:8082")
 }
 
