@@ -54,6 +54,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
+	cardinality := bm.GetCardinality()
 
 	m.Lock()
 	defer m.Unlock()
@@ -64,7 +65,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: bm.ToArray()})
 
-	m.roaringSetAdjustMeta(bm.GetCardinality())
+	m.roaringSetAdjustMeta(cardinality)
 	return nil
 }
 
