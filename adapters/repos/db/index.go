@@ -1430,19 +1430,15 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return obj, err
 	}
 
-	if shard == nil || shard.GetStatus() == storagestate.StatusLoading {
-		// Shard doesn't exist or is still loading, try remote
+	if shard != nil {
+		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
+			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
+		}
+	} else {
 		if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 		}
-		return obj, nil
 	}
-
-	// Shard exists and is ready, use it
-	if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
-		return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
-	}
-
 	return obj, nil
 }
 
