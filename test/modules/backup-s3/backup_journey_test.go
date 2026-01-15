@@ -75,6 +75,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
 			WithWeaviateEnv("LOG_LEVEL", "warning").
+			WithWeaviateEnv("BACKUP_SHARED_SHARDS_ENABLED", "true").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -95,34 +96,38 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		})
 
 		t.Run("one copy per shard", func(t *testing.T) {
-			defer func() {
-				if t.Failed() {
-					// When a test fails, dump logs of all compose containers.
-					for _, container := range compose.Containers() {
-						logs, err := container.Container().Logs(context.Background())
-						if err != nil {
-							t.Logf("failed to get logs for container %s: %v", container.Name(), err)
-							continue
-						}
-						func() {
-							defer logs.Close()
-							t.Logf("=== start for container %s ===\n=== start logs ===", container.Name())
-
-							scanner := bufio.NewScanner(logs)
-
-							for scanner.Scan() {
-								line := scanner.Text()
-								t.Log(line)
-							}
-							t.Logf("=== logs for container %s ===\n=== end logs ===", container.Name())
-						}()
-					}
-				}
-			}()
+			defer printLogsOnError(t, compose)
 			clusterOneBackupPerShardTest(t, "s3", s3BackupJourneyClassName+"oneCopy", s3BackupJourneyBackupIDCluster+"_one_copy_per_shard", s3BackupJourneyBucketName, minioURL, overridePath,
 				compose.GetWeaviateNode(1).URI(), compose.GetWeaviateNode(2).URI(), compose.GetWeaviateNode(3).URI())
 		})
 	})
+}
+
+func printLogsOnError(t *testing.T, compose *docker.DockerCompose) {
+	if !t.Failed() {
+		return
+	}
+
+	// When a test fails, dump logs of all compose containers.
+	for _, container := range compose.Containers() {
+		logs, err := container.Container().Logs(context.Background())
+		if err != nil {
+			t.Logf("failed to get logs for container %s: %v", container.Name(), err)
+			continue
+		}
+		func() {
+			defer logs.Close()
+			t.Logf("=== start for container %s ===\n=== start logs ===", container.Name())
+
+			scanner := bufio.NewScanner(logs)
+
+			for scanner.Scan() {
+				line := scanner.Text()
+				t.Log(line)
+			}
+			t.Logf("=== logs for container %s ===\n=== end logs ===", container.Name())
+		}()
+	}
 }
 
 func TestLocal(t *testing.T) {

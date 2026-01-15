@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1058,7 +1059,7 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
 	c := NewScheduler(f.auth, &f.client, &f.selector, provider,
-		f.nodeResolver, &f.schema, f.log)
+		f.nodeResolver, &f.schema, config.Backup{SharedBackupsEnabled: false}, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c

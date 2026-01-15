@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -62,6 +63,7 @@ func NewScheduler(
 	backends BackupBackendProvider,
 	nodeResolver NodeResolver,
 	schema schemaManger,
+	config config.Backup,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{
@@ -72,12 +74,12 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends, config),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends),
+			logger, nodeResolver, backends, config),
 	}
 	return m
 }

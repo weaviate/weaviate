@@ -104,6 +104,7 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
+	Backup                              Backup                   `json:"backup" yaml:"backup"`
 	Name                                string                   `json:"name" yaml:"name"`
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -349,6 +350,10 @@ func (a AutoSchema) Validate() error {
 	}
 
 	return nil
+}
+
+type Backup struct {
+	SharedBackupsEnabled bool `json:"shared_backups_enabled" yaml:"shared_backups_enabled"`
 }
 
 // QueryDefaults for optional parameters

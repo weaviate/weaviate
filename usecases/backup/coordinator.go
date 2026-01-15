@@ -110,6 +110,7 @@ type coordinator struct {
 	timeoutQueryStatus time.Duration
 	timeoutCanCommit   time.Duration
 	timeoutNextRound   time.Duration
+	config             config.Backup
 }
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
@@ -120,6 +121,7 @@ func newCoordinator(
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
+	config config.Backup,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -133,6 +135,7 @@ func newCoordinator(
 		timeoutQueryStatus: _TimeoutQueryStatus,
 		timeoutCanCommit:   _TimeoutCanCommit,
 		timeoutNextRound:   _NextRoundPeriod,
+		config:             config,
 	}
 }
 
@@ -231,7 +234,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		// This information cannot be put in the GlobalBackupFile, because the coordinator needs to upload this before
 		// starting the backup and at this point we do not know which shard will end up in which chunk
 		var inSyncShards backup.SharedBackupState
-		if len(c.descriptor.Nodes) > 1 {
+		if len(c.descriptor.Nodes) > 1 && c.config.SharedBackupsEnabled {
 			inSyncShards, err = c.selector.ListShardsSync(req.Classes, startedAt, _AsyncReplicationTimeout)
 			if err != nil {
 				c.log.Errorf("coordinator: could not list shards sync status: %v", err)
