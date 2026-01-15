@@ -83,6 +83,9 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 			if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
 				addToResult(c, name, idx, lastRun)
 				return nil
+			} else if lastRunObjectPropagation != nil && (*lastRunObjectPropagation).After(backupStartedAt) {
+				// if object propagation is running after backup started, we cannot consider the shard in sync
+				return nil
 			}
 
 			// trigger an async replication run to recheck if the shard is in sync. If it is not, async replication
@@ -109,6 +112,8 @@ func (db *DB) ListShardsSync(classes []string, backupStartedAt time.Time, timeou
 						lastRunObjectPropagation := shard.asyncReplicationLastRunStartWithObjectPropagation.Load()
 						if lastRun != nil && (*lastRun).After(backupStartedAt) && (lastRunObjectPropagation == nil || (*lastRunObjectPropagation).Before(backupStartedAt)) {
 							addToResult(c, name, idx, lastRun)
+							return nil
+						} else if lastRunObjectPropagation != nil && (*lastRunObjectPropagation).After(backupStartedAt) {
 							return nil
 						}
 					}
