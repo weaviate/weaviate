@@ -50,7 +50,8 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	node, err := roaringset.NewSegmentNodeList(key, bm.ToArray(), []uint64{})
+	array := bm.ToArray()
+	node, err := roaringset.NewSegmentNodeList(key, array, []uint64{})
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
@@ -63,7 +64,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Additions: bm.ToArray()})
+	m.roaringSet.Insert(key, roaringset.Insert{Additions: array})
 
 	m.roaringSetAdjustMeta(cardinality)
 	return nil
@@ -101,7 +102,8 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	node, err := roaringset.NewSegmentNodeList(key, []uint64{}, bm.ToArray())
+	array := bm.ToArray()
+	node, err := roaringset.NewSegmentNodeList(key, []uint64{}, array)
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
@@ -113,7 +115,7 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Deletions: bm.ToArray()})
+	m.roaringSet.Insert(key, roaringset.Insert{Deletions: array})
 
 	m.roaringSetAdjustMeta(cardinality)
 	return nil
