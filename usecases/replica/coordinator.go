@@ -63,7 +63,7 @@ type (
 	}
 )
 
-// NewCoordinator used by the replicator
+// NewWriteCoordinator used by the replicator to write objects to replicas
 func NewWriteCoordinator[T, R any](client Client,
 	router types.Router,
 	metrics *Metrics,
@@ -83,7 +83,7 @@ func NewWriteCoordinator[T, R any](client Client,
 	}
 }
 
-// newCoordinator used by the Finder to read objects from replicas
+// NewReadCoordinator used by the Finder to read objects from replicas
 func NewReadCoordinator[T any](router types.Router,
 	metrics *Metrics,
 	className, shard, deletionStrategy string,

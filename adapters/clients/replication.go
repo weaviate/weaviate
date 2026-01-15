@@ -45,9 +45,8 @@ const (
 )
 
 const (
-	NO_RETRIES   = 0
-	SOME_RETRIES = 3
-	MAX_RETRIES  = 9
+	NO_RETRIES  = 0
+	MAX_RETRIES = 9
 )
 
 type replicationClient retryClient
@@ -148,7 +147,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.doRetry(req, body, &resp, SOME_RETRIES)
+	err = c.doRetry(req, body, &resp, MAX_RETRIES)
 
 	return resp, err
 }
