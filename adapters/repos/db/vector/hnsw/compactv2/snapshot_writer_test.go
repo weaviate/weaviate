@@ -269,6 +269,94 @@ func TestSnapshotWriter_CommitsToNodeState(t *testing.T) {
 	})
 }
 
+func TestSnapshotRoundTrip(t *testing.T) {
+	// Write a snapshot with multiple nodes and tombstones
+	var buf bytes.Buffer
+	sw := NewSnapshotWriter(&buf)
+	sw.SetEntrypoint(5, 2)
+
+	// Add nodes with various levels and connections
+	testNodes := []struct {
+		id          uint64
+		level       uint16
+		connections [][]uint64
+		tombstone   bool
+	}{
+		{0, 0, [][]uint64{{1, 2, 3}}, false},
+		{1, 1, [][]uint64{{0, 2}, {5}}, false},
+		{2, 0, [][]uint64{{0, 1}}, true}, // with tombstone
+		// node 3 is nil
+		// node 4 is nil
+		{5, 2, [][]uint64{{0, 1}, {1}, {1}}, false}, // entrypoint
+	}
+
+	for _, n := range testNodes {
+		sw.AddNode(n.id, n.level, n.connections, n.tombstone)
+	}
+
+	err := sw.Flush()
+	require.NoError(t, err)
+
+	// Read it back
+	reader := bytes.NewReader(buf.Bytes())
+	sr := NewSnapshotReader()
+	result, err := sr.Read(reader)
+	require.NoError(t, err)
+
+	// Verify metadata
+	assert.Equal(t, uint64(5), result.Entrypoint)
+	assert.Equal(t, uint16(2), result.Level)
+	assert.True(t, result.EntrypointChanged)
+	assert.False(t, result.Compressed)
+	assert.False(t, result.MuveraEnabled)
+
+	// Verify nodes
+	assert.Equal(t, 6, len(result.Nodes)) // nodes 0-5
+
+	// Verify each node
+	for _, expected := range testNodes {
+		node := result.Nodes[expected.id]
+		require.NotNil(t, node, "node %d should exist", expected.id)
+		assert.Equal(t, expected.id, node.ID)
+		assert.Equal(t, int(expected.level), node.Level)
+
+		// Verify connections
+		for level, expectedConns := range expected.connections {
+			actualConns := node.Connections.GetLayer(uint8(level))
+			assert.Equal(t, expectedConns, actualConns, "node %d level %d connections", expected.id, level)
+		}
+	}
+
+	// Verify nil nodes
+	assert.Nil(t, result.Nodes[3])
+	assert.Nil(t, result.Nodes[4])
+
+	// Verify tombstones
+	assert.Equal(t, 1, len(result.Tombstones))
+	_, hasTombstone := result.Tombstones[2]
+	assert.True(t, hasTombstone, "node 2 should have tombstone")
+}
+
+func TestSnapshotReader_ChecksumValidation(t *testing.T) {
+	// Write a valid snapshot
+	var buf bytes.Buffer
+	sw := NewSnapshotWriter(&buf)
+	sw.SetEntrypoint(0, 0)
+	sw.AddNode(0, 0, [][]uint64{{1}}, false)
+	err := sw.Flush()
+	require.NoError(t, err)
+
+	// Corrupt the metadata checksum
+	data := buf.Bytes()
+	data[1] ^= 0xFF // flip bits in checksum
+
+	reader := bytes.NewReader(data)
+	sr := NewSnapshotReader()
+	_, err = sr.Read(reader)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "checksum")
+}
+
 // verifySnapshotMetadata checks the snapshot header values
 func verifySnapshotMetadata(t *testing.T, data []byte, expectedEntrypoint uint64, expectedLevel uint16, expectedNodeCount uint32) {
 	t.Helper()

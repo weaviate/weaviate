@@ -89,12 +89,8 @@ func (s *SnapshotWriter) SetEntrypoint(entrypoint uint64, level uint16) {
 // AddNode adds a node with its connections to the snapshot.
 // Nodes must be added in ascending node ID order.
 func (s *SnapshotWriter) AddNode(nodeID uint64, level uint16, connections [][]uint64, hasTombstone bool) {
-	// Expand nodes slice if needed
-	if nodeID >= uint64(len(s.nodes)) {
-		newNodes := make([]*nodeState, nodeID+1)
-		copy(newNodes, s.nodes)
-		s.nodes = newNodes
-	}
+	// Expand nodes slice if needed using exponential growth
+	s.ensureNodesCapacity(nodeID)
 
 	s.nodes[nodeID] = &nodeState{
 		level:       level,
@@ -110,15 +106,39 @@ func (s *SnapshotWriter) AddNode(nodeID uint64, level uint16, connections [][]ui
 	}
 }
 
+// ensureNodesCapacity grows the nodes slice to accommodate nodeID using exponential growth.
+func (s *SnapshotWriter) ensureNodesCapacity(nodeID uint64) {
+	required := int(nodeID + 1)
+	if required <= len(s.nodes) {
+		return
+	}
+
+	// If we have enough capacity, just extend the length (no allocation)
+	if required <= cap(s.nodes) {
+		s.nodes = s.nodes[:required]
+		return
+	}
+
+	// Need to allocate - calculate new capacity with exponential growth
+	newCap := cap(s.nodes)
+	if newCap == 0 {
+		newCap = 1024 // initial capacity
+	}
+	for newCap < required {
+		newCap *= 2
+	}
+
+	// Grow the slice
+	newNodes := make([]*nodeState, required, newCap)
+	copy(newNodes, s.nodes)
+	s.nodes = newNodes
+}
+
 // AddTombstone marks a node as having a tombstone without adding node data.
 // This is used for nodes that were deleted but still need tombstone tracking.
 func (s *SnapshotWriter) AddTombstone(nodeID uint64) {
 	// Expand nodes slice if needed to include this tombstone
-	if nodeID >= uint64(len(s.nodes)) {
-		newNodes := make([]*nodeState, nodeID+1)
-		copy(newNodes, s.nodes)
-		s.nodes = newNodes
-	}
+	s.ensureNodesCapacity(nodeID)
 
 	s.tombstones[nodeID] = struct{}{}
 	if nodeID > s.maxNodeID {
