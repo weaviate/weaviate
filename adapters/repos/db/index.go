@@ -1771,16 +1771,17 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		// ExecuteForEachShard already ensures this shard belongs to the local node.
-		// Use GetShard first to avoid creating empty shards. If shard doesn't exist yet
-		// The remote nodes that have the data will serve the query.
-		shard, release, err := i.GetShard(ctx, shardName)
+		// We need to getOrInit here because the shard might not yet be loaded due to eventual consistency on the schema update
+		// triggering the shard loading in the database
+		shard, release, err := i.getOrInitShard(ctx, shardName)
 		defer release()
 		if err != nil {
 			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
 		}
-		if shard == nil || shard.GetStatus() == storagestate.StatusLoading {
-			// Shard doesn't exist or is still loading, try remote
+		if shard == nil {
+			// This will make the code hit other remote replicas, and usually resolve any kind of eventual consistency issues just thanks to delaying
+			// the search to the other replica.
+			// This is not ideal, but it works for now.
 			return remoteSearch(shardName)
 		}
 
