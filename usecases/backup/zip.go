@@ -154,6 +154,7 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fir
 
 func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, preCompressionSize *atomic.Int64) (written int64, err error) {
 	// Process files in sd.Files and remove them as we go (pop from front).
+	firstFile := true
 	for len(sd.Files) > 0 {
 		relPath := sd.Files[0]
 		if filepath.Base(relPath) == ".DS_Store" {
@@ -163,7 +164,7 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, sizeExceeded, err := z.WriteRegular(ctx, relPath, preCompressionSize)
+		n, sizeExceeded, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
 		if err != nil {
 			return written, err
 		}
@@ -175,11 +176,12 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 		// remove processed element from slice
 		sd.Files = sd.Files[1:]
 		written += n
+		firstFile = false
 	}
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64) (written int64, sizeExceeded bool, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64, firstFile bool) (written int64, sizeExceeded bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return written, false, err
 	}
@@ -201,7 +203,7 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	if !info.Mode().IsRegular() {
 		return 0, false, nil // ignore directories
 	}
-	if preCompressionSize.Load()+info.Size() > MaxChunkSize {
+	if !firstFile && preCompressionSize.Load()+info.Size() > MaxChunkSize {
 		return 0, true, nil
 	}
 
