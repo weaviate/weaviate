@@ -419,7 +419,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 							}
 						}
 					}
-					return err
+					return nil
 				})
 			}
 			err = eg.Wait()
@@ -444,8 +444,8 @@ type chuckShards struct {
 func (u *uploader) compress(ctx context.Context,
 	class string, // class name
 	chunk int32, // chunk index
-	shard *backup.ShardDescriptor, // chan of shards
-	firstChunkForShard bool,
+	shard *backup.ShardDescriptor, // shard to be backed up
+	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
 	overrideBucket, overridePath string, // bucket name and path
 ) ([]string, int64, error) {
 	var (
