@@ -290,8 +290,7 @@ type Config struct {
 	MaximumConcurrentBucketLoads        int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
-	ObjectsTTLFindBatchSize             *configRuntime.DynamicValue[int]
-	ObjectsTTLDeleteBatchSize           *configRuntime.DynamicValue[int]
+	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
 	HNSWMaxLogSize                               int64
