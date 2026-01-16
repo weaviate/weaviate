@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -202,23 +201,6 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 				shardCount++
 				return nil
 			}
-		}
-
-		// For loaded shards, filter based on router ownership
-		// Include shards with async replication status even if router says they don't belong
-		// (needed during replication transitions for AsyncReplicationStatus to find them)
-		localNodeName := i.replicator.LocalNodeName()
-		tenant := ""
-		if i.partitioningEnabled {
-			tenant = name
-		}
-
-		asyncReplStats := shard.getAsyncReplicationStats(ctx)
-		rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenant, name)
-		if err == nil && len(rs.NodeNames()) > 0 && !slices.Contains(rs.NodeNames(), localNodeName) && len(asyncReplStats) == 0 {
-			// Shard exists in schema with replicas, but local node is not one of them
-			// Filter it out unless it has async replication status (replication transition)
-			return nil
 		}
 
 		objectCount, err := shard.ObjectCountAsync(ctx)
