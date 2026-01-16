@@ -74,11 +74,3 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, query bool, 
 
 	return embeddingsResponse.Embeddings, nil
 }
-
-func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
-	return v.client.GetApiKeyHash(ctx, config)
-}
-
-func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return v.client.GetVectorizerRateLimit(ctx, cfg)
-}

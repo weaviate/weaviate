@@ -29,7 +29,7 @@ import (
 
 const (
 	Name      = "multi2multivec-weaviate"
-	BatchSize = 5
+	BatchSize = 2
 )
 
 func New() *Module {
