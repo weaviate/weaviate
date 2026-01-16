@@ -1430,24 +1430,17 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 	defer release()
 
-	// Try local first
-	isLoading := false
+	// Try local first (object store is available even when shard is loading)
 	if shard != nil {
-		isLoading = shard.GetStatus() == storagestate.StatusLoading
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
-		if obj != nil && !isLoading {
-			// Only return local result if shard is not loading
-			// If loading, try remote to ensure we have the latest data
+		if obj != nil {
 			return obj, nil
 		}
 	}
 
-	// Try remote if:
-	// 1. No local shard
-	// 2. Shard is loading (might not have all data yet)
-	// 3. Local returned nil
+	// Try remote if local returned nil or no local shard
 	if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
 		return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 	}
@@ -1523,23 +1516,18 @@ func (i *Index) multiObjectByID(ctx context.Context,
 			return nil, err
 		}
 
-		// Try local first
+		// Try local first (object store is available even when shard is loading)
 		var objects []*storobj.Object
 		var localErr error
-		isLoading := false
 		if shard != nil {
-			isLoading = shard.GetStatus() == storagestate.StatusLoading
 			objects, localErr = shard.MultiObjectByID(ctx, group.ids)
 			if localErr != nil {
 				localErr = errors.Wrapf(localErr, "local shard %s", shardId(i.ID(), shardName))
 			}
 		}
 
-		// Try remote if:
-		// 1. No local shard
-		// 2. Shard is loading (might not have all data yet)
-		// 3. Got no objects or incomplete results
-		needRemote := shard == nil || isLoading || len(objects) == 0 || hasNilObjects(objects)
+		// Try remote if we need more objects
+		needRemote := shard == nil || len(objects) == 0 || hasNilObjects(objects)
 		if needRemote {
 			remoteObjects, remoteErr := i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if remoteErr == nil {
