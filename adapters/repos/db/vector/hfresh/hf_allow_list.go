@@ -8,25 +8,66 @@ import (
 )
 
 func (h *HFresh) wrapAllowList(ctx context.Context, allowList helpers.AllowList) helpers.AllowList {
+	wrappedIdVisited := h.visitedPool.Borrow()
+	defer h.visitedPool.Return(wrappedIdVisited)
+	idVisited := h.visitedPool.Borrow()
+	defer h.visitedPool.Return(idVisited)
 	return &hfAllowList{
-		wrapped: allowList,
-		ctx:     ctx,
-		h:       h,
-		visited: visited.NewList(1_000_000),
+		wrapped:          allowList,
+		ctx:              ctx,
+		h:                h,
+		idVisited:        idVisited,
+		wrappedIdVisited: wrappedIdVisited,
 	}
 }
 
+func (h *HFresh) NewHFALIterator(allowList helpers.AllowList) helpers.AllowListIterator {
+	return &HFALIterator{
+		len:       int(h.Centroids.GetMaxID()),
+		allowList: allowList,
+	}
+}
+
+type HFALIterator struct {
+	len       int
+	current   uint64
+	allowList helpers.AllowList
+}
+
+func (i *HFALIterator) Len() int {
+	return i.len
+}
+
+func (i *HFALIterator) Next() (uint64, bool) {
+	if i.current >= uint64(i.len) {
+		return 0, false
+	}
+	for i.current < uint64(i.len) {
+		if i.allowList.Contains(i.current) {
+			i.current++
+			return i.current - 1, true
+		}
+		i.current++
+	}
+	return 0, false
+}
+
 type hfAllowList struct {
-	wrapped helpers.AllowList
-	ctx     context.Context
-	h       *HFresh
-	visited visited.ListSet
+	wrapped          helpers.AllowList
+	ctx              context.Context
+	h                *HFresh
+	wrappedIdVisited visited.ListSet
+	idVisited        visited.ListSet
 }
 
 func (a *hfAllowList) Contains(id uint64) bool {
+	if a.idVisited.Visited(id) {
+		return true
+	}
+
 	p, err := a.h.PostingMap.Get(a.ctx, id)
 	if err != nil {
-		return true
+		return false
 	}
 
 	p.RLock()
@@ -39,10 +80,11 @@ func (a *hfAllowList) Contains(id uint64) bool {
 		}
 		if !valid {
 			continue
-		}*/
-		//ToDo: vid is valid and not deleted...
-		if !a.visited.Visited(metadata.ID) && a.wrapped.Contains(metadata.ID) {
-			a.visited.Visit(metadata.ID)
+		}
+		*/
+		if !a.wrappedIdVisited.Visited(metadata.ID) && a.wrapped.Contains(metadata.ID) {
+			a.wrappedIdVisited.Visit(metadata.ID)
+			a.idVisited.Visit(id)
 			return true
 		}
 	}
@@ -66,12 +108,12 @@ func (a *hfAllowList) IsEmpty() bool {
 
 // Iterator implements [helpers.AllowList].
 func (a *hfAllowList) Iterator() helpers.AllowListIterator {
-	panic("unimplemented")
+	return a.h.NewHFALIterator(a)
 }
 
 // Len implements [helpers.AllowList].
 func (a *hfAllowList) Len() int {
-	return 1_000_000_000
+	return int(a.h.Centroids.GetMaxID())
 }
 
 // LimitedIterator implements [helpers.AllowList].

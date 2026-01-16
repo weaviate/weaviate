@@ -81,6 +81,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
 
+	totalValid := 0
+	culprit := -1
+
 	totalVectors := 0
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
@@ -112,6 +115,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			if allowList != nil && !allowList.Contains(id) {
 				continue
 			}
+			totalValid++
 
 			dist, err := v.Distance(h.distancer, queryVector)
 			if err != nil {
@@ -130,6 +134,38 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
 		}
+	}
+
+	if totalValid < 10 {
+		for i, p := range postings {
+			pp, _ := h.PostingMap.Get(ctx, selectedCentroids[i])
+			pp.RLock()
+			pIds := []uint64{}
+			ppIds := []uint64{}
+			pass := true
+			for _, v := range p {
+				deleted, err := h.VersionMap.IsDeleted(context.Background(), v.ID())
+				if err != nil {
+					h.logger.Error(err, "failed to check if vector %d is deleted", v.ID())
+				}
+				if deleted {
+					continue
+				}
+				pIds = append(pIds, v.ID())
+				pass = pass && allowList.Contains(v.ID())
+			}
+			for _, metadata := range pp.Iter() {
+				ppIds = append(ppIds, metadata.ID)
+			}
+			pp.RUnlock()
+			//h.logger.Error(pIds)
+			//h.logger.Error(ppIds)
+			h.logger.Error(pass)
+			h.logger.Error(nAllowList.Contains(selectedCentroids[i]))
+		}
+		h.logger.Error(culprit)
+		h.logger.Error(totalValid)
+		//panic("")
 	}
 
 	rescored := NewResultSet(k)

@@ -199,17 +199,20 @@ func (h *hnsw) cacheSize() int64 {
 }
 
 func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
-	if allowList == nil || !h.acornSearch.Load() {
-		return false
-	}
+	return allowList != nil
+	/*
+		if allowList == nil || !h.acornSearch.Load() {
+			return false
+		}
 
-	cacheSize := h.cacheSize()
-	allowListSize := allowList.Len()
-	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
-		return false
-	}
+		cacheSize := h.cacheSize()
+		allowListSize := allowList.Len()
+		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
+			return false
+		}
 
-	return true
+		return true
+	*/
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
@@ -846,24 +849,32 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	if allowList != nil && useAcorn {
+		seeds := 10
 		it := allowList.Iterator()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
-		if !isMultivec {
-			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-				idx, ok = it.Next()
+		for seeds > 0 {
+			if !isMultivec {
+				for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+					idx, ok = it.Next()
+				}
+			} else {
+				_, exists := h.docIDVectors[idx]
+				for ok && !exists {
+					idx, ok = it.Next()
+					_, exists = h.docIDVectors[idx]
+				}
 			}
-		} else {
-			_, exists := h.docIDVectors[idx]
-			for ok && !exists {
-				idx, ok = it.Next()
-				_, exists = h.docIDVectors[idx]
+
+			if !ok || !allowList.Contains(idx) {
+				break
+				//panic(idx)
 			}
+			entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+			eps.Insert(idx, entryPointDistance)
+			seeds--
 		}
 		h.shardedNodeLocks.RUnlockAll()
-
-		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-		eps.Insert(idx, entryPointDistance)
 	}
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
