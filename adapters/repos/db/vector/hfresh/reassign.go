@@ -67,7 +67,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	}
 
 	// create a new vector with the updated version
-	newVector := NewVector(op.VectorID, version, h.quantizer.CompressedBytes(h.quantizer.Encode(q)))
+	newVector := NewVector(op.VectorID, version, nil)
 
 	// append the vector to each replica
 	for id := range replicas.Iter() {
@@ -81,6 +81,9 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 			return nil
 		}
 
+		uncompressedCentroid, _ := h.getUncompressedCentroid(id)
+		rq := h.residualVector(q, uncompressedCentroid)
+		newVector = NewVector(newVector.ID(), newVector.Version(), h.quantizer.CompressedBytes(h.quantizer.Encode(rq)))
 		added, err := h.append(ctx, newVector, id, true)
 		if err != nil {
 			return err
