@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
+	"runtime"
 	"sort"
 	"sync"
 	"testing"
@@ -1846,8 +1846,6 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 
 func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	ctx := context.Background()
-	os.Setenv("TOMBSTONE_DELETION_CONCURRENCY", "100")
-	defer os.Unsetenv("TOMBSTONE_DELETION_CONCURRENCY")
 	// there is a single bulk clean event after all the deletes
 	vectors, _ := testinghelpers.RandomVecs(1_000, 1, 64)
 	var vectorIndex *hnsw
@@ -1864,7 +1862,8 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			TempVectorForIDThunk:         TempVectorForIDThunk(vectors),
+			TombstoneDeletionConcurrency: 100,
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -2081,4 +2080,61 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
+}
+
+func TestDeleteConcurrency(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("multi-tenant", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "concurrency-test-1",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return nil, nil
+			},
+			IsMultiTenant: true,
+		}, ent.UserConfig{}, cyclemanager.NewCallbackGroupNoop(), store)
+
+		require.Nil(t, err)
+		require.Equal(t, index.deletionConcurrency(), 2)
+		require.Nil(t, index.Drop(context.Background(), false))
+	})
+
+	t.Run("default", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "concurrency-test-2",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return nil, nil
+			},
+		}, ent.UserConfig{}, cyclemanager.NewCallbackGroupNoop(), store)
+
+		require.Nil(t, err)
+		require.Equal(t, index.deletionConcurrency(), runtime.GOMAXPROCS(0)/2)
+		require.Nil(t, index.Drop(context.Background(), false))
+	})
+
+	t.Run("custom", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "concurrency-test-3",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return nil, nil
+			},
+			TombstoneDeletionConcurrency: 8,
+		}, ent.UserConfig{}, cyclemanager.NewCallbackGroupNoop(), store)
+
+		require.Nil(t, err)
+		require.Equal(t, index.deletionConcurrency(), 8)
+		require.Nil(t, index.Drop(context.Background(), false))
+	})
+
+	store.Shutdown(context.Background())
 }

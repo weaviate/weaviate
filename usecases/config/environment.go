@@ -507,6 +507,30 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseNonNegativeInt(
+		"TOMBSTONE_DELETION_CONCURRENCY",
+		func(val int) { config.HNSWTombstoneDeletionConcurrency = val },
+		DefaultHNSWTombstoneDeletionConcurrency,
+	); err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeInt(
+		"TOMBSTONE_DELETION_MIN_PER_CYCLE",
+		func(val int) { config.HNSWTombstoneDeletionMinPerCycle = int64(val) },
+		int(DefaultHNSWTombstoneDeletionMinPerCycle),
+	); err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeInt(
+		"TOMBSTONE_DELETION_MAX_PER_CYCLE",
+		func(val int) { config.HNSWTombstoneDeletionMaxPerCycle = int64(val) },
+		int(DefaultHNSWTombstoneDeletionMaxPerCycle),
+	); err != nil {
+		return err
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err
