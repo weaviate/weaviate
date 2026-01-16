@@ -157,7 +157,8 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 }
 
 func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) (uuids []strfmt.UUID, err error) {
-	s.index.logger.Debug("Shard::FindUUIDs started")
+	logger := s.index.logger.WithField("shard", s.name)
+	logger.Debug("Shard::FindUUIDs started")
 
 	start := time.Now()
 
@@ -170,15 +171,15 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 	defer allowList.Close()
 
-	middle := time.Now()
+	fetchStart := time.Now()
 	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
 	uuids = make([]strfmt.UUID, it.Len())
 	currIdx := 0
 
 	defer func() {
-		logger := s.index.logger.WithFields(logrus.Fields{
+		logger := logger.WithFields(logrus.Fields{
 			"took":           time.Since(start).String(),
-			"filter_took":    middle.Sub(start).String(),
+			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
 			"uuids_resolved": currIdx,
 		})
