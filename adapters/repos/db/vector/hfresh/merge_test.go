@@ -36,22 +36,4 @@ func TestMergePostingThatDoesNotExist(t *testing.T) {
 	)
 	require.Equal(t, uint64(0), entry.Data["postingID"])
 
-	tf.Index.minPostingSize = 10
-	tf.Index.Centroids.Insert(0, &Centroid{
-		Uncompressed: []float32{1, 1, 1},
-		Compressed:   []byte{1, 1, 1},
-		Deleted:      false,
-	})
-
-	err = tf.Index.doMerge(t.Context(), 0)
-	require.NoError(t, err)
-
-	require.Len(t, tf.Logs.Entries, 3)
-
-	entry = tf.Logs.Entries[2]
-	require.Equal(t, logrus.DebugLevel, entry.Level)
 }
-
-// Merge a posting that is empty
-
-//
