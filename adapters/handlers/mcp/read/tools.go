@@ -29,6 +29,7 @@ func Tools(reader *WeaviateReader) []server.ServerTool {
 			Tool: mcp.NewTool(
 				"get-tenants",
 				mcp.WithDescription("Retrieves the tenants of a collection in the database."),
+				mcp.WithInputSchema[GetTenantsArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(reader.GetTenants),
 		},

@@ -22,6 +22,7 @@ func Tools(creator *WeaviateCreator) []server.ServerTool {
 			Tool: mcp.NewTool(
 				"insert-one",
 				mcp.WithDescription("Insert a single object into a collection in the database."),
+				mcp.WithInputSchema[InsertOneArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(creator.InsertOne),
 		},

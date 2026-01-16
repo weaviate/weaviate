@@ -1175,6 +1175,22 @@ local-usage-s3)
       --read-timeout=600s \
       --write-timeout=600s
     ;;
+    local-mcp)
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHORIZATION_RBAC_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key' \
+      AUTHENTICATION_APIKEY_USERS='admin' \
+      AUTHORIZATION_RBAC_ROOT_USERS='admin' \
+      DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
+      TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
+      ENABLE_MODULES="text2vec-transformers" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   *)
     echo "Invalid config" 2>&1
     exit 1
