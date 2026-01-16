@@ -156,9 +156,8 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 	// Process files in sd.Files and remove them as we go (pop from front).
 	for len(sd.Files) > 0 {
 		relPath := sd.Files[0]
-		// remove first element from slice and release reference
-
 		if filepath.Base(relPath) == ".DS_Store" {
+			sd.Files = sd.Files[1:]
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -206,12 +205,13 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 		return 0, true, nil
 	}
 
-	preCompressionSize.Add(info.Size())
 	f, err := os.Open(absPath)
 	if err != nil {
 		return written, false, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
+
+	preCompressionSize.Add(info.Size())
 
 	written, err = z.writeOne(ctx, info, relPath, f)
 	return written, false, err
