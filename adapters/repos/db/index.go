@@ -1430,20 +1430,16 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 	defer release()
 
-	// Try local first (object store is available even when shard is loading)
 	if shard != nil {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
-		if obj != nil {
-			return obj, nil
+	} else {
+		if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
+			return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 		}
 	}
 
-	// Try remote if local returned nil or no local shard
-	if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
-		return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
-	}
 	return obj, nil
 }
 
@@ -2381,7 +2377,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, errAlreadyShutdown
 	}
 
-	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a write lock and initialize
+	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
 	// the shard
 	i.shardCreateLocks.RLock(shardName)
 	shard = i.shards.Load(shardName)
