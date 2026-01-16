@@ -1779,7 +1779,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
 		}
 		if shard == nil {
-			// Shard doesn't exist locally, try remote replicas
+			// This will make the code hit other remote replicas, and usually resolve any kind of eventual consistency issues just thanks to delaying
+			// the search to the other replica.
+			// This is not ideal, but it works for now.
 			return remoteSearch(shardName)
 		}
 
@@ -1923,10 +1925,6 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 
 	localCtx := helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-	if shard.GetStatus() == storagestate.StatusLoading {
-		// Shard is still loading, return empty result (caller should handle fallback)
-		return nil, nil, nil
-	}
 	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
 		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
 	if err != nil {
@@ -2058,21 +2056,21 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if err != nil {
 			return err
 		}
-		if shard == nil || shard.GetStatus() == storagestate.StatusLoading {
-			// Shard doesn't exist or is still loading, try remote replicas
+		if shard != nil {
+			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
+			if err1 != nil {
+				return fmt.Errorf(
+					"local shard object search %s: %w", shard.ID(), err1)
+			}
+
+			m.Lock()
+			localResponses.Add(1)
+			out = append(out, localShardResult...)
+			dists = append(dists, localShardScores...)
+			m.Unlock()
+		} else {
 			return remoteSearch(shardName)
 		}
-		localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
-		if err1 != nil {
-			return fmt.Errorf(
-				"local shard object search %s: %w", shard.ID(), err1)
-		}
-
-		m.Lock()
-		localResponses.Add(1)
-		out = append(out, localShardResult...)
-		dists = append(dists, localShardScores...)
-		m.Unlock()
 
 		return nil
 	}
