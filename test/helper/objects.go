@@ -309,6 +309,19 @@ func PatchObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
+func PatchObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLevel) error {
+	t.Helper()
+	cls := string(cl)
+	params := objects.NewObjectsClassPatchParams().
+		WithClassName(object.Class).
+		WithID(object.ID).
+		WithBody(object).
+		WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassPatch(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
 func HeadObject(t *testing.T, id strfmt.UUID) error {
 	t.Helper()
 	params := objects.NewObjectsHeadParams().WithID(id)

@@ -136,7 +136,7 @@ func (db *DB) CommitReplication(class,
 		return *pr
 	}
 
-	return index.CommitReplication(shard, requestID)
+	return index.CommitReplication(context.Background(), shard, requestID)
 }
 
 func (db *DB) AbortReplication(class,
@@ -147,7 +147,7 @@ func (db *DB) AbortReplication(class,
 		return *pr
 	}
 
-	return index.AbortReplication(shard, requestID)
+	return index.AbortReplication(context.Background(), shard, requestID)
 }
 
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
@@ -250,8 +250,8 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 	return localShard.prepareAddReferences(ctx, requestID, refs)
 }
 
-func (i *Index) CommitReplication(shard, requestID string) interface{} {
-	localShard, release, err := i.getOrInitShard(context.Background(), shard)
+func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) interface{} {
+	localShard, release, err := i.getOrInitShard(ctx, shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
@@ -262,11 +262,11 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	i.backupLock.RLock(shard)
 	defer i.backupLock.RUnlock(shard)
 
-	return localShard.commitReplication(context.Background(), requestID)
+	return localShard.commitReplication(ctx, requestID)
 }
 
-func (i *Index) AbortReplication(shard, requestID string) interface{} {
-	localShard, release, err := i.getOrInitShard(context.Background(), shard)
+func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) interface{} {
+	localShard, release, err := i.getOrInitShard(ctx, shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
@@ -275,7 +275,7 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 
 	defer release()
 
-	return localShard.abortReplication(context.Background(), requestID)
+	return localShard.abortReplication(ctx, requestID)
 }
 
 func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
