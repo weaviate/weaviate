@@ -1457,6 +1457,10 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	}
 	defer release()
 
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
+
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
@@ -1472,6 +1476,10 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 		return nil, err
 	}
 	defer release()
+
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -1614,6 +1622,10 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 		return false, err
 	}
 	defer release()
+
+	if shard == nil {
+		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -1918,8 +1930,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, err
 	}
 	if shard == nil {
-		// Shard doesn't exist locally, return empty result (caller should handle fallback)
-		return nil, nil, nil
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 	defer release()
 
@@ -2524,6 +2535,10 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	}
 	defer release()
 
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
+
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
@@ -2782,6 +2797,10 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	}
 	defer release()
 
+	if shard == nil {
+		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
+
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
@@ -2840,6 +2859,10 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 		return "", err
 	}
 	defer release()
+
+	if shard == nil {
+		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -2941,6 +2964,10 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 		return nil, err
 	}
 	defer release()
+
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
