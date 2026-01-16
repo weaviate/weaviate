@@ -552,12 +552,12 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
-			continue
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
+				continue
+			}
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
