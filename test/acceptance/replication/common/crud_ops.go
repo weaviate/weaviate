@@ -144,6 +144,18 @@ func GetTenantObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, n
 	return helper.GetTenantObjectFromNode(t, class, id, nodename, tenant)
 }
 
+func GetObjectWithVector(t *testing.T, host, class string, id strfmt.UUID) (*models.Object, error) {
+	t.Helper()
+	helper.SetupClient(host)
+	return helper.GetObject(t, class, id, "vector")
+}
+
+func GetObjectFromNodeWithVector(t *testing.T, host, class string, id strfmt.UUID, nodename string) (*models.Object, error) {
+	t.Helper()
+	helper.SetupClient(host)
+	return helper.GetObjectFromNodeWithVector(t, class, id, nodename)
+}
+
 func PatchObject(t *testing.T, host string, patch *models.Object) {
 	t.Helper()
 	helper.SetupClient(host)
@@ -154,6 +166,12 @@ func UpdateObjectCL(t *testing.T, host string, obj *models.Object, cl types.Cons
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.UpdateObjectCL(t, obj, cl)
+}
+
+func PatchObjectCL(t *testing.T, host string, obj *models.Object, cl types.ConsistencyLevel) error {
+	t.Helper()
+	helper.SetupClient(host)
+	return helper.PatchObjectCL(t, obj, cl)
 }
 
 func AddReferences(t *testing.T, host string, refs []*models.BatchReference) {

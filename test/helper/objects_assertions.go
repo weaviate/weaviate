@@ -224,6 +224,23 @@ func GetTenantObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, noden
 	return getResp.Payload, nil
 }
 
+func GetObjectFromNodeWithVector(t *testing.T, class string, uuid strfmt.UUID, nodename string) (*models.Object, error) {
+	include := "vector"
+	req := objects.NewObjectsClassGetParams().WithID(uuid)
+	if class != "" {
+		req.WithClassName(class)
+	}
+	if nodename != "" {
+		req.WithNodeName(&nodename)
+	}
+	req.WithInclude(&include)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
 func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteOK, error) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
