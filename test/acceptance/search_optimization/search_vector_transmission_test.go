@@ -22,9 +22,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // TestSearchVectorTransmission tests that search operations correctly handle
@@ -39,9 +41,9 @@ import (
 func TestSearchVectorTransmission(t *testing.T) {
 	ctx := context.Background()
 
-	// Start a 3-node cluster
+	// Start a 3-node cluster with gRPC exposed
 	compose, err := docker.New().
-		With3NodeCluster().
+		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -52,6 +54,13 @@ func TestSearchVectorTransmission(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
+	// Setup gRPC client
+	grpcConn, err := helper.CreateGrpcConnectionClient(compose.GetWeaviate().GrpcURI())
+	require.NoError(t, err)
+	defer grpcConn.Close()
+	grpcClient := helper.CreateGrpcWeaviateClient(grpcConn)
+
+	// GraphQL tests
 	t.Run("LegacyVector", func(t *testing.T) {
 		testLegacyVector(t)
 	})
@@ -62,6 +71,23 @@ func TestSearchVectorTransmission(t *testing.T) {
 
 	t.Run("ShardedClass", func(t *testing.T) {
 		testShardedClass(t)
+	})
+
+	t.Run("PropertyVariations", func(t *testing.T) {
+		testPropertyVariations(t)
+	})
+
+	// gRPC tests
+	t.Run("gRPCVectorTransmission", func(t *testing.T) {
+		testGRPCVectorTransmission(t, grpcClient)
+	})
+
+	t.Run("gRPCPropertyVariations", func(t *testing.T) {
+		testGRPCPropertyVariations(t, grpcClient)
+	})
+
+	t.Run("gRPCNamedVectorTransmission", func(t *testing.T) {
+		testGRPCNamedVectorTransmission(t, grpcClient)
 	})
 }
 
@@ -512,6 +538,638 @@ func testShardedClass(t *testing.T) {
 			assert.NotNil(t, addl["id"])
 			assert.NotNil(t, addl["distance"])
 			assert.Nil(t, addl["vector"], "vector should NOT be present when not requested")
+		}
+	})
+}
+
+// testPropertyVariations tests GraphQL search with various property inclusion configurations
+func testPropertyVariations(t *testing.T) {
+	className := "PropertyVariationsTest"
+
+	// Create class with multiple properties
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "title",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "description",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "count",
+				DataType: schema.DataTypeInt.PropString(),
+			},
+		},
+		VectorIndexConfig: map[string]interface{}{
+			"distance": "cosine",
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": json.Number("2"),
+		},
+	}
+	helper.CreateClass(t, class)
+	defer helper.DeleteClass(t, className)
+
+	// Insert objects
+	objects := []*models.Object{
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000021"),
+			Properties: map[string]interface{}{
+				"title":       "First item",
+				"description": "A description for the first item",
+				"count":       float64(10),
+			},
+			Vector: []float32{0.1, 0.2, 0.3, 0.4},
+		},
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000022"),
+			Properties: map[string]interface{}{
+				"title":       "Second item",
+				"description": "A description for the second item",
+				"count":       float64(20),
+			},
+			Vector: []float32{0.5, 0.6, 0.7, 0.8},
+		},
+	}
+	helper.CreateObjectsBatch(t, objects)
+
+	t.Run("SearchWithNoProperties", func(t *testing.T) {
+		// Query with only _additional, no properties
+		query := fmt.Sprintf(`{
+			Get {
+				%s {
+					_additional { id }
+				}
+			}
+		}`, className)
+
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		results := result.Get("Get", className).AsSlice()
+		require.Len(t, results, 2)
+
+		for _, res := range results {
+			obj := res.(map[string]interface{})
+			addl := obj["_additional"].(map[string]interface{})
+			assert.NotNil(t, addl["id"])
+			// Properties should not be in the response
+			assert.Nil(t, obj["title"])
+			assert.Nil(t, obj["description"])
+			assert.Nil(t, obj["count"])
+		}
+	})
+
+	t.Run("SearchWithSomeProperties", func(t *testing.T) {
+		// Query with subset of properties
+		query := fmt.Sprintf(`{
+			Get {
+				%s {
+					title
+					_additional { id }
+				}
+			}
+		}`, className)
+
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		results := result.Get("Get", className).AsSlice()
+		require.Len(t, results, 2)
+
+		for _, res := range results {
+			obj := res.(map[string]interface{})
+			addl := obj["_additional"].(map[string]interface{})
+			assert.NotNil(t, addl["id"])
+			// Only title should be present
+			assert.NotNil(t, obj["title"])
+			assert.Nil(t, obj["description"])
+			assert.Nil(t, obj["count"])
+		}
+	})
+
+	t.Run("SearchWithAllProperties", func(t *testing.T) {
+		// Query with all properties
+		query := fmt.Sprintf(`{
+			Get {
+				%s {
+					title
+					description
+					count
+					_additional { id vector }
+				}
+			}
+		}`, className)
+
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		results := result.Get("Get", className).AsSlice()
+		require.Len(t, results, 2)
+
+		for _, res := range results {
+			obj := res.(map[string]interface{})
+			addl := obj["_additional"].(map[string]interface{})
+			assert.NotNil(t, addl["id"])
+			assert.NotNil(t, addl["vector"])
+			// All properties should be present
+			assert.NotNil(t, obj["title"])
+			assert.NotNil(t, obj["description"])
+			assert.NotNil(t, obj["count"])
+		}
+	})
+
+	t.Run("NearVectorWithSomeProperties", func(t *testing.T) {
+		query := fmt.Sprintf(`{
+			Get {
+				%s(nearVector: {vector: [0.1, 0.2, 0.3, 0.4]}) {
+					title
+					count
+					_additional { id distance }
+				}
+			}
+		}`, className)
+
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		results := result.Get("Get", className).AsSlice()
+		require.GreaterOrEqual(t, len(results), 1)
+
+		for _, res := range results {
+			obj := res.(map[string]interface{})
+			addl := obj["_additional"].(map[string]interface{})
+			assert.NotNil(t, addl["id"])
+			assert.NotNil(t, addl["distance"])
+			// Only title and count should be present
+			assert.NotNil(t, obj["title"])
+			assert.NotNil(t, obj["count"])
+			assert.Nil(t, obj["description"])
+			// Vector not requested
+			assert.Nil(t, addl["vector"])
+		}
+	})
+}
+
+// testGRPCVectorTransmission tests gRPC search with vector control
+func testGRPCVectorTransmission(t *testing.T, grpcClient protocol.WeaviateClient) {
+	ctx := context.Background()
+	className := "GRPCVectorTest"
+
+	// Create class with legacy vector
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "title",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		},
+		VectorIndexConfig: map[string]interface{}{
+			"distance": "cosine",
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": json.Number("2"),
+		},
+	}
+	helper.CreateClass(t, class)
+	defer helper.DeleteClass(t, className)
+
+	// Insert objects
+	objects := []*models.Object{
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000031"),
+			Properties: map[string]interface{}{
+				"title": "First gRPC document",
+			},
+			Vector: []float32{0.1, 0.2, 0.3, 0.4},
+		},
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000032"),
+			Properties: map[string]interface{}{
+				"title": "Second gRPC document",
+			},
+			Vector: []float32{0.5, 0.6, 0.7, 0.8},
+		},
+	}
+	helper.CreateObjectsBatch(t, objects)
+
+	t.Run("SearchWithoutVector", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			Properties: &protocol.PropertiesRequest{
+				NonRefProperties: []string{"title"},
+			},
+			Metadata: &protocol.MetadataRequest{
+				Uuid: true,
+				// NO Vector field - should not return vectors
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			assert.Empty(t, result.Metadata.VectorBytes, "vector bytes should be empty when not requested")
+		}
+	})
+
+	t.Run("SearchWithVector", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			Metadata: &protocol.MetadataRequest{
+				Uuid:   true,
+				Vector: true, // Request vector
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Vector should be present as VectorBytes
+			assert.NotEmpty(t, result.Metadata.VectorBytes, "vector should be present when requested")
+		}
+	})
+
+	t.Run("NearVectorWithoutVectorInResponse", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			NearVector: &protocol.NearVector{
+				VectorBytes: byteops.Fp32SliceToBytes([]float32{0.1, 0.2, 0.3, 0.4}),
+			},
+			Metadata: &protocol.MetadataRequest{
+				Uuid:     true,
+				Distance: true,
+				// NO Vector - should not return vectors
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+			Uses_127Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.GreaterOrEqual(t, len(resp.Results), 1)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Distance is returned when requested (may be 0 for exact match)
+			assert.Empty(t, result.Metadata.VectorBytes, "vector bytes should be empty when not requested")
+		}
+	})
+
+	t.Run("NearVectorWithVectorInResponse", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			NearVector: &protocol.NearVector{
+				VectorBytes: byteops.Fp32SliceToBytes([]float32{0.1, 0.2, 0.3, 0.4}),
+			},
+			Metadata: &protocol.MetadataRequest{
+				Uuid:     true,
+				Distance: true,
+				Vector:   true, // Request vector
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+			Uses_127Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.GreaterOrEqual(t, len(resp.Results), 1)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Distance is returned when requested (may be 0 for exact match)
+			assert.NotEmpty(t, result.Metadata.VectorBytes, "vector should be present when requested")
+		}
+	})
+}
+
+// testGRPCPropertyVariations tests gRPC search with various property configurations
+func testGRPCPropertyVariations(t *testing.T, grpcClient protocol.WeaviateClient) {
+	ctx := context.Background()
+	className := "GRPCPropsTest"
+
+	// Create class with multiple properties
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "title",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "description",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "count",
+				DataType: schema.DataTypeInt.PropString(),
+			},
+		},
+		VectorIndexConfig: map[string]interface{}{
+			"distance": "cosine",
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": json.Number("2"),
+		},
+	}
+	helper.CreateClass(t, class)
+	defer helper.DeleteClass(t, className)
+
+	// Insert objects
+	objects := []*models.Object{
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000041"),
+			Properties: map[string]interface{}{
+				"title":       "First gRPC props item",
+				"description": "Description one",
+				"count":       float64(100),
+			},
+			Vector: []float32{0.1, 0.2, 0.3, 0.4},
+		},
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000042"),
+			Properties: map[string]interface{}{
+				"title":       "Second gRPC props item",
+				"description": "Description two",
+				"count":       float64(200),
+			},
+			Vector: []float32{0.5, 0.6, 0.7, 0.8},
+		},
+	}
+	helper.CreateObjectsBatch(t, objects)
+
+	t.Run("SearchWithNoPropertiesField", func(t *testing.T) {
+		// When Properties field is not specified, gRPC returns all properties by default
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			// No Properties field - returns all properties by default
+			Metadata:    &protocol.MetadataRequest{Uuid: true},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Without Properties field, all properties are returned by default
+			assert.NotNil(t, result.Properties)
+			assert.NotNil(t, result.Properties.NonRefProps)
+			assert.GreaterOrEqual(t, len(result.Properties.NonRefProps.Fields), 3, "all properties should be returned when Properties field is not specified")
+			// But vector should not be returned since it wasn't requested
+			assert.Empty(t, result.Metadata.VectorBytes, "vector should be empty when not requested")
+		}
+	})
+
+	t.Run("SearchWithSomeProperties", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			Properties: &protocol.PropertiesRequest{
+				NonRefProperties: []string{"title"}, // Only title
+			},
+			Metadata:    &protocol.MetadataRequest{Uuid: true},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			assert.NotNil(t, result.Properties)
+			// Only title should be present
+			assert.NotNil(t, result.Properties.NonRefProps)
+			titleField := result.Properties.NonRefProps.Fields["title"]
+			assert.NotNil(t, titleField, "title property should be present")
+			assert.NotEmpty(t, titleField.GetTextValue())
+		}
+	})
+
+	t.Run("SearchWithAllProperties", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			Properties: &protocol.PropertiesRequest{
+				ReturnAllNonrefProperties: true,
+			},
+			Metadata:    &protocol.MetadataRequest{Uuid: true, Vector: true},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			assert.NotEmpty(t, result.Metadata.VectorBytes, "vector should be present when requested")
+			assert.NotNil(t, result.Properties)
+			// All properties should be present
+			assert.NotNil(t, result.Properties.NonRefProps)
+			assert.GreaterOrEqual(t, len(result.Properties.NonRefProps.Fields), 3)
+		}
+	})
+
+	t.Run("NearVectorWithSomeProperties", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			NearVector: &protocol.NearVector{
+				VectorBytes: byteops.Fp32SliceToBytes([]float32{0.1, 0.2, 0.3, 0.4}),
+			},
+			Properties: &protocol.PropertiesRequest{
+				NonRefProperties: []string{"title", "count"},
+			},
+			Metadata: &protocol.MetadataRequest{
+				Uuid:     true,
+				Distance: true,
+				// NO Vector
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+			Uses_127Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.GreaterOrEqual(t, len(resp.Results), 1)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Distance is returned when requested (may be 0 for exact match)
+			assert.Empty(t, result.Metadata.VectorBytes, "vector bytes should be empty when not requested")
+			assert.NotNil(t, result.Properties)
+			assert.NotNil(t, result.Properties.NonRefProps)
+		}
+	})
+}
+
+// testGRPCNamedVectorTransmission tests gRPC search with named vectors
+func testGRPCNamedVectorTransmission(t *testing.T, grpcClient protocol.WeaviateClient) {
+	ctx := context.Background()
+	className := "GRPCNamedVectorTest"
+
+	// Create class with named vectors
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "title",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"title_vector": {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexType: "hnsw",
+				VectorIndexConfig: map[string]interface{}{
+					"distance": "cosine",
+				},
+			},
+			"desc_vector": {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexType: "hnsw",
+				VectorIndexConfig: map[string]interface{}{
+					"distance": "cosine",
+				},
+			},
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": json.Number("2"),
+		},
+	}
+	helper.CreateClass(t, class)
+	defer helper.DeleteClass(t, className)
+
+	// Insert objects
+	objects := []*models.Object{
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000051"),
+			Properties: map[string]interface{}{
+				"title": "Named vector doc 1",
+			},
+			Vectors: map[string]models.Vector{
+				"title_vector": []float32{0.1, 0.2, 0.3},
+				"desc_vector":  []float32{0.4, 0.5, 0.6},
+			},
+		},
+		{
+			Class: className,
+			ID:    strfmt.UUID("00000000-0000-0000-0000-000000000052"),
+			Properties: map[string]interface{}{
+				"title": "Named vector doc 2",
+			},
+			Vectors: map[string]models.Vector{
+				"title_vector": []float32{0.7, 0.8, 0.9},
+				"desc_vector":  []float32{0.1, 0.2, 0.3},
+			},
+		},
+	}
+	helper.CreateObjectsBatch(t, objects)
+
+	t.Run("SearchWithSpecificNamedVectors", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			Metadata: &protocol.MetadataRequest{
+				Uuid:    true,
+				Vectors: []string{"title_vector"}, // Only one named vector
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Should have only title_vector
+			require.Len(t, result.Metadata.Vectors, 1)
+			assert.Equal(t, "title_vector", result.Metadata.Vectors[0].Name)
+		}
+	})
+
+	t.Run("SearchWithAllNamedVectors", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			Metadata: &protocol.MetadataRequest{
+				Uuid:    true,
+				Vectors: []string{"title_vector", "desc_vector"},
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Should have both vectors
+			require.Len(t, result.Metadata.Vectors, 2)
+		}
+	})
+
+	t.Run("SearchWithNoNamedVectors", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			Metadata: &protocol.MetadataRequest{
+				Uuid: true,
+				// No Vectors field
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 2)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Should have no vectors
+			assert.Empty(t, result.Metadata.Vectors)
+		}
+	})
+
+	t.Run("NearVectorOnNamedVectorWithoutVectorInResponse", func(t *testing.T) {
+		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+			Collection: className,
+			NearVector: &protocol.NearVector{
+				VectorBytes: byteops.Fp32SliceToBytes([]float32{0.1, 0.2, 0.3}),
+				Targets: &protocol.Targets{
+					TargetVectors: []string{"title_vector"},
+				},
+			},
+			Metadata: &protocol.MetadataRequest{
+				Uuid:     true,
+				Distance: true,
+				// No Vectors - should not return vectors
+			},
+			Uses_123Api: true,
+			Uses_125Api: true,
+			Uses_127Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.GreaterOrEqual(t, len(resp.Results), 1)
+
+		for _, result := range resp.Results {
+			assert.NotNil(t, result.Metadata.Id)
+			// Distance is returned when requested (may be 0 for exact match)
+			assert.Empty(t, result.Metadata.Vectors, "vectors should be empty when not requested")
 		}
 	})
 }
