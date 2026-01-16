@@ -2403,8 +2403,19 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			i.shards.Store(shardName, shard)
 		}
 	} else {
-		// shard already loaded, so we can defer the Runlock
+		// shard already exists
 		defer i.shardCreateLocks.RUnlock(shardName)
+	}
+
+	// If ensureInit is true and shard is lazy, load it (applies to both newly created and existing shards)
+	if ensureInit {
+		if lazyShard, ok := shard.(*LazyLoadShard); ok {
+			if err := lazyShard.Load(ctx); err != nil {
+				return nil, func() {}, fmt.Errorf("load lazy shard %q: %w", shardName, err)
+			}
+			// Reload in case Load() replaced the lazy shard with a real shard
+			shard = i.shards.Load(shardName)
+		}
 	}
 
 	release, err = shard.preventShutdown()
