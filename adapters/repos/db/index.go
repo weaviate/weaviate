@@ -1511,65 +1511,33 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	out := make([]*storobj.Object, len(query))
 
 	for shardName, group := range byShard {
+		var objects []*storobj.Object
+		var err error
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
 		if err != nil {
 			return nil, err
-		}
-
-		// Try local first (object store is available even when shard is loading)
-		var objects []*storobj.Object
-		var localErr error
-		if shard != nil {
-			objects, localErr = shard.MultiObjectByID(ctx, group.ids)
-			if localErr != nil {
-				localErr = errors.Wrapf(localErr, "local shard %s", shardId(i.ID(), shardName))
-			}
-		}
-
-		// Try remote if we need more objects
-		needRemote := shard == nil || len(objects) == 0 || hasNilObjects(objects)
-		if needRemote {
-			remoteObjects, remoteErr := i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
-			if remoteErr == nil {
-				if len(objects) == 0 {
-					objects = remoteObjects
-				} else {
-					mergeObjects(objects, remoteObjects)
+		} else if shard != nil {
+			func() {
+				defer release()
+				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				if err != nil {
+					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
 				}
-			} else if len(objects) == 0 {
-				release()
-				if localErr != nil {
-					return nil, localErr
-				}
-				return nil, errors.Wrapf(remoteErr, "remote shard %s", shardName)
+			}()
+		} else {
+			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
+			if err != nil {
+				return nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
 		}
 
 		for i, obj := range objects {
-			out[group.pos[i]] = obj
+			desiredPos := group.pos[i]
+			out[desiredPos] = obj
 		}
-
-		release()
 	}
 
 	return out, nil
-}
-
-func hasNilObjects(objects []*storobj.Object) bool {
-	for _, obj := range objects {
-		if obj == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func mergeObjects(local, remote []*storobj.Object) {
-	for i, remoteObj := range remote {
-		if i < len(local) && local[i] == nil && remoteObj != nil {
-			local[i] = remoteObj
-		}
-	}
 }
 
 func extractIDsFromMulti(in []multi.Identifier) []strfmt.UUID {
