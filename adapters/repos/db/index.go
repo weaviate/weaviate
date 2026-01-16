@@ -2860,11 +2860,17 @@ func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, ta
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	// Use GetShard instead of getOrInitShard to avoid creating empty shards during replication.
+	// If the shard doesn't exist yet, we should return an error rather than creating an empty shard.
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
 	defer release()
+
+	if shard == nil {
+		return fmt.Errorf("shard %s does not exist locally", shardName)
+	}
 
 	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
