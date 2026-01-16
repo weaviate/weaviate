@@ -408,7 +408,7 @@ replica_movement_minimum_async_wait: 10s`)
 
 	t.Run("updating objects ttl", func(t *testing.T) {
 		deleteSchedule, _ := runtime.NewDynamicValueWithValidation("@every 1h", func(val string) error {
-			if _, err := cron.StandardParser().Parse(val); err != nil {
+			if _, err := cron.SecondsParser().Parse(val); err != nil {
 				return fmt.Errorf("delete_schedule: %w", err)
 			}
 			return nil
@@ -442,7 +442,7 @@ replica_movement_minimum_async_wait: 10s`)
 			assert.Equal(t, "@every 2h", deleteSchedule.Get())
 
 			// try set invalid value
-			parsed, err = ParseRuntimeConfig(buf("* * * * * *"))
+			parsed, err = ParseRuntimeConfig(buf("* * * * *"))
 			require.NoError(t, err)
 			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 			assert.Equal(t, "@every 2h", deleteSchedule.Get())

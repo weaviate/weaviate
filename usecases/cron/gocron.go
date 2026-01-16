@@ -33,7 +33,6 @@ type Crons struct {
 
 	logger            logrus.FieldLogger
 	gocronLogger      gocron.Logger
-	configGetter      configGetter
 	serverShutdownCtx context.Context
 }
 
@@ -45,25 +44,18 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 		objectsttl:        newCronsObjectsTTL(serverShutdownCtx, logger, gocronLogger, configGetter),
 		logger:            logger,
 		gocronLogger:      gocronLogger,
-		configGetter:      configGetter,
 		serverShutdownCtx: serverShutdownCtx,
 	}
 }
 
 // blocking
 func (c *Crons) Init(clusterService *cluster.Service, coordinator *objectttl.Coordinator) error {
-	opts := []gocron.Option{
+	cr := gocron.New(
 		gocron.WithContext(c.serverShutdownCtx),
 		gocron.WithLogger(c.gocronLogger),
 		gocron.WithChain(gocron.Recover(c.gocronLogger)),
-	}
-
-	// TODO aliszka:ttl make seconds global env or default?
-	if c.configGetter().ObjectsTTLAllowSeconds {
-		opts = append(opts, gocron.WithSeconds())
-	}
-
-	cr := gocron.New(opts...)
+		gocron.WithSeconds(),
+	)
 
 	if err := c.objectsttl.Init(cr, clusterService, coordinator); err != nil {
 		return fmt.Errorf("init objects ttl cron: %w", err)
