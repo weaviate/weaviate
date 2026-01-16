@@ -361,21 +361,18 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	desc.Chunks = make(map[int32][]string, 1+nShards/2)
 	var (
-		hasJobs   atomic.Bool
 		lastChunk = int32(0)
 		nWorker   = u.GoPoolSize
 	)
 	if nWorker > nShards {
 		nWorker = nShards
 	}
-	hasJobs.Store(nShards > 0)
 
 	// jobs produces work for the processor
 	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
 		sendCh := make(chan *backup.ShardDescriptor)
 		f := func() {
 			defer close(sendCh)
-			defer hasJobs.Store(false)
 
 			for _, shard := range xs {
 				select {
@@ -405,17 +402,21 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					if err := ctx.Err(); err != nil {
 						return err
 					}
-					for hasJobs.Load() {
-						if err := ctx.Err(); err != nil {
-							return err
-						}
-						chunk := atomic.AddInt32(&lastChunk, 1)
-						shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, sender, overrideBucket, overridePath)
-						if err != nil {
-							return err
-						}
-						if m := int32(len(shards)); m > 0 {
-							recvCh <- chuckShards{chunk, shards, preCompressionSize}
+					for shard := range sender {
+						firstChunk := true
+						for {
+							chunk := atomic.AddInt32(&lastChunk, 1)
+							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, firstChunk, overrideBucket, overridePath)
+							if err != nil {
+								return err
+							}
+							if m := int32(len(shards)); m > 0 {
+								recvCh <- chuckShards{chunk, shards, preCompressionSize}
+							}
+							firstChunk = false
+							if len(shard.Files) == 0 {
+								break
+							}
 						}
 					}
 					return err
@@ -443,7 +444,8 @@ type chuckShards struct {
 func (u *uploader) compress(ctx context.Context,
 	class string, // class name
 	chunk int32, // chunk index
-	ch <-chan *backup.ShardDescriptor, // chan of shards
+	shard *backup.ShardDescriptor, // chan of shards
+	firstChunkForShard bool,
 	overrideBucket, overridePath string, // bucket name and path
 ) ([]string, int64, error) {
 	var (
@@ -459,30 +461,22 @@ func (u *uploader) compress(ctx context.Context,
 	}
 	producer := func() error {
 		defer zip.Close()
-		for shard := range ch {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
 
-			eg.Go(func() error {
-				// Calculate pre-compression size for this shard
-				shardPreSize := u.calculateShardPreCompressionSize(shard)
-				preCompressionSize.Add(shardPreSize)
-				return nil
-			})
-
-			if _, err := zip.WriteShard(ctx, shard); err != nil {
-				return err
-			}
-			shard.Chunk = chunk
-			shards = append(shards, shard.Name)
-			shard.ClearTemporary()
-
-			if zip.compressorWriter != nil {
-				zip.compressorWriter.Flush() // flush new shard
-			}
-
+		if err := ctx.Err(); err != nil {
+			return err
 		}
+
+		if _, err := zip.WriteShard(ctx, shard, firstChunkForShard, &preCompressionSize); err != nil {
+			return err
+		}
+		shard.Chunk = chunk
+		shards = append(shards, shard.Name)
+		shard.ClearTemporary()
+
+		if zip.compressorWriter != nil {
+			zip.compressorWriter.Flush() // flush new shard
+		}
+
 		return nil
 	}
 
