@@ -243,7 +243,6 @@ type Config struct {
 	// Time expired objects should be deleted at by background routine
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
 	ObjectsTTLDeleteSchedule    *runtime.DynamicValue[string]  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
-	ObjectsTTLAllowSeconds      bool                           `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
 	ObjectsTTLBatchSize         *runtime.DynamicValue[int]     `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
 	ObjectsTTLConcurrencyFactor *runtime.DynamicValue[float64] `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 

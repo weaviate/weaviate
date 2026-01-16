@@ -172,20 +172,12 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("%s: %w", objectsTtlBatchSizeEnv, err)
 		}
 
-		objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
-		if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
-			config.ObjectsTTLAllowSeconds = true
-		}
-
 		objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
 		objectsTtlDeleteSchedule := DefaultObjectsTTLDeleteSchedule
 		if env := os.Getenv(objectsTtlDeleteScheduleEnv); env != "" {
 			objectsTtlDeleteSchedule = env
 		}
-		scheduleParser := cron.StandardParser()
-		if config.ObjectsTTLAllowSeconds {
-			scheduleParser = cron.SecondsParser()
-		}
+		scheduleParser := cron.SecondsParser()
 		dv, err := configRuntime.NewDynamicValueWithValidation(objectsTtlDeleteSchedule, func(val string) error {
 			if val != "" {
 				if _, err := scheduleParser.Parse(val); err != nil {
