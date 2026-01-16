@@ -214,17 +214,91 @@ func index() http.Handler {
 // by removing all the dynamic variables in the route. Useful for instrumentation
 // where "route cardinality" matters.
 
-// Example: `/replicas/indices/Movies/shards/hello0/objects` -> `/replicas/indices`
+// Example: `/replicas/indices/Movies/shards/hello0/objects` -> `/replicas/indices/{class}/shards/{shard}/objects`
 func staticRoute(mux *http.ServeMux) monitoring.StaticRouteLabel {
 	return func(r *http.Request) (*http.Request, string) {
-		route := r.URL.String()
+		path := r.URL.Path
 
+		// Use detailed route labels for /replicas/indices/ and /indices/ paths
+		if strings.HasPrefix(path, "/replicas/indices/") {
+			return r, replicasIndicesStaticRoute(path)
+		}
+		if strings.HasPrefix(path, "/indices/") {
+			return r, indicesStaticRoute(path)
+		}
+
+		// Fall back to mux pattern for other routes
+		route := r.URL.String()
 		_, pattern := mux.Handler(r)
 		if pattern != "" {
 			route = pattern
 		}
 		return r, route
 	}
+}
+
+// indicesRoutePatterns maps regex patterns to their static route labels for /indices/ paths.
+// Patterns are pre-compiled once at package init time, not per request.
+// Order matters - more specific patterns must come first.
+var indicesRoutePatterns = []struct {
+	pattern *regexp.Regexp
+	label   string
+}{
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects/_search$`), "/indices/{class}/shards/{shard}/objects/_search"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects/_find$`), "/indices/{class}/shards/{shard}/objects/_find"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects/_aggregations$`), "/indices/{class}/shards/{shard}/objects/_aggregations"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects:overwrite$`), "/indices/{class}/shards/{shard}/objects:overwrite"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects:digest$`), "/indices/{class}/shards/{shard}/objects:digest"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects:digestsInRange$`), "/indices/{class}/shards/{shard}/objects:digestsInRange"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects/hashtree/[0-9]+$`), "/indices/{class}/shards/{shard}/objects/hashtree/{level}"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects/[^/]+$`), "/indices/{class}/shards/{shard}/objects/{id}"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/objects$`), "/indices/{class}/shards/{shard}/objects"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/references$`), "/indices/{class}/shards/{shard}/references"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/queuesize$`), "/indices/{class}/shards/{shard}/queuesize"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/status$`), "/indices/{class}/shards/{shard}/status"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/files:metadata/`), "/indices/{class}/shards/{shard}/files:metadata/{path}"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/files/`), "/indices/{class}/shards/{shard}/files/{path}"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+:reinit$`), "/indices/{class}/shards/{shard}:reinit"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/background:pause$`), "/indices/{class}/shards/{shard}/background:pause"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/background:resume$`), "/indices/{class}/shards/{shard}/background:resume"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/background:list$`), "/indices/{class}/shards/{shard}/background:list"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+/async-replication-target-node$`), "/indices/{class}/shards/{shard}/async-replication-target-node"},
+	{regexp.MustCompile(`^/indices/[^/]+/shards/[^/]+$`), "/indices/{class}/shards/{shard}"},
+}
+
+// indicesStaticRoute returns a parameterized route label for /indices/ paths
+func indicesStaticRoute(path string) string {
+	for _, rp := range indicesRoutePatterns {
+		if rp.pattern.MatchString(path) {
+			return rp.label
+		}
+	}
+	return "/indices/"
+}
+
+// replicasIndicesRoutePatterns maps regex patterns to their static route labels for /replicas/indices/ paths.
+// Patterns are pre-compiled once at package init time, not per request.
+// Order matters - more specific patterns must come first.
+var replicasIndicesRoutePatterns = []struct {
+	pattern *regexp.Regexp
+	label   string
+}{
+	{regexp.MustCompile(`^/replicas/indices/[^/]+/shards/[^/]+/objects/references$`), "/replicas/indices/{class}/shards/{shard}/objects/references"},
+	{regexp.MustCompile(`^/replicas/indices/[^/]+/shards/[^/]+/objects/[^/]+/[0-9]+$`), "/replicas/indices/{class}/shards/{shard}/objects/{id}/{timestamp}"},
+	{regexp.MustCompile(`^/replicas/indices/[^/]+/shards/[^/]+/objects/[^/]+$`), "/replicas/indices/{class}/shards/{shard}/objects/{id}"},
+	{regexp.MustCompile(`^/replicas/indices/[^/]+/shards/[^/]+/objects$`), "/replicas/indices/{class}/shards/{shard}/objects"},
+	{regexp.MustCompile(`^/replicas/indices/[^/]+/shards/[^/]+:commit$`), "/replicas/indices/{class}/shards/{shard}:commit"},
+	{regexp.MustCompile(`^/replicas/indices/[^/]+/shards/[^/]+:abort$`), "/replicas/indices/{class}/shards/{shard}:abort"},
+}
+
+// replicasIndicesStaticRoute returns a parameterized route label for /replicas/indices/ paths
+func replicasIndicesStaticRoute(path string) string {
+	for _, rp := range replicasIndicesRoutePatterns {
+		if rp.pattern.MatchString(path) {
+			return rp.label
+		}
+	}
+	return "/replicas/indices/"
 }
 
 // clusterv1Regexp is used to intercept requests and redirect them to a dedicated http server independent of swagger
