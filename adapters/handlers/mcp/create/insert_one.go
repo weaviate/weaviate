@@ -27,6 +27,7 @@ func (c *WeaviateCreator) InsertOne(ctx context.Context, req mcp.CallToolRequest
 	}
 	obj := models.Object{
 		Class:      args.Collection,
+		Tenant:     args.Tenant,
 		Properties: args.Properties,
 	}
 	res, err := c.objectsManager.AddObject(ctx, principal, &obj, nil)

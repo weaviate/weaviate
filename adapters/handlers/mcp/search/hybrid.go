@@ -37,6 +37,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	}
 	res, err := s.traverser.GetClass(ctx, principal, dto.GetParams{
 		ClassName:  args.Collection,
+		Tenant:     args.Tenant,
 		Properties: selectProps,
 		HybridSearch: &searchparams.HybridSearch{
 			Query: args.Query,
