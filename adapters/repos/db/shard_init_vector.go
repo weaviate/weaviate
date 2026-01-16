@@ -239,7 +239,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		hfreshConfigID := s.vectorIndexID(targetVector)
-		rootPath := filepath.Join(s.path(), "hfresh")
+		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
+
 		hfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
 			Scheduler:         s.index.scheduler,
@@ -259,7 +260,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				HNSWConfig: &hnsw.Config{
 					Logger:                    s.index.logger,
 					RootPath:                  rootPath,
-					ID:                        "centroids",
+					ID:                        hfreshConfigID + "_centroids",
 					ShardName:                 s.name,
 					ClassName:                 s.index.Config.ClassName.String(),
 					PrometheusMetrics:         s.promMetrics,
@@ -267,7 +268,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 					DistanceProvider:          distProv,
 					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-						return hnsw.NewCommitLogger(rootPath, "centroids",
+						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							hnsw.WithAllocChecker(s.index.allocChecker),
 							hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),

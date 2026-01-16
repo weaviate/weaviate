@@ -135,7 +135,10 @@ func (h *HFresh) restoreMetadata() error {
 	}
 	h.initDimensionsOnce.Do(func() {
 		atomic.StoreUint32(&h.dims, dims)
-		h.setMaxPostingSize()
+		err = h.setMaxPostingSize()
+		if err != nil {
+			return
+		}
 
 		var quantization *QuantizationData
 		quantization, err = h.IndexMetadata.GetQuantizationData()
@@ -148,6 +151,11 @@ func (h *HFresh) restoreMetadata() error {
 		}
 	})
 
+	err = h.restoreBackgroundMetrics()
+	if err != nil {
+		return err
+	}
+
 	return err
 }
 
@@ -159,6 +167,18 @@ func (h *HFresh) persistQuantizationData() error {
 	return h.IndexMetadata.SetQuantizationData(&QuantizationData{
 		RQ: h.quantizer.Data(),
 	})
+}
+
+func (h *HFresh) restoreBackgroundMetrics() error {
+	splitCount := h.taskQueue.splitQueue.Size()
+	mergeCount := h.taskQueue.mergeQueue.Size()
+	reassignCount := h.taskQueue.reassignQueue.Size()
+
+	h.metrics.SetSplitCount(splitCount)
+	h.metrics.SetMergeCount(mergeCount)
+	h.metrics.SetReassignCount(reassignCount)
+
+	return nil
 }
 
 // restoreQuantizationData restores RQ quantizer from msgpack data

@@ -126,7 +126,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, false); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, true); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
@@ -383,7 +383,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated); err != nil {
+		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
 			return err
 		}
 	}
@@ -988,7 +988,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1005,8 +1005,18 @@ func validateImmutableFields(initial, updated *models.Class) error {
 			continue
 		}
 
-		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
-			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
+		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// There might be module settings that need to be migrated to new names, for example
+			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
+			// and migrate baseUrl to baseURL
+			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				// Module settings have been migrated, let's recheck vectorizer settings
+				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+					continue
+				}
+			}
+
+			return fmt.Errorf("vectorizer config of vector %q is immutable for class %s", k, updated.Class)
 		}
 	}
 
@@ -1030,6 +1040,19 @@ func validateImmutableFields(initial, updated *models.Class) error {
 	}
 
 	return nil
+}
+
+func deepEqualVectorizerSettings(initial, updated any) bool {
+	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+func structToMap(obj any) (objMap map[string]any) {
+	if obj == nil {
+		return nil
+	}
+	data, _ := json.Marshal(obj)  // Convert to a json string
+	json.Unmarshal(data, &objMap) // Convert to a map
+	return objMap
 }
 
 type immutableText struct {

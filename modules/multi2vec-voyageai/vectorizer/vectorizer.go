@@ -38,13 +38,16 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images []string, cfg moduletools.ClassConfig,
+		texts, images, videos []string, cfg moduletools.ClassConfig,
 	) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 	VectorizeQuery(ctx context.Context,
 		input []string, cfg moduletools.ClassConfig,
 	) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 	VectorizeImageQuery(ctx context.Context,
 		images []string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
+	VectorizeVideoQuery(ctx context.Context,
+		videos []string, cfg moduletools.ClassConfig,
 	) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 }
 
@@ -53,6 +56,8 @@ type ClassSettings interface {
 	ImageFieldsWeights() ([]float32, error)
 	TextField(property string) bool
 	TextFieldsWeights() ([]float32, error)
+	VideoField(property string) bool
+	VideoFieldsWeights() ([]float32, error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -74,17 +79,32 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 	return res.ImageVectors[0], nil
 }
 
+func (v *Vectorizer) VectorizeVideo(ctx context.Context,
+	video string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	res, err := v.client.VectorizeVideoQuery(ctx, []string{video}, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.VideoVectors) != 1 {
+		return nil, errors.New("empty vector")
+	}
+
+	return res.VideoVectors[0], nil
+}
+
 func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	ichek := ent.NewClassSettings(cfg)
 
-	// vectorize image and text
+	// vectorize image, text, and video
 	texts := []string{}
 	images := []string{}
+	videos := []string{}
 
 	if object.Properties != nil {
-		schemamap := object.Properties.(map[string]interface{})
+		schemamap := object.Properties.(map[string]any)
 		for _, propName := range moduletools.SortStringKeys(schemamap) {
 			switch val := schemamap[propName].(type) {
 			case string:
@@ -93,6 +113,9 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 				}
 				if ichek.TextField(propName) {
 					texts = append(texts, val)
+				}
+				if ichek.VideoField(propName) {
+					videos = append(videos, val)
 				}
 			case []string:
 				if ichek.TextField(propName) {
@@ -106,13 +129,14 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	}
 
 	vectors := [][]float32{}
-	if len(texts) > 0 || len(images) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images, cfg)
+	if len(texts) > 0 || len(images) > 0 || len(videos) > 0 {
+		res, err := v.client.Vectorize(ctx, texts, images, videos, cfg)
 		if err != nil {
 			return nil, err
 		}
 		vectors = append(vectors, res.TextVectors...)
 		vectors = append(vectors, res.ImageVectors...)
+		vectors = append(vectors, res.VideoVectors...)
 	}
 	weights, err := v.getWeights(ichek)
 	if err != nil {
@@ -132,27 +156,16 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
+	videoFieldsWeights, err := ichek.VideoFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
 
 	weights = append(weights, textFieldsWeights...)
 	weights = append(weights, imageFieldsWeights...)
+	weights = append(weights, videoFieldsWeights...)
 
-	normalizedWeights := v.normalizeWeights(weights)
+	normalizedWeights := moduletools.NormalizeWeights(weights)
 
 	return normalizedWeights, nil
-}
-
-func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
-	if len(weights) > 0 {
-		var denominator float32
-		for i := range weights {
-			denominator += weights[i]
-		}
-		normalizer := 1 / denominator
-		normalized := make([]float32, len(weights))
-		for i := range weights {
-			normalized[i] = weights[i] * normalizer
-		}
-		return normalized
-	}
-	return nil
 }

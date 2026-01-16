@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/loadlimiter"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -100,7 +102,8 @@ type DB struct {
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
 
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter  *loadlimiter.LoadLimiter
+	bucketLoadLimiter *loadlimiter.LoadLimiter
 
 	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
@@ -216,7 +219,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		maxNumberGoroutines:  int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:    newResourceScanState(),
 		memMonitor:           memMonitor,
-		shardLoadLimiter:     NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
+		shardLoadLimiter:     loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
+		bucketLoadLimiter:    loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
 		reindexer:            NewShardReindexerV3Noop(),
 		nodeSelector:         nodeSelector,
 		schemaReader:         schemaReader,
@@ -283,6 +287,7 @@ type Config struct {
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
+	MaximumConcurrentBucketLoads        int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 
@@ -346,18 +351,6 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
 func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
-}
-
-// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil

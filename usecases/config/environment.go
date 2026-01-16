@@ -783,6 +783,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err = parsePositiveInt(
+		"MAXIMUM_CONCURRENT_BUCKET_LOADS",
+		func(val int) { config.MaximumConcurrentBucketLoads = val },
+		DefaultMaxConcurrentBucketLoads,
+	); err != nil {
+		return err
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_MAX_MESSAGE_SIZE",
 		func(val int) { config.GRPC.MaxMsgSize = val },
@@ -845,6 +853,20 @@ func FromEnv(config *Config) error {
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
+	}
+
+	// Telemetry URL override (useful for local development with telemetry dashboard)
+	if v := os.Getenv("TELEMETRY_URL"); v != "" {
+		config.TelemetryURL = v
+	}
+
+	// Telemetry push interval override
+	if v := os.Getenv("TELEMETRY_PUSH_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
+		}
+		config.TelemetryPushInterval = interval
 	}
 
 	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
@@ -1393,7 +1415,8 @@ const (
 	DefaultPersistenceMemtablesMinDuration     = 15
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
-	DefaultMaxConcurrentShardLoads             = 500
+	DefaultMaxConcurrentShardLoads             = 100
+	DefaultMaxConcurrentBucketLoads            = 100
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100

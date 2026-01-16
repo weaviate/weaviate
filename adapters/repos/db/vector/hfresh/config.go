@@ -29,6 +29,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+const (
+	maxPostingSizeFloor uint32 = 8 // Minimum vectors per posting
+	minPostingSizeFloor uint32 = 3 // Minimum vectors for split threshold
+)
+
 type Config struct {
 	Logger                    logrus.FieldLogger
 	Scheduler                 *queue.Scheduler
@@ -147,9 +152,9 @@ func validateImmutableField(u immutableParameter,
 // I/O budget: 48KB.
 // Dims is the number of dimensions of the vector, after compression
 // if applicable.
-func computeMaxPostingSize(dims int) uint32 {
+func (h *HFresh) computeMaxPostingSize(dims int) uint32 {
 	bytesPerDim := 0.125                                  // RQ1
-	maxBytes := 48 * 1024                                 // budget
+	maxBytes := h.maxPostingSizeKB * 1024                 // budget
 	metadata := 8 + 1 + compressionhelpers.RQMetadataSize // id + version + RQ metadata
 
 	vBytes := float64(dims)*bytesPerDim + float64(metadata)
@@ -157,10 +162,25 @@ func computeMaxPostingSize(dims int) uint32 {
 	return uint32(math.Ceil(float64(maxBytes) / vBytes))
 }
 
-func (h *HFresh) setMaxPostingSize() {
-	if h.maxPostingSize == 0 {
-		h.maxPostingSize = computeMaxPostingSize(int(h.dims))
+func (h *HFresh) setMaxPostingSize() error {
+	if h.dims == 0 || h.maxPostingSizeKB < ent.MaxPostingSizeKBFloor {
+		return errors.New("unable to set max posting size")
+	}
+	h.maxPostingSize = max(h.computeMaxPostingSize(int(h.dims)), maxPostingSizeFloor)
+	h.minPostingSize = max(h.maxPostingSize/3, minPostingSizeFloor)
+
+	if h.minPostingSize >= h.maxPostingSize {
+		return errors.New("min posting size must be less than max posting size")
 	}
 
-	h.minPostingSize = h.maxPostingSize / 3
+	h.logger.WithFields(
+		logrus.Fields{
+			"action":           "hfresh_configure",
+			"id":               h.id,
+			"minPostingSize":   h.minPostingSize,
+			"maxPostingSize":   h.maxPostingSize,
+			"maxPostingSizeKB": h.maxPostingSizeKB,
+		},
+	).Warn("hfresh posting sizes configured")
+	return nil
 }
