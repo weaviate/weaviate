@@ -358,6 +358,7 @@ func testNamedVectors(t *testing.T) {
 			assert.NotNil(t, addl["id"])
 			vectors := addl["vectors"].(map[string]interface{})
 			assert.NotNil(t, vectors["title_vector"], "title_vector should be present when requested")
+			assert.Nil(t, vectors["desc_vector"], "desc_vector should NOT be present when only title_vector requested")
 		}
 	})
 
@@ -634,6 +635,8 @@ func testPropertyVariations(t *testing.T) {
 			assert.Nil(t, obj["title"])
 			assert.Nil(t, obj["description"])
 			assert.Nil(t, obj["count"])
+			// Vector should not be present when not requested
+			assert.Nil(t, addl["vector"], "vector should NOT be present when not requested")
 		}
 	})
 
@@ -660,6 +663,8 @@ func testPropertyVariations(t *testing.T) {
 			assert.NotNil(t, obj["title"])
 			assert.Nil(t, obj["description"])
 			assert.Nil(t, obj["count"])
+			// Vector should not be present when not requested
+			assert.Nil(t, addl["vector"], "vector should NOT be present when not requested")
 		}
 	})
 
@@ -967,6 +972,8 @@ func testGRPCPropertyVariations(t *testing.T, grpcClient protocol.WeaviateClient
 			titleField := result.Properties.NonRefProps.Fields["title"]
 			assert.NotNil(t, titleField, "title property should be present")
 			assert.NotEmpty(t, titleField.GetTextValue())
+			// Vector should not be present when not requested
+			assert.Empty(t, result.Metadata.VectorBytes, "vector should NOT be present when not requested")
 		}
 	})
 
@@ -1332,6 +1339,7 @@ func testGraphQLCursorPagination(t *testing.T) {
 			assert.NotNil(t, addl["id"])
 			assert.NotNil(t, obj["title"])
 			assert.Nil(t, obj["description"], "description should NOT be present when not requested")
+			assert.Nil(t, addl["vector"], "vector should NOT be present when not requested")
 		}
 	})
 
@@ -1354,6 +1362,7 @@ func testGraphQLCursorPagination(t *testing.T) {
 			assert.NotNil(t, addl["id"])
 			assert.Nil(t, obj["title"])
 			assert.Nil(t, obj["description"])
+			assert.Nil(t, addl["vector"], "vector should NOT be present when not requested")
 		}
 	})
 }
@@ -1732,6 +1741,8 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 			// Only title should be present
 			titleField := result.Properties.NonRefProps.Fields["title"]
 			assert.NotNil(t, titleField, "title should be present")
+			// Vector should not be present when not requested
+			assert.Empty(t, result.Metadata.VectorBytes, "vector should NOT be present when not requested")
 		}
 	})
 }
