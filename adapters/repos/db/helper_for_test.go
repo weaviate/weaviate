@@ -390,6 +390,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
+		HFreshEnabled:          true,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()

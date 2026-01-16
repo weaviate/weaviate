@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -209,6 +210,36 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 	class := &models.Class{Class: "TestClass"}
 
 	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false, false)
+
+	testShard(t, context.Background(), class.Class)
+
+	r := getRandomSeed()
+
+	batchSize := 1000
+
+	validBatch := createRandomObjects(r, class.Class, batchSize, 4)
+
+	shd.PutObjectBatch(ctx, validBatch)
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
+	invalidBatch := createRandomObjects(r, class.Class, batchSize, 5)
+
+	errs := shd.PutObjectBatch(ctx, invalidBatch)
+	require.Len(t, errs, batchSize)
+	for _, err := range errs {
+		require.ErrorContains(t, err, "new node has a vector with length 5. Existing nodes have vectors with length 4")
+	}
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
+	require.Nil(t, idx.drop())
+}
+
+func TestShard_InvalidHFreshBatches(t *testing.T) {
+	ctx := testCtx()
+
+	class := &models.Class{Class: "TestClass"}
+
+	shd, idx := testShardWithSettings(t, ctx, class, hfresh.NewDefaultUserConfig(), false, false, false)
 
 	testShard(t, context.Background(), class.Class)
 

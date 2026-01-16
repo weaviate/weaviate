@@ -61,7 +61,6 @@ func (u *UserConfig) SetDefaults() {
 	u.SearchProbe = DefaultSearchProbe
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
 	u.RescoreLimit = DefaultRescoreLimit
-	// TODO: add quantization config
 }
 
 func NewDefaultUserConfig() UserConfig {
