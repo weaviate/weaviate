@@ -131,6 +131,10 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				LazyLoadSegments:             lazyLoadSegments,
 				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
+				TombstoneDeletionConcurrency: s.index.Config.HNSWTombstoneDeletionConcurrency,
+				TombstoneDeletionMinPerCycle: s.index.Config.HNSWTombstoneDeletionMinPerCycle,
+				TombstoneDeletionMaxPerCycle: s.index.Config.HNSWTombstoneDeletionMaxPerCycle,
+				IsMultiTenant:                s.index.partitioningEnabled,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

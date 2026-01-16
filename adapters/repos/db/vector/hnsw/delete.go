@@ -16,10 +16,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 	"runtime"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -247,14 +245,14 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 		return false, nil
 	}
 
-	if numberOfTombstones < minTombstonesPerCycle() {
+	if numberOfTombstones < h.minTombstonesPerCycle() {
 		h.logger.WithFields(logrus.Fields{
 			"action":           "tombstone_cleanup_skipped",
 			"class":            h.className,
 			"shard":            h.shardName,
 			"tombstones_total": numberOfTombstones,
-			"tombstones_min":   minTombstonesPerCycle(),
-			"tombstones_max":   maxTombstonesPerCycle(),
+			"tombstones_min":   h.minTombstonesPerCycle(),
+			"tombstones_max":   h.maxTombstonesPerCycle(),
 		}).Debugf("class %s: shard %s: skipping tombstone cleanup, not enough tombstones", h.className, h.shardName)
 		return false, nil
 	}
@@ -270,7 +268,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 
 	elementsOnList := int64(0)
 	for id := range h.tombstones {
-		if elementsOnList >= maxTombstonesPerCycle() {
+		if elementsOnList >= h.maxTombstonesPerCycle() {
 			// we've reached the limit of tombstones we want to process in one
 			break
 		}
@@ -327,8 +325,8 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
-	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
-	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
+	h.metrics.StartCleanup(h.deletionConcurrency())
+	defer h.metrics.EndCleanup(h.deletionConcurrency())
 
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
 
@@ -342,6 +340,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		"shard":               h.shardName,
 		"tombstones_in_cycle": deleteList.Len(),
 		"tombstones_total":    total_tombstones,
+		"concurrency":         h.deletionConcurrency(),
 	}).Infof("class %s: shard %s: starting tombstone cleanup", h.className, h.shardName)
 
 	h.metrics.StartTombstoneCycle()
@@ -417,33 +416,26 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	return true, nil
 }
 
-func maxTombstonesPerCycle() int64 {
-	if v := os.Getenv("TOMBSTONE_DELETION_MAX_PER_CYCLE"); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err == nil && asInt > 0 {
-			return int64(asInt)
-		}
+func (h *hnsw) maxTombstonesPerCycle() int64 {
+	if h.tombstoneDeletionMaxPerCycle > 0 {
+		return h.tombstoneDeletionMaxPerCycle
 	}
 	return math.MaxInt64
 }
 
-func minTombstonesPerCycle() int64 {
-	if v := os.Getenv("TOMBSTONE_DELETION_MIN_PER_CYCLE"); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err == nil && asInt > 0 {
-			return int64(asInt)
-		}
-	}
-	return 0
+func (h *hnsw) minTombstonesPerCycle() int64 {
+	return h.tombstoneDeletionMinPerCycle
 }
 
-func tombstoneDeletionConcurrency() int {
-	if v := os.Getenv("TOMBSTONE_DELETION_CONCURRENCY"); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err == nil && asInt > 0 {
-			return asInt
-		}
+func (h *hnsw) deletionConcurrency() int {
+	if h.tombstoneDeletionConcurrency > 0 {
+		return h.tombstoneDeletionConcurrency
 	}
+
+	if h.isMultiTenant {
+		return 2
+	}
+
 	concurrency := runtime.GOMAXPROCS(0) / 2
 	if concurrency == 0 {
 		return 1
@@ -466,7 +458,7 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 
 	processedIDs := &sync.Map{}
 
-	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
+	for i := 0; i < h.deletionConcurrency(); i++ {
 		g.Go(func() error {
 			for {
 				if breakCleanUpTombstonedNodes() {

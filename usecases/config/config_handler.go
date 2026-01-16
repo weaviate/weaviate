@@ -154,6 +154,9 @@ type Config struct {
 	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	HNSWGeoIndexEF                      int                      `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
+	HNSWTombstoneDeletionConcurrency    int                      `json:"hnsw_tombstone_deletion_concurrency" yaml:"hnsw_tombstone_deletion_concurrency"`
+	HNSWTombstoneDeletionMinPerCycle    int64                    `json:"hnsw_tombstone_deletion_min_per_cycle" yaml:"hnsw_tombstone_deletion_min_per_cycle"`
+	HNSWTombstoneDeletionMaxPerCycle    int64                    `json:"hnsw_tombstone_deletion_max_per_cycle" yaml:"hnsw_tombstone_deletion_max_per_cycle"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
@@ -459,6 +462,12 @@ const (
 const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
 
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
+
+const (
+	DefaultHNSWTombstoneDeletionConcurrency = 0 // will use runtime.GOMAXPROCS(0)/2
+	DefaultHNSWTombstoneDeletionMinPerCycle = 0
+	DefaultHNSWTombstoneDeletionMaxPerCycle = 0 // 0 means unlimited
+)
 
 const (
 	DefaultPersistenceMinMMapSize     = 8192 // 8kb by default

@@ -299,6 +299,9 @@ type Config struct {
 	HNSWAcornFilterRatio                         float64
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
+	HNSWTombstoneDeletionConcurrency             int
+	HNSWTombstoneDeletionMinPerCycle             int64
+	HNSWTombstoneDeletionMaxPerCycle             int64
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]

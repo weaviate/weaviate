@@ -846,6 +846,9 @@ type IndexConfig struct {
 	HNSWAcornFilterRatio                         float64
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
+	HNSWTombstoneDeletionConcurrency             int
+	HNSWTombstoneDeletionMinPerCycle             int64
+	HNSWTombstoneDeletionMaxPerCycle             int64
 
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]

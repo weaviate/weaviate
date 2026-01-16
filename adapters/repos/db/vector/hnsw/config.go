@@ -55,6 +55,11 @@ type Config struct {
 	ClassName string
 
 	VisitedListPoolMaxSize int
+
+	TombstoneDeletionConcurrency int
+	TombstoneDeletionMinPerCycle int64
+	TombstoneDeletionMaxPerCycle int64
+	IsMultiTenant                bool
 }
 
 func (c Config) Validate() error {
