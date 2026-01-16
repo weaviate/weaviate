@@ -1451,7 +1451,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1467,7 +1467,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1609,7 +1609,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return false, err
 	}
@@ -2150,7 +2150,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2370,16 +2370,13 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, errAlreadyShutdown
 	}
 
-	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
+	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a write lock and initialize
 	// the shard
 	i.shardCreateLocks.RLock(shardName)
-
-	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
+	i.shardCreateLocks.RUnlock(shardName)
+
 	if shard == nil {
-		// If the shard is not yet loaded, we need to upgrade to a write lock to ensure only one goroutine initializes
-		// the shard
-		i.shardCreateLocks.RUnlock(shardName)
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -2402,23 +2399,10 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			}
 			i.shards.Store(shardName, shard)
 		}
-	} else {
-		// shard already exists
-		i.shardCreateLocks.RUnlock(shardName)
 	}
 
-	// If ensureInit is true and shard is lazy, load it (applies to both newly created and existing shards)
-	if ensureInit {
-		if lazyShard, ok := shard.(*LazyLoadShard); ok {
-			// LazyLoadShard.Load() has its own mutex, so it's safe to call without shardCreateLocks
-			if err := lazyShard.Load(ctx); err != nil {
-				return nil, func() {}, fmt.Errorf("load lazy shard %q: %w", shardName, err)
-			}
-			// Reload in case Load() replaced the lazy shard with a real shard
-			shard = i.shards.Load(shardName)
-		}
-	}
-
+	// If ensureInit is true, ensure the shard is loaded. For lazy shards, preventShutdown()
+	// will call Load() internally
 	release, err = shard.preventShutdown()
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
@@ -2534,7 +2518,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	params aggregation.Params, mods interface{},
 ) (*aggregation.Result, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -2792,7 +2776,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return 0, err
 	}
@@ -2851,7 +2835,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return "", err
 	}
@@ -2946,7 +2930,7 @@ func (i *Index) consistencyLevel(
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
