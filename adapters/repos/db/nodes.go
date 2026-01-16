@@ -184,33 +184,18 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			return nil
 		}
 
-		// Don't force load a lazy shard to get nodes status, but check async replication stats
+		// Don't force load a lazy shard to get nodes status
 		className := i.Config.ClassName.String()
 		if lazy, ok := shard.(*LazyLoadShard); ok {
 			if !lazy.isLoaded() {
-				// Check async replication stats even for unloaded shards (needed for replication transitions)
-				asyncReplStats := lazy.getAsyncReplicationStats(ctx)
-				localNodeName := i.replicator.LocalNodeName()
-				tenant := ""
-				if i.partitioningEnabled {
-					tenant = name
-				}
-				rs, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenant, name)
-				if err == nil && len(rs.NodeNames()) > 0 && !slices.Contains(rs.NodeNames(), localNodeName) && len(asyncReplStats) == 0 {
-					// Shard exists in schema with replicas, but local node is not one of them
-					// Filter it out unless it has async replication status (replication transition)
-					return nil
-				}
-
 				numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
 				shardStatus := &models.NodeShardStatus{
-					Name:                   name,
-					Class:                  className,
-					VectorIndexingStatus:   shard.GetStatus().String(),
-					Loaded:                 false,
-					ReplicationFactor:      replicationFactor,
-					NumberOfReplicas:       numberOfReplicas,
-					AsyncReplicationStatus: asyncReplStats,
+					Name:                 name,
+					Class:                className,
+					VectorIndexingStatus: shard.GetStatus().String(),
+					Loaded:               false,
+					ReplicationFactor:    replicationFactor,
+					NumberOfReplicas:     numberOfReplicas,
 					// don't add compression status as this would trigger loading the shard
 				}
 				*status = append(*status, shardStatus)
