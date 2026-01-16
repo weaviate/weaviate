@@ -84,7 +84,7 @@ type memtable interface {
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
 	roaringSetAdjustMeta(entriesChanged int)
-	roaringSetAddCommitLog(key []byte, additions []uint64, deletions []uint64) error
+	roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error
 
 	roaringSetRangeAdd(key uint64, values ...uint64) error
 	roaringSetRangeRemove(key uint64, values ...uint64) error
@@ -235,10 +235,6 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -248,23 +244,25 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 			}
 		}
 	}
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               value,
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           false,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
 	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
-
 	for i, sec := range previousKeys {
 		m.secondaryToPrimary[i][string(sec)] = nil
 	}
-
 	for i, sec := range secondaryKeys {
 		m.secondaryToPrimary[i][string(sec)] = key
 	}
@@ -272,6 +270,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
@@ -284,10 +283,6 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -297,14 +292,18 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 			}
 		}
 	}
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               nil,
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -312,6 +311,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
@@ -324,10 +324,6 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -337,16 +333,19 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 			}
 		}
 	}
-
 	tombstonedVal := tombstonedValue(deletionTime)
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               tombstonedVal[:],
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -354,6 +353,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
