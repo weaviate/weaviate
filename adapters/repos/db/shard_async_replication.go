@@ -17,10 +17,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -39,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -46,12 +45,14 @@ import (
 )
 
 const (
-	defaultHashtreeHeight              = 16
+	defaultAsyncReplicationMaxWorkers = 10
+
+	defaultHashtreeHeightSingleTenant  = 20
+	defaultHashtreeHeightMultiTenant   = 10
 	defaultFrequency                   = 30 * time.Second
 	defaultFrequencyWhilePropagating   = 3 * time.Second
 	defaultAliveNodesCheckingFrequency = 5 * time.Second
 	defaultLoggingFrequency            = 60 * time.Second
-	defaultInitShieldCPUEveryN         = 1_000
 	defaultDiffBatchSize               = 1_000
 	defaultDiffPerNodeTimeout          = 10 * time.Second
 	defaultPrePropagationTimeout       = 300 * time.Second
@@ -62,10 +63,7 @@ const (
 	defaultPropagationBatchSize        = 100
 
 	minHashtreeHeight = 0
-	maxHashtreeHeight = 20
-
-	minInitShieldCPUEveryN = 0
-	maxInitShieldCPUEveryN = math.MaxInt
+	maxHashtreeHeight = 22
 
 	minDiffBatchSize = 1
 	maxDiffBatchSize = 10_000
@@ -86,7 +84,6 @@ type asyncReplicationConfig struct {
 	frequencyWhilePropagating   time.Duration
 	aliveNodesCheckingFrequency time.Duration
 	loggingFrequency            time.Duration
-	initShieldCPUEveryN         int
 	diffBatchSize               int
 	diffPerNodeTimeout          time.Duration
 	prePropagationTimeout       time.Duration
@@ -99,88 +96,158 @@ type asyncReplicationConfig struct {
 	maintenanceModeEnabled      func() bool
 }
 
-func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
+func (s *Shard) getAsyncReplicationConfig(cfg *models.ReplicationAsyncConfig) (config asyncReplicationConfig, err error) {
+	if cfg == nil {
+		cfg = &models.ReplicationAsyncConfig{}
+	}
+
 	// preserve the target node overrides from the previous config
 	config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
 
+	var hashtreeHeight int
+
+	if schema.MultiTenancyEnabled(s.class) {
+		hashtreeHeight = defaultHashtreeHeightMultiTenant
+	} else {
+		hashtreeHeight = defaultHashtreeHeightSingleTenant
+	}
+
+	if cfg.HashtreeHeight != nil {
+		hashtreeHeight = int(*cfg.HashtreeHeight)
+	}
+
 	config.hashtreeHeight, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
+		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), hashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_HASHTREE_HEIGHT", err)
 	}
 
-	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), defaultFrequency)
+	frequency := defaultFrequency
+	if cfg.Frequency != nil {
+		frequency = time.Duration(*cfg.Frequency)
+	}
+
+	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), frequency)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_FREQUENCY", err)
 	}
 
-	config.frequencyWhilePropagating, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING"), defaultFrequencyWhilePropagating)
+	frequencyWhilePropagating := defaultFrequencyWhilePropagating
+	if cfg.FrequencyWhilePropagating != nil {
+		frequencyWhilePropagating = time.Duration(*cfg.FrequencyWhilePropagating)
+	}
+
+	config.frequencyWhilePropagating, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING"), frequencyWhilePropagating)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING", err)
 	}
 
+	aliveNodesCheckingFrequency := defaultAliveNodesCheckingFrequency
+	if cfg.AliveNodesCheckingFrequency != nil {
+		aliveNodesCheckingFrequency = time.Duration(*cfg.AliveNodesCheckingFrequency)
+	}
+
 	config.aliveNodesCheckingFrequency, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY"), defaultAliveNodesCheckingFrequency)
+		os.Getenv("ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY"), aliveNodesCheckingFrequency)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY", err)
 	}
 
+	loggingFrequency := defaultLoggingFrequency
+	if cfg.LoggingFrequency != nil {
+		loggingFrequency = time.Duration(*cfg.LoggingFrequency)
+	}
+
 	config.loggingFrequency, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_LOGGING_FREQUENCY"), defaultLoggingFrequency)
+		os.Getenv("ASYNC_REPLICATION_LOGGING_FREQUENCY"), loggingFrequency)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_LOGGING_FREQUENCY", err)
 	}
 
-	config.initShieldCPUEveryN, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N"), defaultInitShieldCPUEveryN, minInitShieldCPUEveryN, maxInitShieldCPUEveryN)
-	if err != nil {
-		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N", err)
+	diffBatchSize := defaultDiffBatchSize
+	if cfg.DiffBatchSize != 0 {
+		diffBatchSize = int(cfg.DiffBatchSize)
 	}
 
 	config.diffBatchSize, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_DIFF_BATCH_SIZE"), defaultDiffBatchSize, minDiffBatchSize, maxDiffBatchSize)
+		os.Getenv("ASYNC_REPLICATION_DIFF_BATCH_SIZE"), diffBatchSize, minDiffBatchSize, maxDiffBatchSize)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_DIFF_BATCH_SIZE", err)
 	}
 
+	diffPerNodeTimeout := defaultDiffPerNodeTimeout
+	if cfg.DiffPerNodeTimeout != nil {
+		diffPerNodeTimeout = time.Duration(*cfg.DiffPerNodeTimeout)
+	}
+
 	config.diffPerNodeTimeout, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT"), defaultDiffPerNodeTimeout)
+		os.Getenv("ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT"), diffPerNodeTimeout)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT", err)
 	}
 
+	prePropagationTimeout := defaultPrePropagationTimeout
+	if cfg.PrePropagationTimeout != nil {
+		prePropagationTimeout = time.Duration(*cfg.PrePropagationTimeout)
+	}
+
 	config.prePropagationTimeout, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT"), defaultPrePropagationTimeout)
+		os.Getenv("ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT"), prePropagationTimeout)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT", err)
 	}
 
+	propagationTimeout := defaultPropagationTimeout
+	if cfg.PropagationTimeout != nil {
+		propagationTimeout = time.Duration(*cfg.PropagationTimeout)
+	}
+
 	config.propagationTimeout, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_TIMEOUT"), defaultPropagationTimeout)
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_TIMEOUT"), propagationTimeout)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_TIMEOUT", err)
 	}
 
+	propagationLimit := defaultPropagationLimit
+	if cfg.PropagationLimit != 0 {
+		propagationLimit = int(cfg.PropagationLimit)
+	}
+
 	config.propagationLimit, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_LIMIT"), defaultPropagationLimit, minPropagationLimit, maxPropagationLimit)
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_LIMIT"), propagationLimit, minPropagationLimit, maxPropagationLimit)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_LIMIT", err)
 	}
 
+	propagationDelay := defaultPropagationDelay
+	if cfg.PropagationDelay != nil {
+		propagationDelay = time.Duration(*cfg.PropagationDelay)
+	}
+
 	config.propagationDelay, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_DELAY"), defaultPropagationDelay)
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_DELAY"), propagationDelay)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_DELAY", err)
 	}
 
+	propagationConcurrency := defaultPropagationConcurrency
+	if cfg.PropagationConcurrency != 0 {
+		propagationConcurrency = int(cfg.PropagationConcurrency)
+	}
+
 	config.propagationConcurrency, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_CONCURRENCY"), defaultPropagationConcurrency, minPropgationConcurrency, maxPropagationConcurrency)
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_CONCURRENCY"), propagationConcurrency, minPropgationConcurrency, maxPropagationConcurrency)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_CONCURRENCY", err)
 	}
 
+	propagationBatchSize := defaultPropagationBatchSize
+	if cfg.PropagationBatchSize != 0 {
+		propagationBatchSize = int(cfg.PropagationBatchSize)
+	}
+
 	config.propagationBatchSize, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE"), defaultPropagationBatchSize, minPropagationBatchSize, maxPropagationBatchSize)
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE"), propagationBatchSize, minPropagationBatchSize, maxPropagationBatchSize)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
@@ -214,13 +281,13 @@ func optParseDuration(s string, defaultDuration time.Duration) (time.Duration, e
 	return time.ParseDuration(s)
 }
 
-func (s *Shard) initAsyncReplication() (err error) {
+func (s *Shard) initAsyncReplication(cfg *models.ReplicationAsyncConfig) (err error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
 
-	config, err := s.getAsyncReplicationConfig()
+	config, err := s.getAsyncReplicationConfig(cfg)
 	if err != nil {
 		return err
 	}
@@ -408,14 +475,6 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 
 		objCount++
 
-		if config.initShieldCPUEveryN > 0 {
-			if objCount%config.initShieldCPUEveryN == 0 {
-				// yield the processor so other goroutines can run
-				runtime.Gosched()
-				time.Sleep(time.Millisecond)
-			}
-		}
-
 		return nil
 	})
 	if err != nil {
@@ -488,7 +547,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, enabled bool) error {
+func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, config *models.ReplicationAsyncConfig, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
@@ -497,7 +556,7 @@ func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, enabled bool) erro
 			return nil
 		}
 
-		return s.initAsyncReplication()
+		return s.initAsyncReplication(config)
 	}
 
 	if s.hashtree == nil {
@@ -539,7 +598,7 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 	}()
 	// we call update async replication config here to ensure that async replication starts
 	// if it's not already running
-	return s.SetAsyncReplicationEnabled(ctx, true)
+	return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationConfig(), true)
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
@@ -567,7 +626,7 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
+		return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationConfig(), s.index.AsyncReplicationEnabled())
 	}
 	return nil
 }
@@ -579,7 +638,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		defer s.asyncReplicationRWMux.Unlock()
 		s.asyncReplicationConfig.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
-	return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
+	return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationConfig(), s.index.AsyncReplicationEnabled())
 }
 
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
@@ -695,132 +754,26 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ctx.Done():
 				return
 			case <-propagationRequired:
-				// Reload target node overrides
-				func() {
-					s.asyncReplicationRWMux.Lock()
-					defer s.asyncReplicationRWMux.Unlock()
-					config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
-				}()
-
-				if (!s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
-					(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
-					// skip hashbeat iteration when async replication is disabled and no target node overrides are set
-					// or maintenance mode is enabled for localhost
-					if config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled() {
-						s.index.logger.
-							WithField("action", "async_replication").
-							WithField("class_name", s.class.Class).
-							WithField("shard_name", s.name).
-							Info("skipping async replication in maintenance mode")
-					}
-					backoffTimer.Reset()
-					lastHashbeatMux.Lock()
-					lastHashbeat = time.Now()
-					lastHashbeatPropagatedObjects = false
-					lastHashbeatMux.Unlock()
-					continue
-				}
-
-				stats, err := s.hashBeat(ctx, config)
-				// update the shard stats for the target node
-				// anonymous func only here so we can use defer unlock
-				func() {
-					s.asyncReplicationRWMux.Lock()
-					defer s.asyncReplicationRWMux.Unlock()
-
-					if s.asyncReplicationStatsByTargetNode == nil {
-						s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
-					}
-					if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
-						for _, stat := range stats {
-							if stat != nil {
-								s.index.logger.WithFields(logrus.Fields{
-									"shard_name":                      s.name,
-									"target_node_name":                stat.targetNodeName,
-									"hashtree_diff_took":              stat.hashtreeDiffTook,
-									"object_digests_diff_took":        stat.objectDigestsDiffTook,
-									"local_object_digests_count":      stat.localObjectDigestsCount,
-									"remote_object_digests_count":     stat.remoteObjectDigestsCount,
-									"local_objects_propagation_count": stat.localObjectsPropagationCount,
-									"local_objects_propagation_took":  stat.localObjectsPropagationTook,
-								}).Debug("updating async replication stats")
-								s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
-							}
-						}
-					}
-				}()
+				err := s.index.asyncReplicationWorkerAcquire(ctx)
 				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-
-					if errors.Is(err, replica.ErrNoDiffFound) {
-						if time.Since(lastLog) >= config.loggingFrequency {
-							lastLog = time.Now()
-
-							s.index.logger.
-								WithField("action", "async_replication").
-								WithField("class_name", s.class.Class).
-								WithField("shard_name", s.name).
-								WithField("hosts", s.getLastComparedHosts()).
-								Debug("hashbeat iteration successfully completed: no differences were found")
-						}
-
-						backoffTimer.Reset()
-						lastHashbeatMux.Lock()
-						lastHashbeat = time.Now()
-						lastHashbeatPropagatedObjects = false
-						lastHashbeatMux.Unlock()
-						continue
-					}
-
-					if time.Since(lastLog) >= config.loggingFrequency {
-						lastLog = time.Now()
-
-						s.index.logger.
-							WithField("action", "async_replication").
-							WithField("class_name", s.class.Class).
-							WithField("shard_name", s.name).
-							Warnf("hashbeat iteration failed: %v", err)
-					}
-
-					time.Sleep(backoffTimer.CurrentInterval())
-					backoffTimer.IncreaseInterval()
-					lastHashbeatMux.Lock()
-					lastHashbeat = time.Now()
-					lastHashbeatPropagatedObjects = false
-					lastHashbeatMux.Unlock()
-					continue
+					return
 				}
 
-				statsHaveObjectsPropagated := false
-				if time.Since(lastLog) >= config.loggingFrequency {
-					lastLog = time.Now()
+				shouldStop := s.handleHashbeatWakeup(
+					ctx,
+					&config,
+					backoffTimer,
+					&lastLog,
+					&lastHashbeat,
+					&lastHashbeatPropagatedObjects,
+					&lastHashbeatMux,
+				)
 
-					for _, stat := range stats {
-						s.index.logger.
-							WithField("action", "async_replication").
-							WithField("class_name", s.class.Class).
-							WithField("shard_name", s.name).
-							WithField("target_node_name", stat.targetNodeName).
-							WithField("hashtree_diff_took", stat.hashtreeDiffTook).
-							WithField("object_digests_diff_took", stat.objectDigestsDiffTook).
-							WithField("local_object_digests_count", stat.localObjectDigestsCount).
-							WithField("remote_object_digests_count", stat.remoteObjectDigestsCount).
-							WithField("local_objects_propagation_count", stat.localObjectsPropagationCount).
-							WithField("local_objects_propagation_took", stat.localObjectsPropagationTook).
-							Debug("hashbeat iteration successfully completed")
-						if stat.localObjectDigestsCount > 0 {
-							statsHaveObjectsPropagated = true
-						}
-					}
+				s.index.asyncReplicationWorkerRelease()
+
+				if shouldStop {
+					return
 				}
-
-				backoffTimer.Reset()
-				lastHashbeatMux.Lock()
-				lastHashbeat = time.Now()
-				lastHashbeatPropagatedObjects = statsHaveObjectsPropagated
-				lastHashbeatMux.Unlock()
 			}
 		}
 	}, s.index.logger)
@@ -882,6 +835,147 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			}
 		}
 	}, s.index.logger)
+}
+
+func (s *Shard) handleHashbeatWakeup(
+	ctx context.Context,
+	config *asyncReplicationConfig,
+	backoffTimer *interval.BackoffTimer,
+	lastLog *time.Time,
+	lastHashbeat *time.Time,
+	lastHashbeatPropagatedObjects *bool,
+	lastHashbeatMux *sync.Mutex,
+) (shouldStop bool) {
+	// Reload target node overrides
+	func() {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock()
+		config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
+	}()
+
+	if (!s.index.AsyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
+		(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
+
+		// skip hashbeat iteration when async replication is disabled and no target node overrides are set
+		// or maintenance mode is enabled for localhost
+		if config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled() {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Info("skipping async replication in maintenance mode")
+		}
+
+		backoffTimer.Reset()
+		lastHashbeatMux.Lock()
+		*lastHashbeat = time.Now()
+		*lastHashbeatPropagatedObjects = false
+		lastHashbeatMux.Unlock()
+		return false
+	}
+
+	stats, err := s.hashBeat(ctx, *config)
+
+	// update the shard stats for the target node
+	func() {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock()
+
+		if s.asyncReplicationStatsByTargetNode == nil {
+			s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
+		}
+		if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
+			for _, stat := range stats {
+				if stat != nil {
+					s.index.logger.WithFields(logrus.Fields{
+						"shard_name":                      s.name,
+						"target_node_name":                stat.targetNodeName,
+						"hashtree_diff_took":              stat.hashtreeDiffTook,
+						"object_digests_diff_took":        stat.objectDigestsDiffTook,
+						"local_object_digests_count":      stat.localObjectDigestsCount,
+						"remote_object_digests_count":     stat.remoteObjectDigestsCount,
+						"local_objects_propagation_count": stat.localObjectsPropagationCount,
+						"local_objects_propagation_took":  stat.localObjectsPropagationTook,
+					}).Debug("updating async replication stats")
+					s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
+				}
+			}
+		}
+	}()
+
+	if err != nil {
+		if ctx.Err() != nil {
+			return true
+		}
+
+		if errors.Is(err, replica.ErrNoDiffFound) {
+			if time.Since(*lastLog) >= config.loggingFrequency {
+				*lastLog = time.Now()
+				s.index.logger.
+					WithField("action", "async_replication").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
+					WithField("hosts", s.getLastComparedHosts()).
+					Debug("hashbeat iteration successfully completed: no differences were found")
+			}
+
+			backoffTimer.Reset()
+			lastHashbeatMux.Lock()
+			*lastHashbeat = time.Now()
+			*lastHashbeatPropagatedObjects = false
+			lastHashbeatMux.Unlock()
+			return false
+		}
+
+		if time.Since(*lastLog) >= config.loggingFrequency {
+			*lastLog = time.Now()
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("hashbeat iteration failed: %v", err)
+		}
+
+		time.Sleep(backoffTimer.CurrentInterval())
+		backoffTimer.IncreaseInterval()
+		lastHashbeatMux.Lock()
+		*lastHashbeat = time.Now()
+		*lastHashbeatPropagatedObjects = false
+		lastHashbeatMux.Unlock()
+		return false
+	}
+
+	statsHaveObjectsPropagated := false
+	if time.Since(*lastLog) >= config.loggingFrequency {
+		*lastLog = time.Now()
+
+		for _, stat := range stats {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				WithField("target_node_name", stat.targetNodeName).
+				WithField("hashtree_diff_took", stat.hashtreeDiffTook).
+				WithField("object_digests_diff_took", stat.objectDigestsDiffTook).
+				WithField("local_object_digests_count", stat.localObjectDigestsCount).
+				WithField("remote_object_digests_count", stat.remoteObjectDigestsCount).
+				WithField("local_objects_propagation_count", stat.localObjectsPropagationCount).
+				WithField("local_objects_propagation_took", stat.localObjectsPropagationTook).
+				Debug("hashbeat iteration successfully completed")
+
+			if stat.localObjectDigestsCount > 0 {
+				statsHaveObjectsPropagated = true
+			}
+		}
+	}
+
+	backoffTimer.Reset()
+	lastHashbeatMux.Lock()
+	*lastHashbeat = time.Now()
+	*lastHashbeatPropagatedObjects = statsHaveObjectsPropagated
+	lastHashbeatMux.Unlock()
+
+	return false
 }
 
 func (s *Shard) setLastComparedNodes(hosts []string) {
