@@ -141,6 +141,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:                   m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
+			ObjectsTTLBatchSize:                          m.db.config.ObjectsTTLBatchSize,
 			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
 			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
@@ -910,7 +911,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 }
 
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
-	var errs errorcompounder.ErrorCompounder
+	errs := errorcompounder.New()
 	errs.Add(m.doInvertedReindex(ctx, taskNamesWithArgs))
 	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNamesWithArgs))
 	return errs.ToError()
