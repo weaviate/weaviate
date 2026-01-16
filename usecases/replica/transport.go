@@ -228,6 +228,10 @@ type FinderClient struct {
 	cl RClient
 }
 
+func NewFinderClient(cl RClient) FinderClient {
+	return FinderClient{cl: cl}
+}
+
 // FullRead reads full object
 func (fc FinderClient) FullRead(ctx context.Context,
 	host, index, shard string,

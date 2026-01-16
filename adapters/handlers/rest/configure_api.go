@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -1086,10 +1087,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
-	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
+	telemeter := telemetry.New(
+		appState.DB,
+		appState.SchemaManager,
+		appState.Logger,
+		getTelemetryURL(appState),
+		appState.ServerConfig.Config.TelemetryPushInterval,
+	)
 
-	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
+	setupMiddlewares := makeSetupMiddlewares(appState)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
@@ -2141,6 +2148,18 @@ func limitResources(appState *state.State) {
 
 func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
+}
+
+// getTelemetryURL returns the telemetry consumer URL from config.
+// If a custom URL is set, it's base64-encoded to match the expected format.
+// Returns empty string if no custom URL is set (telemetry.New will use default).
+func getTelemetryURL(state *state.State) string {
+	url := state.ServerConfig.Config.TelemetryURL
+	if url == "" {
+		return ""
+	}
+	// The telemetry package expects base64-encoded URLs
+	return base64.StdEncoding.EncodeToString([]byte(url))
 }
 
 type membership struct {
