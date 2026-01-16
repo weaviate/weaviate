@@ -179,7 +179,7 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64) (written int64, abort bool, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64) (written int64, sizeExceeded bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return written, false, err
 	}
