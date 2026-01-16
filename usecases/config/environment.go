@@ -162,24 +162,14 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
 		}
 
-		objectsTtlFindBatchSizeEnv := "OBJECTS_TTL_FIND_BATCH_SIZE"
-		if err := parsePositiveInt(objectsTtlFindBatchSizeEnv,
+		objectsTtlBatchSizeEnv := "OBJECTS_TTL_BATCH_SIZE"
+		if err := parsePositiveInt(objectsTtlBatchSizeEnv,
 			func(val int) {
-				validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
-				config.ObjectsTTLFindBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
+				validate := func(val int) error { return validatePositiveInt(val, objectsTtlBatchSizeEnv) }
+				config.ObjectsTTLBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
 			},
-			DefaultObjectsTTLFindBatchSize); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlFindBatchSizeEnv, err)
-		}
-
-		objectsTtlDeleteBatchSizeEnv := "OBJECTS_TTL_DELETE_BATCH_SIZE"
-		if err := parsePositiveInt(objectsTtlDeleteBatchSizeEnv,
-			func(val int) {
-				validate := func(val int) error { return validatePositiveInt(val, objectsTtlFindBatchSizeEnv) }
-				config.ObjectsTTLDeleteBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-			},
-			DefaultObjectsTTLDeleteBatchSize); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlDeleteBatchSizeEnv, err)
+			DefaultObjectsTTLBatchSize); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlBatchSizeEnv, err)
 		}
 
 		objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"

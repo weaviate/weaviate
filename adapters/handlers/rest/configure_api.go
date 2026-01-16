@@ -411,8 +411,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
-		ObjectsTTLFindBatchSize:             appState.ServerConfig.Config.ObjectsTTLFindBatchSize,
-		ObjectsTTLDeleteBatchSize:           appState.ServerConfig.Config.ObjectsTTLDeleteBatchSize,
+		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
@@ -2084,8 +2083,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
-		registered.ObjectsTTLFindBatchSize = appState.ServerConfig.Config.ObjectsTTLFindBatchSize
-		registered.ObjectsTTLDeleteBatchSize = appState.ServerConfig.Config.ObjectsTTLDeleteBatchSize
+		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
 		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {

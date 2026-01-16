@@ -73,8 +73,7 @@ const (
 
 const (
 	DefaultObjectsTTLDeleteSchedule    = "" // disabled
-	DefaultObjectsTTLFindBatchSize     = 20_000
-	DefaultObjectsTTLDeleteBatchSize   = 10_000
+	DefaultObjectsTTLBatchSize         = 10_000
 	DefaultObjectsTTLConcurrencyFactor = 1
 )
 
@@ -245,8 +244,7 @@ type Config struct {
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
 	ObjectsTTLDeleteSchedule    *runtime.DynamicValue[string]  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLAllowSeconds      bool                           `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
-	ObjectsTTLFindBatchSize     *runtime.DynamicValue[int]     `json:"objects_ttl_find_batch_size" yaml:"objects_ttl_find_batch_size"`
-	ObjectsTTLDeleteBatchSize   *runtime.DynamicValue[int]     `json:"objects_ttl_delete_batch_size" yaml:"objects_ttl_delete_batch_size"`
+	ObjectsTTLBatchSize         *runtime.DynamicValue[int]     `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
 	ObjectsTTLConcurrencyFactor *runtime.DynamicValue[float64] `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut

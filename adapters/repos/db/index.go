@@ -831,8 +831,7 @@ type IndexConfig struct {
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
-	ObjectsTTLFindBatchSize             *configRuntime.DynamicValue[int]
-	ObjectsTTLDeleteBatchSize           *configRuntime.DynamicValue[int]
+	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -2229,7 +2228,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
-	perShardLimit := i.Config.ObjectsTTLFindBatchSize.Get()
+	perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
 
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
@@ -2260,10 +2259,8 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						return nil
 					}
 
-					wg := new(sync.WaitGroup)
-					i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, wg, deletionTime, "", tenant,
+					i.incomingDeleteObjectsExpiredUuids(ctx, ec, deletionTime, "", tenant,
 						tenants2uuids[tenant], countDeleted, replProps, schemaVersion)
-					wg.Wait()
 				}
 			})
 			if ctx.Err() != nil {
@@ -2287,38 +2284,51 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return nil
 			}
 
-			anyFound := false
-			for _, uuids := range shards2uuids {
-				if len(uuids) > 0 {
-					anyFound = true
-					break
-				}
-			}
-			if !anyFound {
-				return nil
+			shardIdx := len(shards2uuids) - 1
+			anyUuidsFound := false
+			wg := new(sync.WaitGroup)
+			f := func(shard string, uuids []strfmt.UUID) {
+				defer wg.Done()
+				i.incomingDeleteObjectsExpiredUuids(ctx, ec, deletionTime, shard, "",
+					uuids, countDeleted, replProps, schemaVersion)
 			}
 
-			wg := new(sync.WaitGroup)
 			for shard, uuids := range shards2uuids {
-				i.incomingDeleteObjectsExpiredUuids(ctx, eg, ec, wg, deletionTime, shard, "",
-					uuids, countDeleted, replProps, schemaVersion)
+				shardIdx--
+				if len(uuids) == 0 {
+					continue
+				}
+
+				anyUuidsFound = true
+				wg.Add(1)
+				isLast := shardIdx == 0
+				// if possible run in separate routine, if not run in current one
+				// always run last in current one (not to start other routine,
+				// while current one have to wait for the results anyway)
+				if isLast || !eg.TryGo(func() error {
+					f(shard, uuids)
+					return nil
+				}) {
+					f(shard, uuids)
+				}
 				if ctx.Err() != nil {
-					// does not have to wait for wg if ctx is expired.
-					// wg is used to ensure new finduuids search is executed after uuids found previously are already deleted
 					return nil
 				}
 			}
 			wg.Wait()
+
+			if !anyUuidsFound {
+				return nil
+			}
 		}
 	})
 }
 
-func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
-	wg *sync.WaitGroup, deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID, countDeleted func(int32),
+func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, ec errorcompounder.ErrorCompounder,
+	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID, countDeleted func(int32),
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) {
-	uuidsCount := len(uuids)
-	if uuidsCount == 0 {
+	if len(uuids) == 0 {
 		return
 	}
 
@@ -2335,22 +2345,18 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 		"shard":      inputKey,
 	})
 
-	f := func(uuids []strfmt.UUID, batchId int) (err error) {
-		defer wg.Done()
-
+	f := func() (err error) {
 		started := time.Now()
 		deleted := int32(0)
 
 		logger.WithFields(logrus.Fields{
-			"batch_id": batchId,
-			"size":     len(uuids),
+			"size": len(uuids),
 		}).Debug("batch delete started")
 		defer func() {
 			logger := logger.WithFields(logrus.Fields{
-				"batch_id": batchId,
-				"took":     time.Since(started),
-				"deleted":  deleted,
-				"failed":   int32(len(uuids)) - deleted,
+				"took":    time.Since(started),
+				"deleted": deleted,
+				"failed":  int32(len(uuids)) - deleted,
 			})
 			if err != nil {
 				// as debug for each batch, combined error of all batches is logged as error anyway
@@ -2387,28 +2393,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, eg *enter
 		return nil
 	}
 
-	batchSize := i.Config.ObjectsTTLDeleteBatchSize.Get()
-	for i := 0; i*batchSize < uuidsCount; i++ {
-		if err := ctx.Err(); err != nil {
-			ec.AddGroups(err, collection, inputKey)
-			break
-		}
-		wg.Add(1)
-
-		from := i * batchSize
-		to := min(uuidsCount, from+batchSize)
-		batch := uuids[from:to]
-		isLast := to == uuidsCount
-
-		// try running in other goroutine (if available), otherwise run in current one.
-		// always run last batch in current goroutine.
-		if isLast || !eg.TryGo(func() error {
-			ec.AddGroups(f(batch, i), collection, inputKey)
-			return nil
-		}) {
-			ec.AddGroups(f(batch, i), collection, inputKey)
-		}
-	}
+	ec.AddGroups(f(), collection, inputKey)
 }
 
 func (i *Index) getClass() *models.Class {
