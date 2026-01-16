@@ -1430,15 +1430,24 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 	defer release()
 
+	// Try local first
+	isLoading := false
 	if shard != nil {
+		isLoading = shard.GetStatus() == storagestate.StatusLoading
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
-		if obj != nil {
+		if obj != nil && !isLoading {
+			// Only return local result if shard is not loading
+			// If loading, try remote to ensure we have the latest data
 			return obj, nil
 		}
 	}
 
+	// Try remote if:
+	// 1. No local shard
+	// 2. Shard is loading (might not have all data yet)
+	// 3. Local returned nil
 	if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
 		return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 	}
@@ -1517,23 +1526,29 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		// Try local first
 		var objects []*storobj.Object
 		var localErr error
+		isLoading := false
 		if shard != nil {
+			isLoading = shard.GetStatus() == storagestate.StatusLoading
 			objects, localErr = shard.MultiObjectByID(ctx, group.ids)
 			if localErr != nil {
 				localErr = errors.Wrapf(localErr, "local shard %s", shardId(i.ID(), shardName))
 			}
 		}
 
-		// Try remote if we need more objects (consistent with objectByID)
-		if objects == nil || hasNilObjects(objects) {
+		// Try remote if:
+		// 1. No local shard
+		// 2. Shard is loading (might not have all data yet)
+		// 3. Got no objects or incomplete results
+		needRemote := shard == nil || isLoading || len(objects) == 0 || hasNilObjects(objects)
+		if needRemote {
 			remoteObjects, remoteErr := i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if remoteErr == nil {
-				if objects == nil {
+				if len(objects) == 0 {
 					objects = remoteObjects
 				} else {
 					mergeObjects(objects, remoteObjects)
 				}
-			} else if objects == nil {
+			} else if len(objects) == 0 {
 				release()
 				if localErr != nil {
 					return nil, localErr
