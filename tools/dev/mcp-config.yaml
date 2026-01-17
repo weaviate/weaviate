@@ -1,0 +1,24 @@
+# MCP Server Tool Configuration
+# This file allows you to customize the descriptions of MCP tools
+# that will be shown to LLM clients like Claude Desktop.
+#
+# Format:
+# tools:
+#   <tool-name>:
+#     description: "Your custom description here"
+#
+# Only tools listed here will have their descriptions overridden.
+# Tools not listed will use their default descriptions.
+
+tools:
+  weaviate-collections-get-config:
+    description: "Retrieves the schema configuration for one or all collections in the Weaviate database. Use this to understand the structure, properties, and settings of your data collections before querying or inserting data."
+
+  weaviate-tenants-list:
+    description: "Lists all tenants for a specific multi-tenant collection. Use this to discover which tenants exist in a collection before performing tenant-scoped operations."
+
+  weaviate-query-hybrid:
+    description: "Performs a hybrid search combining vector similarity and keyword matching (BM25) on a collection. This is the primary search tool - use it to find relevant objects based on natural language queries. The alpha parameter controls the balance between semantic (vector) and keyword search."
+
+  weaviate-objects-upsert:
+    description: "Creates a new object or updates an existing one in a collection. If a UUID is provided and exists, the object is updated; otherwise, a new object is created. Use this to add or modify data in Weaviate collections."

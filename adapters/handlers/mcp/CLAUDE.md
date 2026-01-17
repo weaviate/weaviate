@@ -30,6 +30,7 @@ The MCP server exposes Weaviate functionality as tools that can be called by LLM
 - **Version:** 0.1.0
 - **Enabled:** Controlled by `MCP_SERVER_ENABLED` environment variable (must be set to `true`, disabled by default)
 - **Write Access:** Controlled by `MCP_SERVER_WRITE_ACCESS_DISABLED` environment variable (write access disabled by default, set to `false` to enable write tools)
+- **Custom Tool Descriptions:** Controlled by `MCP_SERVER_CONFIG_PATH` environment variable (path to YAML configuration file for customizing tool descriptions)
 
 ## Architecture
 
@@ -295,7 +296,8 @@ This configuration:
 - Uses API key: `admin-key` for user: `admin`
 - Starts Weaviate on port 8080
 - **Enables and starts MCP server on port 9000** (via `MCP_SERVER_ENABLED=true`)
-- **Enables write access to MCP tools** (via `MCP_SERVER_WRITE_ACCESS_DISABLED=false`)
+- **Disables write access to MCP tools** (via `MCP_SERVER_WRITE_ACCESS_DISABLED=true` - read-only mode)
+- **Loads custom tool descriptions** from `tools/dev/mcp-config.yaml` (via `MCP_SERVER_CONFIG_PATH`)
 
 **To run MCP server with a custom configuration:**
 ```bash
@@ -305,6 +307,9 @@ export MCP_SERVER_ENABLED=true
 # Enable write access (optional - disabled by default for security)
 export MCP_SERVER_WRITE_ACCESS_DISABLED=false
 
+# Optional: Load custom tool descriptions
+export MCP_SERVER_CONFIG_PATH=/path/to/your/mcp-config.yaml
+
 ./tools/dev/run_dev_server.sh <your-config>
 ```
 
@@ -312,6 +317,7 @@ export MCP_SERVER_WRITE_ACCESS_DISABLED=false
 - Without `MCP_SERVER_ENABLED=true`, the MCP server will not start and you'll see a log message: "MCP server is disabled (set MCP_SERVER_ENABLED=true to enable)"
 - By default, `MCP_SERVER_WRITE_ACCESS_DISABLED=true` (write access disabled). Only read-only tools will be available unless you explicitly set it to `false`
 - For production environments, it's recommended to keep write access disabled unless specifically needed
+- `MCP_SERVER_CONFIG_PATH` is optional - if not set, tools will use their default descriptions
 
 **Authentication Header Format:**
 ```
@@ -336,6 +342,73 @@ Add to your Claude Desktop MCP configuration:
   }
 }
 ```
+
+## Customizing Tool Descriptions
+
+You can customize the descriptions of MCP tools that are shown to LLM clients by providing a YAML configuration file.
+
+### Configuration File Format
+
+Create a YAML file with the following structure:
+
+```yaml
+# MCP Server Tool Configuration
+tools:
+  weaviate-collections-get-config:
+    description: "Your custom description here"
+
+  weaviate-query-hybrid:
+    description: "Another custom description"
+```
+
+### Using Custom Descriptions
+
+1. **Create your configuration file:** See `tools/dev/mcp-config.yaml` for an example
+
+2. **Set the environment variable:**
+   ```bash
+   export MCP_SERVER_CONFIG_PATH=/path/to/your/mcp-config.yaml
+   ```
+
+3. **Start the server:**
+   ```bash
+   ./tools/dev/run_dev_server.sh local-mcp
+   ```
+
+The `local-mcp` configuration already includes a sample config file at `tools/dev/mcp-config.yaml`.
+
+### Example Configuration
+
+The example configuration file (`tools/dev/mcp-config.yaml`) includes custom descriptions for all available tools:
+
+```yaml
+tools:
+  weaviate-collections-get-config:
+    description: "Retrieves the schema configuration for one or all collections in the Weaviate database. Use this to understand the structure, properties, and settings of your data collections before querying or inserting data."
+
+  weaviate-tenants-list:
+    description: "Lists all tenants for a specific multi-tenant collection. Use this to discover which tenants exist in a collection before performing tenant-scoped operations."
+
+  weaviate-query-hybrid:
+    description: "Performs a hybrid search combining vector similarity and keyword matching (BM25) on a collection. This is the primary search tool - use it to find relevant objects based on natural language queries. The alpha parameter controls the balance between semantic (vector) and keyword search."
+
+  weaviate-objects-upsert:
+    description: "Creates a new object or updates an existing one in a collection. If a UUID is provided and exists, the object is updated; otherwise, a new object is created. Use this to add or modify data in Weaviate collections."
+```
+
+### Why Customize Descriptions?
+
+- **Improve LLM Understanding:** Provide more context about when and how to use each tool
+- **Add Domain-Specific Guidance:** Tailor descriptions to your specific use case
+- **Include Usage Examples:** Help the LLM understand the tool's purpose better
+- **Highlight Important Parameters:** Draw attention to key configuration options
+
+### Notes
+
+- Only tools listed in the configuration file will have their descriptions overridden
+- Tools not listed will use their default descriptions
+- If the configuration file is invalid or cannot be read, the server will silently fall back to default descriptions
+- Changes to the configuration file require restarting the server
 
 ## Building and Testing
 

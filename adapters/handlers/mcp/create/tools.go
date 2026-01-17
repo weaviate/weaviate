@@ -16,12 +16,23 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func Tools(creator *WeaviateCreator) []server.ServerTool {
+// getDescription returns custom description if available, otherwise returns default
+func getDescription(descriptions map[string]string, toolName, defaultDesc string) string {
+	if descriptions != nil {
+		if customDesc, ok := descriptions[toolName]; ok {
+			return customDesc
+		}
+	}
+	return defaultDesc
+}
+
+func Tools(creator *WeaviateCreator, descriptions map[string]string) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
 				"weaviate-objects-upsert",
-				mcp.WithDescription("Upserts (inserts or updates) a single object into a collection in the database."),
+				mcp.WithDescription(getDescription(descriptions, "weaviate-objects-upsert",
+					"Upserts (inserts or updates) a single object into a collection in the database.")),
 				mcp.WithInputSchema[UpsertObjectArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(creator.UpsertObject),

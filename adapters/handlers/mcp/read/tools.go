@@ -16,12 +16,23 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func Tools(reader *WeaviateReader) []server.ServerTool {
+// getDescription returns custom description if available, otherwise returns default
+func getDescription(descriptions map[string]string, toolName, defaultDesc string) string {
+	if descriptions != nil {
+		if customDesc, ok := descriptions[toolName]; ok {
+			return customDesc
+		}
+	}
+	return defaultDesc
+}
+
+func Tools(reader *WeaviateReader, descriptions map[string]string) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
 				"weaviate-collections-get-config",
-				mcp.WithDescription("Retrieves collection configuration(s). If collection_name is provided, returns only that collection's config. Otherwise returns all collections."),
+				mcp.WithDescription(getDescription(descriptions, "weaviate-collections-get-config",
+					"Retrieves collection configuration(s). If collection_name is provided, returns only that collection's config. Otherwise returns all collections.")),
 				mcp.WithInputSchema[GetCollectionConfigArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(reader.GetCollectionConfig),
@@ -29,7 +40,8 @@ func Tools(reader *WeaviateReader) []server.ServerTool {
 		{
 			Tool: mcp.NewTool(
 				"weaviate-tenants-list",
-				mcp.WithDescription("Lists the tenants of a collection in the database."),
+				mcp.WithDescription(getDescription(descriptions, "weaviate-tenants-list",
+					"Lists the tenants of a collection in the database.")),
 				mcp.WithInputSchema[GetTenantsArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(reader.GetTenants),

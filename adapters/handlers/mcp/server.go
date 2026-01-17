@@ -67,16 +67,20 @@ func (s *MCPServer) Serve() {
 }
 
 func (s *MCPServer) registerTools() {
+	// Load configuration for custom tool descriptions
+	config := LoadConfig()
+	descriptions := config.ToDescriptionMap()
+
 	// Check if write access is disabled (default is true/disabled)
 	writeDisabled := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED")
 	if writeDisabled == "" || strings.ToLower(writeDisabled) == "true" {
 		// Write access disabled - only register read and search tools
-		s.server.AddTools(search.Tools(s.searcher)...)
-		s.server.AddTools(read.Tools(s.reader)...)
+		s.server.AddTools(search.Tools(s.searcher, descriptions)...)
+		s.server.AddTools(read.Tools(s.reader, descriptions)...)
 	} else {
 		// Write access enabled - register all tools
-		s.server.AddTools(create.Tools(s.creator)...)
-		s.server.AddTools(search.Tools(s.searcher)...)
-		s.server.AddTools(read.Tools(s.reader)...)
+		s.server.AddTools(create.Tools(s.creator, descriptions)...)
+		s.server.AddTools(search.Tools(s.searcher, descriptions)...)
+		s.server.AddTools(read.Tools(s.reader, descriptions)...)
 	}
 }
