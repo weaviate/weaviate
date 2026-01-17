@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -72,6 +73,8 @@ type RemoteIndexIncomingRepo interface {
 	) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
+	IncomingFilterSampling(ctx context.Context, shardName string,
+		params filtersampling.Params) (*filtersampling.Result, error)
 
 	IncomingFindUUIDs(ctx context.Context, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
@@ -237,6 +240,17 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 	}
 
 	return index.IncomingAggregate(ctx, shardName, params, rii.modules)
+}
+
+func (rii *RemoteIndexIncoming) FilterSampling(ctx context.Context, indexName, shardName string,
+	params filtersampling.Params,
+) (*filtersampling.Result, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	}
+
+	return index.IncomingFilterSampling(ctx, shardName, params)
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,

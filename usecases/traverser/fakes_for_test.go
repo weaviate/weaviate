@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -135,6 +136,10 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 	return nil, nil
 }
 
+func (f *fakeVectorSearcher) FilterSampling(ctx context.Context, params filtersampling.Params) (*filtersampling.Result, error) {
+	return &filtersampling.Result{}, nil
+}
+
 type fakeVectorRepo struct {
 	mock.Mock
 }
@@ -158,6 +163,10 @@ func (f *fakeVectorRepo) Aggregate(ctx context.Context,
 ) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
+}
+
+func (f *fakeVectorRepo) FilterSampling(ctx context.Context, params filtersampling.Params) (*filtersampling.Result, error) {
+	return &filtersampling.Result{}, nil
 }
 
 func (f *fakeVectorRepo) GetObject(ctx context.Context, uuid strfmt.UUID,

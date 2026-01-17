@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -93,6 +94,8 @@ type RemoteIndexClient interface {
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
+	FilterSampling(ctx context.Context, hostname, indexName, shardName string,
+		params filtersampling.Params) (*filtersampling.Result, error)
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
@@ -351,6 +354,25 @@ func (ri *RemoteIndex) Aggregate(
 		return nil, err
 	}
 	return rr.(*aggregation.Result), err
+}
+
+func (ri *RemoteIndex) FilterSampling(
+	ctx context.Context,
+	shard string,
+	params filtersampling.Params,
+) (*filtersampling.Result, error) {
+	f := func(_, host string) (interface{}, error) {
+		r, err := ri.client.FilterSampling(ctx, host, ri.class, shard, params)
+		if err != nil {
+			return nil, err
+		}
+		return r, nil
+	}
+	rr, _, err := ri.queryReplicas(ctx, shard, f)
+	if err != nil {
+		return nil, err
+	}
+	return rr.(*filtersampling.Result), err
 }
 
 func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,

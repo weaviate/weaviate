@@ -5,6 +5,7 @@ package weaviate.v1;
 import "v1/aggregate.proto";
 import "v1/batch.proto";
 import "v1/batch_delete.proto";
+import "v1/filter_sampling.proto";
 import "v1/search_get.proto";
 import "v1/tenants.proto";
 
@@ -20,4 +21,5 @@ service Weaviate {
   rpc TenantsGet(TenantsGetRequest) returns (TenantsGetReply) {};
   rpc Aggregate(AggregateRequest) returns (AggregateReply) {};
   rpc BatchStream(stream BatchStreamRequest) returns (stream BatchStreamReply) {};
+  rpc FilterSampling(FilterSamplingRequest) returns (FilterSamplingReply) {};
 }

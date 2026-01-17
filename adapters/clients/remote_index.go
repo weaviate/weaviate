@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -434,6 +435,37 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
+	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	return resp.Result, err
+}
+
+type filterSamplingResp struct {
+	Result *filtersampling.Result
+}
+
+func (r *filterSamplingResp) decode(data []byte) (err error) {
+	r.Result, err = clusterapi.IndicesPayloads.FilterSamplingResult.Unmarshal(data)
+	return err
+}
+
+func (c *RemoteIndex) FilterSampling(ctx context.Context, hostName, index,
+	shard string, params filtersampling.Params,
+) (*filtersampling.Result, error) {
+	// create new request
+	body, err := clusterapi.IndicesPayloads.FilterSamplingParams.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request payload: %w", err)
+	}
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/objects/_filtersampling", index, shard),
+		"", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.FilterSamplingParams.SetContentTypeHeaderReq(req)
+
+	// send request
+	resp := &filterSamplingResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
 	return resp.Result, err
 }

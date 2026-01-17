@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -360,6 +361,12 @@ func (f *FakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 func (f *FakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 	shardName string, params aggregation.Params,
 ) (*aggregation.Result, error) {
+	return nil, nil
+}
+
+func (f *FakeRemoteClient) FilterSampling(ctx context.Context, hostName, indexName,
+	shardName string, params filtersampling.Params,
+) (*filtersampling.Result, error) {
 	return nil, nil
 }
 
