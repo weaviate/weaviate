@@ -87,22 +87,43 @@ adapters/handlers/mcp/
 
 ## Available Tools
 
-### 1. `get-schema`
+### 1. `weaviate-collections-get-config`
 
-Retrieves the complete database schema.
+Retrieves collection configuration(s) from the database. Can return all collections or a specific collection's configuration.
 
-**Parameters:** None
+**Parameters:**
+- `collection_name` (string, optional): Name of specific collection to get config for. If not provided, returns all collections.
 
 **Returns:**
 ```json
 {
-  "schema": {
-    "classes": [...]
-  }
+  "collections": [
+    {
+      "class": "Article",
+      "description": "...",
+      "properties": [...],
+      "vectorizer": "...",
+      "moduleConfig": {...}
+    }
+  ]
 }
 ```
 
+When a specific `collection_name` is provided, the response contains only that collection. When omitted, all collections are returned.
+
 **Authorization:** Requires READ permission on MCP resource.
+
+**Example - Get all collections:**
+```json
+{}
+```
+
+**Example - Get specific collection:**
+```json
+{
+  "collection_name": "Article"
+}
+```
 
 ---
 
@@ -288,7 +309,7 @@ Currently, there are no dedicated unit tests for the MCP handlers. To test:
        "id": 1,
        "method": "tools/call",
        "params": {
-         "name": "get-schema",
+         "name": "weaviate-collections-get-config",
          "arguments": {}
        }
      }'
@@ -339,7 +360,7 @@ Common debugging approaches:
 ### Authorization Verbs
 
 Each tool requires specific permissions:
-- `get-schema`: READ
+- `weaviate-collections-get-config`: READ
 - `get-tenants`: READ
 - `insert-one`: CREATE
 - `search-with-hybrid`: READ
@@ -457,7 +478,7 @@ go build ./adapters/handlers/mcp/...
    - Be specific: "Name of the collection to delete from" vs "Collection"
 
 3. **Keep tool names lowercase with hyphens**
-   - Good: `insert-one`, `get-schema`, `search-with-hybrid`
+   - Good: `insert-one`, `weaviate-collections-get-config`, `search-with-hybrid`
    - Bad: `InsertOne`, `getSchema`, `search_hybrid`
 
 4. **Handle errors gracefully**

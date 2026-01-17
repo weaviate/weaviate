@@ -11,6 +11,10 @@
 
 package read
 
+type GetCollectionConfigArgs struct {
+	CollectionName string `json:"collection_name,omitempty" jsonschema_description:"Name of specific collection to get config for. If not provided, returns all collections"`
+}
+
 type GetTenantsArgs struct {
 	Collection string   `json:"collection" jsonschema:"required" jsonschema_description:"Name of collection to get tenants from"`
 	Tenants    []string `json:"tenants,omitempty" jsonschema_description:"Names of tenants to get"`

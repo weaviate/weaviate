@@ -20,10 +20,11 @@ func Tools(reader *WeaviateReader) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
-				"get-schema",
-				mcp.WithDescription("Retrieves the schema of the database."),
+				"weaviate-collections-get-config",
+				mcp.WithDescription("Retrieves collection configuration(s). If collection_name is provided, returns only that collection's config. Otherwise returns all collections."),
+				mcp.WithInputSchema[GetCollectionConfigArgs](),
 			),
-			Handler: mcp.NewStructuredToolHandler(reader.GetSchema),
+			Handler: mcp.NewStructuredToolHandler(reader.GetCollectionConfig),
 		},
 		{
 			Tool: mcp.NewTool(
