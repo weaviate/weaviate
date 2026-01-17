@@ -28,6 +28,7 @@ The MCP server exposes Weaviate functionality as tools that can be called by LLM
 - **Port:** 9000 (hardcoded in `server.go:58`)
 - **Protocol:** HTTP with Server-Sent Events (SSE)
 - **Version:** 0.1.0
+- **Enabled:** Controlled by `MCP_SERVER_ENABLED` environment variable (must be set to `true`, disabled by default)
 
 ## Architecture
 
@@ -263,10 +264,12 @@ The MCP server uses:
 
 ### Running the Server
 
-The MCP server is started as part of the main Weaviate server. To run it in development mode:
+The MCP server is started as part of the main Weaviate server and is **disabled by default**. You must set the `MCP_SERVER_ENABLED` environment variable to `true` to enable it.
+
+To run it in development mode:
 
 ```bash
-# Run with MCP configuration (includes RBAC auth)
+# Run with MCP configuration (includes RBAC auth and MCP server enabled)
 ./tools/dev/run_dev_server.sh local-mcp
 ```
 
@@ -276,7 +279,16 @@ This configuration:
 - Sets up an admin user with root permissions
 - Uses API key: `admin-key` for user: `admin`
 - Starts Weaviate on port 8080
-- Starts MCP server on port 9000
+- **Enables and starts MCP server on port 9000** (via `MCP_SERVER_ENABLED=true`)
+
+**To run MCP server with a custom configuration:**
+```bash
+# Set MCP_SERVER_ENABLED to true
+export MCP_SERVER_ENABLED=true
+./tools/dev/run_dev_server.sh <your-config>
+```
+
+**Note:** Without `MCP_SERVER_ENABLED=true`, the MCP server will not start and you'll see a log message: "MCP server is disabled (set MCP_SERVER_ENABLED=true to enable)"
 
 **Authentication Header Format:**
 ```
