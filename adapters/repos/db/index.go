@@ -1793,6 +1793,13 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return remoteSearch(shardName)
 		}
 
+		// If shard is loading and we have replicas, try remote first
+		if shard.GetStatus() == storagestate.StatusLoading {
+			if i.shardHasMultipleReplicasRead(tenant, shardName) {
+				return remoteSearch(shardName)
+			}
+		}
+
 		localCtx := helpers.InitSlowQueryDetails(ctx)
 		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
