@@ -14,6 +14,7 @@ package create
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -29,6 +30,10 @@ type WeaviateCreator struct {
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
 		*additional.ReplicationProperties) (*models.Object, error)
+	UpdateObject(context.Context, *models.Principal, string, strfmt.UUID, *models.Object,
+		*additional.ReplicationProperties) (*models.Object, error)
+	GetObject(context.Context, *models.Principal, string, strfmt.UUID, additional.Properties,
+		*additional.ReplicationProperties, string) (*models.Object, error)
 }
 
 func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager) *WeaviateCreator {
