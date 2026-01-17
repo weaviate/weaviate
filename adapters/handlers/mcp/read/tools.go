@@ -12,13 +12,16 @@
 package read
 
 import (
+	"os"
+	"strings"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 )
 
 func Tools(reader *WeaviateReader, descriptions map[string]string) []server.ServerTool {
-	return []server.ServerTool{
+	tools := []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
 				"weaviate-collections-get-config",
@@ -38,4 +41,20 @@ func Tools(reader *WeaviateReader, descriptions map[string]string) []server.Serv
 			Handler: mcp.NewStructuredToolHandler(reader.GetTenants),
 		},
 	}
+
+	// Conditionally add logs tool if enabled
+	logsEnabled := os.Getenv("MCP_SERVER_READ_LOGS_ENABLED")
+	if strings.ToLower(logsEnabled) == "true" {
+		tools = append(tools, server.ServerTool{
+			Tool: mcp.NewTool(
+				"weaviate-logs-fetch",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-logs-fetch",
+					"Fetches Weaviate server logs from the in-memory buffer with pagination support. Supports optional limit (default 2000, max 50000) and offset (default 0) parameters.")),
+				mcp.WithInputSchema[FetchLogsArgs](),
+			),
+			Handler: mcp.NewStructuredToolHandler(reader.FetchLogs),
+		})
+	}
+
+	return tools
 }

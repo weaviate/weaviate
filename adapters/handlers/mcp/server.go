@@ -49,7 +49,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 		defaultCollection: "DefaultCollection",
 		creator:           create.NewWeaviateCreator(authHandler, objectsManager),
 		searcher:          search.NewWeaviateSearcher(authHandler, state.Traverser),
-		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager),
+		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager, state.LogBuffer),
 	}
 	s.registerTools()
 	return s, nil

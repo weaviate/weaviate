@@ -31,6 +31,7 @@ The MCP server exposes Weaviate functionality as tools that can be called by LLM
 - **Enabled:** Controlled by `MCP_SERVER_ENABLED` environment variable (must be set to `true`, disabled by default)
 - **Write Access:** Controlled by `MCP_SERVER_WRITE_ACCESS_DISABLED` environment variable (write access disabled by default, set to `false` to enable write tools)
 - **Custom Tool Descriptions:** Controlled by `MCP_SERVER_CONFIG_PATH` environment variable (path to YAML configuration file for customizing tool descriptions)
+- **Logs Tool Access:** Controlled by `MCP_SERVER_READ_LOGS_ENABLED` environment variable (set to `true` to enable the `weaviate-logs-fetch` tool, disabled by default)
 
 ## Architecture
 
@@ -90,7 +91,7 @@ adapters/handlers/mcp/
 
 ## Available Tools
 
-The MCP server provides different sets of tools based on the `MCP_SERVER_WRITE_ACCESS_DISABLED` environment variable:
+The MCP server provides different sets of tools based on environment variables:
 
 **Read-Only Tools (always available):**
 - `weaviate-collections-get-config` - Get collection schemas
@@ -100,7 +101,10 @@ The MCP server provides different sets of tools based on the `MCP_SERVER_WRITE_A
 **Write Tools (only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`):**
 - `weaviate-objects-upsert` - Create or update objects
 
-By default, write access is **disabled** for security. Set `MCP_SERVER_WRITE_ACCESS_DISABLED=false` to enable write operations.
+**Diagnostic Tools (only available when `MCP_SERVER_READ_LOGS_ENABLED=true`):**
+- `weaviate-logs-fetch` - Fetch recent server logs from memory (limited to 2000 characters)
+
+By default, write access is **disabled** for security, and logs access is **disabled**. Set `MCP_SERVER_WRITE_ACCESS_DISABLED=false` to enable write operations, and set `MCP_SERVER_READ_LOGS_ENABLED=true` to enable log access.
 
 ---
 
@@ -171,7 +175,67 @@ Lists all tenants for a specific collection.
 
 ---
 
-### 3. `weaviate-objects-upsert`
+### 3. `weaviate-logs-fetch`
+
+Fetches Weaviate server logs from the in-memory buffer with pagination support. This tool is only available when `MCP_SERVER_READ_LOGS_ENABLED=true`.
+
+**Parameters:**
+- `limit` (integer, optional): Maximum number of characters to return. Default: 2000, Maximum: 50000
+- `offset` (integer, optional): Number of characters to skip from the end before returning logs. Default: 0 (returns most recent logs)
+
+**Returns:**
+```json
+{
+  "logs": "time=\"2025-01-17T10:30:45Z\" level=info msg=\"Server started\"\ntime=\"2025-01-17T10:30:46Z\" level=debug msg=\"Processing request\""
+}
+```
+
+**Response Fields:**
+- `logs` (string): The fetched log content
+
+**Authorization:** Requires READ permission on MCP resource.
+
+**Pagination:**
+The tool supports pagination to fetch logs in chunks:
+- **Most recent logs:** Use `offset=0` (or omit) and set your desired `limit`
+- **Older logs:** Increase `offset` to skip more recent logs. For example:
+  - First page: `{"limit": 2000, "offset": 0}` - returns last 2000 characters
+  - Second page: `{"limit": 2000, "offset": 2000}` - returns characters from position [end-4000] to [end-2000]
+  - Third page: `{"limit": 2000, "offset": 4000}` - returns characters from position [end-6000] to [end-4000]
+
+**Notes:**
+- Logs are captured in a circular buffer with a maximum size of 100KB
+- The buffer automatically truncates older logs when full
+- Logs are formatted using the same formatter configured for the server (text or JSON)
+- The tool is disabled by default for security reasons
+- When enabled, logs from all levels (debug, info, warn, error) are captured
+- If `offset` exceeds the buffer size, an empty string is returned
+
+**Examples:**
+
+Fetch most recent 2000 characters (default):
+```json
+{}
+```
+
+Fetch most recent 5000 characters:
+```json
+{
+  "limit": 5000
+}
+```
+
+Fetch logs from offset 2000 with limit 3000:
+```json
+{
+  "limit": 3000,
+  "offset": 2000
+}
+```
+
+---
+
+### 4. `weaviate-objects-upsert`
 
 Upserts (inserts or updates) a single object into a collection.
 
@@ -203,7 +267,7 @@ Upserts (inserts or updates) a single object into a collection.
 
 ---
 
-### 4. `weaviate-query-hybrid`
+### 5. `weaviate-query-hybrid`
 
 Performs hybrid search (combining vector and keyword search) on a collection.
 
@@ -297,6 +361,7 @@ This configuration:
 - Starts Weaviate on port 8080
 - **Enables and starts MCP server on port 9000** (via `MCP_SERVER_ENABLED=true`)
 - **Disables write access to MCP tools** (via `MCP_SERVER_WRITE_ACCESS_DISABLED=true` - read-only mode)
+- **Enables logs tool** (via `MCP_SERVER_READ_LOGS_ENABLED=true`)
 - **Loads custom tool descriptions** from `tools/dev/mcp-config.yaml` (via `MCP_SERVER_CONFIG_PATH`)
 
 **To run MCP server with a custom configuration:**
@@ -307,6 +372,9 @@ export MCP_SERVER_ENABLED=true
 # Enable write access (optional - disabled by default for security)
 export MCP_SERVER_WRITE_ACCESS_DISABLED=false
 
+# Enable logs tool (optional - disabled by default)
+export MCP_SERVER_READ_LOGS_ENABLED=true
+
 # Optional: Load custom tool descriptions
 export MCP_SERVER_CONFIG_PATH=/path/to/your/mcp-config.yaml
 
@@ -316,7 +384,8 @@ export MCP_SERVER_CONFIG_PATH=/path/to/your/mcp-config.yaml
 **Notes:**
 - Without `MCP_SERVER_ENABLED=true`, the MCP server will not start and you'll see a log message: "MCP server is disabled (set MCP_SERVER_ENABLED=true to enable)"
 - By default, `MCP_SERVER_WRITE_ACCESS_DISABLED=true` (write access disabled). Only read-only tools will be available unless you explicitly set it to `false`
-- For production environments, it's recommended to keep write access disabled unless specifically needed
+- By default, `MCP_SERVER_READ_LOGS_ENABLED=false` (logs tool disabled). The `weaviate-logs-fetch` tool will only be available when explicitly set to `true`
+- For production environments, it's recommended to keep write access and logs access disabled unless specifically needed
 - `MCP_SERVER_CONFIG_PATH` is optional - if not set, tools will use their default descriptions
 
 **Authentication Header Format:**
@@ -497,6 +566,7 @@ Common debugging approaches:
 Each tool requires specific permissions:
 - `weaviate-collections-get-config`: READ
 - `weaviate-tenants-list`: READ
+- `weaviate-logs-fetch`: READ
 - `weaviate-objects-upsert`: CREATE
 - `weaviate-query-hybrid`: READ
 

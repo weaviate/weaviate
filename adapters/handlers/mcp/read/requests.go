@@ -18,3 +18,8 @@ type GetCollectionConfigArgs struct {
 type GetTenantsArgs struct {
 	CollectionName string `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to get tenants from"`
 }
+
+type FetchLogsArgs struct {
+	Limit  int `json:"limit,omitempty" jsonschema_description:"Maximum number of characters to return (default: 2000, max: 50000)"`
+	Offset int `json:"offset,omitempty" jsonschema_description:"Number of characters to skip from the end before returning logs (default: 0 for most recent logs)"`
+}
