@@ -26,16 +26,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
-	"github.com/weaviate/weaviate/usecases/multitenancy"
-
-	"github.com/weaviate/weaviate/cluster/router/executor"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -45,8 +38,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/router/executor"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -55,6 +51,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -74,6 +71,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -1008,7 +1006,17 @@ const (
 // The shard will be nil if the shard is not found, or if the local shard should not be used.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName string, shardName string, operation localShardOperation) (ShardLike, func(), error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// For read operations, use GetShard to avoid creating empty shards on non-owner nodes.
+	// For write operations, use getOrInitShard since we need to write and the router check
+	// will prevent creating shards on non-owner nodes.
+	var shard ShardLike
+	var release func()
+	var err error
+	if operation == localShardOperationRead {
+		shard, release, err = i.GetShard(ctx, shardName)
+	} else {
+		shard, release, err = i.getOrInitShard(ctx, shardName)
+	}
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
 	// see Index.getOptInitLocalShard for more details.
 	if err != nil {
@@ -1369,13 +1377,12 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
-	defer release()
 	if err != nil {
 		return obj, err
 	}
 	defer release()
 
-	if shard != nil {
+	if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
@@ -1392,11 +1399,15 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
+
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -1408,11 +1419,15 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
+
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -1454,11 +1469,10 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	for shardName, group := range byShard {
 		var objects []*storobj.Object
 		var err error
-
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
 		if err != nil {
 			return nil, err
-		} else if shard != nil {
+		} else if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
 			func() {
 				defer release()
 				objects, err = shard.MultiObjectByID(ctx, group.ids)
@@ -1551,11 +1565,15 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return false, err
 	}
 	defer release()
+
+	if shard == nil {
+		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -1713,9 +1731,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		// We need to getOrInit here because the shard might not yet be loaded due to eventual consistency on the schema update
-		// triggering the shard loading in the database
-		shard, release, err := i.getOrInitShard(ctx, shardName)
+		// Use GetShard to avoid creating empty shards on non-owner nodes during eventual consistency.
+		// If shard doesn't exist locally, fall back to remote search.
+		shard, release, err := i.GetShard(ctx, shardName)
 		defer release()
 		if err != nil {
 			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
@@ -1859,9 +1877,10 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	if err != nil {
 		return nil, nil, err
 	}
-	if shard != nil {
-		defer release()
+	if shard == nil {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
+	defer release()
 
 	localCtx := helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -2090,30 +2109,22 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer release()
 
+	if shard == nil {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard not found", shardName))
+	}
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
-
-	// Hacky fix here
-	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
-	// will force a lazy loaded shard to load
-	// However we also have cases (related to FORCE_FULL_REPLICAS_SEARCH) where we want to avoid waiting for a shard to
-	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
-	// the request and we want to exit early
-	if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
-	} else {
-		if shard.GetStatus() == storagestate.StatusLoading {
-			// This effectively never happens with lazy loaded shard as GetStatus will wait for the lazy shard to load
-			// and then status will never be "StatusLoading"
-			return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
-		}
-	}
 
 	if len(searchVectors) == 0 {
 		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
@@ -2281,9 +2292,53 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
+	// First try to get the shard without initializing
+	shard, release, err = i.getOptInitLocalShard(ctx, shardName, false)
+	if err != nil || shard != nil {
+		return shard, release, err
+	}
+
+	// Shard doesn't exist. For read operations, check if tenant is HOT and belongs to this node.
+	// This handles the case where a request comes in for a shard that is HOT but hasn't been initialized yet.
+	// Only check for multi-tenant classes where shard names correspond to tenant names.
+	className := i.Config.ClassName.String()
+	class := i.schemaReader.ReadOnlyClass(className)
+	if class == nil {
+		return nil, func() {}, nil
+	}
+
+	// Only proceed if this is a multi-tenant class
+	if class.MultiTenancyConfig == nil || !class.MultiTenancyConfig.Enabled {
+		return nil, func() {}, nil
+	}
+
+	var tenantStatus string
+	var isLocalShard bool
+	err = i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		if physical, ok := state.Physical[shardName]; ok {
+			tenantStatus = physical.ActivityStatus()
+			isLocalShard = state.IsLocalShard(shardName)
+		}
+		return nil
+	})
+	// If tenant is HOT and belongs to this node, initialize the shard
+	if err == nil && tenantStatus == models.TenantActivityStatusHOT && isLocalShard {
+		return i.getOptInitLocalShard(ctx, shardName, true)
+	}
+
+	// Shard doesn't belong to this node or tenant is not HOT, return nil
+	return nil, func() {}, nil
 }
 
+// getOrInitShard initiates the shard locally if it doesn't exist.
+//
+// NOTE: Don't use this function on read requests. Instead, use GetShard()
+// to avoid creating an empty shard. On write requests it makes sense because
+// we wait for the latest version from the schema, but on read requests it could
+// be affected by eventual consistency.
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
@@ -2307,13 +2362,10 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
 	// the shard
 	i.shardCreateLocks.RLock(shardName)
-
-	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
+	i.shardCreateLocks.RUnlock(shardName)
+
 	if shard == nil {
-		// If the shard is not yet loaded, we need to upgrade to a write lock to ensure only one goroutine initializes
-		// the shard
-		i.shardCreateLocks.RUnlock(shardName)
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -2336,11 +2388,10 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			}
 			i.shards.Store(shardName, shard)
 		}
-	} else {
-		// shard already loaded, so we can defer the Runlock
-		defer i.shardCreateLocks.RUnlock(shardName)
 	}
 
+	// If ensureInit is true, ensure the shard is loaded. For lazy shards, preventShutdown()
+	// will call Load() internally
 	release, err = shard.preventShutdown()
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
@@ -2456,11 +2507,15 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	params aggregation.Params, mods interface{},
 ) (*aggregation.Result, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
+
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -2714,11 +2769,15 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return 0, err
 	}
 	defer release()
+
+	if shard == nil {
+		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -2773,11 +2832,15 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return "", err
 	}
 	defer release()
+
+	if shard == nil {
+		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
@@ -2798,11 +2861,17 @@ func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, ta
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	// Use GetShard instead of getOrInitShard to avoid creating empty shards during replication.
+	// If the shard doesn't exist yet, we should return an error rather than creating an empty shard.
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
 	defer release()
+
+	if shard == nil {
+		return fmt.Errorf("shard %s does not exist locally", shardName)
+	}
 
 	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
@@ -2868,11 +2937,15 @@ func (i *Index) consistencyLevel(
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
+
+	if shard == nil {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
