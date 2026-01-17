@@ -47,7 +47,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 		),
 		// TODO: configurable collection name
 		defaultCollection: "DefaultCollection",
-		creator:           create.NewWeaviateCreator(authHandler, objectsManager),
+		creator:           create.NewWeaviateCreator(authHandler, objectsManager, state.SchemaManager),
 		searcher:          search.NewWeaviateSearcher(authHandler, state.Traverser),
 		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager, state.LogBuffer),
 	}

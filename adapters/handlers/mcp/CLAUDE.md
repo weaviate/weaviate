@@ -99,6 +99,7 @@ The MCP server provides different sets of tools based on environment variables:
 - `weaviate-query-hybrid` - Search and query data
 
 **Write Tools (only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`):**
+- `weaviate-collections-create` - Create new collections with schema configuration
 - `weaviate-objects-upsert` - Create or update objects
 
 **Diagnostic Tools (only available when `MCP_SERVER_READ_LOGS_ENABLED=true`):**
@@ -235,7 +236,126 @@ Fetch logs from offset 2000 with limit 3000:
 
 ---
 
-### 4. `weaviate-objects-upsert`
+### 4. `weaviate-collections-create`
+
+Creates a new collection (class) in the Weaviate database with the specified schema configuration. This tool is only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`.
+
+**Parameters:**
+- `collection_name` (string, **required**): Name of the collection to create. Multiple words should be concatenated in CamelCase (e.g., 'ArticleAuthor')
+- `description` (string, optional): Description of the collection for metadata purposes
+- `properties` (array, optional): Array of property definitions. Each property should have:
+  - `name` (string, **required**): Name of the property
+  - `dataType` (array of strings, **required**): Data types for the property (e.g., `["text"]`, `["int"]`, `["Article"]` for cross-references)
+  - `description` (string, optional): Description of the property
+  - `indexFilterable` (boolean, optional): Whether the property should be indexed for filtering (default: true)
+  - `indexSearchable` (boolean, optional): Whether the property should be indexed for full-text search (default: true for text)
+  - `tokenization` (string, optional): Tokenization method for text properties (e.g., "word", "field")
+- `invertedIndexConfig` (object, optional): Configuration for the inverted index:
+  - `bm25` (object, optional): BM25 configuration with `b` and `k1` parameters
+  - `stopwords` (object, optional): Stopwords configuration with `preset` (e.g., "en") or `additions`/`removals`
+  - `indexTimestamps` (boolean, optional): Whether to index timestamps
+  - `indexNullState` (boolean, optional): Whether to index null states
+  - `indexPropertyLength` (boolean, optional): Whether to index property lengths
+- `vectorConfig` (object, optional): Configuration for named vectors. Maps vector name to configuration:
+  - `vectorizer` (string): Name of the vectorizer module (e.g., "text2vec-transformers", "none")
+  - `vectorIndexType` (string, optional): Type of vector index (e.g., "hnsw", "flat")
+  - `vectorIndexConfig` (object, optional): Configuration specific to the vector index type
+- `multiTenancyConfig` (object, optional): Multi-tenancy configuration:
+  - `enabled` (boolean): Whether to enable multi-tenancy for this collection
+  - `autoTenantCreation` (boolean, optional): Whether to automatically create tenants
+  - `autoTenantActivation` (boolean, optional): Whether to automatically activate tenants
+
+**Returns:**
+```json
+{
+  "collection_name": "Article"
+}
+```
+
+**Response Fields:**
+- `collection_name` (string): Name of the created collection
+
+**Authorization:** Requires CREATE permission on MCP resource.
+
+**Examples:**
+
+Simple collection with text properties:
+```json
+{
+  "collection_name": "Article",
+  "description": "A collection for articles",
+  "properties": [
+    {
+      "name": "title",
+      "dataType": ["text"],
+      "description": "Title of the article"
+    },
+    {
+      "name": "content",
+      "dataType": ["text"],
+      "description": "Main content of the article"
+    },
+    {
+      "name": "publishDate",
+      "dataType": ["date"],
+      "description": "Publication date"
+    }
+  ]
+}
+```
+
+Collection with vector configuration:
+```json
+{
+  "collection_name": "Product",
+  "description": "Product catalog",
+  "properties": [
+    {
+      "name": "name",
+      "dataType": ["text"]
+    },
+    {
+      "name": "description",
+      "dataType": ["text"]
+    },
+    {
+      "name": "price",
+      "dataType": ["number"]
+    }
+  ],
+  "vectorConfig": {
+    "default": {
+      "vectorizer": "text2vec-transformers",
+      "vectorIndexType": "hnsw"
+    }
+  }
+}
+```
+
+Collection with multi-tenancy:
+```json
+{
+  "collection_name": "UserData",
+  "properties": [
+    {
+      "name": "username",
+      "dataType": ["text"]
+    },
+    {
+      "name": "email",
+      "dataType": ["text"]
+    }
+  ],
+  "multiTenancyConfig": {
+    "enabled": true,
+    "autoTenantCreation": false
+  }
+}
+```
+
+---
+
+### 5. `weaviate-objects-upsert`
 
 Upserts (inserts or updates) a single object into a collection.
 
@@ -267,7 +387,7 @@ Upserts (inserts or updates) a single object into a collection.
 
 ---
 
-### 5. `weaviate-query-hybrid`
+### 6. `weaviate-query-hybrid`
 
 Performs hybrid search (combining vector and keyword search) on a collection.
 
@@ -565,6 +685,7 @@ Common debugging approaches:
 
 Each tool requires specific permissions:
 - `weaviate-collections-get-config`: READ
+- `weaviate-collections-create`: CREATE
 - `weaviate-tenants-list`: READ
 - `weaviate-logs-fetch`: READ
 - `weaviate-objects-upsert`: CREATE

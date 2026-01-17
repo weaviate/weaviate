@@ -21,6 +21,15 @@ func Tools(creator *WeaviateCreator, descriptions map[string]string) []server.Se
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
+				"weaviate-collections-create",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-collections-create",
+					"Creates a new collection (class) in the Weaviate database with the specified configuration.")),
+				mcp.WithInputSchema[CreateCollectionArgs](),
+			),
+			Handler: mcp.NewStructuredToolHandler(creator.CreateCollection),
+		},
+		{
+			Tool: mcp.NewTool(
 				"weaviate-objects-upsert",
 				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-upsert",
 					"Upserts (inserts or updates) a single object into a collection in the database.")),

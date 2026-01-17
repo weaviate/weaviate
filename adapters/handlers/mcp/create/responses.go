@@ -14,3 +14,7 @@ package create
 type UpsertObjectResp struct {
 	ID string `json:"id" jsonschema_description:"ID of the upserted object"`
 }
+
+type CreateCollectionResp struct {
+	CollectionName string `json:"collection_name" jsonschema_description:"Name of the created collection"`
+}

@@ -24,6 +24,7 @@ type WeaviateCreator struct {
 	auth.Auth
 
 	objectsManager    objectsManager
+	schemaManager     schemaManager
 	defaultCollection string
 }
 
@@ -36,10 +37,15 @@ type objectsManager interface {
 		*additional.ReplicationProperties, string) (*models.Object, error)
 }
 
-func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager) *WeaviateCreator {
+type schemaManager interface {
+	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
+}
+
+func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager, schemaManager schemaManager) *WeaviateCreator {
 	return &WeaviateCreator{
 		defaultCollection: "DefaultCollection",
 		objectsManager:    objectsManager,
+		schemaManager:     schemaManager,
 		Auth:              *auth,
 	}
 }
