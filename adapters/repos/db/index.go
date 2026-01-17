@@ -2163,24 +2163,16 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 	defer release()
 
+	if shard == nil {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard not found", shardName))
+	}
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
-
-	// Hacky fix here
-	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
-	// will force a lazy loaded shard to load
-	// However we also have cases (related to FORCE_FULL_REPLICAS_SEARCH) where we want to avoid waiting for a shard to
-	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
-	// the request and we want to exit early
-	if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
-	} else {
-		if shard.GetStatus() == storagestate.StatusLoading {
-			// This effectively never happens with lazy loaded shard as GetStatus will wait for the lazy shard to load
-			// and then status will never be "StatusLoading"
-			return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
-		}
-	}
 
 	if len(searchVectors) == 0 {
 		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
@@ -2358,7 +2350,7 @@ func (i *Index) GetShard(ctx context.Context, shardName string) (
 	// This handles the case where a request comes in for a shard that is HOT but hasn't been initialized yet.
 	// Only check for multi-tenant classes where shard names correspond to tenant names.
 	className := i.Config.ClassName.String()
-	class := i.getSchema.ReadOnlyClass(className)
+	class := i.schemaReader.ReadOnlyClass(className)
 	if class == nil {
 		return nil, func() {}, nil
 	}
