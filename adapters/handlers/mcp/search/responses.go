@@ -9,8 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package create
+package search
 
-type UpsertObjectResp struct {
-	ID string `json:"id" jsonschema_description:"ID of the upserted object"`
+type QueryHybridResp struct {
+	Results []any `json:"results" jsonschema_description:"The search results matching the query"`
 }

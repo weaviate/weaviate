@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/loghook"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -29,6 +30,7 @@ type WeaviateReader struct {
 
 	schemaReader      schemaReader
 	defaultCollection string
+	logBuffer         *loghook.BufferHook
 }
 
 // type schemaManager interface {
@@ -36,10 +38,11 @@ type WeaviateReader struct {
 // 		*additional.ReplicationProperties) (*models.Object, error)
 // }
 
-func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader) *WeaviateReader {
+func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, logBuffer *loghook.BufferHook) *WeaviateReader {
 	return &WeaviateReader{
 		defaultCollection: "DefaultCollection",
 		schemaReader:      schemaReader,
 		Auth:              *auth,
+		logBuffer:         logBuffer,
 	}
 }

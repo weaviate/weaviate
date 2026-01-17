@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestSearchWithHybridTool(t *testing.T) {
+func TestQueryHybridTool(t *testing.T) {
 	helper.SetupClient("localhost:8080")
 
 	cls := articles.ParagraphsClass()
@@ -41,7 +41,7 @@ func TestSearchWithHybridTool(t *testing.T) {
 	defer cancel()
 
 	var results []any
-	err := callToolOnce[any](ctx, t, "search-with-hybrid", &search.SearchWithHybridArgs{
+	err := callToolOnce[any](ctx, t, "search-with-hybrid", &search.QueryHybridArgs{
 		Collection:       cls.Class,
 		Query:            contents,
 		TargetProperties: []string{cls.Properties[0].Name},

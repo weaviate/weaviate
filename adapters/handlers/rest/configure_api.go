@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/loghook"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
@@ -1031,8 +1032,9 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
 
-	logger := logger()
+	logger, logBuffer := logger()
 	appState.Logger = logger
+	appState.LogBuffer = logBuffer
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created startup context, nothing done so far")
@@ -1124,12 +1126,15 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 // are not set.
 //
 // Defaults to log level info and json format
-func logger() *logrus.Logger {
+// Returns the logger and optionally a log buffer hook if MCP_SERVER_READ_LOGS_ENABLED is true
+func logger() (*logrus.Logger, *loghook.BufferHook) {
 	logger := logrus.New()
-	logger.SetFormatter(NewWeaviateTextFormatter())
+	formatter := NewWeaviateTextFormatter()
+	logger.SetFormatter(formatter)
 
 	if os.Getenv("LOG_FORMAT") != "text" {
-		logger.SetFormatter(NewWeaviateJSONFormatter())
+		formatter = NewWeaviateJSONFormatter()
+		logger.SetFormatter(formatter)
 	}
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	level, err := logLevelFromString(logLevelStr)
@@ -1138,7 +1143,15 @@ func logger() *logrus.Logger {
 		level = logrus.InfoLevel
 	}
 	logger.SetLevel(level)
-	return logger
+
+	// Create and add buffer hook if logs tool is enabled
+	var bufferHook *loghook.BufferHook
+	if strings.ToLower(os.Getenv("MCP_SERVER_READ_LOGS_ENABLED")) == "true" {
+		bufferHook = loghook.NewBufferHook(formatter)
+		logger.AddHook(bufferHook)
+	}
+
+	return logger, bufferHook
 }
 
 // everything hard-coded right now, to be made dynamic (from go plugins later)
