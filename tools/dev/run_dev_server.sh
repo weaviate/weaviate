@@ -1183,7 +1183,8 @@ local-usage-s3)
       AUTHORIZATION_RBAC_ROOT_USERS='admin' \
       DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
-      ENABLE_MODULES="text2vec-transformers" \
+      CLIP_INFERENCE_API="http://localhost:8005" \
+      ENABLE_MODULES="text2vec-transformers,multi2vec-clip" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

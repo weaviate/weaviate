@@ -188,13 +188,18 @@ Upserts (inserts or updates) a single object into a collection.
 
 ### 4. `weaviate-query-hybrid`
 
-Performs hybrid search (vector + keyword) on a collection.
+Performs hybrid search (combining vector and keyword search) on a collection.
 
 **Parameters:**
+- `query` (string, **required**): The plain-text query to search the collection on
 - `collection_name` (string, **required**): Name of the collection to search
-- `tenant` (string, optional): Name of the tenant to search within
-- `query` (string, optional): Plain-text search query
-- `targetProperties` (array of strings, optional): Properties to perform BM25 keyword search on
+- `tenant_name` (string, optional): Name of the tenant to search within
+- `alpha` (float, optional): Semantic weight (0.0 = pure keyword/BM25, 1.0 = pure vector). Default is 0.5 if not specified
+- `limit` (integer, optional): Maximum number of results to return
+- `target_vectors` (array of strings, optional): Target vectors to use in vector search (for named vectors)
+- `target_properties` (array of strings, optional): Properties to perform BM25 keyword search on. If not specified, searches all text properties
+- `return_properties` (array of strings, optional): Properties to return in the result. If not specified, all properties are returned
+- `return_metadata` (array of strings, optional): Metadata to return in the result. Supported values: `id`, `vector`, `distance`, `score`, `explainScore`, `creationTimeUnix`, `lastUpdateTimeUnix`, `certainty`
 
 **Returns:**
 ```json
@@ -202,24 +207,43 @@ Performs hybrid search (vector + keyword) on a collection.
   "results": [
     {
       "class": "Article",
-      "properties": {...},
-      "id": "uuid"
+      "properties": {
+        "title": "Introduction to Machine Learning",
+        "content": "..."
+      },
+      "id": "uuid",
+      "additional": {
+        "score": 0.95,
+        "distance": 0.23
+      }
     }
   ]
 }
 ```
 
-The response is a structured object containing a `results` array with all matching documents. This wrapper is required by MCP's response validation schema, which expects structured content to be a dictionary (object) rather than a raw array.
+The response is a structured object containing a `results` array with all matching documents. The `additional` field contains requested metadata. This wrapper is required by MCP's response validation schema, which expects structured content to be a dictionary (object) rather than a raw array.
 
 **Authorization:** Requires READ permission on MCP resource.
 
-**Example:**
+**Example - Basic search:**
 ```json
 {
-  "collection_name": "Article",
-  "tenant": "customer-a",
   "query": "machine learning",
-  "targetProperties": ["title", "content"]
+  "collection_name": "Article"
+}
+```
+
+**Example - Advanced search with all parameters:**
+```json
+{
+  "query": "neural networks and deep learning",
+  "collection_name": "Article",
+  "tenant_name": "customer-a",
+  "alpha": 0.75,
+  "limit": 10,
+  "target_properties": ["title", "content"],
+  "return_properties": ["title", "content", "author"],
+  "return_metadata": ["id", "score", "distance"]
 }
 ```
 
