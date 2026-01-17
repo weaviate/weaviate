@@ -14,24 +14,15 @@ package search
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 )
-
-// getDescription returns custom description if available, otherwise returns default
-func getDescription(descriptions map[string]string, toolName, defaultDesc string) string {
-	if descriptions != nil {
-		if customDesc, ok := descriptions[toolName]; ok {
-			return customDesc
-		}
-	}
-	return defaultDesc
-}
 
 func Tools(searcher *WeaviateSearcher, descriptions map[string]string) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
 				"weaviate-query-hybrid",
-				mcp.WithDescription(getDescription(descriptions, "weaviate-query-hybrid",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-query-hybrid",
 					"Performs hybrid search (vector + keyword) for data in a collection.")),
 				mcp.WithInputSchema[QueryHybridArgs](),
 			),
