@@ -127,13 +127,12 @@ When a specific `collection_name` is provided, the response contains only that c
 
 ---
 
-### 2. `get-tenants`
+### 2. `weaviate-tenants-list`
 
-Retrieves tenants for a specific collection.
+Lists all tenants for a specific collection.
 
 **Parameters:**
-- `collection` (string, **required**): Name of the collection to get tenants from
-- `tenants` (array of strings, optional): Filter to specific tenant names
+- `collection_name` (string, **required**): Name of the collection to get tenants from
 
 **Returns:**
 ```json
@@ -142,6 +141,10 @@ Retrieves tenants for a specific collection.
     {
       "name": "tenant1",
       "activityStatus": "HOT"
+    },
+    {
+      "name": "tenant2",
+      "activityStatus": "COLD"
     }
   ]
 }
@@ -151,19 +154,19 @@ Retrieves tenants for a specific collection.
 
 ---
 
-### 3. `insert-one`
+### 3. `weaviate-objects-upsert`
 
-Inserts a single object into a collection.
+Upserts (inserts or updates) a single object into a collection.
 
 **Parameters:**
-- `collection` (string, **required**): Name of the collection to insert into
+- `collection_name` (string, **required**): Name of the collection to upsert the object into
 - `tenant` (string, optional): Name of the tenant the object belongs to
 - `properties` (object, optional): Key-value pairs of object properties
 
 **Returns:**
 ```json
 {
-  "id": "uuid-of-created-object"
+  "id": "uuid-of-upserted-object"
 }
 ```
 
@@ -172,7 +175,7 @@ Inserts a single object into a collection.
 **Example:**
 ```json
 {
-  "collection": "Article",
+  "collection_name": "Article",
   "tenant": "customer-a",
   "properties": {
     "title": "Example Article",
@@ -183,12 +186,12 @@ Inserts a single object into a collection.
 
 ---
 
-### 4. `search-with-hybrid`
+### 4. `weaviate-query-hybrid`
 
 Performs hybrid search (vector + keyword) on a collection.
 
 **Parameters:**
-- `collection` (string, **required**): Name of the collection to search
+- `collection_name` (string, **required**): Name of the collection to search
 - `tenant` (string, optional): Name of the tenant to search within
 - `query` (string, optional): Plain-text search query
 - `targetProperties` (array of strings, optional): Properties to perform BM25 keyword search on
@@ -213,7 +216,7 @@ The response is a structured object containing a `results` array with all matchi
 **Example:**
 ```json
 {
-  "collection": "Article",
+  "collection_name": "Article",
   "tenant": "customer-a",
   "query": "machine learning",
   "targetProperties": ["title", "content"]
@@ -361,9 +364,9 @@ Common debugging approaches:
 
 Each tool requires specific permissions:
 - `weaviate-collections-get-config`: READ
-- `get-tenants`: READ
-- `insert-one`: CREATE
-- `search-with-hybrid`: READ
+- `weaviate-tenants-list`: READ
+- `weaviate-objects-upsert`: CREATE
+- `weaviate-query-hybrid`: READ
 
 ## Adding New Tools
 
@@ -478,7 +481,7 @@ go build ./adapters/handlers/mcp/...
    - Be specific: "Name of the collection to delete from" vs "Collection"
 
 3. **Keep tool names lowercase with hyphens**
-   - Good: `insert-one`, `weaviate-collections-get-config`, `search-with-hybrid`
+   - Good: `weaviate-objects-upsert`, `weaviate-collections-get-config`, `weaviate-query-hybrid`
    - Bad: `InsertOne`, `getSchema`, `search_hybrid`
 
 4. **Handle errors gracefully**
@@ -599,7 +602,7 @@ func (s *WeaviateSearcher) GoodTool(...) (*GoodToolResp, error) {
 }
 ```
 
-**Example:** The `search-with-hybrid` tool wraps its results array in a `SearchWithHybridResp` struct with a `Results` field.
+**Example:** The `weaviate-query-hybrid` tool wraps its results array in a `QueryHybridResp` struct with a `Results` field.
 
 ## References
 

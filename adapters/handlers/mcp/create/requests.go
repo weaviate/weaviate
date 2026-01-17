@@ -11,8 +11,8 @@
 
 package create
 
-type InsertOneArgs struct {
-	Collection string         `json:"collection" jsonschema:"required" jsonschema_description:"Name of collection to insert into"`
-	Tenant     string         `json:"tenant,omitempty" jsonschema_description:"Name of the tenant the object belongs to"`
-	Properties map[string]any `json:"properties,omitempty" jsonschema_description:"Properties of the object to insert"`
+type UpsertObjectArgs struct {
+	CollectionName string         `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to upsert object into"`
+	Tenant         string         `json:"tenant,omitempty" jsonschema_description:"Name of the tenant the object belongs to"`
+	Properties     map[string]any `json:"properties,omitempty" jsonschema_description:"Properties of the object to upsert"`
 }

@@ -20,19 +20,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (c *WeaviateCreator) InsertOne(ctx context.Context, req mcp.CallToolRequest, args InsertOneArgs) (*InsertOneResp, error) {
+func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequest, args UpsertObjectArgs) (*UpsertObjectResp, error) {
 	principal, err := c.Authorize(ctx, req, authorization.CREATE)
 	if err != nil {
 		return nil, err
 	}
 	obj := models.Object{
-		Class:      args.Collection,
+		Class:      args.CollectionName,
 		Tenant:     args.Tenant,
 		Properties: args.Properties,
 	}
 	res, err := c.objectsManager.AddObject(ctx, principal, &obj, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert object: %w", err)
+		return nil, fmt.Errorf("failed to upsert object: %w", err)
 	}
-	return &InsertOneResp{ID: res.ID.String()}, nil
+	return &UpsertObjectResp{ID: res.ID.String()}, nil
 }

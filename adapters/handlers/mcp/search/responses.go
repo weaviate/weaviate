@@ -11,6 +11,6 @@
 
 package search
 
-type SearchWithHybridResp struct {
+type QueryHybridResp struct {
 	Results []any `json:"results" jsonschema_description:"The search results matching the query"`
 }

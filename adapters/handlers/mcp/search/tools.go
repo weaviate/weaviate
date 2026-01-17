@@ -20,9 +20,9 @@ func Tools(searcher *WeaviateSearcher) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
-				"search-with-hybrid",
-				mcp.WithDescription("Search for data from a collection in the database."),
-				mcp.WithInputSchema[SearchWithHybridArgs](),
+				"weaviate-query-hybrid",
+				mcp.WithDescription("Performs hybrid search (vector + keyword) for data in a collection."),
+				mcp.WithInputSchema[QueryHybridArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(searcher.Hybrid),
 		},

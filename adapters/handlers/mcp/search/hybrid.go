@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args SearchWithHybridArgs) (*SearchWithHybridResp, error) {
+func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (*QueryHybridResp, error) {
 	principal, err := s.Authorize(ctx, req, authorization.READ)
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		}
 	}
 	res, err := s.traverser.GetClass(ctx, principal, dto.GetParams{
-		ClassName:  args.Collection,
+		ClassName:  args.CollectionName,
 		Tenant:     args.Tenant,
 		Properties: selectProps,
 		HybridSearch: &searchparams.HybridSearch{
@@ -46,5 +46,5 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get class: %w", err)
 	}
-	return &SearchWithHybridResp{Results: res}, nil
+	return &QueryHybridResp{Results: res}, nil
 }
