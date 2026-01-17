@@ -13,6 +13,8 @@ package mcp
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/server"
@@ -65,7 +67,16 @@ func (s *MCPServer) Serve() {
 }
 
 func (s *MCPServer) registerTools() {
-	s.server.AddTools(create.Tools(s.creator)...)
-	s.server.AddTools(search.Tools(s.searcher)...)
-	s.server.AddTools(read.Tools(s.reader)...)
+	// Check if write access is disabled (default is true/disabled)
+	writeDisabled := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED")
+	if writeDisabled == "" || strings.ToLower(writeDisabled) == "true" {
+		// Write access disabled - only register read and search tools
+		s.server.AddTools(search.Tools(s.searcher)...)
+		s.server.AddTools(read.Tools(s.reader)...)
+	} else {
+		// Write access enabled - register all tools
+		s.server.AddTools(create.Tools(s.creator)...)
+		s.server.AddTools(search.Tools(s.searcher)...)
+		s.server.AddTools(read.Tools(s.reader)...)
+	}
 }

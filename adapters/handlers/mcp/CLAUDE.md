@@ -29,6 +29,7 @@ The MCP server exposes Weaviate functionality as tools that can be called by LLM
 - **Protocol:** HTTP with Server-Sent Events (SSE)
 - **Version:** 0.1.0
 - **Enabled:** Controlled by `MCP_SERVER_ENABLED` environment variable (must be set to `true`, disabled by default)
+- **Write Access:** Controlled by `MCP_SERVER_WRITE_ACCESS_DISABLED` environment variable (write access disabled by default, set to `false` to enable write tools)
 
 ## Architecture
 
@@ -87,6 +88,20 @@ adapters/handlers/mcp/
 - Supports tenant-scoped searches
 
 ## Available Tools
+
+The MCP server provides different sets of tools based on the `MCP_SERVER_WRITE_ACCESS_DISABLED` environment variable:
+
+**Read-Only Tools (always available):**
+- `weaviate-collections-get-config` - Get collection schemas
+- `weaviate-tenants-list` - List tenants for a collection
+- `weaviate-query-hybrid` - Search and query data
+
+**Write Tools (only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`):**
+- `weaviate-objects-upsert` - Create or update objects
+
+By default, write access is **disabled** for security. Set `MCP_SERVER_WRITE_ACCESS_DISABLED=false` to enable write operations.
+
+---
 
 ### 1. `weaviate-collections-get-config`
 
@@ -280,15 +295,23 @@ This configuration:
 - Uses API key: `admin-key` for user: `admin`
 - Starts Weaviate on port 8080
 - **Enables and starts MCP server on port 9000** (via `MCP_SERVER_ENABLED=true`)
+- **Enables write access to MCP tools** (via `MCP_SERVER_WRITE_ACCESS_DISABLED=false`)
 
 **To run MCP server with a custom configuration:**
 ```bash
-# Set MCP_SERVER_ENABLED to true
+# Enable MCP server
 export MCP_SERVER_ENABLED=true
+
+# Enable write access (optional - disabled by default for security)
+export MCP_SERVER_WRITE_ACCESS_DISABLED=false
+
 ./tools/dev/run_dev_server.sh <your-config>
 ```
 
-**Note:** Without `MCP_SERVER_ENABLED=true`, the MCP server will not start and you'll see a log message: "MCP server is disabled (set MCP_SERVER_ENABLED=true to enable)"
+**Notes:**
+- Without `MCP_SERVER_ENABLED=true`, the MCP server will not start and you'll see a log message: "MCP server is disabled (set MCP_SERVER_ENABLED=true to enable)"
+- By default, `MCP_SERVER_WRITE_ACCESS_DISABLED=true` (write access disabled). Only read-only tools will be available unless you explicitly set it to `false`
+- For production environments, it's recommended to keep write access disabled unless specifically needed
 
 **Authentication Header Format:**
 ```

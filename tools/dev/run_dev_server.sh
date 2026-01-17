@@ -1181,7 +1181,8 @@ local-usage-s3)
       AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key' \
       AUTHENTICATION_APIKEY_USERS='admin' \
       AUTHORIZATION_RBAC_ROOT_USERS='admin' \
-      MCP_SERVER_ENABLED='false' \
+      MCP_SERVER_ENABLED='true' \
+      MCP_SERVER_WRITE_ACCESS_DISABLED='true' \
       DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
       CLIP_INFERENCE_API="http://localhost:8005" \
