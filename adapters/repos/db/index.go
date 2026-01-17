@@ -1430,7 +1430,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	}
 	defer release()
 
-	if shard != nil {
+	if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
 		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
 			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
 		}
@@ -1520,7 +1520,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
 		if err != nil {
 			return nil, err
-		} else if shard != nil {
+		} else if shard != nil && shard.GetStatus() != storagestate.StatusLoading {
 			func() {
 				defer release()
 				objects, err = shard.MultiObjectByID(ctx, group.ids)
