@@ -2356,7 +2356,18 @@ func (i *Index) GetShard(ctx context.Context, shardName string) (
 
 	// Shard doesn't exist. For read operations, check if tenant is HOT and belongs to this node.
 	// This handles the case where a request comes in for a shard that is HOT but hasn't been initialized yet.
+	// Only check for multi-tenant classes where shard names correspond to tenant names.
 	className := i.Config.ClassName.String()
+	class := i.getSchema.ReadOnlyClass(className)
+	if class == nil {
+		return nil, func() {}, nil
+	}
+
+	// Only proceed if this is a multi-tenant class
+	if class.MultiTenancyConfig == nil || !class.MultiTenancyConfig.Enabled {
+		return nil, func() {}, nil
+	}
+
 	var tenantStatus string
 	var isLocalShard bool
 	err = i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
