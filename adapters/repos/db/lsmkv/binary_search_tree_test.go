@@ -13,6 +13,8 @@ package lsmkv
 
 import (
 	"crypto/rand"
+	"fmt"
+	mathrand "math/rand"
 	"testing"
 
 	"github.com/google/uuid"
@@ -220,4 +222,36 @@ func TestBSTReplace_Flatten(t *testing.T) {
 			assertFlattenedMatches(t, flatAfterUpdate, expectedAfterUpdate)
 		})
 	})
+}
+
+func buildTree(size, keySize, valSize int) *binarySearchTree {
+	rnd := mathrand.New(mathrand.NewSource(42))
+	tree := &binarySearchTree{}
+	for i := 0; i < size; i++ {
+		key := make([]byte, keySize)
+		val := make([]byte, valSize)
+		// deterministic pseudo-random content
+		_, _ = rnd.Read(key)
+		_, _ = rnd.Read(val)
+		tree.insert(key, val, nil)
+	}
+	return tree
+}
+
+func BenchmarkFlattenInOrder(b *testing.B) {
+	cases := []int{1, 100, 1000, 10000}
+
+	for _, size := range cases {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			tree := buildTree(size, 16, 64)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				flat := tree.flattenInOrder()
+				if len(flat) != size {
+					b.Fatalf("unexpected flattened length: got=%d want=%d", len(flat), size)
+				}
+			}
+		})
+	}
 }
