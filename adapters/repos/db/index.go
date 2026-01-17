@@ -2348,7 +2348,34 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
+	// First try to get the shard without initializing
+	shard, release, err = i.getOptInitLocalShard(ctx, shardName, false)
+	if err != nil || shard != nil {
+		return shard, release, err
+	}
+
+	// Shard doesn't exist. For read operations, check if tenant is HOT and belongs to this node.
+	// This handles the case where a request comes in for a shard that is HOT but hasn't been initialized yet.
+	className := i.Config.ClassName.String()
+	var tenantStatus string
+	var isLocalShard bool
+	err = i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		if physical, ok := state.Physical[shardName]; ok {
+			tenantStatus = physical.ActivityStatus()
+			isLocalShard = state.IsLocalShard(shardName)
+		}
+		return nil
+	})
+	// If tenant is HOT and belongs to this node, initialize the shard
+	if err == nil && tenantStatus == models.TenantActivityStatusHOT && isLocalShard {
+		return i.getOptInitLocalShard(ctx, shardName, true)
+	}
+
+	// Shard doesn't belong to this node or tenant is not HOT, return nil
+	return nil, func() {}, nil
 }
 
 // getOrInitShard initiates the shard locally if it doesn't exist.
