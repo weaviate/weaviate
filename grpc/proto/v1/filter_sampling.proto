@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoFilterSampling";
+
+message FilterSamplingRequest {
+  string collection = 1;
+  string property = 2;
+  uint32 sample_count = 3;
+  optional string tenant = 10;
+}
+
+message FilterSamplingReply {
+  message Sample {
+    oneof value {
+      string text_value = 1;
+      int64 int_value = 2;
+      double number_value = 3;
+      bool bool_value = 4;
+      string date_value = 5;
+      string uuid_value = 6;
+    }
+    uint64 cardinality = 10;
+  }
+  repeated Sample samples = 1;
+  uint64 total_objects = 2;
+  double estimated_percent_covered = 3;
+  float took_seconds = 4;
+}

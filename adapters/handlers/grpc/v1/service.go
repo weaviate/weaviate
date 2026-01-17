@@ -95,6 +95,58 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return result, errInner
 }
 
+func (s *Service) FilterSampling(ctx context.Context, req *pb.FilterSamplingRequest) (*pb.FilterSamplingReply, error) {
+	var result *pb.FilterSamplingReply
+	var errInner error
+
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.filterSampling(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) filterSampling(ctx context.Context, req *pb.FilterSamplingRequest) (*pb.FilterSamplingReply, error) {
+	before := time.Now()
+
+	principal, err := s.authenticator.PrincipalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+
+	tenant := ""
+	if req.Tenant != nil {
+		tenant = *req.Tenant
+	}
+
+	parser := NewFilterSamplingParser(
+		s.classGetterWithAuthzFunc(ctx, principal, tenant),
+	)
+
+	params, dataType, err := parser.Parse(req)
+	if err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+
+	res, err := s.traverser.FilterSampling(restCtx.AddPrincipalToContext(ctx, principal), principal, params)
+	if err != nil {
+		return nil, fmt.Errorf("filter sampling: %w", err)
+	}
+
+	replier := NewFilterSamplingReplier(dataType)
+	reply := replier.Reply(res)
+	reply.TookSeconds = float32(time.Since(before).Seconds())
+
+	return reply, nil
+}
+
 func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
 	before := time.Now()
 

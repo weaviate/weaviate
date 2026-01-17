@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -60,15 +61,16 @@ type indices struct {
 	regexpObjectsSearch        *regexp.Regexp
 	regexpObjectsFind          *regexp.Regexp
 
-	regexpObjectsAggregations *regexp.Regexp
-	regexpObject              *regexp.Regexp
-	regexpReferences          *regexp.Regexp
-	regexpShardsQueueSize     *regexp.Regexp
-	regexpShardsStatus        *regexp.Regexp
-	regexpShardFiles          *regexp.Regexp
-	regexpShardFileMetadata   *regexp.Regexp
-	regexpShard               *regexp.Regexp
-	regexpShardReinit         *regexp.Regexp
+	regexpObjectsAggregations   *regexp.Regexp
+	regexpObjectsFilterSampling *regexp.Regexp
+	regexpObject                *regexp.Regexp
+	regexpReferences            *regexp.Regexp
+	regexpShardsQueueSize       *regexp.Regexp
+	regexpShardsStatus          *regexp.Regexp
+	regexpShardFiles            *regexp.Regexp
+	regexpShardFileMetadata     *regexp.Regexp
+	regexpShard                 *regexp.Regexp
+	regexpShardReinit           *regexp.Regexp
 
 	regexpPauseFileActivity  *regexp.Regexp
 	regexpResumeFileActivity *regexp.Regexp
@@ -101,6 +103,8 @@ const (
 		`\/shards\/(` + sh + `)\/objects\/_find`
 	urlPatternObjectsAggregations = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/_aggregations`
+	urlPatternObjectsFilterSampling = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/_filtersampling`
 	urlPatternObject = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)`
 	urlPatternReferences = `\/indices\/(` + cl + `)` +
@@ -153,6 +157,8 @@ type shards interface {
 	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
+	FilterSampling(ctx context.Context, indexName, shardName string,
+		params filtersampling.Params) (*filtersampling.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
@@ -212,6 +218,7 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 		regexpObjectsFind:          regexp.MustCompile(urlPatternObjectsFind),
 
 		regexpObjectsAggregations:        regexp.MustCompile(urlPatternObjectsAggregations),
+		regexpObjectsFilterSampling:      regexp.MustCompile(urlPatternObjectsFilterSampling),
 		regexpObject:                     regexp.MustCompile(urlPatternObject),
 		regexpReferences:                 regexp.MustCompile(urlPatternReferences),
 		regexpShardsQueueSize:            regexp.MustCompile(urlPatternShardsQueueSize),
@@ -269,6 +276,14 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			}
 
 			i.postAggregateObjects().ServeHTTP(w, r)
+			return
+		case i.regexpObjectsFilterSampling.MatchString(path):
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			i.postFilterSampling().ServeHTTP(w, r)
 			return
 		case i.regexpObjectsOverwrite.MatchString(path):
 			if r.Method != http.MethodPut {
@@ -938,6 +953,65 @@ func (i *indices) postAggregateObjects() http.Handler {
 
 		IndicesPayloads.AggregationResult.SetContentTypeHeader(w)
 		w.Write(aggResBytes)
+	})
+}
+
+func (i *indices) postFilterSampling() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpObjectsFilterSampling.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		ct, ok := IndicesPayloads.FilterSamplingParams.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		params, err := IndicesPayloads.FilterSamplingParams.Unmarshal(reqPayload)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "FilterSampling",
+		}).Debug("filter sampling ...")
+
+		result, err := i.shards.FilterSampling(r.Context(), index, shard, params)
+
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := IndicesPayloads.FilterSamplingResult.Marshal(result)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		IndicesPayloads.FilterSamplingResult.SetContentTypeHeader(w)
+		w.Write(resBytes)
 	})
 }
 
