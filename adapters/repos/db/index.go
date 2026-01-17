@@ -1792,13 +1792,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return remoteSearch(shardName)
 		}
 
-		// If shard is loading and we have replicas, try remote first
-		if shard.GetStatus() == storagestate.StatusLoading {
-			if i.shardHasMultipleReplicasRead(tenant, shardName) {
-				return remoteSearch(shardName)
-			}
-		}
-
 		localCtx := helpers.InitSlowQueryDetails(ctx)
 		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
@@ -2171,10 +2164,6 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 
 	if shard == nil {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard not found", shardName))
-	}
-
-	if shard.GetStatus() == storagestate.StatusLoading {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
