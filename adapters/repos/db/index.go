@@ -2342,8 +2342,8 @@ func (i *Index) GetShard(ctx context.Context, shardName string) (
 		return shard, release, err
 	}
 
-	// Shard doesn't exist. For read operations, check if tenant is HOT and belongs to this node.
-	// This handles the case where a request comes in for a shard that is HOT but hasn't been initialized yet.
+	// Shard doesn't exist. For read operations, check if this node should have the shard.
+	// This handles the case where a request comes in for a shard that hasn't been initialized yet.
 	// Only check for multi-tenant classes where shard names correspond to tenant names.
 	className := i.Config.ClassName.String()
 	class := i.schemaReader.ReadOnlyClass(className)
@@ -2356,24 +2356,12 @@ func (i *Index) GetShard(ctx context.Context, shardName string) (
 		return nil, func() {}, nil
 	}
 
-	var tenantStatus string
-	var isLocalShard bool
-	err = i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return nil
-		}
-		if physical, ok := state.Physical[shardName]; ok {
-			tenantStatus = physical.ActivityStatus()
-			isLocalShard = state.IsLocalShard(shardName)
-		}
-		return nil
-	})
-	// If tenant is HOT and belongs to this node, initialize the shard
-	if err == nil && tenantStatus == models.TenantActivityStatusHOT && isLocalShard {
+	rs, routerErr := i.router.GetReadReplicasLocation(className, shardName, shardName)
+	if routerErr == nil && slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
+		// Router says this node should have the shard, initialize it
 		return i.getOptInitLocalShard(ctx, shardName, true)
 	}
 
-	// Shard doesn't belong to this node or tenant is not HOT, return nil
 	return nil, func() {}, nil
 }
 
