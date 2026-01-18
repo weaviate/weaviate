@@ -430,6 +430,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		SPFreshEnabled:                               appState.ServerConfig.Config.SPFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		ShardLocalLimitVectorSearchEnabled:           appState.ServerConfig.Config.ShardLocalLimitVectorSearchEnabled,
+		ShardLocalLimitObjectListEnabled:             appState.ServerConfig.Config.ShardLocalLimitObjectListEnabled,
+		ShardLocalLimitHybridBM25Enabled:             appState.ServerConfig.Config.ShardLocalLimitHybridBM25Enabled,
+		ShardLocalLimitSafetyMargin:                  appState.ServerConfig.Config.ShardLocalLimitSafetyMargin,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
