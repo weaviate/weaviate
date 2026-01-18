@@ -82,6 +82,10 @@ func (c Config) Validate() error {
 		ec.Addf("distancerProvider cannot be nil")
 	}
 
+	if c.GetViewThunk == nil {
+		ec.Addf("getViewThunk cannot be nil")
+	}
+
 	return ec.ToError()
 }
 
