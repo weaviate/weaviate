@@ -1043,7 +1043,24 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 		}
 	}
 
+	// Get shard without initializing first
 	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return nil, release, err
+	}
+
+	// For write operations, initialize shard if it doesn't exist
+	if operation == localShardOperationWrite && shard == nil {
+		// For multi-tenant classes, check write replicas before initializing
+		className := i.Config.ClassName.String()
+		class := i.schemaReader.ReadOnlyClass(className)
+		if class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
+			ws, routerErr := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
+			if routerErr == nil && slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
+				shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
+			}
+		}
+	}
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
 	// see Index.getOptInitLocalShard for more details.
 	if err != nil {
