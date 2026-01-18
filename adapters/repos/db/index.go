@@ -2174,6 +2174,10 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard not found", shardName))
 	}
 
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
