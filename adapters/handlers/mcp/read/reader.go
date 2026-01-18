@@ -14,8 +14,10 @@ package read
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/loghook"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -25,23 +27,27 @@ type schemaReader interface {
 	GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error)
 }
 
+type objectsManager interface {
+	GetObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID,
+		additional additional.Properties, replProps *additional.ReplicationProperties, tenant string) (*models.Object, error)
+	GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64,
+		sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error)
+}
+
 type WeaviateReader struct {
 	auth.Auth
 
 	schemaReader      schemaReader
+	objectsManager    objectsManager
 	defaultCollection string
 	logBuffer         *loghook.BufferHook
 }
 
-// type schemaManager interface {
-// 	AddObject(context.Context, *models.Principal, *models.Object,
-// 		*additional.ReplicationProperties) (*models.Object, error)
-// }
-
-func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, logBuffer *loghook.BufferHook) *WeaviateReader {
+func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, objectsManager objectsManager, logBuffer *loghook.BufferHook) *WeaviateReader {
 	return &WeaviateReader{
 		defaultCollection: "DefaultCollection",
 		schemaReader:      schemaReader,
+		objectsManager:    objectsManager,
 		Auth:              *auth,
 		logBuffer:         logBuffer,
 	}

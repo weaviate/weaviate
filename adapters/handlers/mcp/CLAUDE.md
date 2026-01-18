@@ -96,6 +96,7 @@ The MCP server provides different sets of tools based on environment variables:
 **Read-Only Tools (always available):**
 - `weaviate-collections-get-config` - Get collection schemas
 - `weaviate-tenants-list` - List tenants for a collection
+- `weaviate-objects-get` - Retrieve objects by UUID or fetch paginated lists
 - `weaviate-query-hybrid` - Search and query data
 
 **Write Tools (only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`):**
@@ -177,7 +178,116 @@ Lists all tenants for a specific collection.
 
 ---
 
-### 3. `weaviate-logs-fetch`
+### 3. `weaviate-objects-get`
+
+Retrieves one or more objects from a collection. Can fetch specific objects by UUID or retrieve a paginated list of all objects in the collection.
+
+**Parameters:**
+- `collection_name` (string, **required**): Name of the collection to retrieve objects from
+- `tenant_name` (string, optional): Name of the tenant (for multi-tenant collections)
+- `uuids` (array of strings, optional): Array of object UUIDs to retrieve. If provided, fetches only these specific objects. If not provided, fetches a paginated list of objects from the collection.
+- `offset` (integer, optional): Number of objects to skip (for pagination). Only used when `uuids` are not specified.
+- `limit` (integer, optional): Maximum number of objects to return (default: 25). Only used when `uuids` are not specified.
+- `include_vector` (boolean, optional): Whether to include the default vector in the response (default: false)
+- `return_properties` (array of strings, optional): Specific properties to return. If not specified, all properties are returned.
+- `return_metadata` (array of strings, optional): Metadata fields to include in the response. Supported values: `id`, `vector`, `creationTimeUnix`, `lastUpdateTimeUnix`. By default, only `id` is included.
+
+**Returns:**
+```json
+{
+  "objects": [
+    {
+      "class": "Article",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "properties": {
+        "title": "Example Article",
+        "content": "Article content here"
+      },
+      "creationTimeUnix": 1673539200000,
+      "lastUpdateTimeUnix": 1673539200000
+    }
+  ]
+}
+```
+
+**Response Fields:**
+- `objects` (array): Array of retrieved objects, each containing:
+  - `class` (string): Collection name
+  - `id` (string): Object UUID
+  - `properties` (object): Object properties (filtered by `return_properties` if specified)
+  - Additional metadata fields if requested via `return_metadata`
+
+**Authorization:** Requires READ permission on MCP resource.
+
+**Important Notes:**
+- When `uuids` are provided, only those specific objects are fetched
+- When `uuids` are not provided, a paginated list is returned
+- Objects that don't exist are silently skipped (no error)
+- Use `return_properties` to reduce payload size when you only need specific fields
+- Vectors are excluded by default for performance; set `include_vector=true` to include them
+
+**Examples:**
+
+Fetch specific objects by UUID:
+```json
+{
+  "collection_name": "Article",
+  "uuids": [
+    "550e8400-e29b-41d4-a716-446655440000",
+    "550e8400-e29b-41d4-a716-446655440001"
+  ]
+}
+```
+
+Fetch paginated list of objects:
+```json
+{
+  "collection_name": "Article",
+  "limit": 10,
+  "offset": 0
+}
+```
+
+Fetch with specific properties and metadata:
+```json
+{
+  "collection_name": "Article",
+  "limit": 5,
+  "return_properties": ["title", "author"],
+  "return_metadata": ["id", "creationTimeUnix", "lastUpdateTimeUnix"]
+}
+```
+
+Fetch with vectors included:
+```json
+{
+  "collection_name": "Product",
+  "uuids": ["550e8400-e29b-41d4-a716-446655440000"],
+  "include_vector": true
+}
+```
+
+Fetch from multi-tenant collection:
+```json
+{
+  "collection_name": "UserData",
+  "tenant_name": "customer-a",
+  "limit": 20
+}
+```
+
+Fetch second page of results:
+```json
+{
+  "collection_name": "Article",
+  "limit": 25,
+  "offset": 25
+}
+```
+
+---
+
+### 4. `weaviate-logs-fetch`
 
 Fetches Weaviate server logs from the in-memory buffer with pagination support. This tool is only available when `MCP_SERVER_READ_LOGS_ENABLED=true`.
 
@@ -237,7 +347,7 @@ Fetch logs from offset 2000 with limit 3000:
 
 ---
 
-### 4. `weaviate-collections-create`
+### 5. `weaviate-collections-create`
 
 Creates a new collection (class) in the Weaviate database with the specified schema configuration. This tool is only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`.
 
@@ -356,7 +466,7 @@ Collection with multi-tenancy:
 
 ---
 
-### 5. `weaviate-objects-delete`
+### 6. `weaviate-objects-delete`
 
 Deletes objects from a collection based on an optional filter. This tool is only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`.
 
@@ -547,7 +657,7 @@ Delete objects for a specific tenant:
 
 ---
 
-### 6. `weaviate-objects-upsert`
+### 7. `weaviate-objects-upsert`
 
 Upserts (inserts or updates) one or more objects into a collection in batch. Supports efficient bulk operations for inserting or updating multiple objects at once.
 
@@ -700,7 +810,7 @@ Upsert for multi-tenant collection:
 
 ---
 
-### 7. `weaviate-query-hybrid`
+### 8. `weaviate-query-hybrid`
 
 Performs hybrid search (combining vector and keyword search) on a collection.
 

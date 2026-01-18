@@ -24,3 +24,7 @@ type GetTenantsResp struct {
 type FetchLogsResp struct {
 	Logs string `json:"logs" jsonschema_description:"The fetched log content"`
 }
+
+type GetObjectsResp struct {
+	Objects []*models.Object `json:"objects" jsonschema_description:"Array of retrieved objects"`
+}
