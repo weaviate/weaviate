@@ -1035,24 +1035,15 @@ const (
 // The shard will be nil if the shard is not found, or if the local shard should not be used.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName string, shardName string, operation localShardOperation, schemaVersion uint64) (ShardLike, func(), error) {
-	// For read operations, use GetShard to avoid creating empty shards on non-owner nodes.
-	// For write operations, use getOrInitShard since we need to write and the router check
-	// will prevent creating shards on non-owner nodes.
-	var shard ShardLike
-	var release func()
-	var err error
-	if operation == localShardOperationRead {
-		shard, release, err = i.GetShard(ctx, shardName)
-	} else {
-		// Wait for schema version if provided. This ensures we have the latest schema state
-		// before checking shard ownership, which is important for multi-tenant operations.
-		if schemaVersion > 0 {
-			if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-				return nil, func() {}, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
-			}
+	// Wait for schema version if provided. This ensures we have the latest schema state
+	// before checking shard ownership, which is important for multi-tenant operations.
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return nil, func() {}, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
 		}
-		shard, release, err = i.getOrInitShard(ctx, shardName)
 	}
+
+	shard, release, err := i.GetShard(ctx, shardName)
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
 	// see Index.getOptInitLocalShard for more details.
 	if err != nil {
