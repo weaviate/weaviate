@@ -18,15 +18,21 @@ import (
 	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 type FilterSamplingParser struct {
 	authorizedGetClass classGetterWithAuthzFunc
+	maxSampleCount     *runtime.DynamicValue[int]
 }
 
-func NewFilterSamplingParser(authorizedGetClass classGetterWithAuthzFunc) *FilterSamplingParser {
+func NewFilterSamplingParser(
+	authorizedGetClass classGetterWithAuthzFunc,
+	maxSampleCount *runtime.DynamicValue[int],
+) *FilterSamplingParser {
 	return &FilterSamplingParser{
 		authorizedGetClass: authorizedGetClass,
+		maxSampleCount:     maxSampleCount,
 	}
 }
 
@@ -39,6 +45,11 @@ func (p *FilterSamplingParser) Parse(req *pb.FilterSamplingRequest) (*filtersamp
 	}
 	if req.SampleCount == 0 {
 		return nil, "", fmt.Errorf("sample_count must be greater than 0")
+	}
+
+	maxSampleCount := p.maxSampleCount.Get()
+	if int(req.SampleCount) > maxSampleCount {
+		return nil, "", fmt.Errorf("sample_count must be <= %d", maxSampleCount)
 	}
 
 	class, err := p.authorizedGetClass(req.Collection)

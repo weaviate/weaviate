@@ -240,6 +240,10 @@ type Config struct {
 	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	// FilterSamplingMaxSampleCount limits the maximum allowed sample_count for filter sampling requests
+	// to prevent memory exhaustion and CPU abuse. Default is 10000.
+	FilterSamplingMaxSampleCount *runtime.DynamicValue[int] `json:"filter_sampling_max_sample_count" yaml:"filter_sampling_max_sample_count"`
 }
 
 type MapToBlockamaxConfig struct {

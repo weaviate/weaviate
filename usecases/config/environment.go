@@ -1012,6 +1012,14 @@ func FromEnv(config *Config) error {
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
+	if err := parsePositiveInt(
+		"FILTER_SAMPLING_MAX_SAMPLE_COUNT",
+		func(val int) { config.FilterSamplingMaxSampleCount = configRuntime.NewDynamicValue(val) },
+		DefaultFilterSamplingMaxSampleCount,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1407,6 +1415,10 @@ const (
 
 	DefaultQueryBitmapBufsMaxBufSize = 1 << 25 // 32MB
 	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB (2x 32MB, 2x 16MB, 2x 8MB, 2x 4MB, 4x 2MB)
+
+	// DefaultFilterSamplingMaxSampleCount limits sample_count for filter sampling requests
+	// to prevent memory exhaustion from large pre-allocations.
+	DefaultFilterSamplingMaxSampleCount = 10000
 )
 
 const (

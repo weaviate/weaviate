@@ -128,6 +128,7 @@ func (s *Service) filterSampling(ctx context.Context, req *pb.FilterSamplingRequ
 
 	parser := NewFilterSamplingParser(
 		s.classGetterWithAuthzFunc(ctx, principal, tenant),
+		s.config.FilterSamplingMaxSampleCount,
 	)
 
 	params, dataType, err := parser.Parse(req)

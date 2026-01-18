@@ -320,6 +320,17 @@ func TestFilterSampling_SingleNode(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	t.Run("error on sample_count exceeding limit", func(t *testing.T) {
+		// Default limit is 10000, so requesting 20000 should fail
+		_, err := grpcClient.FilterSampling(ctx, &pb.FilterSamplingRequest{
+			Collection:  testClassName,
+			Property:    "category",
+			SampleCount: 20000,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sample_count must be <= 10000")
+	})
+
 	t.Run("took_seconds is populated", func(t *testing.T) {
 		resp, err := grpcClient.FilterSampling(ctx, &pb.FilterSamplingRequest{
 			Collection:  testClassName,
