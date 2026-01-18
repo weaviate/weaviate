@@ -18,3 +18,9 @@ type UpsertObjectResp struct {
 type CreateCollectionResp struct {
 	CollectionName string `json:"collection_name" jsonschema_description:"Name of the created collection"`
 }
+
+type DeleteObjectsResp struct {
+	Deleted int  `json:"deleted" jsonschema_description:"Number of objects deleted (0 if dry_run=true)"`
+	Matches int  `json:"matches" jsonschema_description:"Number of objects that matched the deletion criteria"`
+	DryRun  bool `json:"dry_run" jsonschema_description:"Whether this was a dry run (true) or actual deletion (false)"`
+}

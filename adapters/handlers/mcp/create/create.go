@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type WeaviateCreator struct {
@@ -25,6 +26,7 @@ type WeaviateCreator struct {
 
 	objectsManager    objectsManager
 	schemaManager     schemaManager
+	batchManager      batchManager
 	defaultCollection string
 }
 
@@ -41,11 +43,18 @@ type schemaManager interface {
 	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
 }
 
-func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager, schemaManager schemaManager) *WeaviateCreator {
+type batchManager interface {
+	DeleteObjects(ctx context.Context, principal *models.Principal, match *models.BatchDeleteMatch,
+		deletionTimeUnixMilli *int64, dryRun *bool, output *string,
+		repl *additional.ReplicationProperties, tenant string) (*objects.BatchDeleteResponse, error)
+}
+
+func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager, schemaManager schemaManager, batchManager batchManager) *WeaviateCreator {
 	return &WeaviateCreator{
 		defaultCollection: "DefaultCollection",
 		objectsManager:    objectsManager,
 		schemaManager:     schemaManager,
+		batchManager:      batchManager,
 		Auth:              *auth,
 	}
 }

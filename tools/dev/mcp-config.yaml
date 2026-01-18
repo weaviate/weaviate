@@ -23,6 +23,9 @@ tools:
   weaviate-collections-create:
     description: "Creates a new collection (class) in the Weaviate database. Use this to define the schema for a new data type with properties, vector configuration, inverted index settings, and multi-tenancy options. Essential for setting up your data structure before inserting objects."
 
+  weaviate-objects-delete:
+    description: "Deletes objects from a collection based on optional where filters. IMPORTANT: Defaults to dry_run=true for safety - returns count of objects that would be deleted without actually deleting them. Set dry_run=false to perform actual deletion. Supports Weaviate's where filter syntax to target specific objects (e.g., delete by status, date, or any property). Without a filter, deletes ALL objects in the collection. Use this to selectively remove objects or clear collection data."
+
   weaviate-objects-upsert:
     description: "Creates a new object or updates an existing one in a collection. If a UUID is provided and exists, the object is updated; otherwise, a new object is created. Use this to add or modify data in Weaviate collections."
 

@@ -30,6 +30,15 @@ func Tools(creator *WeaviateCreator, descriptions map[string]string) []server.Se
 		},
 		{
 			Tool: mcp.NewTool(
+				"weaviate-objects-delete",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-delete",
+					"Deletes objects from a collection based on optional where filters. Supports dry-run mode (default: true) to preview deletions before executing.")),
+				mcp.WithInputSchema[DeleteObjectsArgs](),
+			),
+			Handler: mcp.NewStructuredToolHandler(creator.DeleteObjects),
+		},
+		{
+			Tool: mcp.NewTool(
 				"weaviate-objects-upsert",
 				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-upsert",
 					"Upserts (inserts or updates) a single object into a collection in the database.")),

@@ -100,6 +100,7 @@ The MCP server provides different sets of tools based on environment variables:
 
 **Write Tools (only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`):**
 - `weaviate-collections-create` - Create new collections with schema configuration
+- `weaviate-objects-delete` - Delete all objects from a collection (with dry-run safety)
 - `weaviate-objects-upsert` - Create or update objects
 
 **Diagnostic Tools (only available when `MCP_SERVER_READ_LOGS_ENABLED=true`):**
@@ -355,7 +356,198 @@ Collection with multi-tenancy:
 
 ---
 
-### 5. `weaviate-objects-upsert`
+### 5. `weaviate-objects-delete`
+
+Deletes objects from a collection based on an optional filter. This tool is only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`.
+
+**SAFETY FEATURE:** By default, this tool runs in dry-run mode (`dry_run=true`), which returns the count of objects that would be deleted without actually deleting them. To perform actual deletion, you must explicitly set `dry_run=false`.
+
+**Parameters:**
+- `collection_name` (string, **required**): Name of the collection to delete objects from
+- `tenant_name` (string, optional): Name of the tenant (for multi-tenant collections). Only objects from this tenant will be deleted.
+- `where` (object, optional): Filter to specify which objects to delete using Weaviate's where filter syntax. If not provided, deletes ALL objects in the collection. See examples below for filter syntax.
+- `dry_run` (boolean, optional): If `true`, returns count without deleting. If `false`, performs actual deletion. **Default: `true`**
+
+**Returns:**
+```json
+{
+  "deleted": 0,
+  "matches": 42,
+  "dry_run": true
+}
+```
+
+**Response Fields:**
+- `deleted` (integer): Number of objects actually deleted (0 if `dry_run=true`)
+- `matches` (integer): Number of objects that matched the deletion criteria
+- `dry_run` (boolean): Whether this was a dry run (`true`) or actual deletion (`false`)
+
+**Authorization:** Requires DELETE permission on MCP resource.
+
+**Important Notes:**
+- **Default behavior is safe:** Without specifying `dry_run=false`, no data will be deleted
+- **Without a filter:** Automatically creates a filter that matches ALL objects in the collection (or tenant) using `Like "*"` on the `_id` field
+- **With a filter:** Only deletes objects matching the filter criteria
+- Cannot be undone once executed with `dry_run=false`
+- For multi-tenant collections, specify `tenant_name` to delete only that tenant's objects
+- The underlying Weaviate API requires a where filter, so when you don't provide one, it's automatically created to match all objects
+
+**Where Filter Syntax:**
+The `where` parameter uses Weaviate's filter syntax with the following structure:
+
+**Basic Filter Fields:**
+- `path`: Array of property names (always an array, even for single property: `["propertyName"]`)
+- `operator`: One of: `"Equal"`, `"NotEqual"`, `"GreaterThan"`, `"GreaterThanEqual"`, `"LessThan"`, `"LessThanEqual"`, `"Like"`, `"ContainsAny"`, `"ContainsAll"`, `"IsNull"`, `"And"`, `"Or"`
+- **Value fields** (use ONE based on data type):
+  - `valueText`: String value (e.g., `"draft"`)
+  - `valueInt`: Integer value (e.g., `100`)
+  - `valueNumber`: Float value (e.g., `3.14`)
+  - `valueBoolean`: Boolean value (e.g., `true`)
+  - `valueDate`: Date string in ISO format (e.g., `"2020-01-01T00:00:00Z"`)
+  - **Array variants** for `ContainsAny`/`ContainsAll`: `valueTextArray`, `valueIntArray`, `valueNumberArray`, `valueBooleanArray`, `valueDateArray`
+
+**Complex Filters:**
+- `operands`: Array of sub-filters (required when operator is `"And"` or `"Or"`)
+- Do NOT include `path` when using `And`/`Or` operators
+
+**Examples:**
+
+Dry run to check how many objects would be deleted (all objects):
+```json
+{
+  "collection_name": "Article"
+}
+```
+
+Delete objects matching a specific property value:
+```json
+{
+  "collection_name": "Article",
+  "where": {
+    "path": ["status"],
+    "operator": "Equal",
+    "valueText": "draft"
+  },
+  "dry_run": false
+}
+```
+
+Delete objects with a numeric filter:
+```json
+{
+  "collection_name": "Product",
+  "where": {
+    "path": ["price"],
+    "operator": "LessThan",
+    "valueNumber": 10
+  },
+  "dry_run": false
+}
+```
+
+Delete with complex AND filter:
+```json
+{
+  "collection_name": "Article",
+  "where": {
+    "operator": "And",
+    "operands": [
+      {
+        "path": ["status"],
+        "operator": "Equal",
+        "valueText": "archived"
+      },
+      {
+        "path": ["publishDate"],
+        "operator": "LessThan",
+        "valueDate": "2020-01-01T00:00:00Z"
+      }
+    ]
+  },
+  "dry_run": false
+}
+```
+
+Delete all objects (no filter):
+```json
+{
+  "collection_name": "Article",
+  "dry_run": false
+}
+```
+
+Delete objects for a specific tenant:
+```json
+{
+  "collection_name": "UserData",
+  "tenant_name": "customer-a",
+  "where": {
+    "path": ["status"],
+    "operator": "Equal",
+    "valueText": "inactive"
+  },
+  "dry_run": false
+}
+```
+
+**Common Where Filter Mistakes:**
+
+1. **Mistake:** Using `path` as a string instead of an array
+   ```json
+   // WRONG
+   {"path": "status", "operator": "Equal", "valueText": "draft"}
+
+   // CORRECT
+   {"path": ["status"], "operator": "Equal", "valueText": "draft"}
+   ```
+
+2. **Mistake:** Using generic `value` field instead of typed value field
+   ```json
+   // WRONG
+   {"path": ["price"], "operator": "GreaterThan", "value": 100}
+
+   // CORRECT
+   {"path": ["price"], "operator": "GreaterThan", "valueNumber": 100}
+   ```
+
+3. **Mistake:** Including `path` field in And/Or operators
+   ```json
+   // WRONG
+   {
+     "path": ["status"],
+     "operator": "And",
+     "operands": [...]
+   }
+
+   // CORRECT
+   {
+     "operator": "And",
+     "operands": [
+       {"path": ["status"], "operator": "Equal", "valueText": "draft"},
+       {"path": ["score"], "operator": "GreaterThan", "valueNumber": 50}
+     ]
+   }
+   ```
+
+4. **Mistake:** Using wrong value type for the data type
+   ```json
+   // WRONG - using valueText for a number property
+   {"path": ["age"], "operator": "GreaterThan", "valueText": "18"}
+
+   // CORRECT - using valueNumber for a number property
+   {"path": ["age"], "operator": "GreaterThan", "valueNumber": 18}
+   ```
+
+**Value Field Reference:**
+- Text properties → `valueText` (string)
+- Number properties (int/float) → `valueNumber` (number) or `valueInt` (integer)
+- Boolean properties → `valueBoolean` (true/false)
+- Date properties → `valueDate` (ISO 8601 string: "2020-01-01T00:00:00Z")
+- Array operators (ContainsAny/ContainsAll) → `valueTextArray`, `valueIntArray`, etc.
+
+---
+
+### 6. `weaviate-objects-upsert`
 
 Upserts (inserts or updates) a single object into a collection.
 
@@ -387,7 +579,7 @@ Upserts (inserts or updates) a single object into a collection.
 
 ---
 
-### 6. `weaviate-query-hybrid`
+### 7. `weaviate-query-hybrid`
 
 Performs hybrid search (combining vector and keyword search) on a collection.
 
@@ -688,6 +880,7 @@ Each tool requires specific permissions:
 - `weaviate-collections-create`: CREATE
 - `weaviate-tenants-list`: READ
 - `weaviate-logs-fetch`: READ
+- `weaviate-objects-delete`: DELETE
 - `weaviate-objects-upsert`: CREATE
 - `weaviate-query-hybrid`: READ
 
