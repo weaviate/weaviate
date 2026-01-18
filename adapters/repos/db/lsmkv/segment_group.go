@@ -611,7 +611,16 @@ func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) er
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := len(segments) - 1; i >= 0; i-- {
+		beforeSegment := time.Now()
 		err := segments[i].exists(key)
+		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
+			sg.logger.WithError(err).
+				WithFields(logrus.Fields{
+					"duration":    duration,
+					"action":      "lsm_segment_group_exists_individual_segment",
+					"segment_pos": i,
+				}).Debug("waited over 100ms to check existence in individual segment")
+		}
 		if err == nil {
 			return nil
 		}
