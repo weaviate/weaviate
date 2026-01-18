@@ -1051,10 +1051,10 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 
 	// For write operations, initialize shard if it doesn't exist
 	if operation == localShardOperationWrite && shard == nil {
-		// For multi-tenant classes, check write replicas before initializing
 		className := i.Config.ClassName.String()
 		class := i.schemaReader.ReadOnlyClass(className)
 		if class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
+			// For multi-tenant classes, check write replicas before initializing
 			ws, routerErr := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
 			if routerErr == nil && slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
 				shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
@@ -2355,33 +2355,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	// First try to get the shard without initializing
-	shard, release, err = i.getOptInitLocalShard(ctx, shardName, false)
-	if err != nil || shard != nil {
-		return shard, release, err
-	}
-
-	// Shard doesn't exist. For read operations, check if this node should have the shard.
-	// This handles the case where a request comes in for a shard that hasn't been initialized yet.
-	// Only check for multi-tenant classes where shard names correspond to tenant names.
-	className := i.Config.ClassName.String()
-	class := i.schemaReader.ReadOnlyClass(className)
-	if class == nil {
-		return nil, func() {}, nil
-	}
-
-	// Only proceed if this is a multi-tenant class
-	if class.MultiTenancyConfig == nil || !class.MultiTenancyConfig.Enabled {
-		return nil, func() {}, nil
-	}
-
-	rs, routerErr := i.router.GetReadReplicasLocation(className, shardName, shardName)
-	if routerErr == nil && slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
-		// Router says this node should have the shard, initialize it
-		return i.getOptInitLocalShard(ctx, shardName, true)
-	}
-
-	return nil, func() {}, nil
+	return i.getOptInitLocalShard(ctx, shardName, false)
 }
 
 // getOrInitShard initiates the shard locally if it doesn't exist.
