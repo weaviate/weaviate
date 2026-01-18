@@ -142,7 +142,12 @@ func decodePropertyValue(key []byte, dataType schema.DataType) any {
 		return string(key)
 
 	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
-		// UUIDs are stored as strings
+		// UUIDs are stored as 16-byte binary
+		if len(key) == 16 {
+			// Format as UUID string: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+			return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+				key[0:4], key[4:6], key[6:8], key[8:10], key[10:16])
+		}
 		return string(key)
 
 	default:
