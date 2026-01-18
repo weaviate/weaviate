@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.34.7"
+    "version": "1.34.10"
   },
   "basePath": "/v1",
   "paths": {
@@ -6166,6 +6166,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -9280,7 +9285,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.34.7"
+    "version": "1.34.10"
   },
   "basePath": "/v1",
   "paths": {
@@ -15495,6 +15500,11 @@ func init() {
         "path": {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
+        },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
         },
         "startedAt": {
           "description": "Timestamp when the backup process started",

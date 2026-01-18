@@ -51,8 +51,8 @@ type replicator interface {
 		requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
 		requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse
-	CommitReplication(indexName, shardName, requestID string) interface{}
-	AbortReplication(indexName, shardName, requestID string) interface{}
+	CommitReplication(ctx context.Context, indexName, shardName, requestID string) interface{}
+	AbortReplication(ctx context.Context, indexName, shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, index, shard string,
 		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
@@ -374,9 +374,9 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 
 		switch cmd {
 		case "commit":
-			resp = i.shards.CommitReplication(index, shard, requestID)
+			resp = i.shards.CommitReplication(r.Context(), index, shard, requestID)
 		case "abort":
-			resp = i.shards.AbortReplication(index, shard, requestID)
+			resp = i.shards.AbortReplication(r.Context(), index, shard, requestID)
 		default:
 			http.Error(w, fmt.Sprintf("unrecognized command: %s", cmd), http.StatusNotImplemented)
 			return
@@ -774,7 +774,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes)
+	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -805,7 +805,7 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

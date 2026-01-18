@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/loadlimiter"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
@@ -59,14 +61,14 @@ type LazyLoadShard struct {
 	loaded           bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
+	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer ShardReindexerV3,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {

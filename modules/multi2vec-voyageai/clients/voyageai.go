@@ -53,10 +53,10 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context,
-	texts, images []string, cfg moduletools.ClassConfig,
+	texts, images, videos []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, texts, images, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, texts, images, videos, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),
@@ -68,7 +68,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, input, nil, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, input, nil, nil, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),
@@ -80,7 +80,19 @@ func (v *vectorizer) VectorizeImageQuery(ctx context.Context,
 	images []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, nil, images, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, nil, images, nil, voyageai.Settings{
+		BaseURL:   settings.BaseURL(),
+		Model:     settings.Model(),
+		Truncate:  settings.Truncate(),
+		InputType: voyageai.Query,
+	})
+}
+
+func (v *vectorizer) VectorizeVideoQuery(ctx context.Context,
+	videos []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	settings := ent.NewClassSettings(cfg)
+	return v.client.VectorizeMultiModal(ctx, nil, nil, videos, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),

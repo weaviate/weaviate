@@ -146,6 +146,14 @@ func (m *CohereModule) AdditionalProperties() map[string]modulecapabilities.Addi
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *CohereModule) MigrateProperties() []modulecapabilities.MigrateProperty {
+	return []modulecapabilities.MigrateProperty{
+		{Name: "model"},
+		{Name: "truncate"},
+		{Name: "baseUrl"},
+	}
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
@@ -154,4 +162,5 @@ var (
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
+	_ = modulecapabilities.MigrateProperties(New())
 )
