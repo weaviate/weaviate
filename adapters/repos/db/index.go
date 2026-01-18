@@ -1045,22 +1045,6 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 
 	// Get shard without initializing first
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return nil, release, err
-	}
-
-	// For write operations, initialize shard if it doesn't exist
-	if operation == localShardOperationWrite && shard == nil {
-		className := i.Config.ClassName.String()
-		class := i.schemaReader.ReadOnlyClass(className)
-		if class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
-			// For multi-tenant classes, check write replicas before initializing
-			ws, routerErr := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
-			if routerErr == nil && slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
-				shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
-			}
-		}
-	}
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
 	// see Index.getOptInitLocalShard for more details.
 	if err != nil {
@@ -1073,34 +1057,57 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 	}
 
 	// get the replicas for the shard
+	className := i.Config.ClassName.String()
 	var rs routerTypes.ReadReplicaSet
 	var ws routerTypes.WriteReplicaSet
 	switch operation {
 	case localShardOperationWrite:
-		ws, err = i.router.GetWriteReplicasLocation(i.Config.ClassName.String(), tenantName, shardName)
+		ws, err = i.router.GetWriteReplicasLocation(className, tenantName, shardName)
 		if err != nil {
-			return shard, release, nil
-		}
-		// if the local node is not in the list of replicas, don't return the shard (but still allow the caller to release)
-		// we should not read/write from the local shard if the local node is not in the list of replicas (eg we should use the remote)
-		if !slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
+			// Router check failed (e.g., tenant is not HOT, is FREEZING, etc.)
+			// Don't initialize or return shard for writes if tenant is not active
 			return nil, release, nil
 		}
+
+		isReplica := slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName())
+		// If we should have the shard but it doesn't exist, initialize it
+		// Only initialize if tenant is HOT (router check passed) and we're a replica
+		if isReplica && shard == nil {
+			shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
+			if err != nil {
+				return nil, release, err
+			}
+		}
+
+		// Return shard only if we should have it
+		if isReplica {
+			return shard, release, nil
+		}
+		return nil, release, nil
 	case localShardOperationRead:
-		rs, err = i.router.GetReadReplicasLocation(i.Config.ClassName.String(), tenantName, shardName)
+		rs, err = i.router.GetReadReplicasLocation(className, tenantName, shardName)
 		if err != nil {
 			return shard, release, nil
 		}
-		// if the local node is not in the list of replicas, don't return the shard (but still allow the caller to release)
-		// we should not read/write from the local shard if the local node is not in the list of replicas (eg we should use the remote)
-		if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
-			return nil, release, nil
+
+		isReplica := slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName())
+		// If we should have the shard but it doesn't exist, initialize it
+		// This handles the case where tenant was reactivated but shard hasn't been loaded yet
+		if isReplica && shard == nil {
+			shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
+			if err != nil {
+				return nil, release, err
+			}
 		}
+
+		// Return shard only if we should have it
+		if isReplica {
+			return shard, release, nil
+		}
+		return nil, release, nil
 	default:
 		return nil, func() {}, fmt.Errorf("invalid local shard operation: %s", operation)
 	}
-
-	return shard, release, nil
 }
 
 func (i *Index) AsyncReplicationEnabled() bool {
