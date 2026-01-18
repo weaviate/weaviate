@@ -78,6 +78,7 @@ func (s *Server) ConfigureFlags() {
 
 // Server for the weaviate API
 type Server struct {
+	Version          bool             `long:"version" short:"v" description:"print the semantic version (MAJOR.MINOR.PATCH) and exit"`
 	EnabledListeners []string         `long:"scheme" description:"the listeners to enable, this can be repeated and defaults to the schemes in the swagger spec"`
 	CleanupTimeout   time.Duration    `long:"cleanup-timeout" description:"grace period for which to wait before killing idle connections" default:"10s"`
 	GracefulTimeout  time.Duration    `long:"graceful-timeout" description:"grace period for which to wait before shutting down the server" default:"15s"`
