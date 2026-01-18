@@ -1801,9 +1801,10 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		// Use GetShard to avoid creating empty shards on non-owner nodes during eventual consistency.
-		// If shard doesn't exist locally, fall back to remote search.
-		shard, release, err := i.GetShard(ctx, shardName)
+		// Use getShardForDirectLocalOperation to get or initialize the shard for reads.
+		// This ensures shards are initialized when needed (e.g., after tenant reactivation).
+		// If shard doesn't exist locally or shouldn't be used, fall back to remote search.
+		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
 		defer release()
 		if err != nil {
 			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
