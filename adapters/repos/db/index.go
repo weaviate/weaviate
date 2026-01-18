@@ -1446,7 +1446,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1466,7 +1466,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1612,7 +1612,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return false, err
 	}
@@ -2156,7 +2156,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2550,7 +2550,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	params aggregation.Params, mods interface{},
 ) (*aggregation.Result, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -2812,7 +2812,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return 0, err
 	}
@@ -2875,7 +2875,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return "", err
 	}
@@ -2904,9 +2904,7 @@ func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, ta
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	// Use GetShard instead of getOrInitShard to avoid creating empty shards during replication.
-	// If the shard doesn't exist yet, we should return an error rather than creating an empty shard.
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
@@ -2980,7 +2978,7 @@ func (i *Index) consistencyLevel(
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
