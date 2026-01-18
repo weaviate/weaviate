@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/shardlocallimit"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -959,6 +960,29 @@ func FromEnv(config *Config) error {
 		operationalMode = v
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
+
+	// Shard-local limit optimization (experimental)
+	shardLocalLimitVectorSearchEnabled := entcfg.Enabled(os.Getenv("EXPERIMENTAL_SHARD_LOCAL_LIMIT_VECTOR_SEARCH_ENABLED"))
+	config.ShardLocalLimitVectorSearchEnabled = configRuntime.NewDynamicValue(shardLocalLimitVectorSearchEnabled)
+
+	shardLocalLimitObjectListEnabled := entcfg.Enabled(os.Getenv("EXPERIMENTAL_SHARD_LOCAL_LIMIT_OBJECT_LIST_ENABLED"))
+	config.ShardLocalLimitObjectListEnabled = configRuntime.NewDynamicValue(shardLocalLimitObjectListEnabled)
+
+	shardLocalLimitHybridBM25Enabled := entcfg.Enabled(os.Getenv("EXPERIMENTAL_SHARD_LOCAL_LIMIT_HYBRID_BM25_ENABLED"))
+	config.ShardLocalLimitHybridBM25Enabled = configRuntime.NewDynamicValue(shardLocalLimitHybridBM25Enabled)
+
+	shardLocalLimitSafetyMargin := shardlocallimit.DefaultSafetyMargin
+	if v := os.Getenv("EXPERIMENTAL_SHARD_LOCAL_LIMIT_SAFETY_MARGIN"); v != "" {
+		parsed, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse EXPERIMENTAL_SHARD_LOCAL_LIMIT_SAFETY_MARGIN as float: %w", err)
+		}
+		if parsed < 0 || parsed > 1 {
+			return fmt.Errorf("EXPERIMENTAL_SHARD_LOCAL_LIMIT_SAFETY_MARGIN must be between 0 and 1")
+		}
+		shardLocalLimitSafetyMargin = parsed
+	}
+	config.ShardLocalLimitSafetyMargin = configRuntime.NewDynamicValue(shardLocalLimitSafetyMargin)
 
 	return nil
 }

@@ -171,6 +171,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
 			SPFreshEnabled:                               m.db.config.SPFreshEnabled,
+			ShardLocalLimitVectorSearchEnabled:           m.db.config.ShardLocalLimitVectorSearchEnabled,
+			ShardLocalLimitObjectListEnabled:             m.db.config.ShardLocalLimitObjectListEnabled,
+			ShardLocalLimitHybridBM25Enabled:             m.db.config.ShardLocalLimitHybridBM25Enabled,
+			ShardLocalLimitSafetyMargin:                  m.db.config.ShardLocalLimitSafetyMargin,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set

@@ -55,6 +55,12 @@ type WeaviateRuntimeConfig struct {
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
 	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`
 
+	// Shard-local limit optimization (experimental)
+	ShardLocalLimitVectorSearchEnabled *runtime.DynamicValue[bool]    `json:"shard_local_limit_vector_search_enabled" yaml:"shard_local_limit_vector_search_enabled"`
+	ShardLocalLimitObjectListEnabled   *runtime.DynamicValue[bool]    `json:"shard_local_limit_object_list_enabled" yaml:"shard_local_limit_object_list_enabled"`
+	ShardLocalLimitHybridBM25Enabled   *runtime.DynamicValue[bool]    `json:"shard_local_limit_hybrid_bm25_enabled" yaml:"shard_local_limit_hybrid_bm25_enabled"`
+	ShardLocalLimitSafetyMargin        *runtime.DynamicValue[float64] `json:"shard_local_limit_safety_margin" yaml:"shard_local_limit_safety_margin"`
+
 	// Authentication OIDC settings
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"authentication_oidc_issuer" yaml:"authentication_oidc_issuer"`
 	OIDCClientID          *runtime.DynamicValue[string]   `json:"authentication_oidc_client_id" yaml:"authentication_oidc_client_id"`

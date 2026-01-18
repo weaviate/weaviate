@@ -8,7 +8,7 @@
 //	  P(max shard load > k) <= S * P(X > k)
 //	Choose minimal k such that:
 //	  S * P(X > k) <= (1 - targetSuccess)
-package locallimit
+package shardlocallimit
 
 var localLimitLUT = [][]uint16{
 	{10, 25, 50, 75, 100, 200, 400, 800, 1000, 2500, 5000, 7500, 10000},

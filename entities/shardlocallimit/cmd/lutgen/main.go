@@ -77,7 +77,7 @@ func renderGo(lut [][]uint16) []byte {
 	fmt.Fprintf(&b, "//   Choose minimal k such that:\n")
 	fmt.Fprintf(&b, "//     S * P(X > k) <= (1 - targetSuccess)\n")
 	fmt.Fprintf(&b, "//\n")
-	fmt.Fprintf(&b, "package locallimit\n\n")
+	fmt.Fprintf(&b, "package shardlocallimit\n\n")
 
 	fmt.Fprintf(&b, "var localLimitLUT = [][]uint16{\n")
 	for _, row := range lut {

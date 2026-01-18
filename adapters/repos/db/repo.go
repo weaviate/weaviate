@@ -309,6 +309,12 @@ type Config struct {
 
 	SPFreshEnabled  bool
 	OperationalMode *configRuntime.DynamicValue[string]
+
+	// Shard-local limit optimization (experimental)
+	ShardLocalLimitVectorSearchEnabled *configRuntime.DynamicValue[bool]
+	ShardLocalLimitObjectListEnabled   *configRuntime.DynamicValue[bool]
+	ShardLocalLimitHybridBM25Enabled   *configRuntime.DynamicValue[bool]
+	ShardLocalLimitSafetyMargin        *configRuntime.DynamicValue[float64]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
