@@ -100,8 +100,8 @@ The MCP server provides different sets of tools based on environment variables:
 
 **Write Tools (only available when `MCP_SERVER_WRITE_ACCESS_DISABLED=false`):**
 - `weaviate-collections-create` - Create new collections with schema configuration
-- `weaviate-objects-delete` - Delete all objects from a collection (with dry-run safety)
-- `weaviate-objects-upsert` - Create or update objects
+- `weaviate-objects-delete` - Delete objects from a collection based on filters (with dry-run safety)
+- `weaviate-objects-upsert` - Batch upsert (insert or update) one or more objects
 
 **Diagnostic Tools (only available when `MCP_SERVER_READ_LOGS_ENABLED=true`):**
 - `weaviate-logs-fetch` - Fetch recent server logs from memory (limited to 2000 characters)
@@ -549,31 +549,152 @@ Delete objects for a specific tenant:
 
 ### 6. `weaviate-objects-upsert`
 
-Upserts (inserts or updates) a single object into a collection.
+Upserts (inserts or updates) one or more objects into a collection in batch. Supports efficient bulk operations for inserting or updating multiple objects at once.
 
 **Parameters:**
-- `collection_name` (string, **required**): Name of the collection to upsert the object into
-- `tenant` (string, optional): Name of the tenant the object belongs to
-- `properties` (object, optional): Key-value pairs of object properties
+- `collection_name` (string, **required**): Name of the collection to upsert objects into
+- `tenant_name` (string, optional): Name of the tenant the objects belong to (for multi-tenant collections)
+- `objects` (array, **required**): Array of objects to upsert. Minimum 1 object required. Each object should have:
+  - `properties` (object, **required**): Key-value pairs of object properties
+  - `uuid` (string, optional): UUID of the object. If not provided, a new UUID will be generated. If provided and the object exists, it will be updated; otherwise, a new object with this UUID will be created
+  - `vectors` (object, optional): Named vectors for the object (e.g., `{"default": [0.1, 0.2, ...], "image": [0.3, 0.4, ...]}`)
 
 **Returns:**
 ```json
 {
-  "id": "uuid-of-upserted-object"
+  "results": [
+    {
+      "id": "uuid-of-first-object"
+    },
+    {
+      "id": "uuid-of-second-object"
+    },
+    {
+      "error": "error message for failed object"
+    }
+  ]
 }
 ```
 
-**Authorization:** Requires CREATE permission on MCP resource.
+**Response Fields:**
+- `results` (array): Results for each object in the batch, in the same order as the input
+  - `id` (string): UUID of the upserted object (only present if successful)
+  - `error` (string): Error message if the upsert failed for this object (only present if failed)
 
-**Example:**
+**Authorization:** Requires both CREATE and UPDATE permissions on MCP resource.
+
+**Important Notes:**
+- Objects are processed in batch for better performance
+- Each object in the batch can succeed or fail independently
+- Results are returned in the same order as the input objects
+- Check the `error` field in each result to identify failures
+- If a UUID is provided and exists, the object is updated; otherwise, it's inserted
+
+**Examples:**
+
+Upsert a single object:
 ```json
 {
   "collection_name": "Article",
-  "tenant": "customer-a",
-  "properties": {
-    "title": "Example Article",
-    "content": "Article content here"
-  }
+  "objects": [
+    {
+      "properties": {
+        "title": "Example Article",
+        "content": "Article content here",
+        "author": "John Doe"
+      }
+    }
+  ]
+}
+```
+
+Upsert multiple objects in batch:
+```json
+{
+  "collection_name": "Article",
+  "objects": [
+    {
+      "properties": {
+        "title": "First Article",
+        "content": "Content of first article"
+      }
+    },
+    {
+      "properties": {
+        "title": "Second Article",
+        "content": "Content of second article"
+      }
+    },
+    {
+      "properties": {
+        "title": "Third Article",
+        "content": "Content of third article"
+      }
+    }
+  ]
+}
+```
+
+Upsert with specific UUIDs (update if exists, insert if not):
+```json
+{
+  "collection_name": "Article",
+  "objects": [
+    {
+      "uuid": "550e8400-e29b-41d4-a716-446655440000",
+      "properties": {
+        "title": "Updated Article",
+        "content": "This will update if UUID exists"
+      }
+    },
+    {
+      "uuid": "550e8400-e29b-41d4-a716-446655440001",
+      "properties": {
+        "title": "Another Article",
+        "content": "This will also update if UUID exists"
+      }
+    }
+  ]
+}
+```
+
+Upsert with custom vectors:
+```json
+{
+  "collection_name": "Product",
+  "objects": [
+    {
+      "properties": {
+        "name": "Laptop",
+        "price": 1299.99
+      },
+      "vectors": {
+        "default": [0.1, 0.2, 0.3, 0.4, 0.5]
+      }
+    }
+  ]
+}
+```
+
+Upsert for multi-tenant collection:
+```json
+{
+  "collection_name": "UserData",
+  "tenant_name": "customer-a",
+  "objects": [
+    {
+      "properties": {
+        "username": "john_doe",
+        "email": "john@example.com"
+      }
+    },
+    {
+      "properties": {
+        "username": "jane_smith",
+        "email": "jane@example.com"
+      }
+    }
+  ]
 }
 ```
 

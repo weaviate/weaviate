@@ -41,7 +41,7 @@ func Tools(creator *WeaviateCreator, descriptions map[string]string) []server.Se
 			Tool: mcp.NewTool(
 				"weaviate-objects-upsert",
 				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-upsert",
-					"Upserts (inserts or updates) a single object into a collection in the database.")),
+					"Upserts (inserts or updates) one or more objects into a collection in batch. Supports batch operations for efficient bulk inserts and updates.")),
 				mcp.WithInputSchema[UpsertObjectArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(creator.UpsertObject),

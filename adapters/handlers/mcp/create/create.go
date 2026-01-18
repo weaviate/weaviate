@@ -47,6 +47,8 @@ type batchManager interface {
 	DeleteObjects(ctx context.Context, principal *models.Principal, match *models.BatchDeleteMatch,
 		deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 		repl *additional.ReplicationProperties, tenant string) (*objects.BatchDeleteResponse, error)
+	AddObjects(ctx context.Context, principal *models.Principal,
+		objects []*models.Object, fields []*string, repl *additional.ReplicationProperties) (objects.BatchObjects, error)
 }
 
 func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager, schemaManager schemaManager, batchManager batchManager) *WeaviateCreator {

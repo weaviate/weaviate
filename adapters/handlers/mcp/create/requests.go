@@ -11,12 +11,16 @@
 
 package create
 
+type ObjectToUpsert struct {
+	UUID       string               `json:"uuid,omitempty" jsonschema_description:"UUID of the object. If not provided, a new UUID will be generated"`
+	Properties map[string]any       `json:"properties" jsonschema:"required" jsonschema_description:"Properties of the object"`
+	Vectors    map[string][]float32 `json:"vectors,omitempty" jsonschema_description:"Named vectors for the object (e.g., {'default': [0.1, 0.2, ...], 'image': [0.3, 0.4, ...]})"`
+}
+
 type UpsertObjectArgs struct {
-	CollectionName string               `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to upsert object into"`
-	TenantName     string               `json:"tenant_name,omitempty" jsonschema_description:"Name of the tenant the object belongs to"`
-	UUID           string               `json:"uuid,omitempty" jsonschema_description:"UUID of the object. If not provided, a new UUID will be generated. If provided and exists, the object will be updated; otherwise, a new object with this UUID will be created"`
-	Properties     map[string]any       `json:"properties" jsonschema:"required" jsonschema_description:"Properties of the object to upsert"`
-	Vectors        map[string][]float32 `json:"vectors,omitempty" jsonschema_description:"Named vectors for the object (e.g., {'default': [0.1, 0.2, ...], 'image': [0.3, 0.4, ...]})"`
+	CollectionName string           `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to upsert objects into"`
+	TenantName     string           `json:"tenant_name,omitempty" jsonschema_description:"Name of the tenant the objects belong to (for multi-tenant collections)"`
+	Objects        []ObjectToUpsert `json:"objects" jsonschema:"required,minItems=1" jsonschema_description:"Array of objects to upsert. Each object should have 'properties' (required) and optionally 'uuid' and 'vectors'. Minimum 1 object required."`
 }
 
 type CreateCollectionArgs struct {
