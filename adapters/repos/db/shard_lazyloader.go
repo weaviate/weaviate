@@ -286,7 +286,7 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config *models.ReplicationAsyncConfig, enabled bool) error {
+func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}

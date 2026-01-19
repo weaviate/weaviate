@@ -124,7 +124,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	SetAsyncReplicationState(ctx context.Context, config *models.ReplicationAsyncConfig, enabled bool) error
+	SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
@@ -224,7 +224,8 @@ type Shard struct {
 
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
-	asyncReplicationConfig          asyncReplicationConfig
+	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig          AsyncReplicationConfig
 	hashtree                        hashtree.AggregatedHashTree
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
