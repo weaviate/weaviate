@@ -12,7 +12,6 @@
 package compactv2
 
 import (
-	"bytes"
 	"encoding/binary"
 	"io"
 	"math"
@@ -21,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // WALWriter writes HNSW commits to an io.Writer.
@@ -176,99 +176,105 @@ func (w *WALWriter) WriteAddSQ(data *compressionhelpers.SQData) error {
 
 // WriteAddRQ writes an AddRQ commit.
 func (w *WALWriter) WriteAddRQ(data *compressionhelpers.RQData) error {
-	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
-	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
-	var buf bytes.Buffer
-	buf.Grow(17 + int(swapSize) + int(signSize))
+	// Calculate sizes: header (1 + 4 + 4 + 4 + 4 = 17 bytes)
+	// Swaps: rounds * (outputDim/2) * 4 bytes (2 uint16 per swap)
+	// Signs: rounds * outputDim * 4 bytes (1 float32 per sign)
+	swapSize := int(data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 4)
+	signSize := int(data.Rotation.Rounds * data.Rotation.OutputDim * 4)
+	totalSize := 17 + swapSize + signSize
 
-	buf.WriteByte(byte(AddRQ))
-	binary.Write(&buf, binary.LittleEndian, data.InputDim)
-	binary.Write(&buf, binary.LittleEndian, data.Bits)
-	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim)
-	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)
+	buf := make([]byte, totalSize)
+	rw := byteops.NewReadWriter(buf)
+
+	rw.WriteByte(byte(AddRQ))
+	rw.WriteUint32(data.InputDim)
+	rw.WriteUint32(data.Bits)
+	rw.WriteUint32(data.Rotation.OutputDim)
+	rw.WriteUint32(data.Rotation.Rounds)
 
 	for _, swap := range data.Rotation.Swaps {
 		for _, dim := range swap {
-			binary.Write(&buf, binary.LittleEndian, dim.I)
-			binary.Write(&buf, binary.LittleEndian, dim.J)
+			rw.WriteUint16(dim.I)
+			rw.WriteUint16(dim.J)
 		}
 	}
 
 	for _, sign := range data.Rotation.Signs {
-		for _, dim := range sign {
-			binary.Write(&buf, binary.LittleEndian, dim)
-		}
+		_ = rw.CopyBytesToBuffer(byteops.Fp32SliceToBytes(sign))
 	}
 
-	_, err := w.w.Write(buf.Bytes())
+	_, err := w.w.Write(buf)
 	return err
 }
 
 // WriteAddBRQ writes an AddBRQ commit.
 func (w *WALWriter) WriteAddBRQ(data *compressionhelpers.BRQData) error {
-	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
-	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
-	roundingSize := 4 * data.Rotation.OutputDim
-	var buf bytes.Buffer
-	buf.Grow(13 + int(swapSize) + int(signSize) + int(roundingSize))
+	// Calculate sizes: header (1 + 4 + 4 + 4 = 13 bytes)
+	// Swaps: rounds * (outputDim/2) * 4 bytes (2 uint16 per swap)
+	// Signs: rounds * outputDim * 4 bytes (1 float32 per sign)
+	// Rounding: outputDim * 4 bytes (1 float32 per rounding)
+	swapSize := int(data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 4)
+	signSize := int(data.Rotation.Rounds * data.Rotation.OutputDim * 4)
+	roundingSize := int(data.Rotation.OutputDim * 4)
+	totalSize := 13 + swapSize + signSize + roundingSize
 
-	buf.WriteByte(byte(AddBRQ))
-	binary.Write(&buf, binary.LittleEndian, data.InputDim)
-	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim)
-	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)
+	buf := make([]byte, totalSize)
+	rw := byteops.NewReadWriter(buf)
+
+	rw.WriteByte(byte(AddBRQ))
+	rw.WriteUint32(data.InputDim)
+	rw.WriteUint32(data.Rotation.OutputDim)
+	rw.WriteUint32(data.Rotation.Rounds)
 
 	for _, swap := range data.Rotation.Swaps {
 		for _, dim := range swap {
-			binary.Write(&buf, binary.LittleEndian, dim.I)
-			binary.Write(&buf, binary.LittleEndian, dim.J)
+			rw.WriteUint16(dim.I)
+			rw.WriteUint16(dim.J)
 		}
 	}
 
 	for _, sign := range data.Rotation.Signs {
-		for _, dim := range sign {
-			binary.Write(&buf, binary.LittleEndian, dim)
-		}
+		_ = rw.CopyBytesToBuffer(byteops.Fp32SliceToBytes(sign))
 	}
 
-	for _, rounding := range data.Rounding {
-		binary.Write(&buf, binary.LittleEndian, rounding)
-	}
+	_ = rw.CopyBytesToBuffer(byteops.Fp32SliceToBytes(data.Rounding))
 
-	_, err := w.w.Write(buf.Bytes())
+	_, err := w.w.Write(buf)
 	return err
 }
 
 // WriteAddMuvera writes an AddMuvera commit.
 func (w *WALWriter) WriteAddMuvera(data *multivector.MuveraData) error {
-	gSize := 4 * data.Repetitions * data.KSim * data.Dimensions
-	dSize := 4 * data.Repetitions * data.DProjections * data.Dimensions
-	var buf bytes.Buffer
-	buf.Grow(21 + int(gSize) + int(dSize))
+	// Calculate sizes: header (1 + 4 + 4 + 4 + 4 + 4 = 21 bytes)
+	// Gaussians: repetitions * kSim * dimensions * 4 bytes (float32)
+	// S matrices: repetitions * dProjections * dimensions * 4 bytes (float32)
+	gSize := int(data.Repetitions * data.KSim * data.Dimensions * 4)
+	dSize := int(data.Repetitions * data.DProjections * data.Dimensions * 4)
+	totalSize := 21 + gSize + dSize
 
-	buf.WriteByte(byte(AddMuvera))
-	binary.Write(&buf, binary.LittleEndian, data.KSim)
-	binary.Write(&buf, binary.LittleEndian, data.NumClusters)
-	binary.Write(&buf, binary.LittleEndian, data.Dimensions)
-	binary.Write(&buf, binary.LittleEndian, data.DProjections)
-	binary.Write(&buf, binary.LittleEndian, data.Repetitions)
+	buf := make([]byte, totalSize)
+	rw := byteops.NewReadWriter(buf)
+
+	rw.WriteByte(byte(AddMuvera))
+	rw.WriteUint32(data.KSim)
+	rw.WriteUint32(data.NumClusters)
+	rw.WriteUint32(data.Dimensions)
+	rw.WriteUint32(data.DProjections)
+	rw.WriteUint32(data.Repetitions)
 
 	for _, gaussian := range data.Gaussians {
 		for _, cluster := range gaussian {
-			for _, el := range cluster {
-				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
-			}
+			_ = rw.CopyBytesToBuffer(byteops.Fp32SliceToBytes(cluster))
 		}
 	}
 
 	for _, matrix := range data.S {
 		for _, vector := range matrix {
-			for _, el := range vector {
-				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
-			}
+			_ = rw.CopyBytesToBuffer(byteops.Fp32SliceToBytes(vector))
 		}
 	}
 
-	_, err := w.w.Write(buf.Bytes())
+	_, err := w.w.Write(buf)
 	return err
 }
 

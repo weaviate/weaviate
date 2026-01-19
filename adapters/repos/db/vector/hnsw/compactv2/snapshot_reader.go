@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // SnapshotReader reads V3 format snapshots into DeserializationResult.
@@ -123,8 +124,12 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *DeserializationResu
 
 	// Verify checksum
 	hasher := crc32.NewIEEE()
-	_ = binary.Write(hasher, binary.LittleEndian, version)
-	_ = binary.Write(hasher, binary.LittleEndian, metadataSize)
+	var versionBuf [1]byte
+	versionBuf[0] = version
+	_, _ = hasher.Write(versionBuf[:])
+	var metaSizeBuf [4]byte
+	binary.LittleEndian.PutUint32(metaSizeBuf[:], metadataSize)
+	_, _ = hasher.Write(metaSizeBuf[:])
 	_, _ = hasher.Write(metadata)
 	if hasher.Sum32() != checksum {
 		return fmt.Errorf("metadata checksum mismatch")
@@ -618,25 +623,16 @@ func (r *SnapshotReader) readBlock(buf []byte, res *DeserializationResult) error
 	blockLen := binary.LittleEndian.Uint32(buf[len(buf)-4:])
 	block := buf[4 : 4+blockLen]
 
-	reader := bytes.NewReader(block)
+	// Use byteops.ReadWriter instead of bytes.Reader + binary.Read
+	rw := byteops.NewReadWriter(block)
 
 	// Read start node ID
-	var startNodeID uint64
-	if err := binary.Read(reader, binary.LittleEndian, &startNodeID); err != nil {
-		return errors.Wrap(err, "read start node ID")
-	}
-
+	startNodeID := rw.ReadUint64()
 	currNodeID := startNodeID
 
 	// Read nodes
-	for {
-		var existence uint8
-		if err := binary.Read(reader, binary.LittleEndian, &existence); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return errors.Wrap(err, "read node existence")
-		}
+	for rw.Position < uint64(len(block)) {
+		existence := rw.ReadUint8()
 
 		if existence == 0 {
 			// nil node
@@ -645,29 +641,24 @@ func (r *SnapshotReader) readBlock(buf []byte, res *DeserializationResult) error
 		}
 
 		// Read level
-		var level uint32
-		if err := binary.Read(reader, binary.LittleEndian, &level); err != nil {
-			return errors.Wrapf(err, "read level for node %d", currNodeID)
-		}
+		level := rw.ReadUint32()
 
 		// Read connections size
-		var connSize uint32
-		if err := binary.Read(reader, binary.LittleEndian, &connSize); err != nil {
-			return errors.Wrapf(err, "read connections size for node %d", currNodeID)
-		}
+		connSize := rw.ReadUint32()
 
-		// Read connections data
-		connData := make([]byte, connSize)
-		if _, err := io.ReadFull(reader, connData); err != nil {
-			return errors.Wrapf(err, "read connections data for node %d", currNodeID)
-		}
+		// Read connections data (use subslice to avoid copying)
+		connData := rw.ReadBytesFromBuffer(uint64(connSize))
 
 		// Create node
 		if currNodeID < uint64(len(res.Nodes)) {
+			// Copy connData since ReadBytesFromBuffer returns a slice of the underlying buffer
+			connDataCopy := make([]byte, len(connData))
+			copy(connDataCopy, connData)
+
 			node := &Vertex{
 				ID:          currNodeID,
 				Level:       int(level),
-				Connections: packedconn.NewWithData(connData),
+				Connections: packedconn.NewWithData(connDataCopy),
 			}
 			res.Nodes[currNodeID] = node
 

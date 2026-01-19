@@ -245,18 +245,28 @@ func (s *SnapshotWriter) writeMetadata() error {
 	metadataSize := uint32(buf.Len())
 
 	hasher := crc32.NewIEEE()
-	_ = binary.Write(hasher, binary.LittleEndian, uint8(snapshotVersionV3))
-	_ = binary.Write(hasher, binary.LittleEndian, metadataSize)
+	// Write version byte to hasher
+	var versionBuf [1]byte
+	versionBuf[0] = byte(snapshotVersionV3)
+	_, _ = hasher.Write(versionBuf[:])
+	// Write metadata size to hasher
+	var metaSizeBuf [4]byte
+	binary.LittleEndian.PutUint32(metaSizeBuf[:], metadataSize)
+	_, _ = hasher.Write(metaSizeBuf[:])
 	_, _ = hasher.Write(buf.Bytes())
 
 	// Write header: version | checksum | metadataSize | metadata
 	if err := writeByte(s.w, snapshotVersionV3); err != nil {
 		return err
 	}
-	if err := binary.Write(s.w, binary.LittleEndian, hasher.Sum32()); err != nil {
+	// Write checksum
+	var checksumBuf [4]byte
+	binary.LittleEndian.PutUint32(checksumBuf[:], hasher.Sum32())
+	if _, err := s.w.Write(checksumBuf[:]); err != nil {
 		return err
 	}
-	if err := binary.Write(s.w, binary.LittleEndian, metadataSize); err != nil {
+	// Write metadata size
+	if _, err := s.w.Write(metaSizeBuf[:]); err != nil {
 		return err
 	}
 	if _, err := s.w.Write(buf.Bytes()); err != nil {
@@ -496,7 +506,9 @@ func (s *SnapshotWriter) flushBlock(block *bytes.Buffer, hasher hash.Hash32, max
 	if err := writeUint32(block, uint32(blockLen)); err != nil {
 		return err
 	}
-	_ = binary.Write(hasher, binary.LittleEndian, uint32(blockLen))
+	var blockLenBuf [4]byte
+	binary.LittleEndian.PutUint32(blockLenBuf[:], uint32(blockLen))
+	_, _ = hasher.Write(blockLenBuf[:])
 
 	// Write checksum first, then block data
 	checksum := hasher.Sum32()
