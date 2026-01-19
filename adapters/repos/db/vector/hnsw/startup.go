@@ -262,7 +262,16 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 
 func (h *hnsw) setDimensionsFromEntrypoint() {
 	if len(h.nodes) > 0 {
-		if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
+		// When compressed and cache is nil (e.g., BQ), use VectorForIDThunk directly
+		// to avoid index out of range errors on the cache.
+		var vec []float32
+		var err error
+		if h.compressed.Load() && h.cache == nil {
+			vec, err = h.VectorForIDThunk(context.Background(), h.entryPointID)
+		} else {
+			vec, err = h.vectorForID(context.Background(), h.entryPointID)
+		}
+		if err == nil {
 			h.dims = int32(len(vec))
 		}
 	}
