@@ -822,12 +822,12 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
 			// if async replication is being enabled, first disable it to reset any previous config
-			if err := shard.SetAsyncReplicationEnabled(ctx, nil, false); err != nil {
+			if err := shard.SetAsyncReplicationState(ctx, nil, false); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		}
 
-		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationConfig, i.Config.AsyncReplicationEnabled); err != nil {
+		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil

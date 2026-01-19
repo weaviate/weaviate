@@ -165,8 +165,8 @@ func (s *Shard) getAsyncReplicationConfig(cfg *models.ReplicationAsyncConfig) (c
 	}
 
 	diffBatchSize := defaultDiffBatchSize
-	if cfg.DiffBatchSize != 0 {
-		diffBatchSize = int(cfg.DiffBatchSize)
+	if cfg.DiffBatchSize != nil {
+		diffBatchSize = int(*cfg.DiffBatchSize)
 	}
 
 	config.diffBatchSize, err = optParseInt(
@@ -209,8 +209,8 @@ func (s *Shard) getAsyncReplicationConfig(cfg *models.ReplicationAsyncConfig) (c
 	}
 
 	propagationLimit := defaultPropagationLimit
-	if cfg.PropagationLimit != 0 {
-		propagationLimit = int(cfg.PropagationLimit)
+	if cfg.PropagationLimit != nil {
+		propagationLimit = int(*cfg.PropagationLimit)
 	}
 
 	config.propagationLimit, err = optParseInt(
@@ -231,8 +231,8 @@ func (s *Shard) getAsyncReplicationConfig(cfg *models.ReplicationAsyncConfig) (c
 	}
 
 	propagationConcurrency := defaultPropagationConcurrency
-	if cfg.PropagationConcurrency != 0 {
-		propagationConcurrency = int(cfg.PropagationConcurrency)
+	if cfg.PropagationConcurrency != nil {
+		propagationConcurrency = int(*cfg.PropagationConcurrency)
 	}
 
 	config.propagationConcurrency, err = optParseInt(
@@ -242,8 +242,8 @@ func (s *Shard) getAsyncReplicationConfig(cfg *models.ReplicationAsyncConfig) (c
 	}
 
 	propagationBatchSize := defaultPropagationBatchSize
-	if cfg.PropagationBatchSize != 0 {
-		propagationBatchSize = int(cfg.PropagationBatchSize)
+	if cfg.PropagationBatchSize != nil {
+		propagationBatchSize = int(*cfg.PropagationBatchSize)
 	}
 
 	config.propagationBatchSize, err = optParseInt(
@@ -547,7 +547,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, config *models.ReplicationAsyncConfig, enabled bool) error {
+func (s *Shard) SetAsyncReplicationState(_ context.Context, config *models.ReplicationAsyncConfig, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
@@ -598,7 +598,7 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 	}()
 	// we call update async replication config here to ensure that async replication starts
 	// if it's not already running
-	return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationConfig(), true)
+	return s.SetAsyncReplicationState(ctx, s.index.AsyncReplicationConfig(), true)
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
@@ -626,7 +626,7 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationConfig(), s.index.AsyncReplicationEnabled())
+		return s.SetAsyncReplicationState(ctx, s.index.AsyncReplicationConfig(), s.index.AsyncReplicationEnabled())
 	}
 	return nil
 }
@@ -638,7 +638,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		defer s.asyncReplicationRWMux.Unlock()
 		s.asyncReplicationConfig.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
-	return s.SetAsyncReplicationEnabled(ctx, s.index.AsyncReplicationConfig(), s.index.AsyncReplicationEnabled())
+	return s.SetAsyncReplicationState(ctx, s.index.AsyncReplicationConfig(), s.index.AsyncReplicationEnabled())
 }
 
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
@@ -754,23 +754,28 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ctx.Done():
 				return
 			case <-propagationRequired:
-				err := s.index.asyncReplicationWorkerAcquire(ctx)
-				if err != nil {
-					return
-				}
+				shouldStop := func() bool {
+					err := s.index.asyncReplicationWorkerAcquire(ctx)
+					if err != nil {
+						s.index.logger.
+							WithField("action", "async_replication").
+							WithField("class_name", s.class.Class).
+							WithField("shard_name", s.name).
+							Warn(err)
+						return true
+					}
+					defer s.index.asyncReplicationWorkerRelease()
 
-				shouldStop := s.handleHashbeatWakeup(
-					ctx,
-					&config,
-					backoffTimer,
-					&lastLog,
-					&lastHashbeat,
-					&lastHashbeatPropagatedObjects,
-					&lastHashbeatMux,
-				)
-
-				s.index.asyncReplicationWorkerRelease()
-
+					return s.handleHashbeatWakeup(
+						ctx,
+						&config,
+						backoffTimer,
+						&lastLog,
+						&lastHashbeat,
+						&lastHashbeatPropagatedObjects,
+						&lastHashbeatMux,
+					)
+				}()
 				if shouldStop {
 					return
 				}
@@ -1012,8 +1017,11 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 	start := time.Now()
 
 	s.metrics.IncAsyncReplicationIterationCount()
+	s.metrics.IncAsyncReplicationIterationRunning()
 
 	defer func() {
+		s.metrics.DecAsyncReplicationIterationRunning()
+
 		if err != nil && !errors.Is(err, replica.ErrNoDiffFound) {
 			s.metrics.IncAsyncReplicationIterationFailureCount()
 			return

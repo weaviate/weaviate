@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,10 +19,8 @@ package models
 import (
 	"context"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
 // ReplicationAsyncConfig Configuration for asynchronous replication.
@@ -34,9 +32,7 @@ type ReplicationAsyncConfig struct {
 	AliveNodesCheckingFrequency *int64 `json:"aliveNodesCheckingFrequency,omitempty"`
 
 	// Maximum number of object keys included in a single diff batch.
-	// Maximum: 10000
-	// Minimum: 1
-	DiffBatchSize int64 `json:"diffBatchSize,omitempty"`
+	DiffBatchSize *int64 `json:"diffBatchSize,omitempty"`
 
 	// Timeout in seconds for computing a diff against a single node.
 	DiffPerNodeTimeout *int64 `json:"diffPerNodeTimeout,omitempty"`
@@ -48,8 +44,6 @@ type ReplicationAsyncConfig struct {
 	FrequencyWhilePropagating *int64 `json:"frequencyWhilePropagating,omitempty"`
 
 	// Height of the hashtree used for diffing.
-	// Maximum: 20
-	// Minimum: 0
 	HashtreeHeight *int64 `json:"hashtreeHeight,omitempty"`
 
 	// Interval in seconds at which async replication logs its status.
@@ -62,22 +56,16 @@ type ReplicationAsyncConfig struct {
 	PrePropagationTimeout *int64 `json:"prePropagationTimeout,omitempty"`
 
 	// Number of objects to include in a single propagation batch.
-	// Maximum: 1000
-	// Minimum: 1
-	PropagationBatchSize int64 `json:"propagationBatchSize,omitempty"`
+	PropagationBatchSize *int64 `json:"propagationBatchSize,omitempty"`
 
 	// Maximum number of concurrent propagation workers.
-	// Maximum: 20
-	// Minimum: 1
-	PropagationConcurrency int64 `json:"propagationConcurrency,omitempty"`
+	PropagationConcurrency *int64 `json:"propagationConcurrency,omitempty"`
 
 	// Delay in milliseconds before newly added or updated objects are propagated.
 	PropagationDelay *int64 `json:"propagationDelay,omitempty"`
 
 	// Maximum number of objects to propagate in a single async replication run.
-	// Maximum: 1e+06
-	// Minimum: 1
-	PropagationLimit int64 `json:"propagationLimit,omitempty"`
+	PropagationLimit *int64 `json:"propagationLimit,omitempty"`
 
 	// Timeout in seconds for propagating batch of changes to a node.
 	PropagationTimeout *int64 `json:"propagationTimeout,omitempty"`
@@ -85,111 +73,6 @@ type ReplicationAsyncConfig struct {
 
 // Validate validates this replication async config
 func (m *ReplicationAsyncConfig) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateDiffBatchSize(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateHashtreeHeight(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validatePropagationBatchSize(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validatePropagationConcurrency(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validatePropagationLimit(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *ReplicationAsyncConfig) validateDiffBatchSize(formats strfmt.Registry) error {
-	if swag.IsZero(m.DiffBatchSize) { // not required
-		return nil
-	}
-
-	if err := validate.MinimumInt("diffBatchSize", "body", m.DiffBatchSize, 1, false); err != nil {
-		return err
-	}
-
-	if err := validate.MaximumInt("diffBatchSize", "body", m.DiffBatchSize, 10000, false); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *ReplicationAsyncConfig) validateHashtreeHeight(formats strfmt.Registry) error {
-	if swag.IsZero(m.HashtreeHeight) { // not required
-		return nil
-	}
-
-	if err := validate.MinimumInt("hashtreeHeight", "body", *m.HashtreeHeight, 0, false); err != nil {
-		return err
-	}
-
-	if err := validate.MaximumInt("hashtreeHeight", "body", *m.HashtreeHeight, 20, false); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *ReplicationAsyncConfig) validatePropagationBatchSize(formats strfmt.Registry) error {
-	if swag.IsZero(m.PropagationBatchSize) { // not required
-		return nil
-	}
-
-	if err := validate.MinimumInt("propagationBatchSize", "body", m.PropagationBatchSize, 1, false); err != nil {
-		return err
-	}
-
-	if err := validate.MaximumInt("propagationBatchSize", "body", m.PropagationBatchSize, 1000, false); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *ReplicationAsyncConfig) validatePropagationConcurrency(formats strfmt.Registry) error {
-	if swag.IsZero(m.PropagationConcurrency) { // not required
-		return nil
-	}
-
-	if err := validate.MinimumInt("propagationConcurrency", "body", m.PropagationConcurrency, 1, false); err != nil {
-		return err
-	}
-
-	if err := validate.MaximumInt("propagationConcurrency", "body", m.PropagationConcurrency, 20, false); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *ReplicationAsyncConfig) validatePropagationLimit(formats strfmt.Registry) error {
-	if swag.IsZero(m.PropagationLimit) { // not required
-		return nil
-	}
-
-	if err := validate.MinimumInt("propagationLimit", "body", m.PropagationLimit, 1, false); err != nil {
-		return err
-	}
-
-	if err := validate.MaximumInt("propagationLimit", "body", m.PropagationLimit, 1e+06, false); err != nil {
-		return err
-	}
-
 	return nil
 }
 
