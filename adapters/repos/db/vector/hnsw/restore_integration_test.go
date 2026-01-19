@@ -74,6 +74,9 @@ func TestRestorBQ_Integration(t *testing.T) {
 		db.Close()
 	})
 
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
 	config := hnsw.Config{
 		RootPath:         dirName,
 		ID:               indexID,
@@ -93,7 +96,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}
 
-	idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 	idx.PostStartup(context.Background())
 
@@ -104,7 +107,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
 
-	idx, err = hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	idx, err = hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 	idx.PostStartup(context.Background())
 
