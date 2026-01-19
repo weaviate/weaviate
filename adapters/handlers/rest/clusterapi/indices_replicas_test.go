@@ -191,7 +191,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 			commitBlock := make(chan struct{})
 
 			//  Configure CommitReplication to block until signaled
-			fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything).Run(func(_ string, _ string, _ string) {
+			fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, _ string, _ string, _ string) {
 				<-commitBlock
 			}).Return(replica.SimpleResponse{})
 
@@ -370,7 +370,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	doneSignal := make(chan struct{})
 
 	// Configure CommitReplication to signal start and block until done
-	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything).Run(func(_ string, _ string, _ string) {
+	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, _ string, _ string, _ string) {
 		select {
 		case startSignal <- struct{}{}:
 		default:
@@ -510,7 +510,7 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 	doneSignal := make(chan struct{})
 
 	// Configure CommitReplication to signal start and block until done
-	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything).Run(func(_ string, _ string, _ string) {
+	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, _ string, _ string, _ string) {
 		select {
 		case startSignal <- struct{}{}:
 		default:
