@@ -165,10 +165,10 @@ func (c *Compactor) cleanup() error {
 func (c *Compactor) resolveOverlaps(state *DirectoryState) error {
 	for _, overlap := range state.Overlaps {
 		c.logger.WithFields(logrus.Fields{
-			"action":         "resolve_overlap",
+			"action":         "hnsw_compactor_resolve_overlap",
 			"merged_file":    filepath.Base(overlap.MergedFile.Path),
 			"contained_file": filepath.Base(overlap.ContainedFile.Path),
-		}).Info("removing file contained in merged range")
+		}).Debug("removing file contained in merged range")
 
 		if err := os.Remove(overlap.ContainedFile.Path); err != nil && !os.IsNotExist(err) {
 			return errors.Wrapf(err, "remove contained file %s", overlap.ContainedFile.Path)
@@ -199,7 +199,7 @@ func (c *Compactor) convertToSorted(state *DirectoryState) error {
 // convertFileToSorted converts a single file (raw or condensed) to sorted format.
 func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	c.logger.WithFields(logrus.Fields{
-		"action": "convert_to_sorted",
+		"action": "hnsw_compactor_convert",
 		"file":   filepath.Base(f.Path),
 		"type":   f.Type.String(),
 	}).Debug("converting file to sorted format")
@@ -245,7 +245,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	}
 
 	c.logger.WithFields(logrus.Fields{
-		"action":   "convert_to_sorted",
+		"action":   "hnsw_compactor_convert",
 		"original": filepath.Base(f.Path),
 		"output":   outFilename,
 	}).Debug("converted file to sorted format")
@@ -258,49 +258,68 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 	snapshotSize := state.TotalSnapshotSize()
 	sortedSize := state.TotalSortedSize()
 	totalSize := snapshotSize + sortedSize
-
-	if totalSize == 0 {
-		return ActionNone
-	}
-
-	sortedRatio := float64(sortedSize) / float64(totalSize)
 	sortedCount := len(state.SortedFiles)
 
-	c.logger.WithFields(logrus.Fields{
-		"action":        "decide_action",
+	log := c.logger.WithFields(logrus.Fields{
+		"action":        "hnsw_compactor_decide",
 		"snapshot_size": snapshotSize,
 		"sorted_size":   sortedSize,
-		"sorted_ratio":  sortedRatio,
 		"sorted_count":  sortedCount,
 		"has_snapshot":  state.Snapshot != nil,
 		"threshold":     c.config.SnapshotThreshold,
 		"max_files":     c.config.MaxFilesPerMerge,
-	}).Debug("deciding compaction action")
+	})
 
-	if state.Snapshot == nil {
-		// No snapshot - prioritize creating one if we have enough sorted files
-		if sortedCount > c.config.MaxFilesPerMerge {
-			return ActionMergeSorted // Reduce file count first
-		}
-		if sortedCount > 0 {
-			return ActionCreateSnapshot
-		}
+	if totalSize == 0 {
+		log.Debug("decision: no action - no data to compact (total size is 0)")
 		return ActionNone
 	}
 
-	if sortedRatio > c.config.SnapshotThreshold {
-		// Write amplification is worth it - create new snapshot
+	sortedRatio := float64(sortedSize) / float64(totalSize)
+	log = log.WithField("sorted_ratio", sortedRatio)
+
+	if state.Snapshot == nil {
+		// No snapshot exists yet
 		if sortedCount > c.config.MaxFilesPerMerge {
-			return ActionMergeSorted // Reduce file count first
+			log.WithField("reason", "no snapshot exists, but too many sorted files to snapshot at once").
+				Debugf("decision: merge sorted files first (%d files > max %d)", sortedCount, c.config.MaxFilesPerMerge)
+			return ActionMergeSorted
 		}
+		if sortedCount > 0 {
+			log.WithField("reason", "no snapshot exists, creating initial snapshot").
+				Debugf("decision: create snapshot from %d sorted file(s)", sortedCount)
+			return ActionCreateSnapshot
+		}
+		log.Debug("decision: no action - no snapshot and no sorted files")
+		return ActionNone
+	}
+
+	// Snapshot exists - decide based on sorted ratio vs threshold
+	if sortedRatio > c.config.SnapshotThreshold {
+		// Sorted files are large relative to snapshot - worth creating new snapshot
+		if sortedCount > c.config.MaxFilesPerMerge {
+			log.WithField("reason", "sorted ratio exceeds threshold, but too many files to snapshot at once").
+				Debugf("decision: merge sorted files first (%d files > max %d, ratio %.1f%% > threshold %.1f%%)",
+					sortedCount, c.config.MaxFilesPerMerge, sortedRatio*100, c.config.SnapshotThreshold*100)
+			return ActionMergeSorted
+		}
+		log.WithField("reason", "sorted ratio exceeds threshold, write amplification is acceptable").
+			Debugf("decision: create snapshot (ratio %.1f%% > threshold %.1f%%)",
+				sortedRatio*100, c.config.SnapshotThreshold*100)
 		return ActionCreateSnapshot
 	}
 
-	// Write amplification not worth it - just merge sorted files if possible
+	// Sorted ratio is below threshold - write amplification not worth it
 	if sortedCount > 1 {
+		log.WithField("reason", "sorted ratio below threshold, merging sorted files to reduce count").
+			Debugf("decision: merge %d sorted files (ratio %.1f%% <= threshold %.1f%%)",
+				sortedCount, sortedRatio*100, c.config.SnapshotThreshold*100)
 		return ActionMergeSorted
 	}
 
+	log.WithField("reason", "sorted ratio below threshold and only one sorted file").
+		Debugf("decision: no action (ratio %.1f%% <= threshold %.1f%%, only %d sorted file)",
+			sortedRatio*100, c.config.SnapshotThreshold*100, sortedCount)
 	return ActionNone
 }
 
@@ -317,9 +336,9 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 	}
 
 	c.logger.WithFields(logrus.Fields{
-		"action":     "merge_sorted",
+		"action":     "hnsw_compactor_merge",
 		"file_count": len(filesToMerge),
-	}).Info("merging sorted files")
+	}).Debug("merging sorted files")
 
 	// Create iterators for each file
 	// Track opened files for cleanup
@@ -400,10 +419,10 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 	}
 
 	c.logger.WithFields(logrus.Fields{
-		"action":       "merge_sorted",
+		"action":       "hnsw_compactor_merge",
 		"output":       outFilename,
 		"merged_count": len(filesToMerge),
-	}).Info("merged sorted files")
+	}).Debug("merged sorted files")
 
 	return nil
 }
@@ -431,11 +450,11 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 	})
 
 	c.logger.WithFields(logrus.Fields{
-		"action":       "create_snapshot",
+		"action":       "hnsw_compactor_snapshot",
 		"input_count":  len(allInputFiles),
 		"has_snapshot": state.Snapshot != nil,
 		"sorted_count": len(state.SortedFiles),
-	}).Info("creating snapshot")
+	}).Debug("creating snapshot")
 
 	// Track opened files for cleanup
 	openedFiles := make([]*os.File, 0, len(allInputFiles))
@@ -507,10 +526,10 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 	}
 
 	c.logger.WithFields(logrus.Fields{
-		"action":      "create_snapshot",
+		"action":      "hnsw_compactor_snapshot",
 		"output":      outFilename,
 		"input_count": len(allInputFiles),
-	}).Info("created snapshot")
+	}).Debug("created snapshot")
 
 	return nil
 }
