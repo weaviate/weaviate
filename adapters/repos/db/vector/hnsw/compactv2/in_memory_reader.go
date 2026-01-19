@@ -18,8 +18,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 const (
@@ -27,17 +28,18 @@ const (
 	indexGrowthRate               = 1.2
 )
 
-// Vertex represents an HNSW node in memory.
-// This is a simplified version without locking, suitable for read-only operations.
-type Vertex struct {
-	ID          uint64
-	Level       int
-	Connections *packedconn.Connections
-}
+// Vertex is an alias for ent.Vertex to allow external packages to use the
+// shared type from entities.
+type Vertex = ent.Vertex
 
 // DeserializationResult holds the complete in-memory state after deserializing
 // commit logs. This matches the structure from the v1 deserializer to enable
 // migration from .condensed to .sorted files.
+//
+// Note: This differs slightly from ent.DeserializationResult in the compression
+// data types. The compressionhelpers types are used here because they contain
+// behavioral methods (e.g., FastRotation.Rotate()) that are needed during
+// deserialization. The ent types are pure data structures for serialization.
 type DeserializationResult struct {
 	Nodes              []*Vertex
 	NodesDeleted       map[uint64]struct{}

@@ -4,15 +4,16 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
-package compressionhelpers
+package compression
 
-// Exported for testing.
-var (
-	FastWalshHadamardTransform64  = fastWalshHadamardTransform64
-	FastWalshHadamardTransform256 = fastWalshHadamardTransform256
-)
+// BRQData holds the serialization data for Binary Rotational Quantization compression.
+type BRQData struct {
+	InputDim uint32
+	Rotation FastRotation
+	Rounding []float32
+}
