@@ -29,12 +29,17 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+type stressTestNoopBucketView struct{}
+
+func (n *stressTestNoopBucketView) Release() {}
 
 const (
 	vectorSize               = 128
@@ -484,6 +489,7 @@ Ex: go test -v -run TestHnswStress . -download
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 func() common.BucketView { return &stressTestNoopBucketView{} },
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections:        30,

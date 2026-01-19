@@ -69,6 +69,9 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
 		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
@@ -142,6 +145,9 @@ func TestHnswPqNilVectors(t *testing.T) {
 				return nil, storobj.NewErrNotFoundf(id, "nil vec")
 			}
 			return vec, nil
+		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
 		},
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))

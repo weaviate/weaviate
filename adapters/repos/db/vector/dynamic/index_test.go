@@ -85,6 +85,7 @@ func TestDynamic(t *testing.T) {
 			}
 			return vec, nil
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
@@ -146,6 +147,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(nil),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
@@ -229,6 +231,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 				}
 				return vec, nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,
@@ -313,6 +316,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 			}
 			return vec, nil
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
@@ -709,6 +713,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 			}
 			return vec, nil
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
 		SharedDB:                     db,
@@ -817,6 +822,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,
@@ -892,6 +898,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,
@@ -966,6 +973,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
 			SharedDB:                     db,

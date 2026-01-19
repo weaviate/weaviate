@@ -71,6 +71,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections: 30,
@@ -164,6 +165,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections: 30,
@@ -282,6 +284,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections: 30,
@@ -379,6 +382,7 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections:        30,
@@ -478,6 +482,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections: 30,
@@ -600,6 +605,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}, ent.UserConfig{
 		MaxConnections: 30,
@@ -978,6 +984,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 				}
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
@@ -1073,6 +1080,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id%uint64(len(vectors)))], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
@@ -1419,6 +1427,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
 		DistanceProvider:             distancer.NewGeoProvider(),
 		VectorForIDThunk:             vecForID,
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}, ent.UserConfig{
 		MaxConnections: 30,
@@ -1497,6 +1506,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
 		DistanceProvider:             distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:             vecForID,
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk([][]float32{{0.1, 0.2}}),
 	}, ent.UserConfig{
 		MaxConnections: 30,
@@ -1680,6 +1690,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 				fmt.Printf("vec for pos=%d is %v\n", id, vectors[int(id)])
 				return vectors[int(id)], vectorErrors[int(id)]
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections: 30,
@@ -1734,6 +1745,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}, ent.UserConfig{
 		MaxConnections: 30,
@@ -1805,6 +1817,7 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}, ent.UserConfig{
 		MaxConnections: 30,
@@ -1876,6 +1889,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections: 30,
@@ -1938,6 +1952,7 @@ func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)%len(vectors)], nil // Wrap around to reuse vectors
 		},
+		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}, ent.UserConfig{
 		MaxConnections:        30,
@@ -2010,6 +2025,7 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			PrometheusMetrics:            metrics,
 		}, ent.UserConfig{
@@ -2057,6 +2073,7 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		}, ent.UserConfig{
 			MaxConnections:        30,
