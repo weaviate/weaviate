@@ -17,11 +17,13 @@ import (
 	"hash"
 	"hash/crc32"
 	"io"
+	"math"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
-
 
 const (
 	// snapshotVersionV3 is the version of the snapshot format we write.
@@ -31,16 +33,21 @@ const (
 	defaultBlockSize = 4 * 1024 * 1024
 )
 
+// Snapshot compression type constants (must match the hnsw package values)
+const (
+	SnapshotCompressionTypePQ  = 1
+	SnapshotCompressionTypeSQ  = 2
+	SnapshotEncoderTypeMuvera  = 3 // Note: Muvera is an encoder, not compression
+	SnapshotCompressionTypeRQ  = 4
+	SnapshotCompressionTypeBRQ = 5
+)
+
 // SnapshotWriter writes HNSW state to the V3 snapshot format.
 // It converts commit-based data from the merger into absolute state snapshots.
 //
 // The V3 snapshot format consists of:
 //   - Metadata header: version, checksum, metadata size, and metadata content
 //   - Body: fixed-size blocks (4MB each) containing node data with checksums
-//
-// MVP Limitations:
-//   - No compression support (PQ, SQ, RQ, BRQ)
-//   - No Muvera encoder support
 type SnapshotWriter struct {
 	w         io.Writer
 	blockSize int64
@@ -53,6 +60,15 @@ type SnapshotWriter struct {
 	nodes      []*nodeState
 	tombstones map[uint64]struct{}
 	maxNodeID  uint64
+
+	// Compression data (only one can be set at a time)
+	pqData  *compressionhelpers.PQData
+	sqData  *compressionhelpers.SQData
+	rqData  *compressionhelpers.RQData
+	brqData *compressionhelpers.BRQData
+
+	// Muvera encoder data (can be set alongside compression)
+	muveraData *multivector.MuveraData
 }
 
 // nodeState represents the absolute state of a single node.
@@ -84,6 +100,41 @@ func NewSnapshotWriterWithBlockSize(w io.Writer, blockSize int64) *SnapshotWrite
 func (s *SnapshotWriter) SetEntrypoint(entrypoint uint64, level uint16) {
 	s.entrypoint = entrypoint
 	s.level = level
+}
+
+// SetPQData sets the Product Quantization compression data.
+func (s *SnapshotWriter) SetPQData(data *compressionhelpers.PQData) {
+	s.pqData = data
+}
+
+// SetSQData sets the Scalar Quantization compression data.
+func (s *SnapshotWriter) SetSQData(data *compressionhelpers.SQData) {
+	s.sqData = data
+}
+
+// SetRQData sets the Rotational Quantization compression data.
+func (s *SnapshotWriter) SetRQData(data *compressionhelpers.RQData) {
+	s.rqData = data
+}
+
+// SetBRQData sets the Binary Rotational Quantization compression data.
+func (s *SnapshotWriter) SetBRQData(data *compressionhelpers.BRQData) {
+	s.brqData = data
+}
+
+// SetMuveraData sets the Muvera encoder data.
+func (s *SnapshotWriter) SetMuveraData(data *multivector.MuveraData) {
+	s.muveraData = data
+}
+
+// isCompressed returns true if any compression data is set.
+func (s *SnapshotWriter) isCompressed() bool {
+	return s.pqData != nil || s.sqData != nil || s.rqData != nil || s.brqData != nil
+}
+
+// isMuveraEnabled returns true if Muvera encoder data is set.
+func (s *SnapshotWriter) isMuveraEnabled() bool {
+	return s.muveraData != nil
 }
 
 // AddNode adds a node with its connections to the snapshot.
@@ -167,11 +218,25 @@ func (s *SnapshotWriter) writeMetadata() error {
 	_ = writeUint64(&buf, s.entrypoint)
 	_ = writeUint16(&buf, s.level)
 
-	// isCompressed = false (MVP limitation)
-	_ = writeBool(&buf, false)
+	// Write isCompressed flag and compression data
+	isCompressed := s.isCompressed()
+	_ = writeBool(&buf, isCompressed)
 
-	// isEncoded = false (MVP limitation)
-	_ = writeBool(&buf, false)
+	if isCompressed {
+		if err := s.writeCompressionData(&buf); err != nil {
+			return errors.Wrap(err, "write compression data")
+		}
+	}
+
+	// Write isEncoded flag and Muvera data
+	isMuveraEnabled := s.isMuveraEnabled()
+	_ = writeBool(&buf, isMuveraEnabled)
+
+	if isMuveraEnabled {
+		if err := s.writeMuveraData(&buf); err != nil {
+			return errors.Wrap(err, "write muvera data")
+		}
+	}
 
 	// Node count
 	_ = writeUint32(&buf, uint32(len(s.nodes)))
@@ -198,6 +263,130 @@ func (s *SnapshotWriter) writeMetadata() error {
 		return err
 	}
 
+	return nil
+}
+
+// writeCompressionData writes compression data to the buffer.
+// The format matches the old snapshot implementation for compatibility.
+func (s *SnapshotWriter) writeCompressionData(buf *bytes.Buffer) error {
+	if s.pqData != nil {
+		return s.writePQData(buf)
+	}
+	if s.sqData != nil {
+		return s.writeSQData(buf)
+	}
+	if s.rqData != nil {
+		return s.writeRQData(buf)
+	}
+	if s.brqData != nil {
+		return s.writeBRQData(buf)
+	}
+	return nil
+}
+
+// writePQData writes Product Quantization data to the buffer.
+func (s *SnapshotWriter) writePQData(buf *bytes.Buffer) error {
+	data := s.pqData
+	_ = writeByte(buf, byte(SnapshotCompressionTypePQ))
+	_ = writeUint16(buf, data.Dimensions)
+	_ = writeUint16(buf, data.Ks)
+	_ = writeUint16(buf, data.M)
+	_ = writeByte(buf, byte(data.EncoderType))
+	_ = writeByte(buf, data.EncoderDistribution)
+	_ = writeBool(buf, data.UseBitsEncoding)
+
+	for _, encoder := range data.Encoders {
+		_, _ = buf.Write(encoder.ExposeDataForRestore())
+	}
+	return nil
+}
+
+// writeSQData writes Scalar Quantization data to the buffer.
+func (s *SnapshotWriter) writeSQData(buf *bytes.Buffer) error {
+	data := s.sqData
+	_ = writeByte(buf, byte(SnapshotCompressionTypeSQ))
+	_ = writeUint16(buf, data.Dimensions)
+	_ = writeUint32(buf, math.Float32bits(data.A))
+	_ = writeUint32(buf, math.Float32bits(data.B))
+	return nil
+}
+
+// writeRQData writes Rotational Quantization data to the buffer.
+func (s *SnapshotWriter) writeRQData(buf *bytes.Buffer) error {
+	data := s.rqData
+	_ = writeByte(buf, byte(SnapshotCompressionTypeRQ))
+	_ = writeUint32(buf, data.InputDim)
+	_ = writeUint32(buf, data.Bits)
+	_ = writeUint32(buf, data.Rotation.OutputDim)
+	_ = writeUint32(buf, data.Rotation.Rounds)
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			_ = writeUint16(buf, dim.I)
+			_ = writeUint16(buf, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			_ = writeFloat32(buf, dim)
+		}
+	}
+	return nil
+}
+
+// writeBRQData writes Binary Rotational Quantization data to the buffer.
+func (s *SnapshotWriter) writeBRQData(buf *bytes.Buffer) error {
+	data := s.brqData
+	_ = writeByte(buf, byte(SnapshotCompressionTypeBRQ))
+	_ = writeUint32(buf, data.InputDim)
+	_ = writeUint32(buf, data.Rotation.OutputDim)
+	_ = writeUint32(buf, data.Rotation.Rounds)
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			_ = writeUint16(buf, dim.I)
+			_ = writeUint16(buf, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			_ = writeFloat32(buf, dim)
+		}
+	}
+
+	for _, rounding := range data.Rounding {
+		_ = writeFloat32(buf, rounding)
+	}
+	return nil
+}
+
+// writeMuveraData writes Muvera encoder data to the buffer.
+func (s *SnapshotWriter) writeMuveraData(buf *bytes.Buffer) error {
+	data := s.muveraData
+	_ = writeByte(buf, byte(SnapshotEncoderTypeMuvera))
+	_ = writeUint32(buf, data.Dimensions)
+	_ = writeUint32(buf, data.KSim)
+	_ = writeUint32(buf, data.NumClusters)
+	_ = writeUint32(buf, data.DProjections)
+	_ = writeUint32(buf, data.Repetitions)
+
+	for _, gaussian := range data.Gaussians {
+		for _, cluster := range gaussian {
+			for _, el := range cluster {
+				_ = writeUint32(buf, math.Float32bits(el))
+			}
+		}
+	}
+
+	for _, matrix := range data.S {
+		for _, vector := range matrix {
+			for _, el := range vector {
+				_ = writeUint32(buf, math.Float32bits(el))
+			}
+		}
+	}
 	return nil
 }
 
@@ -345,8 +534,17 @@ func (s *SnapshotWriter) WriteFromMerger(merger *NWayMerger) error {
 		switch ct := c.(type) {
 		case *SetEntryPointMaxLevelCommit:
 			s.SetEntrypoint(ct.Entrypoint, ct.Level)
+		case *AddPQCommit:
+			s.SetPQData(ct.Data)
+		case *AddSQCommit:
+			s.SetSQData(ct.Data)
+		case *AddRQCommit:
+			s.SetRQData(ct.Data)
+		case *AddBRQCommit:
+			s.SetBRQData(ct.Data)
+		case *AddMuveraCommit:
+			s.SetMuveraData(ct.Data)
 		}
-		// Note: compression and muvera commits are ignored in MVP
 	}
 
 	// Process all nodes from the merger
@@ -463,8 +661,8 @@ func (s *SnapshotWriter) commitsToNodeState(nc *NodeCommits) *nodeStateWithTombs
 	}
 
 	return &nodeStateWithTombstone{
-		level:       maxLevel,
-		connections: connSlice,
+		level:        maxLevel,
+		connections:  connSlice,
 		hasTombstone: hasTombstone,
 	}
 }

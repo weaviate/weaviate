@@ -19,7 +19,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
 func TestSnapshotWriter_EmptySnapshot(t *testing.T) {
@@ -45,8 +47,8 @@ func TestSnapshotWriter_SingleNode(t *testing.T) {
 
 	// Add a single node with connections
 	connections := [][]uint64{
-		{1, 2, 3},    // level 0
-		{4, 5},       // level 1
+		{1, 2, 3}, // level 0
+		{4, 5},    // level 1
 	}
 	sw.AddNode(0, 1, connections, false)
 
@@ -162,9 +164,9 @@ func TestSnapshotWriter_PackedConnections(t *testing.T) {
 
 	// Test with various connection patterns
 	connections := [][]uint64{
-		{1, 2, 3, 4, 5},           // level 0 - small IDs
-		{10, 20, 30},              // level 1
-		{100, 200},                // level 2
+		{1, 2, 3, 4, 5}, // level 0 - small IDs
+		{10, 20, 30},    // level 1
+		{100, 200},      // level 2
 	}
 	sw.AddNode(0, 2, connections, false)
 
@@ -404,4 +406,314 @@ func verifySnapshotMetadata(t *testing.T, data []byte, expectedEntrypoint uint64
 	// Node count
 	nodeCount := binary.LittleEndian.Uint32(metadata[offset:])
 	assert.Equal(t, expectedNodeCount, nodeCount)
+}
+
+func TestSnapshotRoundTrip_WithSQCompression(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewSnapshotWriter(&buf)
+	sw.SetEntrypoint(0, 0)
+
+	// Set SQ compression data
+	sqData := &compressionhelpers.SQData{
+		A:          0.5,
+		B:          1.5,
+		Dimensions: 128,
+	}
+	sw.SetSQData(sqData)
+
+	// Add a simple node
+	sw.AddNode(0, 0, [][]uint64{{1, 2}}, false)
+
+	err := sw.Flush()
+	require.NoError(t, err)
+
+	// Read it back
+	reader := bytes.NewReader(buf.Bytes())
+	sr := NewSnapshotReader()
+	result, err := sr.Read(reader)
+	require.NoError(t, err)
+
+	// Verify compression data
+	assert.True(t, result.Compressed)
+	require.NotNil(t, result.CompressionSQData)
+	assert.Equal(t, sqData.A, result.CompressionSQData.A)
+	assert.Equal(t, sqData.B, result.CompressionSQData.B)
+	assert.Equal(t, sqData.Dimensions, result.CompressionSQData.Dimensions)
+
+	// Verify node data is also correct
+	assert.Equal(t, 1, len(result.Nodes))
+	assert.NotNil(t, result.Nodes[0])
+}
+
+func TestSnapshotRoundTrip_WithRQCompression(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewSnapshotWriter(&buf)
+	sw.SetEntrypoint(0, 0)
+
+	// Set RQ compression data
+	rqData := &compressionhelpers.RQData{
+		InputDim: 128,
+		Bits:     4,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: 64,
+			Rounds:    2,
+			Swaps: [][]compressionhelpers.Swap{
+				{{I: 0, J: 1}, {I: 2, J: 3}},
+				{{I: 4, J: 5}, {I: 6, J: 7}},
+			},
+			Signs: [][]float32{
+				make([]float32, 64),
+				make([]float32, 64),
+			},
+		},
+	}
+	// Fill signs with some test data
+	for i := range rqData.Rotation.Signs {
+		for j := range rqData.Rotation.Signs[i] {
+			rqData.Rotation.Signs[i][j] = float32(j) * 0.1
+		}
+	}
+	// Pad swaps to match outputDim/2
+	for i := range rqData.Rotation.Swaps {
+		for len(rqData.Rotation.Swaps[i]) < int(rqData.Rotation.OutputDim/2) {
+			rqData.Rotation.Swaps[i] = append(rqData.Rotation.Swaps[i], compressionhelpers.Swap{I: 0, J: 1})
+		}
+	}
+	sw.SetRQData(rqData)
+
+	// Add a simple node
+	sw.AddNode(0, 0, [][]uint64{{1}}, false)
+
+	err := sw.Flush()
+	require.NoError(t, err)
+
+	// Read it back
+	reader := bytes.NewReader(buf.Bytes())
+	sr := NewSnapshotReader()
+	result, err := sr.Read(reader)
+	require.NoError(t, err)
+
+	// Verify compression data
+	assert.True(t, result.Compressed)
+	require.NotNil(t, result.CompressionRQData)
+	assert.Equal(t, rqData.InputDim, result.CompressionRQData.InputDim)
+	assert.Equal(t, rqData.Bits, result.CompressionRQData.Bits)
+	assert.Equal(t, rqData.Rotation.OutputDim, result.CompressionRQData.Rotation.OutputDim)
+	assert.Equal(t, rqData.Rotation.Rounds, result.CompressionRQData.Rotation.Rounds)
+}
+
+func TestSnapshotRoundTrip_WithBRQCompression(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewSnapshotWriter(&buf)
+	sw.SetEntrypoint(0, 0)
+
+	// Set BRQ compression data
+	brqData := &compressionhelpers.BRQData{
+		InputDim: 128,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: 64,
+			Rounds:    2,
+			Swaps: [][]compressionhelpers.Swap{
+				make([]compressionhelpers.Swap, 32),
+				make([]compressionhelpers.Swap, 32),
+			},
+			Signs: [][]float32{
+				make([]float32, 64),
+				make([]float32, 64),
+			},
+		},
+		Rounding: make([]float32, 64),
+	}
+	// Fill with test data
+	for i := range brqData.Rotation.Swaps {
+		for j := range brqData.Rotation.Swaps[i] {
+			brqData.Rotation.Swaps[i][j] = compressionhelpers.Swap{I: uint16(j), J: uint16(j + 1)}
+		}
+	}
+	for i := range brqData.Rotation.Signs {
+		for j := range brqData.Rotation.Signs[i] {
+			brqData.Rotation.Signs[i][j] = float32(j) * 0.01
+		}
+	}
+	for i := range brqData.Rounding {
+		brqData.Rounding[i] = float32(i) * 0.001
+	}
+	sw.SetBRQData(brqData)
+
+	// Add a simple node
+	sw.AddNode(0, 0, [][]uint64{{1}}, false)
+
+	err := sw.Flush()
+	require.NoError(t, err)
+
+	// Read it back
+	reader := bytes.NewReader(buf.Bytes())
+	sr := NewSnapshotReader()
+	result, err := sr.Read(reader)
+	require.NoError(t, err)
+
+	// Verify compression data
+	assert.True(t, result.Compressed)
+	require.NotNil(t, result.CompressionBRQData)
+	assert.Equal(t, brqData.InputDim, result.CompressionBRQData.InputDim)
+	assert.Equal(t, brqData.Rotation.OutputDim, result.CompressionBRQData.Rotation.OutputDim)
+	assert.Equal(t, brqData.Rotation.Rounds, result.CompressionBRQData.Rotation.Rounds)
+	assert.Equal(t, brqData.Rounding, result.CompressionBRQData.Rounding)
+}
+
+func TestSnapshotRoundTrip_WithMuvera(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewSnapshotWriter(&buf)
+	sw.SetEntrypoint(0, 0)
+
+	// Set Muvera data
+	muveraData := &multivector.MuveraData{
+		Dimensions:   8,
+		NumClusters:  2,
+		KSim:         2,
+		DProjections: 2,
+		Repetitions:  2,
+		Gaussians:    make([][][]float32, 2),
+		S:            make([][][]float32, 2),
+	}
+	// Initialize gaussians and S matrices
+	for i := uint32(0); i < muveraData.Repetitions; i++ {
+		muveraData.Gaussians[i] = make([][]float32, muveraData.KSim)
+		for j := uint32(0); j < muveraData.KSim; j++ {
+			muveraData.Gaussians[i][j] = make([]float32, muveraData.Dimensions)
+			for k := uint32(0); k < muveraData.Dimensions; k++ {
+				muveraData.Gaussians[i][j][k] = float32(i*100+j*10) + float32(k)*0.1
+			}
+		}
+		muveraData.S[i] = make([][]float32, muveraData.DProjections)
+		for j := uint32(0); j < muveraData.DProjections; j++ {
+			muveraData.S[i][j] = make([]float32, muveraData.Dimensions)
+			for k := uint32(0); k < muveraData.Dimensions; k++ {
+				muveraData.S[i][j][k] = float32(i*200+j*20) + float32(k)*0.2
+			}
+		}
+	}
+	sw.SetMuveraData(muveraData)
+
+	// Add a simple node
+	sw.AddNode(0, 0, [][]uint64{{1}}, false)
+
+	err := sw.Flush()
+	require.NoError(t, err)
+
+	// Read it back
+	reader := bytes.NewReader(buf.Bytes())
+	sr := NewSnapshotReader()
+	result, err := sr.Read(reader)
+	require.NoError(t, err)
+
+	// Verify Muvera data
+	assert.True(t, result.MuveraEnabled)
+	require.NotNil(t, result.EncoderMuvera)
+	assert.Equal(t, muveraData.Dimensions, result.EncoderMuvera.Dimensions)
+	assert.Equal(t, muveraData.NumClusters, result.EncoderMuvera.NumClusters)
+	assert.Equal(t, muveraData.KSim, result.EncoderMuvera.KSim)
+	assert.Equal(t, muveraData.DProjections, result.EncoderMuvera.DProjections)
+	assert.Equal(t, muveraData.Repetitions, result.EncoderMuvera.Repetitions)
+
+	// Verify gaussians content
+	for i := range muveraData.Gaussians {
+		for j := range muveraData.Gaussians[i] {
+			assert.Equal(t, muveraData.Gaussians[i][j], result.EncoderMuvera.Gaussians[i][j])
+		}
+	}
+}
+
+func TestSnapshotRoundTrip_WithCompressionAndMuvera(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewSnapshotWriter(&buf)
+	sw.SetEntrypoint(0, 0)
+
+	// Set SQ compression
+	sqData := &compressionhelpers.SQData{
+		A:          0.25,
+		B:          0.75,
+		Dimensions: 64,
+	}
+	sw.SetSQData(sqData)
+
+	// Set Muvera data
+	muveraData := &multivector.MuveraData{
+		Dimensions:   4,
+		NumClusters:  1,
+		KSim:         1,
+		DProjections: 1,
+		Repetitions:  1,
+		Gaussians:    [][][]float32{{{1.0, 2.0, 3.0, 4.0}}},
+		S:            [][][]float32{{{0.1, 0.2, 0.3, 0.4}}},
+	}
+	sw.SetMuveraData(muveraData)
+
+	// Add a node
+	sw.AddNode(0, 0, [][]uint64{{1, 2, 3}}, false)
+
+	err := sw.Flush()
+	require.NoError(t, err)
+
+	// Read it back
+	reader := bytes.NewReader(buf.Bytes())
+	sr := NewSnapshotReader()
+	result, err := sr.Read(reader)
+	require.NoError(t, err)
+
+	// Verify both compression and Muvera are present
+	assert.True(t, result.Compressed)
+	assert.True(t, result.MuveraEnabled)
+	require.NotNil(t, result.CompressionSQData)
+	require.NotNil(t, result.EncoderMuvera)
+
+	// Verify SQ data
+	assert.Equal(t, sqData.A, result.CompressionSQData.A)
+	assert.Equal(t, sqData.B, result.CompressionSQData.B)
+
+	// Verify Muvera data
+	assert.Equal(t, muveraData.Dimensions, result.EncoderMuvera.Dimensions)
+	assert.Equal(t, muveraData.Gaussians[0][0], result.EncoderMuvera.Gaussians[0][0])
+}
+
+func TestSnapshotWriter_CompressionHelpers(t *testing.T) {
+	t.Run("isCompressed returns false when no compression set", func(t *testing.T) {
+		sw := NewSnapshotWriter(nil)
+		assert.False(t, sw.isCompressed())
+	})
+
+	t.Run("isCompressed returns true for PQ", func(t *testing.T) {
+		sw := NewSnapshotWriter(nil)
+		sw.SetPQData(&compressionhelpers.PQData{})
+		assert.True(t, sw.isCompressed())
+	})
+
+	t.Run("isCompressed returns true for SQ", func(t *testing.T) {
+		sw := NewSnapshotWriter(nil)
+		sw.SetSQData(&compressionhelpers.SQData{})
+		assert.True(t, sw.isCompressed())
+	})
+
+	t.Run("isCompressed returns true for RQ", func(t *testing.T) {
+		sw := NewSnapshotWriter(nil)
+		sw.SetRQData(&compressionhelpers.RQData{})
+		assert.True(t, sw.isCompressed())
+	})
+
+	t.Run("isCompressed returns true for BRQ", func(t *testing.T) {
+		sw := NewSnapshotWriter(nil)
+		sw.SetBRQData(&compressionhelpers.BRQData{})
+		assert.True(t, sw.isCompressed())
+	})
+
+	t.Run("isMuveraEnabled returns false when no muvera set", func(t *testing.T) {
+		sw := NewSnapshotWriter(nil)
+		assert.False(t, sw.isMuveraEnabled())
+	})
+
+	t.Run("isMuveraEnabled returns true when muvera set", func(t *testing.T) {
+		sw := NewSnapshotWriter(nil)
+		sw.SetMuveraData(&multivector.MuveraData{})
+		assert.True(t, sw.isMuveraEnabled())
+	})
 }
