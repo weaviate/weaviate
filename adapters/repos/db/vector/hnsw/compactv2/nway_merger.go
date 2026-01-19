@@ -21,10 +21,10 @@ import (
 // NWayMerger performs an n-way merge of sorted commit logs.
 // It takes n iterators and merges them into a single sorted stream.
 type NWayMerger struct {
-	iterators      []*Iterator
-	heap           *iteratorHeap
-	logger         logrus.FieldLogger
-	mergedGlobals  []Commit
+	iterators     []*Iterator
+	heap          *iteratorHeap
+	logger        logrus.FieldLogger
+	mergedGlobals []Commit
 }
 
 // NewNWayMerger creates a new n-way merger with the given iterators.

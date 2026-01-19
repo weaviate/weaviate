@@ -33,7 +33,7 @@ func TestSortedWriter_TombstoneForNilNode(t *testing.T) {
 	// - Node 50 is nil (was never populated)
 	// - Node 50 has a tombstone
 	res := &DeserializationResult{
-		Nodes:      make([]*Vertex, 100),
+		Nodes: make([]*Vertex, 100),
 		Tombstones: map[uint64]struct{}{
 			50: {},
 		},
@@ -75,7 +75,7 @@ func TestSortedWriter_TombstoneBeyondNodesArray(t *testing.T) {
 	// - Node array of length 100 (nodes 0-99 can exist)
 	// - Tombstone for node 150 (beyond the array)
 	res := &DeserializationResult{
-		Nodes:      make([]*Vertex, 100),
+		Nodes: make([]*Vertex, 100),
 		Tombstones: map[uint64]struct{}{
 			150: {}, // Beyond nodes array!
 		},
@@ -114,8 +114,8 @@ func TestSortedWriter_RemoveTombstoneForNilNode(t *testing.T) {
 	// - Node 50 is nil
 	// - Node 50 has a tombstone that was deleted (RemoveTombstone from previous log)
 	res := &DeserializationResult{
-		Nodes:             make([]*Vertex, 100),
-		Tombstones:        make(map[uint64]struct{}),
+		Nodes:      make([]*Vertex, 100),
+		Tombstones: make(map[uint64]struct{}),
 		TombstonesDeleted: map[uint64]struct{}{
 			50: {}, // RemoveTombstone for nil node
 		},
@@ -149,8 +149,8 @@ func TestSortedWriter_RemoveTombstoneBeyondNodesArray(t *testing.T) {
 	// - Node array of length 100
 	// - RemoveTombstone for node 150 (beyond array)
 	res := &DeserializationResult{
-		Nodes:             make([]*Vertex, 100),
-		Tombstones:        make(map[uint64]struct{}),
+		Nodes:      make([]*Vertex, 100),
+		Tombstones: make(map[uint64]struct{}),
 		TombstonesDeleted: map[uint64]struct{}{
 			150: {}, // RemoveTombstone beyond array
 		},
