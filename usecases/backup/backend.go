@@ -26,6 +26,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -172,6 +173,7 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
+	cfg            config.Backup
 	sourcer        Sourcer
 	rbacSourcer    fsm.Snapshotter
 	dynUserSourcer fsm.Snapshotter
@@ -182,11 +184,11 @@ type uploader struct {
 	log       logrus.FieldLogger
 }
 
-func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
-		sourcer, rbacSourcer, dynUserSourcer, backend,
+		cfg, sourcer, rbacSourcer, dynUserSourcer, backend,
 		backupID,
 		newZipConfig(Compression{
 			Level:         GzipDefaultCompression,
@@ -455,7 +457,7 @@ func (u *uploader) compress(ctx context.Context,
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, u.cfg.MaxSizePerChunkInMB)
 	if err != nil {
 		return shards, preCompressionSize.Load(), err
 	}

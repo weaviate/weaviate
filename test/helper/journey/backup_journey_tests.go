@@ -48,6 +48,10 @@ func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, clas
 		t.Run("single-tenant single node backup with PQ", func(t *testing.T) {
 			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_pq", nil, true, override, overrideBucket, overrideLocation)
 		})
+
+		t.Run("larger backup", func(t *testing.T) {
+			backupAndRestoreLargeCollectionJourneyTest(t, weaviateEndpoint, backend, overrideBucket, overrideLocation)
+		})
 	}
 }
 
