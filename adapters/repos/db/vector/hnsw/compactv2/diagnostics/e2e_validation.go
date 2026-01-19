@@ -325,7 +325,7 @@ func main() {
 
 	fmt.Println("Step 7: Reading snapshot back...")
 	startStep7 := time.Now()
-	snapshotReader := compactv2.NewSnapshotReader()
+	snapshotReader := compactv2.NewSnapshotReader(logger)
 	snapshotResult, err := snapshotReader.ReadFromFile(snapshotPath)
 	if err != nil {
 		panic(fmt.Errorf("read snapshot: %w", err))

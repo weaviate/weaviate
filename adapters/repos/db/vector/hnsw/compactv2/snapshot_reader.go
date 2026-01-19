@@ -13,48 +13,63 @@ package compactv2
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"math"
 	"os"
+	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+const (
+	// snapshotConcurrency is the number of goroutines used for concurrent block reading.
+	snapshotConcurrency = 8
+)
+
+// ReadSeekReaderAt combines io.Reader, io.Seeker, and io.ReaderAt interfaces.
+// This is needed for concurrent block reading using io.SectionReader.
+type ReadSeekReaderAt interface {
+	io.Reader
+	io.Seeker
+	io.ReaderAt
+}
 
 // SnapshotReader reads V3 format snapshots into DeserializationResult.
 // This reader follows the same logic as the hnsw package's snapshot reader
 // to ensure format compatibility.
 //
 // Notes:
-//   - Sequential block reading only (no concurrency yet)
+//   - Uses concurrent block reading with 8 goroutines for performance
 //   - Supports PQ, SQ, RQ, BRQ compression
 //   - Supports Muvera encoder
-//
-// TODO(production): Add concurrent block reading to match hnsw package behavior.
-// The existing hnsw reader uses multiple goroutines with io.SectionReader to
-// read blocks in parallel, which significantly improves startup performance
-// for large indexes. See commit_logger_snapshot.go:readSnapshotBody for reference.
 type SnapshotReader struct {
 	blockSize int64
+	logger    logrus.FieldLogger
 }
 
 // NewSnapshotReader creates a new snapshot reader with the default 4MB block size.
-func NewSnapshotReader() *SnapshotReader {
+func NewSnapshotReader(logger logrus.FieldLogger) *SnapshotReader {
 	return &SnapshotReader{
 		blockSize: defaultBlockSize,
+		logger:    logger,
 	}
 }
 
 // NewSnapshotReaderWithBlockSize creates a new snapshot reader with a custom block size.
-func NewSnapshotReaderWithBlockSize(blockSize int64) *SnapshotReader {
+func NewSnapshotReaderWithBlockSize(logger logrus.FieldLogger, blockSize int64) *SnapshotReader {
 	return &SnapshotReader{
 		blockSize: blockSize,
+		logger:    logger,
 	}
 }
 
@@ -70,9 +85,9 @@ func (r *SnapshotReader) ReadFromFile(filename string) (*DeserializationResult, 
 }
 
 // Read reads a snapshot from a reader into a DeserializationResult.
-// Note: This implementation reads blocks sequentially. For production use,
-// concurrent block reading should be implemented for better performance.
-func (r *SnapshotReader) Read(reader io.ReadSeeker) (*DeserializationResult, error) {
+// Uses concurrent block reading with multiple goroutines for optimal performance.
+// The reader must implement io.Reader, io.Seeker, and io.ReaderAt for concurrent access.
+func (r *SnapshotReader) Read(reader ReadSeekReaderAt) (*DeserializationResult, error) {
 	res := &DeserializationResult{
 		NodesDeleted:      make(map[uint64]struct{}),
 		Tombstones:        make(map[uint64]struct{}),
@@ -85,8 +100,8 @@ func (r *SnapshotReader) Read(reader io.ReadSeeker) (*DeserializationResult, err
 		return nil, errors.Wrap(err, "read metadata")
 	}
 
-	// Read body (sequential - TODO: add concurrency for production)
-	if err := r.readBody(reader, res); err != nil {
+	// Read body with concurrent block reading
+	if err := r.readBodyConcurrent(reader, res); err != nil {
 		return nil, errors.Wrap(err, "read body")
 	}
 
@@ -554,10 +569,9 @@ func (r *SnapshotReader) readMuveraData(reader io.Reader, res *DeserializationRe
 	return nil
 }
 
-// readBody reads the snapshot body blocks sequentially.
-// TODO(production): Implement concurrent block reading using goroutines
-// and io.SectionReader for better performance on large indexes.
-func (r *SnapshotReader) readBody(reader io.ReadSeeker, res *DeserializationResult) error {
+// readBodyConcurrent reads the snapshot body blocks concurrently using multiple goroutines.
+// This significantly improves startup performance for large indexes.
+func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *DeserializationResult) error {
 	if len(res.Nodes) == 0 {
 		return nil
 	}
@@ -573,40 +587,77 @@ func (r *SnapshotReader) readBody(reader io.ReadSeeker, res *DeserializationResu
 		return errors.Wrap(err, "seek to end")
 	}
 
-	// Seek back to where we were
-	if _, err := reader.Seek(currentPos, io.SeekStart); err != nil {
-		return errors.Wrap(err, "seek back")
-	}
-
-	bodySize := endPos - currentPos
+	bodySize := int(endPos - currentPos)
 	if bodySize == 0 {
 		return nil
 	}
 
-	// Read blocks sequentially
-	buf := make([]byte, r.blockSize)
-	for offset := int64(0); offset < bodySize; offset += r.blockSize {
-		n, err := io.ReadFull(reader, buf)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				if n == 0 {
-					break
-				}
-			} else {
-				return errors.Wrapf(err, "read block at offset %d", offset)
-			}
-		}
-
-		if err := r.readBlock(buf[:n], res); err != nil {
-			return errors.Wrapf(err, "parse block at offset %d", offset)
-		}
+	// Seek back to where we were (body start)
+	if _, err := reader.Seek(currentPos, io.SeekStart); err != nil {
+		return errors.Wrap(err, "seek back")
 	}
 
-	return nil
+	// Setup concurrent block reading
+	var mu sync.Mutex
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, context.Background())
+	eg.SetLimit(snapshotConcurrency)
+
+	// Channel for distributing block offsets to workers
+	ch := make(chan int, snapshotConcurrency)
+
+	// Start worker goroutines
+	for i := 0; i < snapshotConcurrency; i++ {
+		eg.Go(func() error {
+			buf := make([]byte, r.blockSize)
+
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case offset, ok := <-ch:
+					if !ok {
+						return nil // channel closed, done
+					}
+
+					// Read block using SectionReader for concurrent access
+					sr := io.NewSectionReader(reader, currentPos+int64(offset), r.blockSize)
+					n, err := io.ReadFull(sr, buf)
+					if err != nil {
+						if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+							return errors.Wrapf(err, "read block at offset %d", offset)
+						}
+						if n == 0 {
+							return nil
+						}
+					}
+
+					// Parse block and update result with mutex protection
+					if err := r.readBlockConcurrent(buf[:n], res, &mu); err != nil {
+						return errors.Wrapf(err, "parse block at offset %d", offset)
+					}
+				}
+			}
+		})
+	}
+
+	// Send block offsets to workers
+LOOP:
+	for i := 0; i < bodySize; i += int(r.blockSize) {
+		select {
+		case <-ctx.Done():
+			break LOOP
+		case ch <- i:
+		}
+	}
+	close(ch)
+
+	// Wait for all workers to complete
+	return eg.Wait()
 }
 
-// readBlock parses a single block and populates nodes in the result.
-func (r *SnapshotReader) readBlock(buf []byte, res *DeserializationResult) error {
+// readBlockConcurrent parses a single block and populates nodes in the result.
+// Uses mutex protection for concurrent access to the result.
+func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *DeserializationResult, mu *sync.Mutex) error {
 	if len(buf) < 8 {
 		return fmt.Errorf("block too small: %d bytes", len(buf))
 	}
@@ -660,12 +711,14 @@ func (r *SnapshotReader) readBlock(buf []byte, res *DeserializationResult) error
 				Level:       int(level),
 				Connections: packedconn.NewWithData(connDataCopy),
 			}
-			res.Nodes[currNodeID] = node
 
-			// Track tombstone
+			// Update result with mutex protection
+			mu.Lock()
+			res.Nodes[currNodeID] = node
 			if existence == 1 {
 				res.Tombstones[currNodeID] = struct{}{}
 			}
+			mu.Unlock()
 		}
 
 		currNodeID++

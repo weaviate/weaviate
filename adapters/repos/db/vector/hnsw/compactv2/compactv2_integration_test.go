@@ -141,7 +141,7 @@ func TestCompactV2EndToEnd(t *testing.T) {
 	// =========================================================================
 	// Step 6: Read snapshot back and verify
 	// =========================================================================
-	snapshotReader := NewSnapshotReader()
+	snapshotReader := NewSnapshotReader(logrus.New())
 	snapshotResult, err := snapshotReader.ReadFromFile(snapshotPath)
 	require.NoError(t, err)
 
@@ -258,7 +258,7 @@ func TestCompactV2WithSafeFileWriter(t *testing.T) {
 		require.NoError(t, sfw.Commit())
 
 		// Verify file exists and is readable
-		reader := NewSnapshotReader()
+		reader := NewSnapshotReader(logger)
 		result, err := reader.ReadFromFile(snapshotPath)
 		require.NoError(t, err)
 		assert.Equal(t, uint64(5), result.Entrypoint)
@@ -686,7 +686,7 @@ func TestCompactV2RoundTrip(t *testing.T) {
 	require.NoError(t, sfw.Commit())
 
 	// Read from snapshot format
-	snapshotReaderObj := NewSnapshotReader()
+	snapshotReaderObj := NewSnapshotReader(logger)
 	snapshotResult, err := snapshotReaderObj.ReadFromFile(snapshotPath)
 	require.NoError(t, err)
 

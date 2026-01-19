@@ -194,7 +194,7 @@ func main() {
 	if state.Snapshot != nil {
 		// Read snapshot
 		fmt.Printf("  Reading snapshot: %s\n", filepath.Base(state.Snapshot.Path))
-		snapshotReader := compactv2.NewSnapshotReader()
+		snapshotReader := compactv2.NewSnapshotReader(logger)
 		finalResult, err = snapshotReader.ReadFromFile(state.Snapshot.Path)
 		if err != nil {
 			panic(fmt.Errorf("read snapshot: %w", err))

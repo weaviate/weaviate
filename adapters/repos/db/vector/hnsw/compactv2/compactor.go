@@ -472,7 +472,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 		var err error
 
 		if f.Type == FileTypeSnapshot {
-			it, err = NewSnapshotIterator(f.Path, i)
+			it, err = NewSnapshotIterator(f.Path, i, c.logger)
 		} else {
 			file, err2 := os.Open(f.Path)
 			if err2 != nil {

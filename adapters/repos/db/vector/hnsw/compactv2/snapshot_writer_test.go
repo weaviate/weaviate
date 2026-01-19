@@ -17,6 +17,7 @@ import (
 	"hash/crc32"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -301,7 +302,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 
 	// Read it back
 	reader := bytes.NewReader(buf.Bytes())
-	sr := NewSnapshotReader()
+	sr := NewSnapshotReader(logrus.New())
 	result, err := sr.Read(reader)
 	require.NoError(t, err)
 
@@ -353,7 +354,7 @@ func TestSnapshotReader_ChecksumValidation(t *testing.T) {
 	data[1] ^= 0xFF // flip bits in checksum
 
 	reader := bytes.NewReader(data)
-	sr := NewSnapshotReader()
+	sr := NewSnapshotReader(logrus.New())
 	_, err = sr.Read(reader)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "checksum")
@@ -429,7 +430,7 @@ func TestSnapshotRoundTrip_WithSQCompression(t *testing.T) {
 
 	// Read it back
 	reader := bytes.NewReader(buf.Bytes())
-	sr := NewSnapshotReader()
+	sr := NewSnapshotReader(logrus.New())
 	result, err := sr.Read(reader)
 	require.NoError(t, err)
 
@@ -489,7 +490,7 @@ func TestSnapshotRoundTrip_WithRQCompression(t *testing.T) {
 
 	// Read it back
 	reader := bytes.NewReader(buf.Bytes())
-	sr := NewSnapshotReader()
+	sr := NewSnapshotReader(logrus.New())
 	result, err := sr.Read(reader)
 	require.NoError(t, err)
 
@@ -548,7 +549,7 @@ func TestSnapshotRoundTrip_WithBRQCompression(t *testing.T) {
 
 	// Read it back
 	reader := bytes.NewReader(buf.Bytes())
-	sr := NewSnapshotReader()
+	sr := NewSnapshotReader(logrus.New())
 	result, err := sr.Read(reader)
 	require.NoError(t, err)
 
@@ -603,7 +604,7 @@ func TestSnapshotRoundTrip_WithMuvera(t *testing.T) {
 
 	// Read it back
 	reader := bytes.NewReader(buf.Bytes())
-	sr := NewSnapshotReader()
+	sr := NewSnapshotReader(logrus.New())
 	result, err := sr.Read(reader)
 	require.NoError(t, err)
 
@@ -657,7 +658,7 @@ func TestSnapshotRoundTrip_WithCompressionAndMuvera(t *testing.T) {
 
 	// Read it back
 	reader := bytes.NewReader(buf.Bytes())
-	sr := NewSnapshotReader()
+	sr := NewSnapshotReader(logrus.New())
 	result, err := sr.Read(reader)
 	require.NoError(t, err)
 

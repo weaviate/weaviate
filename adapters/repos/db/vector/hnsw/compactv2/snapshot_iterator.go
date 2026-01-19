@@ -13,6 +13,7 @@ package compactv2
 
 import (
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // SnapshotIterator converts a snapshot into a commit stream for the N-way merger.
@@ -29,28 +30,30 @@ type SnapshotIterator struct {
 	currentNode   *NodeCommits
 	nodeIndex     int // Current position in nodes array
 	exhausted     bool
+	logger        logrus.FieldLogger
 }
 
 // NewSnapshotIterator creates a new iterator from a snapshot file.
 // The id parameter is used for merge precedence (higher ID = more recent data).
 // Typically snapshots should have the lowest ID since they represent the oldest state.
-func NewSnapshotIterator(path string, id int) (*SnapshotIterator, error) {
-	reader := NewSnapshotReader()
+func NewSnapshotIterator(path string, id int, logger logrus.FieldLogger) (*SnapshotIterator, error) {
+	reader := NewSnapshotReader(logger)
 	result, err := reader.ReadFromFile(path)
 	if err != nil {
 		return nil, errors.Wrapf(err, "read snapshot file %s", path)
 	}
 
-	return NewSnapshotIteratorFromResult(result, id)
+	return NewSnapshotIteratorFromResult(result, id, logger)
 }
 
 // NewSnapshotIteratorFromResult creates a new iterator from a DeserializationResult.
 // This is useful for testing or when the snapshot is already loaded.
-func NewSnapshotIteratorFromResult(result *DeserializationResult, id int) (*SnapshotIterator, error) {
+func NewSnapshotIteratorFromResult(result *DeserializationResult, id int, logger logrus.FieldLogger) (*SnapshotIterator, error) {
 	it := &SnapshotIterator{
 		result:    result,
 		id:        id,
 		nodeIndex: -1, // Will be incremented on first advance
+		logger:    logger,
 	}
 
 	// Build global commits from snapshot metadata

@@ -14,6 +14,7 @@ package compactv2
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -29,7 +30,7 @@ func TestSnapshotIterator_EmptySnapshot(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, it.ID())
@@ -56,7 +57,7 @@ func TestSnapshotIterator_GlobalCommits(t *testing.T) {
 		},
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 5)
+	it, err := NewSnapshotIteratorFromResult(result, 5, logrus.New())
 	require.NoError(t, err)
 
 	assert.Equal(t, 5, it.ID())
@@ -93,7 +94,7 @@ func TestSnapshotIterator_SingleNode(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	// Should not be exhausted
@@ -164,7 +165,7 @@ func TestSnapshotIterator_MultipleNodes(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	// Collect all nodes
@@ -200,7 +201,7 @@ func TestSnapshotIterator_NodesWithTombstones(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	nc := it.Current()
@@ -233,7 +234,7 @@ func TestSnapshotIterator_NilNodesWithTombstones(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	// Should find node 1 with tombstone
@@ -272,7 +273,7 @@ func TestSnapshotIterator_SparseNodes(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	// Should skip to node 2
@@ -302,7 +303,7 @@ func TestSnapshotIterator_TombstonesBeyondNodesArray(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	// Should find tombstones beyond the array
@@ -330,7 +331,7 @@ func TestSnapshotIterator_ImplementsIteratorLike(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	// Verify it can be assigned to IteratorLike
@@ -354,7 +355,7 @@ func TestSnapshotIterator_NodeWithEmptyConnections(t *testing.T) {
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	it, err := NewSnapshotIteratorFromResult(result, 0)
+	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
 
 	nc := it.Current()
