@@ -95,6 +95,51 @@ func (u *UserConfig) validate() error {
 	return nil
 }
 
+func parseAndValidateRQ(ucMap map[string]interface{}, uc *UserConfig) error {
+	rqConfigValue, ok := ucMap["rq"]
+	if !ok {
+		return nil
+	}
+
+	rqConfigMap, ok := rqConfigValue.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	var bits int
+	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "bits", func(v int) {
+		bits = v
+	}); err != nil {
+		return err
+	}
+	if bits != 1 {
+		return fmt.Errorf("rq only supports 1 bit")
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {
+		if v >= 0 {
+			uc.RescoreLimit = uint32(v)
+		}
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func parseAndValidateQuantization(ucMap map[string]interface{}, uc *UserConfig) error {
+	if _, ok := ucMap["pq"]; ok {
+		return fmt.Errorf("pq is not supported for hfresh index (only rq-1 is supported)")
+	}
+	if _, ok := ucMap["sq"]; ok {
+		return fmt.Errorf("sq is not supported for hfresh index (only rq-1 is supported)")
+	}
+	if _, ok := ucMap["bq"]; ok {
+		return fmt.Errorf("bq is not supported for hfresh index (only rq-1 is supported)")
+	}
+	return parseAndValidateRQ(ucMap, uc)
+}
+
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
 func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
@@ -108,6 +153,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 	asMap, ok := input.(map[string]interface{})
 	if !ok || asMap == nil {
 		return uc, fmt.Errorf("input must be a non-nil map")
+	}
+
+	if err := parseAndValidateQuantization(asMap, &uc); err != nil {
+		return uc, err
 	}
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "maxPostingSizeKB", func(v int) {
@@ -130,14 +179,6 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "searchProbe", func(v int) {
 		uc.SearchProbe = uint32(v)
-	}); err != nil {
-		return uc, err
-	}
-
-	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "rescoreLimit", func(v int) {
-		if v >= 0 {
-			uc.RescoreLimit = uint32(v)
-		}
 	}); err != nil {
 		return uc, err
 	}
