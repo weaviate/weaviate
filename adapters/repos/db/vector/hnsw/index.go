@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -234,11 +235,11 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddPQCompression(compressionhelpers.PQData) error
-	AddSQCompression(compressionhelpers.SQData) error
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
-	AddRQCompression(compressionhelpers.RQData) error
-	AddBRQCompression(compressionhelpers.BRQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)

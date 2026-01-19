@@ -36,9 +36,6 @@ type ScalarQuantizer struct {
 	dimensions int
 }
 
-// SQData is an alias for the SQData type in entities/vectorindex/compression.
-type SQData = compression.SQData
-
 func (sq *ScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	if len(x) != len(y) {
 		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
@@ -195,7 +192,7 @@ func (sq *ScalarQuantizer) FromCompressedBytes(compressed []byte) []byte {
 }
 
 func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddSQCompression(SQData{
+	logger.AddSQCompression(compression.SQData{
 		A:          sq.a,
 		B:          sq.b,
 		Dimensions: uint16(sq.dimensions),

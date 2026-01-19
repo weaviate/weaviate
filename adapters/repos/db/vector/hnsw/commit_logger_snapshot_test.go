@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -934,14 +935,14 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      7,
 			Compressed: true,
 			Nodes:      make([]*vertex, 150),
-			CompressionPQData: &compressionhelpers.PQData{
+			CompressionPQData: &compression.PQData{
 				Dimensions:          128,
 				Ks:                  256,
 				M:                   8,
-				EncoderType:         compressionhelpers.UseTileEncoder,
+				EncoderType:         compression.UseTileEncoder,
 				EncoderDistribution: 1,
 				UseBitsEncoding:     true,
-				Encoders:            make([]compressionhelpers.PQEncoder, 8),
+				Encoders:            make([]compression.PQSegmentEncoder, 8),
 			},
 		}
 
@@ -985,7 +986,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      12,
 			Compressed: true,
 			Nodes:      make([]*vertex, 300),
-			CompressionSQData: &compressionhelpers.SQData{
+			CompressionSQData: &compression.SQData{
 				Dimensions: 64,
 				A:          1.5,
 				B:          2.7,
@@ -1023,13 +1024,13 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      5,
 			Compressed: true,
 			Nodes:      make([]*vertex, 250),
-			CompressionRQData: &compressionhelpers.RQData{
+			CompressionRQData: &compression.RQData{
 				InputDim: 8,
 				Bits:     8,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: 8,
 					Rounds:    1,
-					Swaps: [][]compressionhelpers.Swap{
+					Swaps: [][]compression.Swap{
 						{
 							{I: 0, J: 1},
 							{I: 2, J: 3},
@@ -1146,12 +1147,12 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      5,
 			Compressed: true,
 			Nodes:      make([]*vertex, 250),
-			CompressionBRQData: &compressionhelpers.BRQData{
+			CompressionBRQData: &compression.BRQData{
 				InputDim: 8,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: 8,
 					Rounds:    1,
-					Swaps: [][]compressionhelpers.Swap{
+					Swaps: [][]compression.Swap{
 						{
 							{I: 0, J: 1},
 							{I: 2, J: 3},
@@ -1206,7 +1207,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Compressed:    true,
 			MuveraEnabled: true,
 			Nodes:         make([]*vertex, 180),
-			CompressionSQData: &compressionhelpers.SQData{
+			CompressionSQData: &compression.SQData{
 				Dimensions: 64,
 				A:          1.5,
 				B:          2.7,

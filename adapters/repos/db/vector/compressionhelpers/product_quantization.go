@@ -205,21 +205,6 @@ func (p PQStats) CompressionRatio(dimensions int) float64 {
 	return float64(originalSize) / float64(compressedSize)
 }
 
-// PQData is an alias for the PQData type in entities/vectorindex/compression.
-type PQData = compression.PQData
-
-// PQEncoder is an alias for PQSegmentEncoder for backward compatibility.
-type PQEncoder = compression.PQSegmentEncoder
-
-// Encoder is an alias for the Encoder type in entities/vectorindex/compression.
-type Encoder = compression.Encoder
-
-// Encoder constants for backward compatibility.
-const (
-	UseTileEncoder   = compression.UseTileEncoder
-	UseKMeansEncoder = compression.UseKMeansEncoder
-)
-
 func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensions int, logger logrus.FieldLogger) (*ProductQuantizer, error) {
 	if cfg.Segments <= 0 {
 		return nil, errors.New("segments cannot be 0 nor negative")
@@ -255,7 +240,7 @@ func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensio
 	return pq, nil
 }
 
-func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []PQEncoder, logger logrus.FieldLogger) (*ProductQuantizer, error) {
+func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []compression.PQSegmentEncoder, logger logrus.FieldLogger) (*ProductQuantizer, error) {
 	cfg.Segments = len(encoders)
 	pq, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {

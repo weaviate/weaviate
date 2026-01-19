@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -579,7 +580,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 
 	t.Run("add pq data to the first log", func(t *testing.T) {
 		data, _ := testinghelpers.RandomVecs(20, 0, dimensions)
-		kms := make([]compressionhelpers.PQEncoder, 4)
+		kms := make([]compression.PQSegmentEncoder, 4)
 		for i := 0; i < 4; i++ {
 			kms[i] = compressionhelpers.NewKMeansEncoder(
 				dimensions,
@@ -589,11 +590,11 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 			err := kms[i].Fit(data)
 			require.Nil(t, err)
 		}
-		pqData := compressionhelpers.PQData{
+		pqData := compression.PQData{
 			Ks:                  uint16(centroids),
 			M:                   4,
 			Dimensions:          uint16(dimensions),
-			EncoderType:         compressionhelpers.UseKMeansEncoder,
+			EncoderType:         compression.UseKMeansEncoder,
 			EncoderDistribution: byte(compressionhelpers.NormalEncoderDistribution),
 			UseBitsEncoding:     false,
 			TrainingLimit:       100_000,
@@ -717,10 +718,10 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 
 	dimension := uint32(10)
 	bits := uint32(8)
-	rotation := compressionhelpers.FastRotation{
+	rotation := compression.FastRotation{
 		OutputDim: 4,
 		Rounds:    5,
-		Swaps: [][]compressionhelpers.Swap{
+		Swaps: [][]compression.Swap{
 			{
 				{I: 0, J: 2},
 				{I: 1, J: 3},
@@ -751,7 +752,7 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 		},
 	}
 	t.Run("add rotational quantization data to the first log", func(t *testing.T) {
-		rqData := compressionhelpers.RQData{
+		rqData := compression.RQData{
 			InputDim: dimension,
 			Bits:     bits,
 			Rotation: rotation,

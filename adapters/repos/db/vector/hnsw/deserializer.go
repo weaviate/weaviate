@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -46,10 +47,10 @@ type DeserializationResult struct {
 	Tombstones         map[uint64]struct{}
 	TombstonesDeleted  map[uint64]struct{}
 	EntrypointChanged  bool
-	CompressionPQData  *compressionhelpers.PQData
-	CompressionSQData  *compressionhelpers.SQData
-	CompressionRQData  *compressionhelpers.RQData
-	CompressionBRQData *compressionhelpers.BRQData
+	CompressionPQData  *compression.PQData
+	CompressionSQData  *compression.SQData
+	CompressionRQData  *compression.RQData
+	CompressionBRQData *compression.BRQData
 	MuveraEnabled      bool
 	EncoderMuvera      *multivector.MuveraData
 	Compressed         bool
@@ -572,7 +573,7 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult, n
 	return nil
 }
 
-func ReadTileEncoder(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func ReadTileEncoder(r io.Reader, res *compression.PQData, i uint16) (compression.PQSegmentEncoder, error) {
 	bins, err := readFloat64(r)
 	if err != nil {
 		return nil, err
@@ -608,7 +609,7 @@ func ReadTileEncoder(r io.Reader, res *compressionhelpers.PQData, i uint16) (com
 	return compressionhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
-func ReadKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func ReadKMeansEncoder(r io.Reader, data *compression.PQData, i uint16) (compression.PQSegmentEncoder, error) {
 	ds := int(data.Dimensions / data.M)
 	centers := make([][]float32, 0, data.Ks)
 	for k := uint16(0); k < data.Ks; k++ {
@@ -656,8 +657,8 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 	if err != nil {
 		return 0, err
 	}
-	encoder := compressionhelpers.Encoder(enc)
-	pqData := compressionhelpers.PQData{
+	encoder := compression.Encoder(enc)
+	pqData := compression.PQData{
 		Dimensions:          dims,
 		EncoderType:         encoder,
 		Ks:                  ks,
@@ -665,13 +666,13 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 		EncoderDistribution: byte(dist),
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
-	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
+	var encoderReader func(io.Reader, *compression.PQData, uint16) (compression.PQSegmentEncoder, error)
 	var totalRead int
 	switch encoder {
-	case compressionhelpers.UseTileEncoder:
+	case compression.UseTileEncoder:
 		encoderReader = ReadTileEncoder
 		totalRead = 51 * int(pqData.M)
-	case compressionhelpers.UseKMeansEncoder:
+	case compression.UseKMeansEncoder:
 		encoderReader = ReadKMeansEncoder
 		totalRead = int(pqData.Dimensions) * int(pqData.Ks) * 4
 	default:
@@ -705,7 +706,7 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	if err != nil {
 		return err
 	}
-	res.CompressionSQData = &compressionhelpers.SQData{
+	res.CompressionSQData = &compression.SQData{
 		A:          a,
 		B:          b,
 		Dimensions: dims,
@@ -745,9 +746,9 @@ func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, err
 	signSize := 4 * rounds * outputDim
 	totalRead := int(swapSize) + int(signSize)
 
-	swaps := make([][]compressionhelpers.Swap, rounds)
+	swaps := make([][]compression.Swap, rounds)
 	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		swaps[i] = make([]compression.Swap, outputDim/2)
 		for j := uint32(0); j < outputDim/2; j++ {
 			swaps[i][j].I, err = readUint16(r)
 			if err != nil {
@@ -772,10 +773,10 @@ func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, err
 		}
 	}
 
-	res.CompressionRQData = &compressionhelpers.RQData{
+	res.CompressionRQData = &compression.RQData{
 		InputDim: inputDim,
 		Bits:     bits,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,
 			Swaps:     swaps,
@@ -872,9 +873,9 @@ func (d *Deserializer) ReadBRQ(r io.Reader, res *DeserializationResult) (int, er
 	roundingSize := 4 * outputDim
 	totalRead := int(swapSize) + int(signSize) + int(roundingSize)
 
-	swaps := make([][]compressionhelpers.Swap, rounds)
+	swaps := make([][]compression.Swap, rounds)
 	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		swaps[i] = make([]compression.Swap, outputDim/2)
 		for j := uint32(0); j < outputDim/2; j++ {
 			swaps[i][j].I, err = readUint16(r)
 			if err != nil {
@@ -907,9 +908,9 @@ func (d *Deserializer) ReadBRQ(r io.Reader, res *DeserializationResult) (int, er
 		}
 	}
 
-	res.CompressionBRQData = &compressionhelpers.BRQData{
+	res.CompressionBRQData = &compression.BRQData{
 		InputDim: inputDim,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,
 			Swaps:     swaps,
