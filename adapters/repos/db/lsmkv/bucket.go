@@ -64,6 +64,9 @@ const (
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
+// memtableNames is used for error messages and metrics when iterating memtables
+var memtableNames = [2]string{"active_memtable", "flushing_memtable"}
+
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
@@ -504,11 +507,14 @@ type BucketConsistentView struct {
 	release  func()
 }
 
-func (cv *BucketConsistentView) Release() {
+func (cv BucketConsistentView) Release() {
 	cv.release()
 }
 
-func (b *Bucket) getConsistentView() BucketConsistentView {
+// GetConsistentView returns a consistent view of the bucket that can be used
+// for multiple reads without acquiring locks for each read. The caller must
+// call Release() on the returned view when done to avoid blocking compactions.
+func (b *Bucket) GetConsistentView() BucketConsistentView {
 	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -527,6 +533,15 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 		Disk:     diskSegments,
 		release:  releaseDiskSegments,
 	}
+}
+
+// viewMemtables returns the memtables from a view and the count of valid memtables.
+// This avoids allocating a slice on every call by returning a fixed-size array.
+func viewMemtables(view BucketConsistentView) ([2]memtable, int) {
+	if view.Flushing != nil {
+		return [2]memtable{view.Active, view.Flushing}, 2
+	}
+	return [2]memtable{view.Active, nil}, 1
 }
 
 // Get retrieves the single value for the given key.
@@ -550,20 +565,16 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.release()
 
 	return b.getWithConsistentView(key, view)
 }
 
 func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([]byte, error) {
-	memtableNames := []string{"active_memtable", "flushing_memtable"}
-	memtables := []memtable{view.Active}
-	if view.Flushing != nil {
-		memtables = append(memtables, view.Flushing)
-	}
+	memtables, count := viewMemtables(view)
 
-	for i := range memtables {
+	for i := range count {
 		v, err := b.getFromMemtable(key, memtables[i], memtableNames[i])
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
@@ -581,6 +592,32 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 	}
 
 	return b.getFromSegmentGroup(key, view.Disk)
+}
+
+// existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
+// Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
+// This is more efficient than getWithConsistentView() when only existence check is needed.
+func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView) error {
+	memtables, count := viewMemtables(view)
+
+	for i := range count {
+		err := memtables[i].exists(key)
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments, return now
+			return err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return fmt.Errorf("Bucket::exists() %q: %w", memtableNames[i], err)
+		}
+	}
+
+	return b.disk.existsWithSegmentList(key, view.Disk)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
@@ -616,27 +653,44 @@ func (b *Bucket) GetBySecondaryWithBuffer(ctx context.Context, pos int, seckey [
 	return v, allocBuf, err
 }
 
+// GetBySecondaryWithBufferAndView is like [Bucket.GetBySecondaryWithBuffer], but uses
+// an existing consistent view instead of acquiring a new one. This is useful for
+// batch operations where the same view can be reused across multiple lookups to
+// reduce lock contention.
+func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView) ([]byte, []byte, error) {
+	v, allocBuf, err := b.getBySecondaryWithView(ctx, pos, seckey, buffer, view)
+	if err != nil && lsmkv.IsDeletedOrNotFound(err) {
+		return nil, buffer, nil
+	}
+	return v, allocBuf, err
+}
+
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
+	beforeAll := time.Now()
+	view := b.GetConsistentView()
+	defer view.release()
+	tookView := time.Since(beforeAll)
+
+	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, tookView, "lsm_get_by_secondary")
+}
+
+func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView) ([]byte, []byte, error) {
+	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, 0, "lsm_get_by_secondary_with_view")
+}
+
+func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView, viewTiming time.Duration, logKey string) ([]byte, []byte, error) {
 	if pos >= int(b.secondaryIndices) {
 		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
 	}
 
 	beforeAll := time.Now()
-	view := b.getConsistentView()
-	defer view.release()
-	tookView := time.Since(beforeAll)
+	memtables, count := viewMemtables(view)
 
-	memtableNames := []string{"active_memtable", "flushing_memtable"}
-	memtables := []memtable{view.Active}
-	if view.Flushing != nil {
-		memtables = append(memtables, view.Flushing)
-	}
-
-	var memtablesTook []time.Duration
-	for i := range memtables {
+	var memtablesTook [2]time.Duration
+	for i := range count {
 		beforeMemtable := time.Now()
 		v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
-		memtablesTook = append(memtablesTook, time.Since(beforeMemtable))
+		memtablesTook[i] = time.Since(beforeMemtable)
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
@@ -661,21 +715,15 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	if _, err := b.getWithConsistentView(k, view); err != nil {
+	if err := b.existsWithConsistentView(k, view); err != nil {
 		return nil, nil, err
 	}
 	recheckTook := time.Since(beforeReCheck)
 
-	activeMemtableTook := memtablesTook[0]
-	var flushingMemtableTook time.Duration
-	if len(memtablesTook) > 1 {
-		flushingMemtableTook = memtablesTook[1]
-	}
-
-	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary", BucketSlowLogEntry{
-		View:             tookView,
-		ActiveMemtable:   activeMemtableTook,
-		FlushingMemtable: flushingMemtableTook,
+	helpers.AnnotateSlowQueryLogAppend(ctx, logKey, BucketSlowLogEntry{
+		View:             viewTiming,
+		ActiveMemtable:   memtablesTook[0],
+		FlushingMemtable: memtablesTook[1],
 		Segments:         segmentsTook,
 		Recheck:          recheckTook,
 		Total:            time.Since(beforeAll),
@@ -783,7 +831,7 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
 // for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	return b.setListFromConsistentView(view, key)
@@ -976,7 +1024,7 @@ func MapListLegacySortingRequired() MapListOption {
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
 func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	return b.mapListFromConsistentView(ctx, view, key, cfgs...)
@@ -1264,7 +1312,7 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	return b.countFromCV(ctx, view)
@@ -1782,7 +1830,7 @@ func (b *Bucket) WriteWAL() error {
 }
 
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	defer view.Release()
 
 	return b.docPointerWithScoreListFromConsistentView(ctx, view, key, propBoost, cfgs...)
@@ -1885,7 +1933,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
 }
 

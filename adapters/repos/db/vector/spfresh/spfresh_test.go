@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -71,6 +72,14 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
+type noopBucketView struct{}
+
+func (n *noopBucketView) Release() {}
+
+func getViewThunk() common.BucketView {
+	return &noopBucketView{}
+}
+
 func TestSPFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg := DefaultConfig()
@@ -80,6 +89,7 @@ func TestSPFreshRecall(t *testing.T) {
 		ID:                    "spfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		GetViewThunk:          getViewThunk,
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()

@@ -1285,6 +1285,51 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 	return nil, nil
 }
 
+// unmarshalSingleTargetVector unmarshals only the requested target vector, reusing the
+// provided buffer if it has sufficient capacity. This avoids allocating memory for all
+// target vectors when only one is needed (e.g., during HNSW rescoring).
+func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, buffer []float32) ([]float32, error) {
+	if rw.Position >= uint64(len(rw.Buffer)) {
+		return nil, nil
+	}
+
+	targetVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	targetVectorsSegmentLength := rw.ReadUint32()
+	pos := rw.Position
+
+	if len(targetVectorsOffsets) == 0 {
+		return nil, nil
+	}
+
+	var tvOffsets map[string]uint32
+	if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
+		return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
+	}
+
+	offset, ok := tvOffsets[targetVector]
+	if !ok {
+		rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+		return nil, fmt.Errorf("target vector %q not found", targetVector)
+	}
+
+	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+	vecLen := rw.ReadUint16()
+
+	var out []float32
+	if cap(buffer) >= int(vecLen) {
+		out = buffer[:vecLen]
+	} else {
+		out = make([]float32, vecLen)
+	}
+
+	for j := uint16(0); j < vecLen; j++ {
+		out[j] = math.Float32frombits(rw.ReadUint32())
+	}
+
+	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+	return out, nil
+}
+
 // unmarshalMultiVectors unmarshals the multi vectors from the buffer. If onlyUnmarshalNames is set and non-empty,
 // then only the multivectors which names specified as the map's keys will be unmarshaled.
 func unmarshalMultiVectors(
@@ -1366,15 +1411,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		vectorWeightsLength := uint64(rw.ReadUint32())
 		rw.MoveBufferPositionForward(vectorWeightsLength)
 
-		targetVectors, err := unmarshalTargetVectors(&rw)
-		if err != nil {
-			return nil, errors.Errorf("unable to unmarshal vector for target vector: %s", targetVector)
-		}
-		vector, ok := targetVectors[targetVector]
-		if !ok {
-			return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
-		}
-		return vector, nil
+		return unmarshalSingleTargetVector(&rw, targetVector, buffer)
 	}
 
 	// since we know the version and know that the blob is not len(0), we can

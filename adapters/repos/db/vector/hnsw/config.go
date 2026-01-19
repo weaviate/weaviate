@@ -27,25 +27,27 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath                     string
-	ID                           string
-	MakeCommitLoggerThunk        MakeCommitLogger
-	VectorForIDThunk             common.VectorForID[float32]
-	MultiVectorForIDThunk        common.VectorForID[[]float32]
-	TempVectorForIDThunk         common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk    common.TempVectorForID[[]float32]
-	Logger                       logrus.FieldLogger
-	DistanceProvider             distancer.Provider
-	PrometheusMetrics            *monitoring.PrometheusMetrics
-	AllocChecker                 memwatch.AllocChecker
-	WaitForCachePrefill          bool
-	FlatSearchConcurrency        int
-	AcornFilterRatio             float64
-	DisableSnapshots             bool
-	SnapshotOnStartup            bool
-	LazyLoadSegments             bool
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	RootPath                          string
+	ID                                string
+	MakeCommitLoggerThunk             MakeCommitLogger
+	VectorForIDThunk                  common.VectorForID[float32]
+	MultiVectorForIDThunk             common.VectorForID[[]float32]
+	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
+	GetViewThunk                      common.GetViewThunk
+	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
+	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	Logger                            logrus.FieldLogger
+	DistanceProvider                  distancer.Provider
+	PrometheusMetrics                 *monitoring.PrometheusMetrics
+	AllocChecker                      memwatch.AllocChecker
+	WaitForCachePrefill               bool
+	FlatSearchConcurrency             int
+	AcornFilterRatio                  float64
+	DisableSnapshots                  bool
+	SnapshotOnStartup                 bool
+	LazyLoadSegments                  bool
+	WriteSegmentInfoIntoFileName      bool
+	WriteMetadataFilesEnabled         bool
 
 	MinMMapSize     int64
 	MaxWalReuseSize int64
@@ -80,6 +82,10 @@ func (c Config) Validate() error {
 		ec.Addf("distancerProvider cannot be nil")
 	}
 
+	if c.GetViewThunk == nil {
+		ec.Addf("getViewThunk cannot be nil")
+	}
+
 	return ec.ToError()
 }
 
@@ -99,18 +105,18 @@ func NewMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, 
 	return t.VectorForID
 }
 
-func NewTempVectorForIDThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]T, error)) common.TempVectorForID[T] {
-	t := common.TargetTempVectorForID[T]{
-		TargetVector:         targetVector,
-		TempVectorForIDThunk: fn,
-	}
-	return t.TempVectorForID
-}
-
 func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error)) common.TempVectorForID[[]float32] {
 	t := common.TargetTempVectorForID[[]float32]{
 		TargetVector:         targetVector,
 		TempVectorForIDThunk: fn,
 	}
 	return t.TempVectorForID
+}
+
+func NewTempVectorForIDWithViewThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]T, error)) common.TempVectorForIDWithView[T] {
+	t := common.TargetTempVectorForIDWithView[T]{
+		TargetVector:                 targetVector,
+		TempVectorForIDWithViewThunk: fn,
+	}
+	return t.TempVectorForIDWithView
 }
