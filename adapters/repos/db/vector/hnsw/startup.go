@@ -237,13 +237,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
-		if len(h.nodes) > 0 {
-			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
-				h.dims = int32(len(vec))
-			}
-		}
 	} else {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
+	}
+
+	if h.dims == 0 {
+		h.setDimensionsFromEntrypoint()
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -259,6 +258,14 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
 
 	return nil
+}
+
+func (h *hnsw) setDimensionsFromEntrypoint() {
+	if len(h.nodes) > 0 {
+		if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
+			h.dims = int32(len(vec))
+		}
+	}
 }
 
 func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
@@ -306,7 +313,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 }
 
 func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
-	h.dims = int32(data.InputDim)
+	// note we cannot restore h.dims directly from InputDim due to RQ1's min padding
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
