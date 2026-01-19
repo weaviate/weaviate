@@ -112,17 +112,22 @@ func main() {
 		readDuration := time.Since(readStart)
 		totalReadTime += readDuration
 
-		// Write .sorted
+		// Write .sorted using SafeFileWriter for crash safety
 		writeStart := time.Now()
 		base := condensedPath[:len(condensedPath)-len(".condensed")]
 		sortedPath := base + ".sorted"
-		sortedFile, _ := os.Create(sortedPath)
-		bufferedWriter := bufio.NewWriterSize(sortedFile, 1024*1024)
-		sortedWriter := compactv2.NewSortedWriter(bufferedWriter, logger)
-		_ = sortedWriter.WriteAll(res)
-		_ = bufferedWriter.Flush()
-		_ = sortedFile.Sync()
-		sortedFile.Close()
+		sfw, err := compactv2.NewSafeFileWriter(sortedPath, compactv2.DefaultBufferSize)
+		if err != nil {
+			panic(fmt.Errorf("create safe file writer for %s: %w", sortedPath, err))
+		}
+		sortedWriter := compactv2.NewSortedWriter(sfw.Writer(), logger)
+		if err := sortedWriter.WriteAll(res); err != nil {
+			sfw.Abort()
+			panic(fmt.Errorf("write sorted file %s: %w", sortedPath, err))
+		}
+		if err := sfw.Commit(); err != nil {
+			panic(fmt.Errorf("commit sorted file %s: %w", sortedPath, err))
+		}
 		writeDuration := time.Since(writeStart)
 		totalWriteTime += writeDuration
 
@@ -192,17 +197,22 @@ func main() {
 	}
 	mergerDuration := time.Since(mergerStart)
 
-	// Write merged result
+	// Write merged result using SafeFileWriter for crash safety
 	fmt.Println("  Writing merged output...")
 	writeStart := time.Now()
 	mergedPath := "../test_data/merged_all.sorted"
-	mergedFile, _ := os.Create(mergedPath)
-	mergedBufferedWriter := bufio.NewWriterSize(mergedFile, 1024*1024)
-	mergedWriter := compactv2.NewWALWriter(mergedBufferedWriter)
+	mergedSfw, err := compactv2.NewSafeFileWriter(mergedPath, compactv2.DefaultBufferSize)
+	if err != nil {
+		panic(fmt.Errorf("create safe file writer for %s: %w", mergedPath, err))
+	}
+	mergedWriter := compactv2.NewWALWriter(mergedSfw.Writer())
 
 	// First write global commits
 	for _, commit := range merger.GlobalCommits() {
-		_ = writeCommit(mergedWriter, commit)
+		if err := writeCommit(mergedWriter, commit); err != nil {
+			mergedSfw.Abort()
+			panic(fmt.Errorf("write global commit: %w", err))
+		}
 	}
 
 	// Then write node-specific commits
@@ -210,6 +220,7 @@ func main() {
 	for {
 		nodeCommits, err := merger.Next()
 		if err != nil {
+			mergedSfw.Abort()
 			panic(err)
 		}
 		if nodeCommits == nil {
@@ -217,12 +228,15 @@ func main() {
 		}
 		nodesProcessed++
 		for _, commit := range nodeCommits.Commits {
-			_ = writeCommit(mergedWriter, commit)
+			if err := writeCommit(mergedWriter, commit); err != nil {
+				mergedSfw.Abort()
+				panic(fmt.Errorf("write commit for node %d: %w", nodeCommits.NodeID, err))
+			}
 		}
 	}
-	_ = mergedBufferedWriter.Flush()
-	_ = mergedFile.Sync()
-	mergedFile.Close()
+	if err := mergedSfw.Commit(); err != nil {
+		panic(fmt.Errorf("commit merged file %s: %w", mergedPath, err))
+	}
 	writeDuration := time.Since(writeStart)
 
 	// Close all iterator files
@@ -285,16 +299,21 @@ func main() {
 		panic(err)
 	}
 
-	// Write snapshot
+	// Write snapshot using SafeFileWriter for crash safety
 	snapshotPath := "../test_data/merged.snapshot"
-	snapshotFile, _ := os.Create(snapshotPath)
-	snapshotWriter := compactv2.NewSnapshotWriter(snapshotFile)
+	snapshotSfw, err := compactv2.NewSafeFileWriter(snapshotPath, compactv2.DefaultBufferSize)
+	if err != nil {
+		panic(fmt.Errorf("create safe file writer for %s: %w", snapshotPath, err))
+	}
+	snapshotWriter := compactv2.NewSnapshotWriter(snapshotSfw.Writer())
 
 	if err := snapshotWriter.WriteFromMerger(snapshotMerger); err != nil {
+		snapshotSfw.Abort()
 		panic(fmt.Errorf("write snapshot: %w", err))
 	}
-	_ = snapshotFile.Sync()
-	snapshotFile.Close()
+	if err := snapshotSfw.Commit(); err != nil {
+		panic(fmt.Errorf("commit snapshot file %s: %w", snapshotPath, err))
+	}
 
 	// Close iterator files
 	for _, file := range snapshotIteratorFiles {
