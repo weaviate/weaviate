@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func (r *WeaviateReader) GetObjects(ctx context.Context, req mcp.CallToolRequest, args GetObjectsArgs) (*GetObjectsResp, error) {
@@ -78,55 +79,47 @@ func (r *WeaviateReader) getObjectsByUUIDs(ctx context.Context, principal *model
 func (r *WeaviateReader) getObjectsList(ctx context.Context, principal *models.Principal,
 	args GetObjectsArgs, addl additional.Properties) ([]*models.Object, error) {
 
-	// Convert offset and limit to int64 pointers
-	var offset *int64
-	var limit *int64
-
-	if args.Offset != nil {
-		val := int64(*args.Offset)
-		offset = &val
-	}
-
-	if args.Limit != nil {
-		val := int64(*args.Limit)
-		limit = &val
-	} else {
-		// Default limit
-		defaultLimit := int64(25)
-		limit = &defaultLimit
-	}
-
-	// GetObjects requires class name, but we're fetching from a specific collection
-	// We need to use a different approach - let me check if there's a better method
-
-	// For now, we'll return an error if collection name is not provided when fetching a list
 	if args.CollectionName == "" {
 		return nil, fmt.Errorf("collection_name is required")
 	}
 
-	// Call the objects manager to get the list
-	// Note: GetObjects doesn't support filtering by class directly, so we need to
-	// get all objects and filter by class ourselves, or use a different approach
+	// Use Query method with QueryParams (same as REST endpoint does)
+	var tenant *string
+	if args.TenantName != "" {
+		tenant = &args.TenantName
+	}
 
-	// For simplicity, we'll just call GetObjects and let authorization handle filtering
-	objects, err := r.objectsManager.GetObjects(ctx, principal, offset, limit, nil, nil, nil, addl, args.TenantName)
+	queryParams := &objects.QueryParams{
+		Class:      args.CollectionName,
+		Offset:     convertToInt64Ptr(args.Offset),
+		Limit:      convertToInt64Ptr(args.Limit),
+		Tenant:     tenant,
+		Additional: addl,
+	}
+
+	objs, err := r.objectsManager.Query(ctx, principal, queryParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get objects: %w", err)
 	}
 
-	// Filter by collection name if objects are from different collections
-	filteredObjects := make([]*models.Object, 0)
-	for _, obj := range objects {
-		if obj.Class == args.CollectionName {
-			// Filter properties if specified
-			if len(args.ReturnProperties) > 0 {
-				obj = r.filterProperties(obj, args.ReturnProperties)
-			}
-			filteredObjects = append(filteredObjects, obj)
+	// Filter properties if specified
+	filteredObjects := make([]*models.Object, 0, len(objs))
+	for _, obj := range objs {
+		if len(args.ReturnProperties) > 0 {
+			obj = r.filterProperties(obj, args.ReturnProperties)
 		}
+		filteredObjects = append(filteredObjects, obj)
 	}
 
 	return filteredObjects, nil
+}
+
+func convertToInt64Ptr(i *int) *int64 {
+	if i == nil {
+		return nil
+	}
+	val := int64(*i)
+	return &val
 }
 
 func (r *WeaviateReader) buildAdditionalProperties(args GetObjectsArgs) additional.Properties {

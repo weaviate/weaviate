@@ -1216,6 +1216,8 @@ go test ./test/acceptance/mcp/ -run TestUpsertTool_InsertMultipleObjects
 
 # Run with verbose output
 go test -v ./test/acceptance/mcp/...
+
+go test ./test/acceptance/mcp -run TestGetObjects -v
 ```
 
 **Prerequisites:**

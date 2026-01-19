@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestGetSchemaTool(t *testing.T) {
+func TestCollectionsGetConfigTool(t *testing.T) {
 	helper.SetupClient("localhost:8080")
 	apiKey := "admin-key"
 

@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type schemaReader interface {
@@ -32,6 +33,7 @@ type objectsManager interface {
 		additional additional.Properties, replProps *additional.ReplicationProperties, tenant string) (*models.Object, error)
 	GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64,
 		sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error)
+	Query(ctx context.Context, principal *models.Principal, params *objects.QueryParams) ([]*models.Object, *objects.Error)
 }
 
 type WeaviateReader struct {
