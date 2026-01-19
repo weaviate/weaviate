@@ -1189,7 +1189,42 @@ go build ./cmd/weaviate-server
 
 ### Testing
 
-Currently, there are no dedicated unit tests for the MCP handlers. To test:
+#### Acceptance Tests
+
+Acceptance tests are available in `test/acceptance/mcp/` for testing MCP tools end-to-end:
+
+- **`upsert_test.go`** - Tests for `weaviate-objects-upsert` tool:
+  - `TestUpsertTool_InsertOneObject` - Insert a single object
+  - `TestUpsertTool_InsertMultipleObjects` - Batch insert multiple objects
+  - `TestUpsertTool_UpdateOneObject` - Update an existing object by UUID
+  - `TestUpsertTool_UpdateMultipleObjects` - Batch update multiple existing objects
+  - `TestUpsertTool_MixedInsertAndUpdate` - Mixed batch with both inserts and updates
+  - `TestUpsertTool_WithVectors` - Insert object with custom vectors
+  - `TestUpsertTool_EmptyBatch` - Validation for empty batch (error case)
+
+- **`get_test.go`** - Tests for read operations
+- **`create_test.go`** - Tests for create operations
+- **`search_test.go`** - Tests for search operations
+
+**Running acceptance tests:**
+```bash
+# Run all MCP acceptance tests
+go test ./test/acceptance/mcp/...
+
+# Run specific test
+go test ./test/acceptance/mcp/ -run TestUpsertTool_InsertMultipleObjects
+
+# Run with verbose output
+go test -v ./test/acceptance/mcp/...
+```
+
+**Prerequisites:**
+- Weaviate server must be running on `localhost:8080`
+- MCP server must be running on `localhost:9000`
+- Use `./tools/dev/run_dev_server.sh local-mcp` to start with proper configuration
+- Authentication is required for all MCP operations (use `admin-key` for tests)
+
+#### Manual Testing
 
 1. **Manual Testing:**
    ```bash
