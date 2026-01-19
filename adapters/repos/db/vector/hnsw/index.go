@@ -195,6 +195,11 @@ type hnsw struct {
 
 	visitedListPoolMaxSize int
 
+	tombstoneDeletionConcurrency int
+	tombstoneDeletionMinPerCycle int64
+	tombstoneDeletionMaxPerCycle int64
+	isMultiTenant                bool
+
 	// only used for multivector mode
 	multivector     atomic.Bool
 	muvera          atomic.Bool
@@ -360,6 +365,11 @@ func New(cfg Config, uc ent.UserConfig,
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+
+		tombstoneDeletionConcurrency: cfg.TombstoneDeletionConcurrency,
+		tombstoneDeletionMinPerCycle: cfg.TombstoneDeletionMinPerCycle,
+		tombstoneDeletionMaxPerCycle: cfg.TombstoneDeletionMaxPerCycle,
+		isMultiTenant:                cfg.IsMultiTenant,
 
 		docIDVectors:    make(map[uint64][]uint64),
 		muveraEncoder:   muveraEncoder,
