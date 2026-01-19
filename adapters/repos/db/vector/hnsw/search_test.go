@@ -52,6 +52,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &noopBucketView{} },
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -116,6 +117,7 @@ func TestQueryVectorDistancer(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
+		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -156,6 +158,7 @@ func TestQueryMultiVectorDistancer(t *testing.T) {
 		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
 			return vectors[int(id)], nil
 		},
+		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections:        30,
 		EFConstruction:        128,

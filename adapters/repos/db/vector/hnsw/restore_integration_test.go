@@ -89,6 +89,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 			}
 			return vec, nil
 		},
+		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}
 

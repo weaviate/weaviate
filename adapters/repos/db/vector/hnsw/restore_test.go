@@ -32,6 +32,10 @@ import (
 
 var logger, _ = test.NewNullLogger()
 
+type restoreNoopBucketView struct{}
+
+func (n *restoreNoopBucketView) Release() {}
+
 func Test_RestartFromZeroSegments(t *testing.T) {
 	testPath := t.TempDir()
 	src := path.Join(".", "compression_tests", "fixtures", "restart-from-zero-segments", "1234567")
@@ -68,6 +72,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
+		GetViewThunk: func() common.BucketView { return &restoreNoopBucketView{} },
 		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
@@ -120,6 +125,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 			}
 			return vec, nil
 		},
+		GetViewThunk:                 func() common.BucketView { return &restoreNoopBucketView{} },
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}
 

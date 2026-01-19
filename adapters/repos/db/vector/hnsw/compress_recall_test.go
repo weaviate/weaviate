@@ -34,6 +34,10 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+type compressRecallNoopBucketView struct{}
+
+func (n *compressRecallNoopBucketView) Release() {}
+
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
 		dist, _ := provider.SingleDist(x, y)
@@ -93,6 +97,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				}
 				return vectors[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &compressRecallNoopBucketView{} },
 			TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 				copy(container.Slice, vectors[int(id)])
 				return container.Slice, nil

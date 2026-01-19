@@ -1268,11 +1268,13 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	// The underlying test set can be found in vectors_for_test.go
 
 	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "delete-entrypoint-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk:      testVectorForID,
+		RootPath:                     "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                           "delete-entrypoint-test",
+		MakeCommitLoggerThunk:        MakeNoopCommitLogger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:             testVectorForID,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(testVectors),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
