@@ -331,7 +331,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 	}
 	defer closeFiles()
 
-	iterators := make([]*Iterator, 0, len(filesToMerge))
+	iterators := make([]IteratorLike, 0, len(filesToMerge))
 	for i, f := range filesToMerge {
 		file, err := os.Open(f.Path)
 		if err != nil {
@@ -471,12 +471,10 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 		iterators = append(iterators, it)
 	}
 
-	// Convert to []*Iterator for NWayMerger
-	// This requires us to use a type that can work with both Iterator and SnapshotIterator
-	// For now, we need to use a unified merger that accepts IteratorLike
-	merger, err := NewUnifiedMerger(iterators, c.logger)
+	// Create n-way merger
+	merger, err := NewNWayMerger(iterators, c.logger)
 	if err != nil {
-		return errors.Wrap(err, "create unified merger")
+		return errors.Wrap(err, "create n-way merger")
 	}
 
 	// Determine output filename
@@ -493,7 +491,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 	defer sfw.Abort()
 
 	snapshotWriter := NewSnapshotWriter(sfw.Writer())
-	if err := snapshotWriter.WriteFromUnifiedMerger(merger); err != nil {
+	if err := snapshotWriter.WriteFromMerger(merger); err != nil {
 		return errors.Wrap(err, "write snapshot from merger")
 	}
 

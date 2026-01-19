@@ -686,55 +686,5 @@ type nodeStateWithTombstone struct {
 	hasTombstone bool
 }
 
-// WriteFromUnifiedMerger writes snapshot data from a unified merger.
-// This is similar to WriteFromMerger but works with the IteratorLike interface.
-func (s *SnapshotWriter) WriteFromUnifiedMerger(merger *UnifiedMerger) error {
-	// Extract global state from merged commits
-	for _, c := range merger.GlobalCommits() {
-		switch ct := c.(type) {
-		case *SetEntryPointMaxLevelCommit:
-			s.SetEntrypoint(ct.Entrypoint, ct.Level)
-		case *AddPQCommit:
-			s.SetPQData(ct.Data)
-		case *AddSQCommit:
-			s.SetSQData(ct.Data)
-		case *AddRQCommit:
-			s.SetRQData(ct.Data)
-		case *AddBRQCommit:
-			s.SetBRQData(ct.Data)
-		case *AddMuveraCommit:
-			s.SetMuveraData(ct.Data)
-		}
-	}
-
-	// Process all nodes from the merger
-	for {
-		nodeCommits, err := merger.Next()
-		if err != nil {
-			return errors.Wrap(err, "read next node from merger")
-		}
-		if nodeCommits == nil {
-			// No more nodes
-			break
-		}
-
-		// Convert commits to absolute state
-		state := s.commitsToNodeState(nodeCommits)
-		if state != nil {
-			s.AddNode(nodeCommits.NodeID, state.level, state.connections, state.hasTombstone)
-		} else {
-			// Check if there's just a tombstone for this node
-			for _, c := range nodeCommits.Commits {
-				if _, ok := c.(*AddTombstoneCommit); ok {
-					s.AddTombstone(nodeCommits.NodeID)
-					break
-				}
-			}
-		}
-	}
-
-	return s.Flush()
-}
-
 // Note: Helper functions writeByte, writeBool, writeUint16, writeUint32, writeUint64
 // are defined in wal_writer.go and shared across the package.

@@ -20,8 +20,10 @@ import (
 
 // NWayMerger performs an n-way merge of sorted commit logs.
 // It takes n iterators and merges them into a single sorted stream.
+// It accepts any iterator implementing the IteratorLike interface,
+// allowing both regular Iterator (from .sorted files) and SnapshotIterator to be merged.
 type NWayMerger struct {
-	iterators     []*Iterator
+	iterators     []IteratorLike
 	heap          *iteratorHeap
 	logger        logrus.FieldLogger
 	mergedGlobals []Commit
@@ -29,7 +31,7 @@ type NWayMerger struct {
 
 // NewNWayMerger creates a new n-way merger with the given iterators.
 // Iterators should be ordered by precedence: higher index = more recent log.
-func NewNWayMerger(iterators []*Iterator, logger logrus.FieldLogger) (*NWayMerger, error) {
+func NewNWayMerger(iterators []IteratorLike, logger logrus.FieldLogger) (*NWayMerger, error) {
 	if len(iterators) == 0 {
 		return nil, errors.New("at least one iterator required")
 	}
@@ -159,13 +161,13 @@ func (m *NWayMerger) Next() (*NodeCommits, error) {
 	}
 
 	// Get the iterator with the lowest current node ID
-	minIt := heap.Pop(m.heap).(*Iterator)
+	minIt := heap.Pop(m.heap).(IteratorLike)
 	minNodeID := minIt.Current().NodeID
 
 	// Collect all iterators with the same node ID
-	iteratorsForNode := []*Iterator{minIt}
+	iteratorsForNode := []IteratorLike{minIt}
 	for m.heap.Len() > 0 && (*m.heap)[0].Current().NodeID == minNodeID {
-		iteratorsForNode = append(iteratorsForNode, heap.Pop(m.heap).(*Iterator))
+		iteratorsForNode = append(iteratorsForNode, heap.Pop(m.heap).(IteratorLike))
 	}
 
 	// Merge commits from all iterators for this node
@@ -190,9 +192,9 @@ func (m *NWayMerger) Next() (*NodeCommits, error) {
 
 // mergeNodeCommits merges commits for a single node from multiple iterators.
 // Iterators are processed in order of precedence (highest ID first = most recent).
-func (m *NWayMerger) mergeNodeCommits(nodeID uint64, iterators []*Iterator) (*NodeCommits, error) {
+func (m *NWayMerger) mergeNodeCommits(nodeID uint64, iterators []IteratorLike) (*NodeCommits, error) {
 	// Sort iterators by ID in descending order (highest precedence first)
-	sortedIterators := make([]*Iterator, len(iterators))
+	sortedIterators := make([]IteratorLike, len(iterators))
 	copy(sortedIterators, iterators)
 	for i := 0; i < len(sortedIterators)-1; i++ {
 		for j := i + 1; j < len(sortedIterators); j++ {
@@ -218,7 +220,7 @@ func (m *NWayMerger) mergeNodeCommits(nodeID uint64, iterators []*Iterator) (*No
 }
 
 // iteratorHeap is a min-heap of iterators ordered by current node ID.
-type iteratorHeap []*Iterator
+type iteratorHeap []IteratorLike
 
 func (h iteratorHeap) Len() int { return len(h) }
 
@@ -230,11 +232,11 @@ func (h iteratorHeap) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]
 }
 
-func (h *iteratorHeap) Push(x interface{}) {
-	*h = append(*h, x.(*Iterator))
+func (h *iteratorHeap) Push(x any) {
+	*h = append(*h, x.(IteratorLike))
 }
 
-func (h *iteratorHeap) Pop() interface{} {
+func (h *iteratorHeap) Pop() any {
 	old := *h
 	n := len(old)
 	item := old[n-1]

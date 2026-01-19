@@ -31,7 +31,7 @@ func TestNWayMerger_SingleIterator(t *testing.T) {
 	it, err := NewIterator(reader, 0, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it}, logrus.New())
 	require.NoError(t, err)
 
 	// Check global commits
@@ -76,7 +76,7 @@ func TestNWayMerger_TwoIteratorsNoOverlap(t *testing.T) {
 	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
 	require.NoError(t, err)
 
 	// Should get nodes in sorted order: 1, 2, 3, 4
@@ -113,7 +113,7 @@ func TestNWayMerger_TwoIteratorsWithOverlap_AddLinks(t *testing.T) {
 	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
 	require.NoError(t, err)
 
 	// Should merge node 5
@@ -166,7 +166,7 @@ func TestNWayMerger_ReplaceLinksStopsAccumulation(t *testing.T) {
 	it2, err := NewIterator(newFakeCommitReader(commits2), 2, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1, it2}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1, it2}, logrus.New())
 	require.NoError(t, err)
 
 	nodeCommits, err := merger.Next()
@@ -207,7 +207,7 @@ func TestNWayMerger_DeleteNodeDropsAllData(t *testing.T) {
 	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
 	require.NoError(t, err)
 
 	nodeCommits, err := merger.Next()
@@ -237,7 +237,7 @@ func TestNWayMerger_TombstoneAddRemoveCancellation(t *testing.T) {
 	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
 	require.NoError(t, err)
 
 	nodeCommits, err := merger.Next()
@@ -268,7 +268,7 @@ func TestNWayMerger_TombstoneWithDeleteNode(t *testing.T) {
 	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
 	require.NoError(t, err)
 
 	nodeCommits, err := merger.Next()
@@ -309,7 +309,7 @@ func TestNWayMerger_GlobalCommitsMerged(t *testing.T) {
 	it2, err := NewIterator(newFakeCommitReader(commits2), 2, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1, it2}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1, it2}, logrus.New())
 	require.NoError(t, err)
 
 	// Should have all global commits merged
@@ -343,7 +343,7 @@ func TestNWayMerger_GlobalCommitsPrecedence(t *testing.T) {
 	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
 	require.NoError(t, err)
 
 	globalCommits := merger.GlobalCommits()
@@ -387,7 +387,7 @@ func TestNWayMerger_ThreeIteratorsComplexMerge(t *testing.T) {
 	it2, err := NewIterator(newFakeCommitReader(commits2), 2, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1, it2}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1, it2}, logrus.New())
 	require.NoError(t, err)
 
 	// Node 1 (only in it0)
@@ -454,7 +454,7 @@ func TestNWayMerger_ClearLinksAtLevel(t *testing.T) {
 	it2, err := NewIterator(newFakeCommitReader(commits2), 2, logrus.New())
 	require.NoError(t, err)
 
-	merger, err := NewNWayMerger([]*Iterator{it0, it1, it2}, logrus.New())
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1, it2}, logrus.New())
 	require.NoError(t, err)
 
 	nodeCommits, err := merger.Next()

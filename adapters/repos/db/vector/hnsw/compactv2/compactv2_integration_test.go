@@ -359,7 +359,7 @@ func mergeSortedFiles(t *testing.T, sortedPaths []string, outputPath string, log
 	t.Helper()
 
 	// Create iterators
-	iterators := make([]*Iterator, len(sortedPaths))
+	iterators := make([]IteratorLike, len(sortedPaths))
 	files := make([]*os.File, len(sortedPaths))
 
 	for i, path := range sortedPaths {
@@ -414,7 +414,7 @@ func writeSnapshotFromSortedFiles(t *testing.T, sortedPaths []string, snapshotPa
 	t.Helper()
 
 	// Create iterators
-	iterators := make([]*Iterator, len(sortedPaths))
+	iterators := make([]IteratorLike, len(sortedPaths))
 	files := make([]*os.File, len(sortedPaths))
 
 	for i, path := range sortedPaths {
