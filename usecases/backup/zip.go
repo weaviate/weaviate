@@ -43,8 +43,6 @@ const (
 	NoCompression
 )
 
-const MaxChunkSize = 1024 * 1024 * 1024 // 1 GB
-
 type compressor interface {
 	Flush() error
 	Write(p []byte) (n int, err error)
@@ -52,14 +50,14 @@ type compressor interface {
 }
 
 type zip struct {
-	sourcePath       string
-	w                *tar.Writer
-	compressorWriter compressor
-	pipeWriter       *io.PipeWriter
-	maxChunkSize     int64
+	sourcePath          string
+	w                   *tar.Writer
+	compressorWriter    compressor
+	pipeWriter          *io.PipeWriter
+	maxChunkSizeInBytes int64
 }
 
-func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
+func NewZip(sourcePath string, level int, maxSizePerChunkInMB int) (zip, io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -92,11 +90,11 @@ func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
 	}
 
 	return zip{
-		sourcePath:       sourcePath,
-		compressorWriter: gzw,
-		w:                tarW,
-		pipeWriter:       pw,
-		maxChunkSize:     MaxChunkSize,
+		sourcePath:          sourcePath,
+		compressorWriter:    gzw,
+		w:                   tarW,
+		pipeWriter:          pw,
+		maxChunkSizeInBytes: int64(maxSizePerChunkInMB * 1024 * 1024), // mb => bytes
 	}, reader, nil
 }
 
@@ -203,7 +201,7 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	if !info.Mode().IsRegular() {
 		return 0, false, nil // ignore directories
 	}
-	if !firstFile && preCompressionSize.Load()+info.Size() > MaxChunkSize {
+	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
 		return 0, true, nil
 	}
 

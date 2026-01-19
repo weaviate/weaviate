@@ -32,14 +32,16 @@ type backupper struct {
 	rbacSourcer    fsm.Snapshotter
 	dynUserSourcer fsm.Snapshotter
 	backends       BackupBackendProvider
+	cfg            config.Backup
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		node:           node,
+		cfg:            cfg,
 		logger:         logger,
 		sourcer:        sourcer,
 		rbacSourcer:    rbacSourcer,
@@ -132,7 +134,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
-		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
