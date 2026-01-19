@@ -262,7 +262,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 
 func (h *hnsw) setDimensionsFromEntrypoint() {
 	if len(h.nodes) > 0 {
-		if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
+		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
 			h.dims = int32(len(vec))
 		}
 	}
