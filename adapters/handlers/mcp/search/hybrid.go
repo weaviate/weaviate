@@ -13,13 +13,16 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -68,12 +71,34 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		}
 	}
 
+	// Parse filters if provided
+	var localFilter *filters.LocalFilter
+	if args.Filters != nil {
+		// Convert map to WhereFilter
+		filterJSON, err := json.Marshal(args.Filters)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal filters: %w", err)
+		}
+
+		var whereFilter models.WhereFilter
+		if err := json.Unmarshal(filterJSON, &whereFilter); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal filters: %w", err)
+		}
+
+		// Parse to LocalFilter
+		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse filters: %w", err)
+		}
+	}
+
 	res, err := s.traverser.GetClass(ctx, principal, dto.GetParams{
 		ClassName:            args.CollectionName,
 		Tenant:               args.TenantName,
 		Properties:           selectProps,
 		HybridSearch:         hybridSearch,
 		Pagination:           pagination,
+		Filters:              localFilter,
 		AdditionalProperties: additionalProps,
 	})
 	if err != nil {

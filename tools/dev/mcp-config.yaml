@@ -18,7 +18,7 @@ tools:
     description: "Lists all tenants for a specific multi-tenant collection. Use this to discover which tenants exist in a collection before performing tenant-scoped operations."
 
   weaviate-query-hybrid:
-    description: "Performs a hybrid search combining vector similarity and keyword matching (BM25) on a collection. This is the primary search tool - use it to find relevant objects based on natural language queries. The alpha parameter controls the balance between semantic (vector) and keyword search."
+    description: "Performs a hybrid search combining vector similarity and keyword matching (BM25) on a collection. This is the primary search tool - use it to find relevant objects based on natural language queries. The alpha parameter controls the balance between semantic (vector) and keyword search. Supports optional filters to narrow down results based on property values using the same where filter syntax as weaviate-objects-delete."
 
   weaviate-collections-create:
     description: "Creates a new collection (class) in the Weaviate database. Use this to define the schema for a new data type with properties, vector configuration, inverted index settings, and multi-tenancy options. Essential for setting up your data structure before inserting objects."

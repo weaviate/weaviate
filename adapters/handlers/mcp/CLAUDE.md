@@ -25,7 +25,7 @@ The MCP server exposes Weaviate functionality as tools that can be called by LLM
 - Built on [mcp-go](https://mcp-go.dev/) library
 
 **Server Configuration:**
-- **Port:** 9000 (hardcoded in `server.go:58`)
+- **Port:** 9000 (hardcoded in `server.go`)
 - **Protocol:** HTTP with Server-Sent Events (SSE)
 - **Version:** 0.1.0
 - **Enabled:** Controlled by `MCP_SERVER_ENABLED` environment variable (must be set to `true`, disabled by default)
@@ -39,55 +39,89 @@ The codebase is organized into logical packages by functionality:
 
 ```
 adapters/handlers/mcp/
-├── README.md           # This file
+├── CLAUDE.md           # This file - comprehensive documentation
 ├── server.go           # Main MCP server setup and lifecycle
+├── config.go           # Configuration loading for custom tool descriptions
 ├── auth/               # Authentication and authorization
 │   └── auth.go         # Principal extraction from requests
-├── create/             # Object creation tools
+├── create/             # Object creation and deletion tools
 │   ├── create.go       # WeaviateCreator struct and constructor
-│   ├── insert_one.go   # Insert single object implementation
+│   ├── upsert_objects.go    # Batch upsert objects implementation
+│   ├── create_collection.go # Create collection/schema implementation
+│   ├── delete_objects.go    # Delete objects with filters implementation
 │   ├── requests.go     # Request argument structs
 │   ├── responses.go    # Response structs
 │   └── tools.go        # Tool registration
-├── read/               # Schema and metadata reading tools
+├── read/               # Schema, metadata, and object reading tools
 │   ├── reader.go       # WeaviateReader struct and constructor
 │   ├── schema.go       # Get schema implementation
 │   ├── tenants.go      # Get tenants implementation
+│   ├── get_objects.go  # Get objects by UUID or list implementation
+│   ├── logs.go         # Fetch server logs implementation
 │   ├── requests.go     # Request argument structs
 │   ├── responses.go    # Response structs
 │   └── tools.go        # Tool registration
-└── search/             # Search and query tools
-    ├── search.go       # WeaviateSearcher struct and constructor
-    ├── hybrid.go       # Hybrid search implementation
-    ├── requests.go     # Request argument structs
-    └── tools.go        # Tool registration
+├── search/             # Search and query tools
+│   ├── search.go       # WeaviateSearcher struct and constructor
+│   ├── hybrid.go       # Hybrid search with filters implementation
+│   ├── requests.go     # Request argument structs
+│   ├── responses.go    # Response structs
+│   └── tools.go        # Tool registration
+├── internal/           # Internal utilities
+│   └── descriptions.go # Tool description helper functions
+└── loghook/            # Log capturing
+    └── buffer.go       # Circular buffer hook for logrus
 ```
 
 ### Component Responsibilities
 
 **Server (`server.go`):**
 - Creates and configures the MCP server instance
-- Registers all tools from create/read/search packages
+- Registers all tools from create/read/search packages based on environment variables
 - Manages server lifecycle (start/shutdown)
 - Integrates with Weaviate's state management
+- Loads custom tool descriptions from YAML configuration
+
+**Config (`config.go`):**
+- Loads tool description overrides from YAML file
+- Supports customizing tool descriptions for LLM clients
+- Provides defaults when custom descriptions are not available
 
 **Auth (`auth/`):**
 - Extracts authentication credentials from MCP requests
 - Validates principals using Weaviate's auth composer
-- Enforces RBAC authorization for MCP operations
-- Supports Bearer token authentication
+- Enforces RBAC authorization for MCP operations (CREATE, READ, UPDATE, DELETE)
+- Supports Bearer token authentication and anonymous access
 
 **Create (`create/`):**
-- Handles object creation operations
-- Manages object insertion with tenant support
+- Handles object creation and deletion operations
+- Batch upsert (insert/update) multiple objects with UUID support
+- Create collections with full schema configuration (properties, vectors, indexes, multi-tenancy)
+- Delete objects with filters and dry-run safety mode
+- Supports multi-tenant operations across all tools
 
 **Read (`read/`):**
-- Provides schema introspection
-- Lists and filters tenants for collections
+- Provides schema introspection for one or all collections
+- Lists and filters tenants for multi-tenant collections
+- Retrieves objects by UUID or fetches paginated lists
+- Fetches server logs from in-memory buffer with pagination
+- Supports property and metadata filtering
 
 **Search (`search/`):**
-- Executes hybrid search queries
-- Supports tenant-scoped searches
+- Executes hybrid search queries (vector + keyword/BM25)
+- Supports filters to narrow down search results
+- Tenant-scoped searches for multi-tenant collections
+- Configurable alpha parameter for semantic vs keyword balance
+- Returns customizable properties and metadata
+
+**Internal (`internal/`):**
+- Utility functions for tool description management
+- Helper for loading custom descriptions from configuration
+
+**LogHook (`loghook/`):**
+- Circular buffer implementation for capturing logs
+- Integration with logrus for log collection
+- Supports pagination for log retrieval
 
 ## Available Tools
 
@@ -507,18 +541,25 @@ The `where` parameter uses Weaviate's filter syntax with the following structure
 
 **Basic Filter Fields:**
 - `path`: Array of property names (always an array, even for single property: `["propertyName"]`)
-- `operator`: One of: `"Equal"`, `"NotEqual"`, `"GreaterThan"`, `"GreaterThanEqual"`, `"LessThan"`, `"LessThanEqual"`, `"Like"`, `"ContainsAny"`, `"ContainsAll"`, `"IsNull"`, `"And"`, `"Or"`
+- `operator`: See valid operators list below
 - **Value fields** (use ONE based on data type):
   - `valueText`: String value (e.g., `"draft"`)
   - `valueInt`: Integer value (e.g., `100`)
   - `valueNumber`: Float value (e.g., `3.14`)
   - `valueBoolean`: Boolean value (e.g., `true`)
-  - `valueDate`: Date string in ISO format (e.g., `"2020-01-01T00:00:00Z"`)
-  - **Array variants** for `ContainsAny`/`ContainsAll`: `valueTextArray`, `valueIntArray`, `valueNumberArray`, `valueBooleanArray`, `valueDateArray`
+  - `valueDate`: Date string in **RFC3339 format** - **MUST include time and timezone** (e.g., `"2001-01-01T00:00:00Z"`, NOT just `"2001-01-01"`)
+  - **Array variants** for `ContainsAny`/`ContainsAll`/`ContainsNone`: `valueTextArray`, `valueIntArray`, `valueNumberArray`, `valueBooleanArray`, `valueDateArray`
+
+**Valid Operators:**
+- Comparison: `Equal`, `NotEqual`, `GreaterThan`, `GreaterThanEqual`, `LessThan`, `LessThanEqual`
+- Text: `Like` (supports wildcards like `*`)
+- Logical: `And`, `Or`, `Not`
+- Array: `ContainsAny`, `ContainsAll`, `ContainsNone`
+- Special: `IsNull`, `WithinGeoRange`
 
 **Complex Filters:**
 - `operands`: Array of sub-filters (required when operator is `"And"` or `"Or"`)
-- Do NOT include `path` when using `And`/`Or` operators
+- Do NOT include `path` when using `And`/`Or` operators at the top level
 
 **Examples:**
 
@@ -550,6 +591,19 @@ Delete objects with a numeric filter:
     "path": ["price"],
     "operator": "LessThan",
     "valueNumber": 10
+  },
+  "dry_run": false
+}
+```
+
+Delete objects with a date filter:
+```json
+{
+  "collection_name": "Movie",
+  "where": {
+    "path": ["releaseDate"],
+    "operator": "GreaterThan",
+    "valueDate": "2001-01-01T00:00:00Z"
   },
   "dry_run": false
 }
@@ -648,11 +702,34 @@ Delete objects for a specific tenant:
    {"path": ["age"], "operator": "GreaterThan", "valueNumber": 18}
    ```
 
+5. **Mistake:** Using incorrect operator names (with "Or" in the middle)
+   ```json
+   // WRONG
+   {"path": ["age"], "operator": "GreaterThanOrEqual", "valueNumber": 18}
+   {"path": ["score"], "operator": "LessThanOrEqual", "valueNumber": 100}
+
+   // CORRECT
+   {"path": ["age"], "operator": "GreaterThanEqual", "valueNumber": 18}
+   {"path": ["score"], "operator": "LessThanEqual", "valueNumber": 100}
+   ```
+
+6. **Mistake:** Using incomplete date format (missing time component)
+   ```json
+   // WRONG - date only, missing time
+   {"path": ["releaseDate"], "operator": "GreaterThan", "valueDate": "2001-01-01"}
+
+   // CORRECT - full RFC3339 format with time and timezone
+   {"path": ["releaseDate"], "operator": "GreaterThan", "valueDate": "2001-01-01T00:00:00Z"}
+
+   // Also CORRECT - with specific time
+   {"path": ["publishedAt"], "operator": "LessThan", "valueDate": "2020-12-31T23:59:59Z"}
+   ```
+
 **Value Field Reference:**
 - Text properties → `valueText` (string)
 - Number properties (int/float) → `valueNumber` (number) or `valueInt` (integer)
 - Boolean properties → `valueBoolean` (true/false)
-- Date properties → `valueDate` (ISO 8601 string: "2020-01-01T00:00:00Z")
+- Date properties → `valueDate` (RFC3339 string: **"2001-01-01T00:00:00Z"** - must include time and timezone, not just date)
 - Array operators (ContainsAny/ContainsAll) → `valueTextArray`, `valueIntArray`, etc.
 
 ---
@@ -824,6 +901,7 @@ Performs hybrid search (combining vector and keyword search) on a collection.
 - `target_properties` (array of strings, optional): Properties to perform BM25 keyword search on. If not specified, searches all text properties
 - `return_properties` (array of strings, optional): Properties to return in the result. If not specified, all properties are returned
 - `return_metadata` (array of strings, optional): Metadata to return in the result. Supported values: `id`, `vector`, `distance`, `score`, `explainScore`, `creationTimeUnix`, `lastUpdateTimeUnix`, `certainty`
+- `filters` (object, optional): Filter to narrow down search results using Weaviate's where filter syntax (same format as `where` in `weaviate-objects-delete`). The filter is applied after the hybrid search to refine results based on property values. See examples below for syntax.
 
 **Returns:**
 ```json
@@ -871,6 +949,93 @@ The response is a structured object containing a `results` array with all matchi
 }
 ```
 
+**Example - Search with filters (filter by status):**
+```json
+{
+  "query": "machine learning",
+  "collection_name": "Article",
+  "limit": 10,
+  "filters": {
+    "path": ["status"],
+    "operator": "Equal",
+    "valueText": "published"
+  }
+}
+```
+
+**Example - Search with complex filters (AND condition):**
+```json
+{
+  "query": "deep learning",
+  "collection_name": "Article",
+  "filters": {
+    "operator": "And",
+    "operands": [
+      {
+        "path": ["status"],
+        "operator": "Equal",
+        "valueText": "published"
+      },
+      {
+        "path": ["publishYear"],
+        "operator": "GreaterThanEqual",
+        "valueNumber": 2020
+      }
+    ]
+  }
+}
+```
+
+**Example - Search with numeric filter:**
+```json
+{
+  "query": "popular articles",
+  "collection_name": "Article",
+  "limit": 5,
+  "filters": {
+    "path": ["viewCount"],
+    "operator": "GreaterThan",
+    "valueNumber": 1000
+  },
+  "return_metadata": ["id", "score"]
+}
+```
+
+**Example - Search with date filter:**
+```json
+{
+  "query": "recent movies",
+  "collection_name": "Movie",
+  "limit": 10,
+  "filters": {
+    "path": ["releaseDate"],
+    "operator": "GreaterThan",
+    "valueDate": "2001-01-01T00:00:00Z"
+  }
+}
+```
+
+**Important Notes:**
+- Filters use the same syntax as the `where` parameter in `weaviate-objects-delete`
+- The filter is applied **after** the hybrid search, refining the results
+- For complex filters, use `And` or `Or` operators with `operands`
+- Remember: `path` must always be an array (e.g., `["status"]`, not `"status"`)
+- Use typed value fields: `valueText`, `valueNumber`, `valueBoolean`, `valueDate`
+
+**Valid Filter Operators:**
+- Comparison: `Equal`, `NotEqual`, `GreaterThan`, `GreaterThanEqual`, `LessThan`, `LessThanEqual`
+- Text: `Like` (supports wildcards)
+- Logical: `And`, `Or`, `Not`
+- Array: `ContainsAny`, `ContainsAll`, `ContainsNone`
+- Special: `IsNull`, `WithinGeoRange`
+
+**Common Filter Mistakes:**
+- ❌ `GreaterThanOrEqual` → ✅ `GreaterThanEqual` (no "Or")
+- ❌ `LessThanOrEqual` → ✅ `LessThanEqual` (no "Or")
+- ❌ `"path": "status"` → ✅ `"path": ["status"]` (must be array)
+- ❌ `"value": "draft"` → ✅ `"valueText": "draft"` (use typed field)
+- ❌ `"valueDate": "2001-01-01"` → ✅ `"valueDate": "2001-01-01T00:00:00Z"` (must include time and timezone)
+
 ## Development
 
 ### Prerequisites
@@ -893,7 +1058,7 @@ To run it in development mode:
 
 ```bash
 # Run with MCP configuration (includes RBAC auth and MCP server enabled)
-./tools/dev/run_dev_server.sh local-mcp
+./tools/dev/restart_dev_environment.sh --transformers --clip && ./tools/dev/run_dev_server.sh local-mcp
 ```
 
 This configuration:
@@ -906,22 +1071,6 @@ This configuration:
 - **Disables write access to MCP tools** (via `MCP_SERVER_WRITE_ACCESS_DISABLED=true` - read-only mode)
 - **Enables logs tool** (via `MCP_SERVER_READ_LOGS_ENABLED=true`)
 - **Loads custom tool descriptions** from `tools/dev/mcp-config.yaml` (via `MCP_SERVER_CONFIG_PATH`)
-
-**To run MCP server with a custom configuration:**
-```bash
-# Enable MCP server
-export MCP_SERVER_ENABLED=true
-
-# Enable write access (optional - disabled by default for security)
-export MCP_SERVER_WRITE_ACCESS_DISABLED=false
-
-# Enable logs tool (optional - disabled by default)
-export MCP_SERVER_READ_LOGS_ENABLED=true
-
-# Optional: Load custom tool descriptions
-export MCP_SERVER_CONFIG_PATH=/path/to/your/mcp-config.yaml
-
-./tools/dev/run_dev_server.sh <your-config>
 ```
 
 **Notes:**
@@ -1066,20 +1215,6 @@ Currently, there are no dedicated unit tests for the MCP handlers. To test:
    - Use Claude Desktop with the MCP configuration above
    - Ask Claude to interact with your Weaviate instance
    - Verify tools are listed and callable
-
-### Debugging
-
-Enable debug logging:
-
-```bash
-LOG_LEVEL=debug ./tools/dev/run_dev_server.sh local-mcp
-```
-
-Common debugging approaches:
-- Check server logs for authentication errors
-- Verify API key is correct
-- Ensure Weaviate is fully started before MCP server connects
-- Use `curl` to test individual tool calls
 
 ## Authentication and Authorization
 
@@ -1363,14 +1498,9 @@ func (s *WeaviateSearcher) GoodTool(...) (*GoodToolResp, error) {
 Potential enhancements for the MCP server:
 
 - [ ] Add comprehensive unit tests for all tools
-- [ ] Support for batch operations (insert multiple objects)
-- [ ] Vector search tools (near-vector, near-object)
-- [ ] Object update and delete operations
-- [ ] Collection/class management (create, update, delete classes)
+- [ ] Collection/class management (update and delete classes)
 - [ ] Advanced filtering and sorting options
 - [ ] Aggregation queries
 - [ ] Backup and restore operations
-- [ ] Configuration options (configurable port, default collection)
 - [ ] Metrics and monitoring integration
 - [ ] Rate limiting for MCP requests
-- [ ] Streaming responses for large result sets
