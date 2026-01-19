@@ -341,9 +341,9 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 
 		switch cmd {
 		case "commit":
-			resp = i.replicator.CommitReplication(index, shard, requestID)
+			resp = i.replicator.CommitReplication(r.Context(), index, shard, requestID)
 		case "abort":
-			resp = i.replicator.AbortReplication(index, shard, requestID)
+			resp = i.replicator.AbortReplication(r.Context(), index, shard, requestID)
 		default:
 			http.Error(w, fmt.Sprintf("unrecognized command: %s", cmd), http.StatusNotImplemented)
 			return
