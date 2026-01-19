@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 const (
@@ -35,11 +36,8 @@ type ScalarQuantizer struct {
 	dimensions int
 }
 
-type SQData struct {
-	A          float32
-	B          float32
-	Dimensions uint16
-}
+// SQData is an alias for the SQData type in entities/vectorindex/compression.
+type SQData = compression.SQData
 
 func (sq *ScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	if len(x) != len(y) {

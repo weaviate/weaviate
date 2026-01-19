@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 const (
@@ -497,11 +498,8 @@ func (brq *BinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quant
 func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {
 }
 
-type BRQData struct {
-	InputDim uint32
-	Rotation FastRotation
-	Rounding []float32
-}
+// BRQData is an alias for the BRQData type in entities/vectorindex/compression.
+type BRQData = compression.BRQData
 
 func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddBRQCompression(BRQData{

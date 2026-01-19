@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"golang.org/x/exp/slices"
 )
 
@@ -275,7 +276,7 @@ func TestFastWalshHadamardTransform64(t *testing.T) {
 		target := make([]float32, dim)
 		copy(target, x)
 		fastWalshHadamardTransform(target, 0.125)
-		compressionhelpers.FastWalshHadamardTransform64(x)
+		compression.FastWalshHadamardTransform64(x)
 		assert.True(t, slices.Equal(x, target))
 	}
 }
@@ -295,7 +296,7 @@ func TestFastWalshHadamardTransform256(t *testing.T) {
 		target := make([]float32, 256)
 		copy(target, x)
 		fastWalshHadamardTransform(target, 0.0625)
-		compressionhelpers.FastWalshHadamardTransform256(x)
+		compression.FastWalshHadamardTransform256(x)
 		assert.True(t, slices.Equal(x, target))
 	}
 }

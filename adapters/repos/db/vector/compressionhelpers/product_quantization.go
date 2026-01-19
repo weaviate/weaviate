@@ -20,14 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-)
-
-type Encoder byte
-
-const (
-	UseTileEncoder   Encoder = 0
-	UseKMeansEncoder Encoder = 1
 )
 
 type DistanceLookUpTable struct {
@@ -185,24 +179,13 @@ type ProductQuantizer struct {
 	ds                  int // dimensions per segment
 	distance            distancer.Provider
 	dimensions          int
-	kms                 []PQEncoder
-	encoderType         Encoder
+	kms                 []ent.PQSegmentEncoder
+	encoderType         ent.Encoder
 	encoderDistribution EncoderDistribution
 	dlutPool            *DLUTPool
 	trainingLimit       int
 	globalDistances     []float32
 	logger              logrus.FieldLogger
-}
-
-type PQData struct {
-	Ks                  uint16
-	M                   uint16
-	Dimensions          uint16
-	EncoderType         Encoder
-	EncoderDistribution byte
-	Encoders            []PQEncoder
-	UseBitsEncoding     bool
-	TrainingLimit       int
 }
 
 type PQStats struct {
@@ -222,13 +205,20 @@ func (p PQStats) CompressionRatio(dimensions int) float64 {
 	return float64(originalSize) / float64(compressedSize)
 }
 
-type PQEncoder interface {
-	Encode(x []float32) byte
-	Centroid(b byte) []float32
-	Add(x []float32)
-	Fit(data [][]float32) error
-	ExposeDataForRestore() []byte
-}
+// PQData is an alias for the PQData type in entities/vectorindex/compression.
+type PQData = compression.PQData
+
+// PQEncoder is an alias for PQSegmentEncoder for backward compatibility.
+type PQEncoder = compression.PQSegmentEncoder
+
+// Encoder is an alias for the Encoder type in entities/vectorindex/compression.
+type Encoder = compression.Encoder
+
+// Encoder constants for backward compatibility.
+const (
+	UseTileEncoder   = compression.UseTileEncoder
+	UseKMeansEncoder = compression.UseKMeansEncoder
+)
 
 func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensions int, logger logrus.FieldLogger) (*ProductQuantizer, error) {
 	if cfg.Segments <= 0 {
@@ -299,12 +289,12 @@ func ExtractCode8(encoded []byte, index int) byte {
 	return encoded[index]
 }
 
-func parseEncoder(encoder string) (Encoder, error) {
+func parseEncoder(encoder string) (ent.Encoder, error) {
 	switch encoder {
 	case ent.PQEncoderTypeTile:
-		return UseTileEncoder, nil
+		return ent.UseTileEncoder, nil
 	case ent.PQEncoderTypeKMeans:
-		return UseKMeansEncoder, nil
+		return ent.UseKMeansEncoder, nil
 	default:
 		return 0, fmt.Errorf("invalid encoder type: %s", encoder)
 	}
@@ -327,7 +317,7 @@ func PutCode8(code byte, buffer []byte, index int) {
 }
 
 func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddPQCompression(PQData{
+	logger.AddPQCompression(ent.PQData{
 		Dimensions:          uint16(pq.dimensions),
 		EncoderType:         pq.encoderType,
 		Ks:                  uint16(pq.ks),
@@ -410,8 +400,8 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 		data = data[:pq.trainingLimit]
 	}
 	switch pq.encoderType {
-	case UseTileEncoder:
-		pq.kms = make([]PQEncoder, pq.m)
+	case ent.UseTileEncoder:
+		pq.kms = make([]ent.PQSegmentEncoder, pq.m)
 		err := ConcurrentlyWithError(pq.logger, uint64(pq.m), func(i uint64) error {
 			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i), pq.encoderDistribution)
 			for j := 0; j < len(data); j++ {
@@ -422,10 +412,10 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 		if err != nil {
 			return err
 		}
-	case UseKMeansEncoder:
+	case ent.UseKMeansEncoder:
 		mutex := sync.Mutex{}
 		var errorResult error = nil
-		pq.kms = make([]PQEncoder, pq.m)
+		pq.kms = make([]ent.PQSegmentEncoder, pq.m)
 		Concurrently(pq.logger, uint64(pq.m), func(i uint64) {
 			mutex.Lock()
 			if errorResult != nil {

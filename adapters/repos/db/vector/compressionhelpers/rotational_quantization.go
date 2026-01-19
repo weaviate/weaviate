@@ -20,6 +20,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 type RotationalQuantizer struct {
@@ -360,12 +361,8 @@ func (rq *RotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDis
 
 func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[byte]) {}
 
-type RQData struct {
-	InputDim uint32
-	Bits     uint32
-	Rotation FastRotation
-	Rounding []float32
-}
+// RQData is an alias for the RQData type in entities/vectorindex/compression.
+type RQData = compression.RQData
 
 func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddRQCompression(RQData{
