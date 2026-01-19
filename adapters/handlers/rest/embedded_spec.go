@@ -8145,94 +8145,99 @@ func init() {
           "description": "Interval in milliseconds at which liveness of target nodes is checked.",
           "type": "integer",
           "format": "int64",
-          "default": 5000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
           "format": "int64",
-          "default": 1000,
-          "maximum": 10000,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "diffPerNodeTimeout": {
           "description": "Timeout in seconds for computing a diff against a single node.",
           "type": "integer",
           "format": "int64",
-          "default": 10
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "frequency": {
           "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
           "type": "integer",
           "format": "int64",
-          "default": 30000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "frequencyWhilePropagating": {
           "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
           "type": "integer",
           "format": "int64",
-          "default": 3000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "hashtreeHeight": {
           "description": "Height of the hashtree used for diffing.",
           "type": "integer",
           "format": "int64",
-          "default": 16,
-          "maximum": 20
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
           "type": "integer",
           "format": "int64",
-          "default": 60
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "maxWorkers": {
           "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
-          "default": 10
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "prePropagationTimeout": {
           "description": "Overall timeout in seconds for the pre-propagation phase.",
           "type": "integer",
           "format": "int64",
-          "default": 300
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationBatchSize": {
           "description": "Number of objects to include in a single propagation batch.",
           "type": "integer",
           "format": "int64",
-          "default": 100,
-          "maximum": 1000,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationConcurrency": {
           "description": "Maximum number of concurrent propagation workers.",
           "type": "integer",
           "format": "int64",
-          "default": 5,
-          "maximum": 20,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationDelay": {
           "description": "Delay in milliseconds before newly added or updated objects are propagated.",
           "type": "integer",
           "format": "int64",
-          "default": 30000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationLimit": {
           "description": "Maximum number of objects to propagate in a single async replication run.",
           "type": "integer",
           "format": "int64",
-          "default": 10000,
-          "maximum": 1000000,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationTimeout": {
           "description": "Timeout in seconds for propagating batch of changes to a node.",
           "type": "integer",
           "format": "int64",
-          "default": 60
+          "x-nullable": true,
+          "x-omitempty": true
         }
       }
     },
@@ -17948,95 +17953,99 @@ func init() {
           "description": "Interval in milliseconds at which liveness of target nodes is checked.",
           "type": "integer",
           "format": "int64",
-          "default": 5000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
           "format": "int64",
-          "default": 1000,
-          "maximum": 10000,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "diffPerNodeTimeout": {
           "description": "Timeout in seconds for computing a diff against a single node.",
           "type": "integer",
           "format": "int64",
-          "default": 10
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "frequency": {
           "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
           "type": "integer",
           "format": "int64",
-          "default": 30000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "frequencyWhilePropagating": {
           "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
           "type": "integer",
           "format": "int64",
-          "default": 3000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "hashtreeHeight": {
           "description": "Height of the hashtree used for diffing.",
           "type": "integer",
           "format": "int64",
-          "default": 16,
-          "maximum": 20,
-          "minimum": 0
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
           "type": "integer",
           "format": "int64",
-          "default": 60
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "maxWorkers": {
           "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
-          "default": 10
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "prePropagationTimeout": {
           "description": "Overall timeout in seconds for the pre-propagation phase.",
           "type": "integer",
           "format": "int64",
-          "default": 300
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationBatchSize": {
           "description": "Number of objects to include in a single propagation batch.",
           "type": "integer",
           "format": "int64",
-          "default": 100,
-          "maximum": 1000,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationConcurrency": {
           "description": "Maximum number of concurrent propagation workers.",
           "type": "integer",
           "format": "int64",
-          "default": 5,
-          "maximum": 20,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationDelay": {
           "description": "Delay in milliseconds before newly added or updated objects are propagated.",
           "type": "integer",
           "format": "int64",
-          "default": 30000
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationLimit": {
           "description": "Maximum number of objects to propagate in a single async replication run.",
           "type": "integer",
           "format": "int64",
-          "default": 10000,
-          "maximum": 1000000,
-          "minimum": 1
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "propagationTimeout": {
           "description": "Timeout in seconds for propagating batch of changes to a node.",
           "type": "integer",
           "format": "int64",
-          "default": 60
+          "x-nullable": true,
+          "x-omitempty": true
         }
       }
     },
