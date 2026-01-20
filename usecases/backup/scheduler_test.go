@@ -1135,6 +1135,34 @@ func TestCancellingRestore(t *testing.T) {
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 
+	t.Run("CancellingFinalizingFromLastOp", func(t *testing.T) {
+		// When storage shows Transferred but lastOp shows Finalizing (e.g., PutMeta failed),
+		// cancellation should still be blocked based on lastOp status.
+		fakeScheduler := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Transferred, // Storage has old status
+			ID:     backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"node1": {Classes: []string{"Class1"}},
+			},
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		// Get the scheduler first, then set lastOp to Finalizing
+		// (simulating in-memory state after PutMeta failed)
+		sched := fakeScheduler.scheduler()
+		sched.restorer.lastOp.set(backup.Finalizing)
+
+		err = sched.CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.NotNil(t, err)
+		assert.Equal(t, fmt.Sprintf("restore %q is applying schema changes and cannot be cancelled", backupID), err.Error())
+		fakeScheduler.backend.AssertExpectations(t)
+	})
+
 	t.Run("CancellingInProgress", func(t *testing.T) {
 		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
 		ds := backup.DistributedBackupDescriptor{
@@ -1152,9 +1180,25 @@ func TestCancellingRestore(t *testing.T) {
 		fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
 		fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
 		fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(nil)
+		// CancelRestore no longer writes to storage - it only sets lastOp to Cancelled.
+		// The operation goroutine is responsible for the final storage write.
 
 		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err)
+		fakeScheduler.backend.AssertExpectations(t)
+	})
+
+	t.Run("CancelRestoreNoMetadata", func(t *testing.T) {
+		// When no restore metadata exists, cancellation still succeeds.
+		// CancelRestore only sets lastOp - storage write is done by the operation goroutine.
+		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		fakeScheduler.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+		fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+		fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		err := fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
 		assert.Nil(t, err)
 		fakeScheduler.backend.AssertExpectations(t)
 	})

@@ -366,6 +366,12 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		}
 	}
 
+	// Also check lastOp (in-memory) status - this is the authoritative source while
+	// an operation is active. Storage may not reflect Finalizing if PutMeta failed.
+	if s.restorer.lastOp.get().Status == backup.Finalizing {
+		return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
+	}
+
 	nodes, err := s.restorer.Nodes(ctx, &Request{
 		Method:  OpRestore,
 		Backend: backend,
@@ -378,21 +384,10 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	s.restorer.abortAll(ctx,
 		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
-	// Update coordinator's lastOp status to prevent stale reads from OnStatus()
+	// Set lastOp to Cancelled - this is the authoritative status while operation is active.
+	// OnStatus reads from lastOp while active, so this takes effect immediately.
+	// The operation goroutine will read this and write the final status to storage.
 	s.restorer.lastOp.set(backup.Cancelled)
-
-	// Write CANCELED status to restore_config.json
-	if meta != nil {
-		meta.Status = backup.Cancelled
-		meta.Error = "restore canceled by user"
-		meta.CompletedAt = time.Now().UTC()
-		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
-			s.logger.WithField("action", "cancel_restore").
-				WithField("backup_id", backupID).
-				Errorf("failed to write canceled status to restore_config.json: %v", err)
-			// Don't return error - cancellation signal has been sent to nodes
-		}
-	}
 
 	return nil
 }

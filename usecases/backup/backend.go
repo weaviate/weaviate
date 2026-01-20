@@ -627,7 +627,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
 			}, fw.logger)
-			_, err := uz.ReadChunk()
+			_, err := uz.ReadChunkWithContext(ctx)
 			return err
 		})
 	}

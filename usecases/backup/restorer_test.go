@@ -340,4 +340,51 @@ func TestWithCancellation(t *testing.T) {
 			t.Error("abort signal should have been sent")
 		}
 	})
+
+	t.Run("ContextCancelledOnAbort", func(t *testing.T) {
+		shardChan := shardSyncChan{coordChan: make(chan interface{}, 5)}
+		shardChan.lastOp.reqState = reqState{ID: backupID}
+
+		done := make(chan struct{})
+		ctx := shardChan.withCancellation(context.Background(), backupID, done, nil)
+
+		abortReq := AbortRequest{Method: OpRestore, ID: backupID}
+		err := shardChan.OnAbort(context.Background(), &abortReq)
+		assert.Nil(t, err)
+
+		select {
+		case <-ctx.Done():
+		case <-time.After(100 * time.Millisecond):
+			t.Error("context should have been cancelled after abort")
+		}
+
+		close(done)
+	})
+
+	t.Run("AbortWithMismatchedIDIgnored", func(t *testing.T) {
+		shardChan := shardSyncChan{coordChan: make(chan interface{}, 5)}
+
+		done := make(chan struct{})
+		ctx := shardChan.withCancellation(context.Background(), backupID, done, nil)
+
+		shardChan.coordChan <- AbortRequest{Method: OpRestore, ID: "other-backup"}
+
+		select {
+		case <-ctx.Done():
+			t.Error("context should not be cancelled for mismatched ID")
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		close(done)
+	})
+}
+
+func TestBackupStatCancellation(t *testing.T) {
+	t.Parallel()
+
+	var st backupStat
+	st.set(backup.Cancelled)
+	st.set(backup.Success)
+
+	assert.Equal(t, backup.Cancelled, st.get().Status)
 }
