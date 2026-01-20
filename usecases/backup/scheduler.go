@@ -321,9 +321,8 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 }
 
 func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
-) error {
+) (err error) {
 	defer func(begin time.Time) {
-		var err error
 		logOperation(s.logger, "cancel_restore", backupID, backend, begin, err)
 	}(time.Now())
 

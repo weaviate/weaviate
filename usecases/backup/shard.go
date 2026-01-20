@@ -142,6 +142,15 @@ func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done ch
 					if v.ID == id {
 						return
 					}
+					// Log unexpected abort request with different ID - this shouldn't happen
+					// since OnAbort checks the ID before sending, but log for debugging
+					if logger != nil {
+						logger.WithFields(map[string]interface{}{
+							"action":      "withCancellation",
+							"expected_id": id,
+							"received_id": v.ID,
+						}).Warn("received abort request for different backup ID, ignoring")
+					}
 				}
 			case <-done: // caller is done
 				return
@@ -168,5 +177,7 @@ func (c *shardSyncChan) OnAbort(_ context.Context, req *AbortRequest) error {
 		c.coordChan <- *req
 		return nil
 	}
+	// No active operation with this ID - this is not an error, the operation may have
+	// already completed or never started on this node. Return nil for idempotency.
 	return nil
 }

@@ -288,10 +288,15 @@ func (c *coordinator) Restore(
 		// Block cancellation by setting status to Finalizing before schema apply
 		// Only proceed if staging was successful (Transferred = staging complete)
 		if c.descriptor.Status == backup.Transferred {
-			c.descriptor.Status = backup.Finalizing
-			c.lastOp.set(backup.Finalizing)
-			if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
-				c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
+			// Check for external cancellation before proceeding to Finalizing
+			if c.lastOp.get().Status == backup.Cancelled {
+				c.descriptor.Status = backup.Cancelled
+			} else {
+				c.descriptor.Status = backup.Finalizing
+				c.lastOp.set(backup.Finalizing)
+				if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+					c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
+				}
 			}
 		}
 
@@ -351,20 +356,34 @@ func (c *coordinator) restoreClasses(
 		c.descriptor.Status = backup.Failed
 		return
 	}
-	errors := make([]string, 0, 5)
+	restoreErrors := make([]string, 0, 5)
 	hasReqClasses := len(req.Classes) > 0
 	for _, cls := range schema {
+		// Check for context cancellation between class restores
+		// Note: Once in Finalizing state, external cancellation via CancelRestore() is blocked,
+		// but we still respect context cancellation for internal consistency
+		if err := ctx.Err(); err != nil {
+			c.log.WithFields(logrus.Fields{
+				"action":    "restore_classes",
+				"backup_id": c.descriptor.ID,
+				"class":     cls.Name,
+			}).Warn("schema apply interrupted by context cancellation")
+			c.descriptor.Error = fmt.Sprintf("schema apply interrupted: %v", err)
+			c.descriptor.Status = backup.Failed
+			return
+		}
+
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
 		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
-			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
+			restoreErrors = append(restoreErrors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
 	}
-	if len(errors) > 0 {
+	if len(restoreErrors) > 0 {
 		c.descriptor.Status = backup.Failed
-		c.descriptor.Error = fmt.Sprintf("could not restore classes: %v", errors)
+		c.descriptor.Error = fmt.Sprintf("could not restore classes: %v", restoreErrors)
 	}
 }
 
@@ -501,11 +520,37 @@ func (c *coordinator) commit(ctx context.Context,
 	for k, v := range node2Addr {
 		node2Host[k] = v
 	}
+
+	// Check for external cancellation before starting
+	if c.lastOp.get().Status == backup.Cancelled {
+		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
+		return
+	}
+
 	nFailures := c.commitAll(ctx, req, node2Host)
 	retryAfter := c.timeoutNextRound / 5 // 2s for first time
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
-		<-time.After(retryAfter)
+		// Check for external cancellation in polling loop
+		if c.lastOp.get().Status == backup.Cancelled {
+			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: operation was cancelled externally")
+			// Mark remaining nodes as cancelled
+			for node := range node2Host {
+				st := c.Participants[node]
+				st.Status = backup.Cancelled
+				st.Reason = "operation cancelled by user"
+				c.Participants[node] = st
+			}
+			return
+		}
+
+		select {
+		case <-time.After(retryAfter):
+			// continue with polling
+		case <-ctx.Done():
+			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: context cancelled")
+			return
+		}
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
