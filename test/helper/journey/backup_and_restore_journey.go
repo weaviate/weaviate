@@ -348,6 +348,7 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 		assert.True(t1, *resp.Payload.Status == "SUCCESS")
 	}, 120*time.Second, 1000*time.Millisecond)
 
+	time.Sleep(time.Second)
 	helper.DeleteClass(t, booksClass.Class)
 
 	respRest, err := helper.RestoreBackup(t, nil, booksClass.Class, backend, backupID, nil, false)
