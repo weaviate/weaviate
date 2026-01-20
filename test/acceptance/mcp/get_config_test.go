@@ -44,6 +44,30 @@ func TestCollectionsGetConfigTool(t *testing.T) {
 	require.Len(t, schema.Collections, 1)
 }
 
+func TestCollectionsGetSpecificConfigTool(t *testing.T) {
+	helper.SetupClient("localhost:8080")
+	apiKey := "admin-key"
+
+	cls := articles.ParagraphsClass()
+	helper.DeleteClassAuth(t, cls.Class, apiKey)
+	helper.CreateClassAuth(t, cls, apiKey)
+	defer helper.DeleteClassAuth(t, cls.Class, apiKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var schema *read.GetCollectionConfigResp
+	err := helper.CallToolOnce(ctx, t, "weaviate-collections-get-config", &read.GetCollectionConfigArgs{
+		CollectionName: cls.Class,
+	}, &schema)
+	require.Nil(t, err)
+
+	require.NotNil(t, schema)
+	require.NotNil(t, schema.Collections)
+	require.Len(t, schema.Collections, 1)
+	require.Equal(t, cls.Class, schema.Collections[0].Class)
+}
+
 func TestGetTenantsTool(t *testing.T) {
 	helper.SetupClient("localhost:8080")
 	apiKey := "admin-key"
