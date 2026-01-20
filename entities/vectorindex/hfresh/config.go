@@ -89,7 +89,7 @@ func (u *UserConfig) validate() error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("invalid hnsw config: %w", errors.Join(errs...))
+		return fmt.Errorf("invalid hfresh config: %w", errors.Join(errs...))
 	}
 
 	return nil
@@ -106,14 +106,24 @@ func parseAndValidateRQ(ucMap map[string]interface{}, uc *UserConfig) error {
 		return nil
 	}
 
+	enabled := true
+	if err := vectorIndexCommon.OptionalBoolFromMap(rqConfigMap, "enabled", func(v bool) {
+		enabled = v
+	}); err != nil {
+		return err
+	}
+	if !enabled {
+		return fmt.Errorf("hfresh only supports rq")
+	}
+
 	var bits int
 	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "bits", func(v int) {
 		bits = v
 	}); err != nil {
 		return err
 	}
-	if bits != 1 {
-		return fmt.Errorf("rq only supports 1 bit")
+	if bits > 1 {
+		return fmt.Errorf("rq only supports 1 bit, got %d", bits)
 	}
 
 	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {

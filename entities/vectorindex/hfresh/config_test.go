@@ -101,7 +101,9 @@ func Test_UserConfig(t *testing.T) {
 		{
 			name: "with rescoreLimit",
 			input: map[string]interface{}{
-				"rescoreLimit": json.Number("500"),
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("500"),
+				},
 			},
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
@@ -147,8 +149,10 @@ func Test_UserConfig(t *testing.T) {
 				"replicas":         json.Number("8"),
 				"rngFactor":        json.Number("15"),
 				"searchProbe":      json.Number("128"),
-				"rescoreLimit":     json.Number("500"),
-				"distance":         "l2-squared",
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("500"),
+				},
+				"distance": "l2-squared",
 			},
 			expected: UserConfig{
 				MaxPostingSizeKB: 9,
@@ -166,7 +170,9 @@ func Test_UserConfig(t *testing.T) {
 				"replicas":         float64(8),
 				"rngFactor":        float64(15),
 				"searchProbe":      float64(128),
-				"rescoreLimit":     float64(500),
+				"rq": map[string]interface{}{
+					"rescoreLimit": float64(500),
+				},
 			},
 			expected: UserConfig{
 				MaxPostingSizeKB: 100,
@@ -180,7 +186,9 @@ func Test_UserConfig(t *testing.T) {
 		{
 			name: "with rescoreLimit zero",
 			input: map[string]interface{}{
-				"rescoreLimit": json.Number("0"),
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("0"),
+				},
 			},
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
@@ -233,7 +241,58 @@ func Test_UserConfig(t *testing.T) {
 				"maxPostingSizeKB": json.Number("7"),
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid hnsw config: maxPostingSizeKB is '7' but must be at least 8",
+			expectErrMsg: "invalid hfresh config: maxPostingSizeKB is '7' but must be at least 8",
+		},
+		{
+			name: "with pq",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "pq is not supported for hfresh index (only rq-1 is supported)",
+		},
+		{
+			name: "with sq",
+			input: map[string]interface{}{
+				"sq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "sq is not supported for hfresh index (only rq-1 is supported)",
+		},
+		{
+			name: "with bq",
+			input: map[string]interface{}{
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "bq is not supported for hfresh index (only rq-1 is supported)",
+		},
+		{
+			name: "with rq-8",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled": true,
+					"bits":    json.Number("8"),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "rq only supports 1 bit, got 8",
+		},
+		{
+			name: "with rq disabled",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled": false,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "hfresh only supports rq",
 		},
 	}
 
