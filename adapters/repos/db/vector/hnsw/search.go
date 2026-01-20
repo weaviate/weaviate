@@ -865,7 +865,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 			if !ok || !allowList.Contains(idx) {
 				break
-				//panic(idx)
 			}
 			if eps.Contains(idx) {
 				break
