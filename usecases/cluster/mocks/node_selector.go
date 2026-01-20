@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -76,6 +76,14 @@ func (m memberlist) NodeAddress(name string) string {
 
 func (m memberlist) NodeGRPCPort(name string) (int, error) {
 	return 0, nil
+}
+
+func (m memberlist) ClusterHealthScore() int {
+	return 0
+}
+
+func (m memberlist) NodeCount() int {
+	return len(m.nodes)
 }
 
 func NewMockNodeSelector(node ...string) memberlist {

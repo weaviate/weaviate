@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+)
+
+const (
+	// bytesPerFloat32 represents the number of bytes used by a float32 value.
+	bytesPerFloat32 = 4
+
+	// overheadPerVector represents the estimated overhead in bytes per vector (e.g., slice header, etc.).
+	overheadPerVector = 30
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -100,6 +108,12 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	if err := h.allocChecker.CheckAlloc(estimateBatchMemory(vectors)); err != nil {
+		h.metrics.MemoryAllocationRejected()
+		return fmt.Errorf("add batch of %d vectors: %w", len(vectors), err)
+	}
+
 	if h.multivector.Load() && !h.muvera.Load() {
 		return errors.Errorf("AddBatch called on multivector index")
 	}
@@ -132,7 +146,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+				h.allocChecker, h.makeBucketOptions, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
 			if err == nil {
 				h.Lock()
@@ -149,14 +163,13 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			return err
 		}
 	}
-
-	levels := make([]int, len(ids))
+	levels := make([]uint8, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
 		if maxId < id {
 			maxId = id
 		}
-		levels[i] = int(h.generateLevel()) // TODO: represent level as uint8
+		levels[i] = h.generateLevel()
 	}
 	h.RLock()
 	if maxId >= uint64(len(h.nodes)) {
@@ -182,7 +195,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
-			level: levels[i],
+			level: int(levels[i]),
 		}
 		globalBefore := time.Now()
 		if len(vector) == 0 {
@@ -265,7 +278,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+				h.allocChecker, h.makeBucketOptions, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
 			if err == nil {
 				h.Lock()
@@ -295,9 +308,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])
-		levels := make([]int, numVectors)
+		levels := make([]uint8, numVectors)
 		for j := range numVectors {
-			levels[j] = int(h.generateLevel()) // TODO: represent level as uint8
+			levels[j] = h.generateLevel()
 		}
 
 		h.Lock()
@@ -353,7 +366,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			node := &vertex{
 				id:    uint64(nodeId),
-				level: levels[j],
+				level: int(levels[j]),
 			}
 
 			h.Lock()
@@ -555,4 +568,14 @@ func (h *hnsw) Preload(id uint64, vector []float32) {
 			h.cache.Preload(id, vector)
 		}
 	}
+}
+
+func estimateBatchMemory(vecs [][]float32) int64 {
+	var sum int64
+	for _, item := range vecs {
+		// use same logic as in memwatch.EstimateObjectMemory
+		sum += int64(len(item))*bytesPerFloat32 + overheadPerVector
+	}
+
+	return sum
 }

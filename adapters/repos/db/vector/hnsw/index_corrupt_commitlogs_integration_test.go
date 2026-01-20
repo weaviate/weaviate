@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestStartupWithCorruptCondenseFiles(t *testing.T) {
@@ -54,6 +55,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
 				return NewCommitLogger(rootPath, "corrupt_test", logger,
 					cyclemanager.NewCallbackGroupNoop())
@@ -107,6 +109,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	t.Run("create a new one from the disk files", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: MakeNoopCommitLogger, // no longer need a real one
 			ID:                    "corrupt_test",
 			RootPath:              rootPath,

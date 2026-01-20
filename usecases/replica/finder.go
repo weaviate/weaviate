@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -62,29 +63,27 @@ type (
 
 // Finder finds replicated objects
 type Finder struct {
-	router       router
+	router       types.Router
+	nodeResolver cluster.NodeResolver
 	nodeName     string
 	finderStream // stream of objects
-	// control the op backoffs in the coordinator's Pull
-	coordinatorPullBackoffInitialInterval time.Duration
-	coordinatorPullBackoffMaxElapsedTime  time.Duration
 }
 
 // NewFinder constructs a new finder instance
 func NewFinder(className string,
-	router router,
+	router types.Router,
+	nodeResolver cluster.NodeResolver,
 	nodeName string,
 	client RClient,
 	metrics *Metrics,
 	l logrus.FieldLogger,
-	coordinatorPullBackoffInitialInterval time.Duration,
-	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
 ) *Finder {
 	cl := FinderClient{client}
 	return &Finder{
-		router:   router,
-		nodeName: nodeName,
+		router:       router,
+		nodeResolver: nodeResolver,
+		nodeName:     nodeName,
 		finderStream: finderStream{
 			repairer: repairer{
 				class:               className,
@@ -95,8 +94,6 @@ func NewFinder(className string,
 			},
 			log: l,
 		},
-		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
-		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
 	}
 }
 
@@ -107,8 +104,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	props search.SelectProperties,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
-	c := newReadCoordinator[findOneReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+	c := NewReadCoordinator[findOneReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
@@ -150,8 +146,7 @@ func (f *Finder) GetOne(ctx context.Context,
 func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
-	c := newReadCoordinator[[]strfmt.UUID](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+	c := NewReadCoordinator[[]strfmt.UUID](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
@@ -216,7 +211,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	}
 	// check shard consistency concurrently
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
-	for _, part := range cluster(createBatch(xs)) {
+	for _, part := range clusterObjectByShard(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
 			_, err := f.checkShardConsistency(ctx, l, part)
@@ -236,8 +231,7 @@ func (f *Finder) Exists(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
-	c := newReadCoordinator[existReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+	c := NewReadCoordinator[existReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x types.RepairResponse
@@ -269,7 +263,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	id strfmt.UUID,
 	props search.SelectProperties, adds additional.Properties,
 ) (*storobj.Object, error) {
-	host, ok := f.router.NodeHostname(nodeName)
+	host, ok := f.nodeResolver.NodeHostname(nodeName)
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
@@ -284,8 +278,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c = newReadCoordinator[BatchReply](f, batch.Shard,
-			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
+		c         = NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
@@ -392,7 +385,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
 		replicaNodeNames = append(replicaNodeNames, replica)
-		replicaHostAddr, ok := f.router.NodeHostname(replica)
+		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
 			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
@@ -407,7 +400,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		})
 	}
 
-	localHostAddr, _ := f.router.NodeHostname(localNodeName)
+	localHostAddr, _ := f.nodeResolver.NodeHostname(localNodeName)
 
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]

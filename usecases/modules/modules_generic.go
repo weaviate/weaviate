@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func vectorFromSearchParam[T dto.Embedding](
 	if vectorSearches != nil {
 		if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
 			cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector, dbConfig)
-			vector, err := searchVectorFn.VectorForParams(ctx, params, class.Class, findVectorFn, cfg)
+			vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 			if err != nil {
 				return true, nil, errors.Errorf("vectorize params: %v", err)
 			}
@@ -72,7 +72,7 @@ func crossClassVectorFromSearchParam[T dto.Embedding](
 		if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 			if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
 				cfg := NewCrossClassModuleConfig(dbConfig)
-				vector, err := searchVectorFn.VectorForParams(ctx, params, "", findVectorFn, cfg)
+				vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
 				if err != nil {
 					return true, nil, "", errors.Errorf("vectorize params: %v", err)
 				}

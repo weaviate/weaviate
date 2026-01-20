@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"time"
 
 	"github.com/pkg/errors"
@@ -20,7 +21,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-type BucketOption func(b *Bucket) error
+type (
+	BucketOption      func(b *Bucket) error
+	MakeBucketOptions func(strategy string, customOptions ...BucketOption) []BucketOption
+)
+
+func MakeNoopBucketOptions(strategy string, _ ...BucketOption) []BucketOption {
+	return []BucketOption{WithStrategy(strategy)}
+}
 
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
@@ -262,6 +270,13 @@ func WithBitmapBufPool(bufPool roaringset.BitmapBufPool) BucketOption {
 func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 	return func(b *Bucket) error {
 		b.bm25Config = bm25Config
+		return nil
+	}
+}
+
+func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Context) (bool, error)) BucketOption {
+	return func(b *Bucket) error {
+		b.shouldSkipKey = shouldSkipKey
 		return nil
 	}
 }

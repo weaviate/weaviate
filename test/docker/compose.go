@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,6 +50,7 @@ import (
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
+	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
@@ -404,6 +405,12 @@ func (d *Compose) WithText2MultivecJinaAI(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithRerankerJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankerjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
 	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
@@ -488,7 +495,8 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithRerankerCohere() *Compose {
+func (d *Compose) WithRerankerCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
 	return d
 }
@@ -927,6 +935,7 @@ func (d *Compose) With1NodeCluster() *Compose {
 
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
+	d.withWeaviateExposeDebugPort = true
 	d.withWeaviateClusterSize = 3
 	return d
 }
@@ -960,10 +969,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	if d.withWeaviateAuth {
 		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
-		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
+		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
+		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.weaviate.cloud/Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
-		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
+		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "roles"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
 	}

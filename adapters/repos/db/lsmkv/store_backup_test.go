@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,7 +64,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1)
 				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, nil,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -101,7 +101,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1)
 				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, nil,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -147,7 +147,7 @@ func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1)
 				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, nil,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -199,7 +199,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroupNoop()
 				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, nil,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -236,7 +236,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroupNoop()
 				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, nil,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -290,7 +290,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroupNoop()
 				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, nil,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 

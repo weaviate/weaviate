@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,9 @@ package dynamic
 import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -24,32 +27,28 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	bolt "go.etcd.io/bbolt"
 )
 
 type Config struct {
-	ID                           string
-	TargetVector                 string
-	Logger                       logrus.FieldLogger
-	RootPath                     string
-	ShardName                    string
-	ClassName                    string
-	PrometheusMetrics            *monitoring.PrometheusMetrics
-	VectorForIDThunk             common.VectorForID[float32]
-	TempVectorForIDThunk         common.TempVectorForID[float32]
-	DistanceProvider             distancer.Provider
-	MakeCommitLoggerThunk        hnsw.MakeCommitLogger
-	TombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	SharedDB                     *bolt.DB
-	HNSWDisableSnapshots         bool
-	HNSWSnapshotOnStartup        bool
-	HNSWWaitForCachePrefill      bool
-	MinMMapSize                  int64
-	MaxWalReuseSize              int64
-	LazyLoadSegments             bool
-	AllocChecker                 memwatch.AllocChecker
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	ID                      string
+	TargetVector            string
+	Logger                  logrus.FieldLogger
+	RootPath                string
+	ShardName               string
+	ClassName               string
+	PrometheusMetrics       *monitoring.PrometheusMetrics
+	VectorForIDThunk        common.VectorForID[float32]
+	TempVectorForIDThunk    common.TempVectorForID[float32]
+	DistanceProvider        distancer.Provider
+	MakeCommitLoggerThunk   hnsw.MakeCommitLogger
+	TombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	SharedDB                *bolt.DB
+	HNSWDisableSnapshots    bool
+	HNSWSnapshotOnStartup   bool
+	HNSWWaitForCachePrefill bool
+	AllocChecker            memwatch.AllocChecker
+	MakeBucketOptions       lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled    bool
 }
 
 func (c Config) Validate() error {
@@ -61,6 +60,10 @@ func (c Config) Validate() error {
 
 	if c.DistanceProvider == nil {
 		ec.Addf("distancerProvider cannot be nil")
+	}
+
+	if !c.AsyncIndexingEnabled {
+		ec.Addf("the dynamic index can only be created when async indexing is enabled")
 	}
 
 	return ec.ToError()

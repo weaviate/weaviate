@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -1167,8 +1166,8 @@ func validateRoleName(name string) error {
 }
 
 func sortByName(roles []*models.Role) {
-	sort.Slice(roles, func(i, j int) bool {
-		return *roles[i].Name < *roles[j].Name
+	slices.SortFunc(roles, func(a, b *models.Role) int {
+		return strings.Compare(*a.Name, *b.Name)
 	})
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,7 @@ func testGenerativeXAI(rest, grpc string) func(t *testing.T) {
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
 				Vectorizer: map[string]any{
-					"text2vec-transformers": map[string]any{
+					"text2vec-model2vec": map[string]any{
 						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 					},

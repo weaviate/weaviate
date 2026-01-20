@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,7 +29,7 @@ import (
 )
 
 func TestAnalyzeObject(t *testing.T) {
-	a := NewAnalyzer(nil)
+	a := NewAnalyzer(nil, "")
 
 	t.Run("with multiple properties", func(t *testing.T) {
 		id1 := uuid.New()

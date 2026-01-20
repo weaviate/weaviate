@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -103,7 +103,11 @@ func (i *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callbac
 	}
 }
 
-func (i *Index) Drop(context.Context) error {
+func (i *Index) GetKeys(id uint64) (uint64, uint64, error) {
+	return 0, 0, errors.Errorf("cannot get keys from a class not vector-indexed")
+}
+
+func (i *Index) Drop(context.Context, bool) error {
 	// silently ignore
 	return nil
 }

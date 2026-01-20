@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -221,6 +221,54 @@ func (p *Physical) DeleteReplica(replica string) error {
 	return nil
 }
 
+// AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
+func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
+	if count < 0 {
+		return fmt.Errorf("negative replication factor: %d", count)
+	}
+
+	if count == len(p.BelongsToNodes) {
+		return nil // nothing to do
+	}
+
+	// let's be defensive here and make sure available replicas are unique.
+	available := make(map[string]bool)
+	for _, n := range p.BelongsToNodes {
+		available[n] = true
+	}
+	// a == b should be always true except in case of bug
+	if b, a := len(p.BelongsToNodes), len(available); b > a {
+		p.BelongsToNodes = p.BelongsToNodes[:a]
+		i := 0
+		for n := range available {
+			p.BelongsToNodes[i] = n
+			i++
+		}
+	}
+	if count < len(p.BelongsToNodes) { // less replicas wanted
+		p.BelongsToNodes = p.BelongsToNodes[:count]
+		return nil
+	}
+
+	names := nodes.StorageCandidates()
+	if count > len(names) {
+		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
+	}
+
+	// make sure included nodes are unique
+	for _, n := range names {
+		if !available[n] {
+			p.BelongsToNodes = append(p.BelongsToNodes, n)
+			available[n] = true
+		}
+		if len(available) == count {
+			break
+		}
+	}
+
+	return nil
+}
+
 func (p *Physical) ActivityStatus() string {
 	return schema.ActivityStatus(p.Status)
 }
@@ -300,14 +348,12 @@ func (s *State) CountPhysicalShards() int {
 }
 
 func (s *State) AllPhysicalShards() []string {
-	var names []string
+	names := make([]string, 0, len(s.Physical))
 	for _, physical := range s.Physical {
 		names = append(names, physical.Name)
 	}
 
-	sort.Slice(names, func(a, b int) bool {
-		return names[a] < names[b]
-	})
+	sort.Strings(names)
 
 	return names
 }

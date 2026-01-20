@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -562,4 +563,59 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 		// bufio writer should not be released
 		require.NotNil(t, q.w.w.w)
 	})
+}
+
+func TestQueueListFiles(t *testing.T) {
+	ctx := t.Context()
+	s := makeScheduler(t, 1)
+	s.Start()
+
+	tmpDir := t.TempDir()
+
+	_, e := streamExecutor()
+	q := makeQueueWith(t, s, e, 100, tmpDir)
+
+	// ListFiles on empty queue
+	files, err := q.ListFiles(ctx, tmpDir)
+	require.NoError(t, err)
+	require.Len(t, files, 0)
+
+	// write 50 records
+	for i := 0; i < 50; i++ {
+		err := q.Push(bytes.Repeat([]byte{1}, 10))
+		require.NoError(t, err)
+	}
+
+	// close the queue to ensure all records are flushed
+	err = q.Close()
+	require.NoError(t, err)
+
+	// ensure there is a chunk file
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 8)
+
+	// ListFiles on non-empty queue
+	files, err = q.ListFiles(ctx, tmpDir)
+	require.NoError(t, err)
+	require.Len(t, files, 8)
+
+	// check that returned file names are relative to basePath
+	for i, f := range files {
+		require.Equal(t, entries[i].Name(), f)
+	}
+
+	// use a different basePath
+	p := strings.Split(tmpDir, string(os.PathSeparator))
+	base, tail := p[:3], p[3:]
+	basePath := strings.Join(base, string(os.PathSeparator))
+	files, err = q.ListFiles(ctx, basePath)
+	require.NoError(t, err)
+	require.Len(t, files, 8)
+
+	// check that returned file names are relative to new basePath
+	for i, f := range files {
+		expected := strings.Join(append(tail, entries[i].Name()), string(os.PathSeparator))
+		require.Equal(t, expected, f)
+	}
 }

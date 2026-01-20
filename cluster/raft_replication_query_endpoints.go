@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -237,6 +237,39 @@ func (s *Raft) QueryShardingStateByCollectionAndShard(ctx context.Context, colle
 	}
 
 	return response, nil
+}
+
+func (s *Raft) GetReplicationScalePlan(ctx context.Context, collection string, replicationFactor int) (api.ReplicationScalePlan, error) {
+	request := &api.ReplicationScalePlanRequest{
+		Collection:        collection,
+		ReplicationFactor: replicationFactor,
+	}
+
+	subCommand, err := json.Marshal(request)
+	if err != nil {
+		return api.ReplicationScalePlan{}, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &api.QueryRequest{
+		Type:       api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+		SubCommand: subCommand,
+	}
+
+	queryResponse, err := s.Query(ctx, command)
+	if err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrNotFound.Error()) {
+			return api.ReplicationScalePlan{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrNotFound)
+		}
+		return api.ReplicationScalePlan{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := api.ReplicationScalePlanResponse{}
+	err = json.Unmarshal(queryResponse.Payload, &response)
+	if err != nil {
+		return api.ReplicationScalePlan{}, fmt.Errorf("failed to unmarshal query response: %w", err)
+	}
+
+	return response.ReplicationScalePlan, nil
 }
 
 func (s *Raft) ReplicationGetReplicaOpStatus(ctx context.Context, id uint64) (api.ShardReplicationState, error) {

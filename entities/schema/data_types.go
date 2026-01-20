@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -279,12 +279,12 @@ func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*model
 			return nil, err
 		}
 
-		if beloningToClass != className && !relaxCrossRefValidation {
+		if beloningToClass != className {
 			class, err := authorizedGetClass(className.String())
 			if err != nil {
 				return nil, err
 			}
-			if class == nil {
+			if !relaxCrossRefValidation && class == nil {
 				return nil, ErrRefToNonexistentClass
 			}
 		}

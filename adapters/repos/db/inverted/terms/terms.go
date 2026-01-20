@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -416,10 +416,6 @@ func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool
 	var cumScore float64
 
 	matchedTerms := 0
-
-	if len(t.T)-pos < minimumOrTokensMatch {
-		return 0, 0, docInfos, false
-	}
 
 	for i := pos; i < len(t.T); i++ {
 		if t.T[i].IdPointer() != id || t.T[i].Exhausted() {

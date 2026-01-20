@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,23 +13,20 @@ package flat
 
 import (
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Config struct {
-	ID                           string
-	RootPath                     string
-	TargetVector                 string
-	MinMMapSize                  int64
-	MaxWalReuseSize              int64
-	Logger                       logrus.FieldLogger
-	DistanceProvider             distancer.Provider
-	AllocChecker                 memwatch.AllocChecker
-	LazyLoadSegments             bool
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	ID                string
+	RootPath          string
+	TargetVector      string
+	Logger            logrus.FieldLogger
+	DistanceProvider  distancer.Provider
+	AllocChecker      memwatch.AllocChecker
+	MakeBucketOptions lsmkv.MakeBucketOptions
 }
 
 func (c Config) Validate() error {

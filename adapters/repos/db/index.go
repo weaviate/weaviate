@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -25,15 +26,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
-	"github.com/weaviate/weaviate/usecases/multitenancy"
-
-	"github.com/weaviate/weaviate/cluster/router/executor"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -43,11 +39,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/router/executor"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -64,12 +64,15 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -231,9 +234,10 @@ type Index struct {
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
-	SPFreshEnabled            bool
+	HFreshEnabled             bool
 
-	partitioningEnabled bool
+	partitioningEnabled  bool
+	AsyncIndexingEnabled bool
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -256,9 +260,11 @@ type Index struct {
 	// 1. closeLock
 	// 2. backupLock (for a specific shard)
 	// 3. shardCreateLocks (for a specific shard)
-	closeLock        sync.RWMutex            // protects against closing while doing operations
-	backupLock       *esync.KeyRWLocker      // prevents writes while a backup is running
-	shardCreateLocks *esync.KeyLockerContext // prevents concurrent shard status changes
+	closeLock  sync.RWMutex       // protects against closing while doing operations
+	backupLock *esync.KeyRWLocker // prevents writes while a backup is running
+	// prevents concurrent shard status changes. Use .Rlock to secure against status changes and .Lock to change status
+	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
+	shardCreateLocks *esync.KeyRWLocker
 
 	metrics          *Metrics
 	centralJobQueue  chan job
@@ -280,7 +286,8 @@ type Index struct {
 
 	replicationConfigLock sync.RWMutex
 
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter  *loadlimiter.LoadLimiter
+	bucketLoadLimiter *loadlimiter.LoadLimiter
 
 	closed bool
 
@@ -299,11 +306,6 @@ func (i *Index) path() string {
 	return path.Join(i.Config.RootPath, i.ID())
 }
 
-type nodeResolver interface {
-	AllHostnames() []string
-	NodeHostname(nodeName string) (string, bool)
-}
-
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
 func NewIndex(
@@ -318,7 +320,7 @@ func NewIndex(
 	schemaReader schemaUC.SchemaReader,
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
-	nodeResolver nodeResolver,
+	nodeResolver cluster.NodeResolver,
 	remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
@@ -330,7 +332,13 @@ func NewIndex(
 	allocChecker memwatch.AllocChecker,
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
+	asyncIndexingEnabled bool,
 ) (*Index, error) {
+	err := tokenizer.AddCustomDict(class.Class, invertedIndexConfig.TokenizerUserDict)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
@@ -361,6 +369,7 @@ func NewIndex(
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
@@ -368,13 +377,14 @@ func NewIndex(
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
-		shardCreateLocks:        esync.NewKeyLockerContext(),
+		shardCreateLocks:        esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
+		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
-		SPFreshEnabled:          cfg.SPFreshEnabled,
+		HFreshEnabled:           cfg.HFreshEnabled,
 	}
 
 	getDeletionStrategy := func() string {
@@ -382,7 +392,7 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
@@ -739,6 +749,11 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
 
+	err = tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
+	if err != nil {
+		return errors.Wrap(err, "updating inverted index config")
+	}
+
 	return nil
 }
 
@@ -814,7 +829,8 @@ type IndexConfig struct {
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
-	ShardLoadLimiter                    ShardLoadLimiter
+	ShardLoadLimiter                    *loadlimiter.LoadLimiter
+	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -833,7 +849,7 @@ type IndexConfig struct {
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
 
-	SPFreshEnabled bool
+	HFreshEnabled bool
 }
 
 func indexID(class schema.ClassName) string {
@@ -1550,7 +1566,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
+	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -1770,7 +1786,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		golangSort.Slice(results, func(i, j int) bool {
 			if results[i].score == results[j].score {
-				return results[i].object.Object.ID > results[j].object.Object.ID
+				return results[i].object.Object.ID < results[j].object.Object.ID
 			}
 
 			return results[i].score > results[j].score
@@ -1914,7 +1930,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
+	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -2178,6 +2194,96 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
+	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) error {
+	// use closing context to stop long-running TTL deletions in case index is closed
+	return i.incomingDeleteObjectsExpired(i.closingCtx, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+}
+
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+	class := i.getClass()
+	filter := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorLessThanEqual,
+		Value: &filters.Value{
+			Value: ttlThreshold,
+			Type:  schema.DataTypeDate,
+		},
+		On: &filters.Path{
+			Class:    schema.ClassName(class.Class),
+			Property: schema.PropertyName(deleteOnPropName),
+		},
+	}}
+
+	// the replication properties determine how aggressive the errors are returned and does not change anything about
+	// the server's behaviour. Therefore, we set it to QUORUM to be able to log errors in case the deletion does not
+	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
+	// deletion process happens to run on that node again, the object will be deleted then.
+	replProps := defaultConsistency()
+
+	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+		tenants, err := i.schemaReader.Shards(class.Class)
+		if err != nil {
+			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
+		}
+
+		for _, tenant := range tenants {
+			tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
+			// skip inactive tenants
+			if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
+			}
+
+			if len(tenants2uuids[tenant]) == 0 {
+				continue
+			}
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+					}
+
+					i.logger.
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
+						Infof("batch delete response: %+v", resp)
+					return nil
+				})
+		}
+
+	} else {
+		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
+		if err != nil {
+			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
+		}
+
+		for shard := range shards2uuids {
+			if len(shards2uuids[shard]) == 0 {
+				delete(shards2uuids, shard)
+			}
+		}
+		if len(shards2uuids) != 0 {
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+					}
+					i.logger.
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class}).
+						Infof("batch delete response: %+v", resp)
+
+					return nil
+				})
+		}
+	}
+
+	return nil
+}
+
 func (i *Index) getClass() *models.Class {
 	className := i.Config.ClassName.String()
 	return i.getSchema.ReadOnlyClass(className)
@@ -2192,8 +2298,9 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	mustLoad := !implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
+	// TODO: implicitShardLoading needs to be double checked if needed at all
+	// consalidate mustLoad and implicitShardLoading
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
@@ -2284,15 +2391,16 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, errAlreadyShutdown
 	}
 
-	// make sure same shard is not inited in parallel
-	if !i.shardCreateLocks.TryLockWithContext(shardName, ctx) {
-		return nil, func() {}, fmt.Errorf("unable to acquire shardCreateLocks lock: %w", ctx.Err())
-	}
-	defer i.shardCreateLocks.Unlock(shardName)
+	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
+	// the shard
+	i.shardCreateLocks.RLock(shardName)
 
 	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
 	if shard == nil {
+		// If the shard is not yet loaded, we need to upgrade to a write lock to ensure only one goroutine initializes
+		// the shard
+		i.shardCreateLocks.RUnlock(shardName)
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -2303,12 +2411,21 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
 		}
 
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
-		if err != nil {
-			return nil, func() {}, err
-		}
+		i.shardCreateLocks.Lock(shardName)
+		defer i.shardCreateLocks.Unlock(shardName)
 
-		i.shards.Store(shardName, shard)
+		// double check if loaded in the meantime by concurrent call, if not load it
+		shard = i.shards.Load(shardName)
+		if shard == nil {
+			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+			if err != nil {
+				return nil, func() {}, err
+			}
+			i.shards.Store(shardName, shard)
+		}
+	} else {
+		// shard already loaded, so we can defer the Runlock
+		defer i.shardCreateLocks.RUnlock(shardName)
 	}
 
 	release, err = shard.preventShutdown()
@@ -2451,6 +2568,11 @@ func (i *Index) drop() error {
 
 	i.closingCancel()
 
+	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
+	// The files will be deleted after the backup is completed and in case of a crash on next startup.
+	lastBackup := i.lastBackup.Load()
+	keepFiles := lastBackup != nil
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
@@ -2466,7 +2588,7 @@ func (i *Index) drop() error {
 			if !ok {
 				return nil // shard already does not exist
 			}
-			if err := shard.drop(); err != nil {
+			if err := shard.drop(keepFiles); err != nil {
 				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
 			}
 
@@ -2493,7 +2615,11 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	return os.RemoveAll(i.path())
+	if !keepFiles {
+		return os.RemoveAll(i.path())
+	} else {
+		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+	}
 }
 
 func (i *Index) dropShards(names []string) error {
@@ -2526,7 +2652,7 @@ func (i *Index) dropShards(names []string) error {
 				}
 			} else {
 				// If shard is loaded use the native primitive to drop it
-				if err := shard.drop(); err != nil {
+				if err := shard.drop(false); err != nil {
 					ec.Add(err)
 					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
 				}
@@ -2811,9 +2937,17 @@ func (i *Index) findUUIDs(ctx context.Context,
 	return results, nil
 }
 
-func (i *Index) consistencyLevel(repl *additional.ReplicationProperties) routerTypes.ConsistencyLevel {
+// consistencyLevel returns the consistency level for the given replication properties.
+// If repl is not nil, the consistency level is returned from repl.
+// If repl is nil and a default override is provided, the default override is returned.
+// If repl is nil and no default override is provided, the default consistency level
+// is returned (QUORUM).
+func (i *Index) consistencyLevel(
+	repl *additional.ReplicationProperties,
+	defaultOverride ...routerTypes.ConsistencyLevel,
+) routerTypes.ConsistencyLevel {
 	if repl == nil {
-		repl = defaultConsistency()
+		repl = defaultConsistency(defaultOverride...)
 	}
 	return routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
 }
@@ -2914,10 +3048,10 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
-func defaultConsistency(l ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
+func defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
 	rp := &additional.ReplicationProperties{}
-	if len(l) != 0 {
-		rp.ConsistencyLevel = string(l[0])
+	if len(defaultOverride) != 0 {
+		rp.ConsistencyLevel = string(defaultOverride[0])
 	} else {
 		rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelQuorum)
 	}

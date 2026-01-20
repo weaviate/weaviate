@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,7 +25,7 @@ import (
 // This function assumes the node is not receiving any traffic besides the
 // debug endpoints and that async indexing is enabled.
 func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
-	if !asyncEnabled() {
+	if !s.index.AsyncIndexingEnabled {
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
@@ -39,7 +39,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	q.Pause()
 	q.Wait()
 
-	err := vidx.Drop(ctx)
+	err := vidx.Drop(ctx, false)
 	if err != nil {
 		return errors.Wrap(err, "drop vector index")
 	}

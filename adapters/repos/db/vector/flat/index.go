@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -238,50 +238,38 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	//       See: https://github.com/weaviate/weaviate/issues/5241
 	forceCompaction := shouldForceCompaction()
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
-		lsmkv.WithForceCompaction(forceCompaction),
-		lsmkv.WithUseBloomFilter(false),
-		lsmkv.WithMinMMapSize(cfg.MinMMapSize),
-		lsmkv.WithMinWalThreshold(cfg.MinMMapSize),
-		lsmkv.WithAllocChecker(cfg.AllocChecker),
-		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
-		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-
-		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
-		// was simply missing. Now we want to explicitly set it to false for
-		// performance reasons. There are pread performance improvements in the
-		// pipeline, but as of now, mmap is much more performant – especially for
-		// parallel cache prefilling.
-		//
-		// In the future when the pure pread performance is on par with mmap, we
-		// should update this to pass the global setting.
-		lsmkv.WithPread(false),
-		lsmkv.WithCalcCountNetAdditions(true),
-	); err != nil {
-		return fmt.Errorf("create or load flat vectors bucket: %w", err)
-	}
-	if index.compressionType != CompressionNone {
-		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
+		cfg.MakeBucketOptions(lsmkv.StrategyReplace,
 			lsmkv.WithForceCompaction(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
-			lsmkv.WithMinMMapSize(cfg.MinMMapSize),
-			lsmkv.WithMinWalThreshold(cfg.MinMMapSize),
-			lsmkv.WithAllocChecker(cfg.AllocChecker),
-			lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
-			lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-			lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
-			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-
 			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 			// was simply missing. Now we want to explicitly set it to false for
 			// performance reasons. There are pread performance improvements in the
-			// pipeline, but as of now, mmap is much more performant – especially for
+			// pipeline, but as of now, mmap is much more performant – especially for
 			// parallel cache prefilling.
 			//
 			// In the future when the pure pread performance is on par with mmap, we
 			// should update this to pass the global setting.
 			lsmkv.WithPread(false),
+			lsmkv.WithCalcCountNetAdditions(true),
+		)...,
+	); err != nil {
+		return fmt.Errorf("create or load flat vectors bucket: %w", err)
+	}
+	if index.compressionType != CompressionNone {
+		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
+			cfg.MakeBucketOptions(lsmkv.StrategyReplace,
+				lsmkv.WithForceCompaction(forceCompaction),
+				lsmkv.WithUseBloomFilter(false),
+				// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+				// was simply missing. Now we want to explicitly set it to false for
+				// performance reasons. There are pread performance improvements in the
+				// pipeline, but as of now, mmap is much more performant – especially for
+				// parallel cache prefilling.
+				//
+				// In the future when the pure pread performance is on par with mmap, we
+				// should update this to pass the global setting.
+				lsmkv.WithPread(false),
+			)...,
 		); err != nil {
 			return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
 		}
@@ -787,8 +775,8 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 	return nil
 }
 
-func (index *flat) Drop(ctx context.Context) error {
-	if err := index.removeMetadataFile(); err != nil {
+func (index *flat) Drop(ctx context.Context, keepFiles bool) error {
+	if err := index.removeMetadataFile(keepFiles); err != nil {
 		return err
 	}
 	// Shard::drop will take care of handling store's buckets

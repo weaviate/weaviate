@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -83,7 +84,7 @@ type memtable interface {
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
 	roaringSetAdjustMeta(entriesChanged int)
-	roaringSetAddCommitLog(key []byte, additions []uint64, deletions []uint64) error
+	roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error
 
 	roaringSetRangeAdd(key uint64, values ...uint64) error
 	roaringSetRangeRemove(key uint64, values ...uint64) error
@@ -141,11 +142,16 @@ type Memtable struct {
 	// the memtable. This prevents the memtable from being flushed while writers
 	// are active, ensuring data consistency during concurrent operations.
 	writerCount atomic.Int64
+
+	// function to decide whether a key should be skipped
+	// during flush for the SetCollection strategy
+	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
+	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error),
 ) (*Memtable, error) {
 	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(path), strategy)
 	if err != nil {
@@ -169,6 +175,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		enableChecksumValidation:     enableChecksumValidation,
 		bm25config:                   bm25config,
 		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
+		shouldSkipKeyFunc:            shouldSkipKeyFunc,
 	}
 
 	if m.secondaryIndices > 0 {
@@ -228,10 +235,6 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -241,23 +244,25 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 			}
 		}
 	}
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               value,
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           false,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
 	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
-
 	for i, sec := range previousKeys {
 		m.secondaryToPrimary[i][string(sec)] = nil
 	}
-
 	for i, sec := range secondaryKeys {
 		m.secondaryToPrimary[i][string(sec)] = key
 	}
@@ -265,6 +270,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
@@ -277,10 +283,6 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -290,14 +292,18 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 			}
 		}
 	}
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               nil,
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -305,6 +311,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
@@ -317,10 +324,6 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -330,16 +333,19 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 			}
 		}
 	}
-
 	tombstonedVal := tombstonedValue(deletionTime)
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               tombstonedVal[:],
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -347,6 +353,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }

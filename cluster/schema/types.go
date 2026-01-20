@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,8 +22,6 @@ import (
 type (
 	// LoadLegacySchema returns the legacy schema
 	LoadLegacySchema func() (map[string]types.ClassState, error)
-	// SaveLegacySchema saves the RAFT schema representation to the legacy storage
-	SaveLegacySchema func(map[string]types.ClassState) error
 )
 
 // Indexer interface updates both the collection and its indices in the filesystem.
@@ -43,7 +41,6 @@ type Indexer interface {
 	LoadShard(class, shard string)     // is a no-op
 	ShutdownShard(class, shard string) // is a no-op
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
-	UpdateIndex(api.UpdateClassRequest) error
 
 	TriggerSchemaUpdateCallbacks()
 

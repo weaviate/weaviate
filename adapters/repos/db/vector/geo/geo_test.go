@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestGeoJourney(t *testing.T) {
@@ -40,6 +41,7 @@ func TestGeoJourney(t *testing.T) {
 	}
 
 	geoIndex, err := NewIndex(Config{
+		AllocChecker:       memwatch.NewDummyMonitor(),
 		ID:                 "unit-test",
 		CoordinatesForID:   getCoordinates,
 		DisablePersistence: true,

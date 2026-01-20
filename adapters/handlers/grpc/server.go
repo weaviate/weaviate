@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,7 @@ import (
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -92,6 +93,11 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
+	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
+	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
+
+	// Add OpenTelemetry tracing interceptors
+	interceptors = append(interceptors, monitoring.GRPCTracingInterceptor())
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -105,28 +111,13 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	)
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
+	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1, drainBatch := v1.NewService(
-		state.Traverser,
-		composer.New(
-			state.ServerConfig.Config.Authentication,
-			state.APIKey, state.OIDC),
-		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
-		state.SchemaManager,
-		state.BatchManager,
-		&state.ServerConfig.Config,
-		state.Authorizer,
-		state.Logger,
-	)
+	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
-
-	if state.ServerConfig.Config.ReplicaMovementEnabled {
-		weaviateV1FileReplicationService := v1.NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
-		pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
-	}
 
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
@@ -203,6 +194,35 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
+func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		var err error
+		switch state.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_ONLY:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrReadOnlyModeEnabled
+			}
+		case config.SCALE_OUT:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrScaleOutModeEnabled
+			}
+		case config.WRITE_ONLY:
+			if config.IsGRPCRead(info.FullMethod) {
+				err = config.ErrWriteOnlyModeEnabled
+			}
+		default:
+			// all good
+		}
+		if err != nil {
+			st := status.New(codes.Unavailable, err.Error())
+			return nil, st.Err()
+		}
+		return handler(ctx, req)
+	}
+}
+
 func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
@@ -233,6 +253,24 @@ func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword
 		}
 
 		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if maintenanceModeEnabledForLocalhost() {
+			return nil, status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if maintenanceModeEnabledForLocalhost() {
+			return status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(srv, ss)
 	}
 }
 

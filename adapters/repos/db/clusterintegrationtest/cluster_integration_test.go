@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,9 +25,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -81,7 +80,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 
 		for _, node := range nodes {
-			node.init(t, dirName, &nodes, overallShardState)
+			node.init(t, dirName, &nodes, overallShardState, false)
 		}
 	})
 
@@ -688,27 +687,29 @@ func TestDistributedVectorDistance(t *testing.T) {
 	rnd := getRandomSeed()
 	ctx := context.Background()
 	cases := []struct {
-		asyncIndexing bool
+		asyncIndexingEnabled bool
 	}{
-		{asyncIndexing: true},
-		{asyncIndexing: false},
+		{asyncIndexingEnabled: true},
+		{asyncIndexingEnabled: false},
 	}
 	for _, tt := range cases {
-		t.Run("async indexing:"+strconv.FormatBool(tt.asyncIndexing), func(t *testing.T) {
-			os.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexing))
+		t.Run("async indexing:"+strconv.FormatBool(tt.asyncIndexingEnabled), func(t *testing.T) {
+			t.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexingEnabled))
 
-			collection := multiVectorClass(tt.asyncIndexing)
+			collection := multiVectorClass(tt.asyncIndexingEnabled)
+
 			overallShardState := multiShardState(numberOfNodes)
 			var nodes []*node
 			for i := 0; i < numberOfNodes; i++ {
 				node := &node{
 					name: fmt.Sprintf("node-%d", i),
 				}
+
 				nodes = append(nodes, node)
 			}
 
 			for _, node := range nodes {
-				node.init(t, dirName, &nodes, overallShardState)
+				node.init(t, dirName, &nodes, overallShardState, tt.asyncIndexingEnabled)
 			}
 
 			for i := range nodes {

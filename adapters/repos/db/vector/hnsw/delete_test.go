@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -61,6 +63,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -127,7 +130,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 
 	t.Run("vector cache holds no vectors", func(t *testing.T) {
@@ -154,6 +157,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -249,7 +253,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -272,6 +276,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -345,7 +350,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -369,6 +374,7 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections:        30,
 			EFConstruction:        128,
@@ -446,7 +452,7 @@ func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -468,6 +474,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -573,7 +580,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 
 	store.Shutdown(context.Background())
@@ -590,6 +597,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32,
 			return vectors[int(id)], nil
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		AllocChecker:         memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -702,7 +710,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	})
 
 	t.Run("destroy the control index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 
 	for i := 0; i < possibleStopsCount; i++ {
@@ -731,7 +739,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 		})
 
 		t.Run("destroy the index", func(t *testing.T) {
-			require.Nil(t, index.Drop(context.Background()))
+			require.Nil(t, index.Drop(context.Background(), false))
 		})
 	}
 }
@@ -773,7 +781,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -820,6 +828,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
@@ -923,7 +933,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -967,6 +977,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
@@ -1017,7 +1028,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1062,6 +1073,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 				return vectors[int(id%uint64(len(vectors)))], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
@@ -1109,7 +1122,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1367,7 +1380,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	// t.Fail()
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1408,6 +1421,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		DistanceProvider:      distancer.NewGeoProvider(),
 		VectorForIDThunk:      vecForID,
 		TempVectorForIDThunk:  TempVectorForIDThunk(vectors),
+		AllocChecker:          memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1469,7 +1483,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1486,6 +1500,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
 		TempVectorForIDThunk:  TempVectorForIDThunk([][]float32{{0.1, 0.2}}),
+		AllocChecker:          memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1511,7 +1526,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 	assert.Equal(t, []uint64{1}, res, "should contain the only result")
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1592,7 +1607,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 	})
 }
 
@@ -1669,6 +1684,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 				return vectors[int(id)], vectorErrors[int(id)]
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -1723,6 +1739,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 			return vectors[int(id)], nil
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		AllocChecker:         memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1774,7 +1791,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	require.True(t, some)
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1794,6 +1811,7 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 			return vectors[int(id)], nil
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		AllocChecker:         memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -1840,7 +1858,7 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 		}
 	}
 
-	require.Nil(t, vectorIndex.Drop(context.Background()))
+	require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	store.Shutdown(context.Background())
 }
 
@@ -1865,6 +1883,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -1907,7 +1926,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
 
@@ -1927,6 +1946,7 @@ func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
 			return vectors[int(id)%len(vectors)], nil // Wrap around to reuse vectors
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		AllocChecker:         memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		MaxConnections:        30,
 		EFConstruction:        128,
@@ -1999,6 +2019,7 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 			PrometheusMetrics:    metrics,
 		}, ent.UserConfig{
 			MaxConnections:        30,
@@ -2046,6 +2067,7 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			AllocChecker:         memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			MaxConnections:        30,
 			EFConstruction:        64,
@@ -2079,6 +2101,6 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, vectorIndex.Drop(context.Background()))
+		require.Nil(t, vectorIndex.Drop(context.Background(), false))
 	})
 }

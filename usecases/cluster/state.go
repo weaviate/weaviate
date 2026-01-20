@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,33 +28,44 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// NodeSelector is an interface to select a portion of the available nodes in memberlist
-type NodeSelector interface {
+// NodeResolver provides read-only access to cluster nodes and their addresses.
+type NodeResolver interface {
+	// NodeCount returns the current number of nodes in the cluster.
+	NodeCount() int
+	// AllHostnames returns the hostnames of all known cluster nodes.
+	AllHostnames() []string
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeHostname resolves a node id into an ip address with internal cluster api port.
+	NodeHostname(nodeName string) (string, bool)
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses.
+	// This is useful for bootstrap when the join config is incomplete.
+	AllOtherClusterMembers(port int) map[string]string
+}
+
+// NodeSelector builds on NodeResolver and adds selection, health and lifecycle operations.
+// It is used to select a portion of the available nodes in memberlist.
+type NodeSelector interface {
+	NodeResolver
+
 	// NodeGRPCPort returns the gRPC port for a specific node id.
 	NodeGRPCPort(id string) (int, error)
 	// StorageCandidates returns list of storage nodes (names)
-	// sorted by the free amount of disk space in descending orders
+	// sorted by the free amount of disk space in descending order.
 	StorageCandidates() []string
 	// NonStorageNodes return nodes from member list which
-	// they are configured not to be voter only
+	// they are configured not to be voter only.
 	NonStorageNodes() []string
-	// SortCandidates Sort passed nodes names by the
-	// free amount of disk space in descending order
+	// SortCandidates sorts passed node names by the
+	// free amount of disk space in descending order.
 	SortCandidates(nodes []string) []string
-	// LocalName() return local node name
+	// ClusterHealthScore returns an aggregate health score for the cluster.
+	ClusterHealthScore() int
+	// LocalName returns the local node name.
 	LocalName() string
-	// NodeHostname return hosts address for a specific node name
-	NodeHostname(name string) (string, bool)
-	AllHostnames() []string
-	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
-	// This is useful for bootstrap when the join config is incomplete
-	// TODO-RAFT: shall be removed once unifying with raft package
-	AllOtherClusterMembers(port int) map[string]string
-	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	// Leave marks the node as leaving the cluster (still visible but shutting down).
 	Leave() error
-	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+	// Shutdown is called when leaving the cluster gracefully and shutting down the memberlist instance.
 	Shutdown() error
 }
 
@@ -62,7 +73,6 @@ type State struct {
 	config Config
 	// memberlist methods are thread safe
 	// see https://github.com/hashicorp/memberlist/blob/master/memberlist.go#L502-L503
-	localGrpcPort int
 
 	list                 *memberlist.Memberlist
 	nonStorageNodes      map[string]struct{}
@@ -137,7 +147,7 @@ type RequestQueueConfig struct {
 	QueueShutdownTimeoutSeconds int `json:"queueShutdownTimeoutSeconds" yaml:"queueShutdownTimeoutSeconds"`
 }
 
-func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	// Validate configuration first
 	if err := validateClusterConfig(userConfig); err != nil {
 		logger.Errorf("invalid cluster configuration: %v", err)
@@ -166,7 +176,6 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 	// Create state
 	state := State{
 		config:          userConfig,
-		localGrpcPort:   grpcPort,
 		nonStorageNodes: nonStorageNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
@@ -174,7 +183,7 @@ func Init(userConfig Config, grpcPort, raftTimeoutsMultiplier int, dataPath stri
 			log:      logger,
 			metadata: NodeMetadata{
 				RestPort: userConfig.DataBindPort,
-				GrpcPort: grpcPort,
+				GrpcPort: userConfig.DataBindPort,
 			},
 		},
 	}
@@ -290,20 +299,6 @@ func (s *State) dataPort(m *memberlist.Node) int {
 	return meta.RestPort
 }
 
-func (s *State) grpcPort(m *memberlist.Node) int {
-	meta, err := nodeMetadata(m)
-	if err != nil {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action": "grpc_port_fallback",
-			"node":   m.Name,
-		}).WithError(err).Debug("unable to get node metadata, falling back to default gRPC port")
-
-		return s.localGrpcPort // fallback to default gRPC port
-	}
-
-	return meta.GrpcPort
-}
-
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
 	if s.list == nil {
@@ -322,6 +317,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -382,7 +380,7 @@ func (s *State) NodeCount() int {
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	return s.list.LocalNode().Name
+	return s.config.Hostname
 }
 
 // LocalAddr() returns local address
@@ -475,7 +473,7 @@ func (s *State) Shutdown() error {
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeID {
-			return s.grpcPort(mem), nil
+			return s.dataPort(mem), nil
 		}
 	}
 	return 0, fmt.Errorf("node not found: %s", nodeID)
@@ -623,7 +621,7 @@ func configureMemberlistSettings(cfg *memberlist.Config, userConfig Config, raft
 	// Configure timeouts and failure detection
 	if userConfig.MemberlistFastFailureDetection {
 		cfg.SuspicionMult = 1
-		cfg.DeadNodeReclaimTime = 5 * time.Second
+		cfg.DeadNodeReclaimTime = 1 * time.Second
 	}
 
 	// Set TCP timeout based on configuration type

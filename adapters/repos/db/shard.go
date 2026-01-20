@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,7 +95,7 @@ type ShardLike interface {
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
 	ID() string // Get the shard id
-	drop() error
+	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
@@ -296,7 +296,9 @@ type Shard struct {
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
 
-	SPFreshEnabled bool
+	HFreshEnabled bool
+
+	lazySegmentLoadingEnabled bool
 }
 
 func (s *Shard) ID() string {
@@ -335,25 +337,6 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 	hi := binary.LittleEndian.Uint64(uuidBytes[8:16])
 
 	return uint((lo ^ hi) % IdLockPoolSize)
-}
-
-func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
-	return lsmkv.WithDirtyThreshold(
-		time.Duration(s.index.Config.MemtablesFlushDirtyAfter) * time.Second)
-}
-
-func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
-	return lsmkv.WithDynamicMemtableSizing(
-		s.index.Config.MemtablesInitialSizeMB,
-		s.index.Config.MemtablesMaxSizeMB,
-		s.index.Config.MemtablesMinActiveSeconds,
-		s.index.Config.MemtablesMaxActiveSeconds,
-	)
-}
-
-func (s *Shard) segmentCleanupConfig() lsmkv.BucketOption {
-	return lsmkv.WithSegmentsCleanupInterval(
-		time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second)
 }
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {

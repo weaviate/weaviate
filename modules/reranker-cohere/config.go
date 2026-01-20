@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,14 +20,14 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (m *ReRankerCohereModule) ClassConfigDefaults() map[string]interface{} {
-	return map[string]interface{}{}
+func (m *ReRankerCohereModule) ClassConfigDefaults() map[string]any {
+	return map[string]any{}
 }
 
 func (m *ReRankerCohereModule) PropertyConfigDefaults(
 	dt *schema.DataType,
-) map[string]interface{} {
-	return map[string]interface{}{}
+) map[string]any {
+	return map[string]any{}
 }
 
 func (m *ReRankerCohereModule) ValidateClass(ctx context.Context,

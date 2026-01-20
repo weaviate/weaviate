@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -399,7 +399,7 @@ func (t *JsonShardMetaData) Close() error {
 }
 
 // Drop removes the tracker from disk
-func (t *JsonShardMetaData) Drop() error {
+func (t *JsonShardMetaData) Drop(keepFiles bool) error {
 	if t == nil {
 		return nil
 	}
@@ -410,8 +410,10 @@ func (t *JsonShardMetaData) Drop() error {
 
 	clear(t.data.BucketedData)
 
-	os.Remove(t.path)
-	os.Remove(t.path + ".bak")
+	if !keepFiles {
+		os.Remove(t.path)
+		os.Remove(t.path + ".bak")
+	}
 
 	return nil
 }

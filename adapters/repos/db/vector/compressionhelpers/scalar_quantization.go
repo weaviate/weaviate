@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -136,6 +136,10 @@ func (sq *ScalarQuantizer) Encode(vec []float32) []byte {
 	binary.BigEndian.PutUint32(code[len(vec):], sum)
 	binary.BigEndian.PutUint32(code[len(vec)+4:], sum2)
 	return code
+}
+
+func (sq *ScalarQuantizer) Decode(compressed []byte) []float32 {
+	panic("unimplemented")
 }
 
 type SQDistancer struct {

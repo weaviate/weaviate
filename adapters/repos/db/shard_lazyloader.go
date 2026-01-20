@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -59,14 +61,14 @@ type LazyLoadShard struct {
 	loaded           bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
+	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer ShardReindexerV3,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
@@ -361,7 +363,7 @@ func (l *LazyLoadShard) ID() string {
 	return shardId(l.shardOpts.index.ID(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) drop() error {
+func (l *LazyLoadShard) drop(keepFiles bool) error {
 	// if not loaded, execute simplified drop without loading shard:
 	// - perform required actions
 	// - remove entire shard directory
@@ -393,14 +395,16 @@ func (l *LazyLoadShard) drop() error {
 		}
 
 		// remove shard dir
-		if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
-			return fmt.Errorf("delete shard dir: %w", err)
+		if !keepFiles {
+			if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
+				return fmt.Errorf("delete shard dir: %w", err)
+			}
 		}
 
 		return nil
 	}
 
-	return l.shard.drop()
+	return l.shard.drop(keepFiles)
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
@@ -410,7 +414,9 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	lazyLoadSegments bool, props ...*models.Property,
+) {
 	l.mustLoad()
 	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
