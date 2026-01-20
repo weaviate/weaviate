@@ -328,7 +328,7 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
-    runs-on: ubicloud-standard-8-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:

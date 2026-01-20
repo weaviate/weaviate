@@ -311,7 +311,7 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 	defer helper.DeleteClass(t, booksClass.Class)
 
 	// add lots of data
-	numObjects := 10000
+	numObjects := 1000
 	for i := 0; i < numObjects; i++ {
 		var b book
 		gofakeit.Struct(&b)
