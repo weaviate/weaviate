@@ -406,9 +406,10 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					}
 					for shard := range sender {
 						firstChunk := true
+						filesInShard := shard.CopyFilesInShard()
 						for {
 							chunk := atomic.AddInt32(&lastChunk, 1)
-							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, firstChunk, overrideBucket, overridePath)
+							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, overrideBucket, overridePath)
 							if err != nil {
 								return err
 							}
@@ -416,7 +417,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 								recvCh <- chuckShards{chunk, shards, preCompressionSize}
 							}
 							firstChunk = false
-							if len(shard.Files) == 0 {
+							if len(filesInShard.Files) == 0 {
 								break
 							}
 						}
@@ -447,6 +448,7 @@ func (u *uploader) compress(ctx context.Context,
 	class string, // class name
 	chunk int32, // chunk index
 	shard *backup.ShardDescriptor, // shard to be backed up
+	filesInShard *backup.FileList,
 	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
 	overrideBucket, overridePath string, // bucket name and path
 ) ([]string, int64, error) {
@@ -468,7 +470,7 @@ func (u *uploader) compress(ctx context.Context,
 			return err
 		}
 
-		if _, err := zip.WriteShard(ctx, shard, firstChunkForShard, &preCompressionSize); err != nil {
+		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize); err != nil {
 			return err
 		}
 		shard.Chunk = chunk

@@ -114,7 +114,7 @@ func (z *zip) Close() error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, firstChunkForShard bool, preCompressionSize *atomic.Int64) (written int64, err error) {
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64) (written int64, err error) {
 	var n int64 // temporary written bytes
 
 	// write in-memory files only for the first chunk of the shard, these files are small and we can assume that they will
@@ -144,19 +144,19 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fir
 		}
 	}
 
-	n, err = z.WriteRegulars(ctx, sd, preCompressionSize)
+	n, err = z.WriteRegulars(ctx, filesInShard, preCompressionSize)
 	written += n
 
 	return written, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, preCompressionSize *atomic.Int64) (written int64, err error) {
+func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
 	// Process files in sd.Files and remove them as we go (pop from front).
 	firstFile := true
-	for len(sd.Files) > 0 {
-		relPath := sd.Files[0]
+	for filesInShard.Len() > 0 {
+		relPath := filesInShard.Peek()
 		if filepath.Base(relPath) == ".DS_Store" {
-			sd.Files = sd.Files[1:]
+			filesInShard.PopFront()
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -168,11 +168,11 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 		}
 		if sizeExceeded {
 			// The file was not written because the current chunk is full.
-			// Reinsert it at the front so it will be processed on the next chunk.
+			// It will be processed on the next chunk.
 			return written, nil
 		}
 		// remove processed element from slice
-		sd.Files = sd.Files[1:]
+		filesInShard.PopFront()
 		written += n
 		firstFile = false
 	}
@@ -201,6 +201,7 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	if !info.Mode().IsRegular() {
 		return 0, false, nil // ignore directories
 	}
+	// always write at least one file per chunk
 	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
 		return 0, true, nil
 	}
