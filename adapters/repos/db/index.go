@@ -1479,10 +1479,6 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
-	}
-
 	return shard.ObjectByID(ctx, id, props, additional)
 }
 
@@ -1497,10 +1493,6 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 
 	if shard == nil {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
-	}
-
-	if shard.GetStatus() == storagestate.StatusLoading {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
