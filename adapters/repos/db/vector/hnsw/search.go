@@ -855,7 +855,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		h.shardedNodeLocks.RLockAll()
 		for seeds > 0 {
 			if !isMultivec {
-				for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+				for ok && (h.nodes[idx] == nil || h.hasTombstone(idx)) {
 					idx, ok = it.Next()
 				}
 			} else {
