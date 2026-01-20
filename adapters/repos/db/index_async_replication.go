@@ -62,7 +62,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	frequency := defaultFrequency
 	if cfg.Frequency != nil {
-		frequency = time.Duration(*cfg.Frequency)
+		frequency = time.Duration(*cfg.Frequency) * time.Millisecond
 	}
 
 	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), frequency)
@@ -72,7 +72,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	frequencyWhilePropagating := defaultFrequencyWhilePropagating
 	if cfg.FrequencyWhilePropagating != nil {
-		frequencyWhilePropagating = time.Duration(*cfg.FrequencyWhilePropagating)
+		frequencyWhilePropagating = time.Duration(*cfg.FrequencyWhilePropagating) * time.Millisecond
 	}
 
 	config.frequencyWhilePropagating, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING"), frequencyWhilePropagating)
@@ -82,7 +82,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	aliveNodesCheckingFrequency := defaultAliveNodesCheckingFrequency
 	if cfg.AliveNodesCheckingFrequency != nil {
-		aliveNodesCheckingFrequency = time.Duration(*cfg.AliveNodesCheckingFrequency)
+		aliveNodesCheckingFrequency = time.Duration(*cfg.AliveNodesCheckingFrequency) * time.Millisecond
 	}
 
 	config.aliveNodesCheckingFrequency, err = optParseDuration(
@@ -93,7 +93,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	loggingFrequency := defaultLoggingFrequency
 	if cfg.LoggingFrequency != nil {
-		loggingFrequency = time.Duration(*cfg.LoggingFrequency)
+		loggingFrequency = time.Duration(*cfg.LoggingFrequency) * time.Second
 	}
 
 	config.loggingFrequency, err = optParseDuration(
@@ -115,7 +115,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	diffPerNodeTimeout := defaultDiffPerNodeTimeout
 	if cfg.DiffPerNodeTimeout != nil {
-		diffPerNodeTimeout = time.Duration(*cfg.DiffPerNodeTimeout)
+		diffPerNodeTimeout = time.Duration(*cfg.DiffPerNodeTimeout) * time.Second
 	}
 
 	config.diffPerNodeTimeout, err = optParseDuration(
@@ -126,7 +126,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	prePropagationTimeout := defaultPrePropagationTimeout
 	if cfg.PrePropagationTimeout != nil {
-		prePropagationTimeout = time.Duration(*cfg.PrePropagationTimeout)
+		prePropagationTimeout = time.Duration(*cfg.PrePropagationTimeout) * time.Second
 	}
 
 	config.prePropagationTimeout, err = optParseDuration(
@@ -137,7 +137,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	propagationTimeout := defaultPropagationTimeout
 	if cfg.PropagationTimeout != nil {
-		propagationTimeout = time.Duration(*cfg.PropagationTimeout)
+		propagationTimeout = time.Duration(*cfg.PropagationTimeout) * time.Second
 	}
 
 	config.propagationTimeout, err = optParseDuration(
@@ -174,7 +174,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 	}
 
 	config.propagationConcurrency, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_CONCURRENCY"), propagationConcurrency, minPropgationConcurrency, maxPropagationConcurrency)
+		os.Getenv("ASYNC_REPLICATION_PROPAGATION_CONCURRENCY"), propagationConcurrency, minPropagationConcurrency, maxPropagationConcurrency)
 	if err != nil {
 		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_CONCURRENCY", err)
 	}

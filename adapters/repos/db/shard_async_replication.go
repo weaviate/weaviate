@@ -43,9 +43,9 @@ import (
 )
 
 const (
-	defaultAsyncReplicationMaxWorkers = 10
+	defaultAsyncReplicationMaxWorkers = 3
 
-	defaultHashtreeHeightSingleTenant  = 20
+	defaultHashtreeHeightSingleTenant  = 16
 	defaultHashtreeHeightMultiTenant   = 10
 	defaultFrequency                   = 30 * time.Second
 	defaultFrequencyWhilePropagating   = 3 * time.Second
@@ -61,7 +61,7 @@ const (
 	defaultPropagationBatchSize        = 100
 
 	minHashtreeHeight = 0
-	maxHashtreeHeight = 22
+	maxHashtreeHeight = 20
 
 	minDiffBatchSize = 1
 	maxDiffBatchSize = 10_000
@@ -69,7 +69,7 @@ const (
 	minPropagationLimit = 1
 	maxPropagationLimit = 1_000_000
 
-	minPropgationConcurrency  = 1
+	minPropagationConcurrency = 1
 	maxPropagationConcurrency = 20
 
 	minPropagationBatchSize = 1
@@ -570,7 +570,18 @@ func (s *Shard) initHashBeater(ctx context.Context, config AsyncReplicationConfi
 							WithField("class_name", s.class.Class).
 							WithField("shard_name", s.name).
 							Warn(err)
-						return true
+
+						if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+							return true
+						}
+
+						select {
+						case <-time.After(backoffTimer.CurrentInterval()):
+						case <-ctx.Done():
+							return true
+						}
+						backoffTimer.IncreaseInterval()
+						return false
 					}
 					defer s.index.asyncReplicationWorkerRelease()
 

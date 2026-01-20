@@ -27,8 +27,6 @@ func int64Ptr(v int64) *int64 {
 func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 	className := "AsyncReplicationClass"
 
-	int64Ptr := func(v int64) *int64 { return &v }
-
 	t.Run("delete class if exists", func(t *testing.T) {
 		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)

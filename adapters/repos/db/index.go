@@ -27,8 +27,8 @@ import (
 	"time"
 
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
-	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
@@ -285,8 +285,8 @@ type Index struct {
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
-	replicationConfigLock     sync.RWMutex
-	asyncReplicationSemaphore *semaphore.Weighted
+	replicationConfigLock          sync.RWMutex
+	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -402,7 +402,12 @@ func NewIndex(
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
 
-	index.asyncReplicationSemaphore = semaphore.NewWeighted(int64(cfg.AsyncReplicationConfig.maxWorkers))
+	index.asyncReplicationWorkersLimiter = dynsemaphore.NewDynamicWeightedWithParent(index.Config.AsyncReplicationWorkersLimiter,
+		func() int64 {
+			index.replicationConfigLock.RLock()
+			defer index.replicationConfigLock.RUnlock()
+			return int64(cfg.AsyncReplicationConfig.maxWorkers)
+		})
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -786,8 +791,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	}
 	i.Config.AsyncReplicationConfig = config
 
-	i.asyncReplicationSemaphore = semaphore.NewWeighted(int64(config.maxWorkers))
-
+	// unloaded shards will fetch the latest config when they are loaded
 	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
 			// if async replication is being enabled, first disable it to reset any previous config
@@ -848,6 +852,7 @@ type IndexConfig struct {
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
 	AsyncReplicationConfig              AsyncReplicationConfig
+	AsyncReplicationWorkersLimiter      *dynsemaphore.DynamicWeighted
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
@@ -1090,17 +1095,11 @@ func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
 }
 
 func (i *Index) asyncReplicationWorkerAcquire(ctx context.Context) error {
-	i.replicationConfigLock.RLock()
-	defer i.replicationConfigLock.RUnlock()
-
-	return i.asyncReplicationSemaphore.Acquire(ctx, 1)
+	return i.asyncReplicationWorkersLimiter.Acquire(ctx, 1)
 }
 
 func (i *Index) asyncReplicationWorkerRelease() {
-	i.replicationConfigLock.RLock()
-	defer i.replicationConfigLock.RUnlock()
-
-	i.asyncReplicationSemaphore.Release(1)
+	i.asyncReplicationWorkersLimiter.Release(1)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
