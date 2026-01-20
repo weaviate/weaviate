@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_UserConfig(t *testing.T) {
@@ -36,10 +37,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
 				Replicas:         DefaultReplicas,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      DefaultSearchProbe,
 				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     DefaultRescoreLimit,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -50,10 +54,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: 100,
 				Replicas:         DefaultReplicas,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      DefaultSearchProbe,
 				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     DefaultRescoreLimit,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -64,24 +71,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
 				Replicas:         8,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      DefaultSearchProbe,
 				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     DefaultRescoreLimit,
-			},
-		},
-		{
-			name: "with rngFactor",
-			input: map[string]interface{}{
-				"rngFactor": json.Number("15"),
-			},
-			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				RNGFactor:        15.0,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     DefaultRescoreLimit,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -92,10 +88,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
 				Replicas:         DefaultReplicas,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      128,
 				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     DefaultRescoreLimit,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -108,10 +107,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
 				Replicas:         DefaultReplicas,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      DefaultSearchProbe,
 				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     500,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 500,
+				},
 			},
 		},
 		{
@@ -122,10 +124,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
 				Replicas:         DefaultReplicas,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      DefaultSearchProbe,
 				Distance:         "cosine",
-				RescoreLimit:     DefaultRescoreLimit,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -136,10 +141,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
 				Replicas:         DefaultReplicas,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      DefaultSearchProbe,
 				Distance:         "l2-squared",
-				RescoreLimit:     DefaultRescoreLimit,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -147,7 +155,6 @@ func Test_UserConfig(t *testing.T) {
 			input: map[string]interface{}{
 				"maxPostingSizeKB": json.Number("9"),
 				"replicas":         json.Number("8"),
-				"rngFactor":        json.Number("15"),
 				"searchProbe":      json.Number("128"),
 				"rq": map[string]interface{}{
 					"rescoreLimit": json.Number("500"),
@@ -157,10 +164,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: 9,
 				Replicas:         8,
-				RNGFactor:        15.0,
 				SearchProbe:      128,
 				Distance:         "l2-squared",
-				RescoreLimit:     500,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 500,
+				},
 			},
 		},
 		{
@@ -168,7 +178,6 @@ func Test_UserConfig(t *testing.T) {
 			input: map[string]interface{}{
 				"maxPostingSizeKB": float64(100),
 				"replicas":         float64(8),
-				"rngFactor":        float64(15),
 				"searchProbe":      float64(128),
 				"rq": map[string]interface{}{
 					"rescoreLimit": float64(500),
@@ -177,10 +186,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: 100,
 				Replicas:         8,
-				RNGFactor:        15.0,
 				SearchProbe:      128,
 				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     500,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 500,
+				},
 			},
 		},
 		{
@@ -193,10 +205,13 @@ func Test_UserConfig(t *testing.T) {
 			expected: UserConfig{
 				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
 				Replicas:         DefaultReplicas,
-				RNGFactor:        DefaultRNGFactor,
 				SearchProbe:      DefaultSearchProbe,
 				Distance:         common.DefaultDistanceMetric,
-				RescoreLimit:     0,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 0,
+				},
 			},
 		},
 		{

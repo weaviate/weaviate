@@ -17,26 +17,25 @@ import (
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 const (
-	DefaultMaxPostingSizeKB = 48
-	MaxPostingSizeKBFloor   = 8
-	DefaultReplicas         = 4
-	DefaultRNGFactor        = 10.0
-	DefaultSearchProbe      = 64
-	DefaultRescoreLimit     = 350
+	DefaultMaxPostingSizeKB   = 48
+	MaxPostingSizeKBFloor     = 8
+	DefaultReplicas           = 4
+	DefaultSearchProbe        = 64
+	DefaultHFreshRescoreLimit = 350
 )
 
 // UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
-	MaxPostingSizeKB uint32  `json:"maxPostingSizeKB"`
-	Replicas         uint32  `json:"replicas"`
-	RNGFactor        float32 `json:"rngFactor"`
-	SearchProbe      uint32  `json:"searchProbe"`
-	Distance         string  `json:"distance"`
-	RescoreLimit     uint32  `json:"rescoreLimit"`
+	MaxPostingSizeKB uint32        `json:"maxPostingSizeKB"`
+	Replicas         uint32        `json:"replicas"`
+	SearchProbe      uint32        `json:"searchProbe"`
+	Distance         string        `json:"distance"`
+	RQ               hnsw.RQConfig `json:"rq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -57,11 +56,11 @@ func (u UserConfig) IsMultiVector() bool {
 func (u *UserConfig) SetDefaults() {
 	u.MaxPostingSizeKB = DefaultMaxPostingSizeKB
 	u.Replicas = DefaultReplicas
-	u.RNGFactor = DefaultRNGFactor
 	u.SearchProbe = DefaultSearchProbe
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
-	u.RescoreLimit = DefaultRescoreLimit
-	// TODO: add quantization config
+	u.RQ.Enabled = true
+	u.RQ.Bits = 1
+	u.RQ.RescoreLimit = DefaultHFreshRescoreLimit
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -128,7 +127,7 @@ func parseAndValidateRQ(ucMap map[string]interface{}, uc *UserConfig) error {
 
 	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {
 		if v >= 0 {
-			uc.RescoreLimit = uint32(v)
+			uc.RQ.RescoreLimit = v
 		}
 	}); err != nil {
 		return err
@@ -177,12 +176,6 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "replicas", func(v int) {
 		uc.Replicas = uint32(v)
-	}); err != nil {
-		return uc, err
-	}
-
-	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "rngFactor", func(v int) {
-		uc.RNGFactor = float32(v)
 	}); err != nil {
 		return uc, err
 	}
