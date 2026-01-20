@@ -90,12 +90,13 @@ func StartBatchWorkers(
 	}
 }
 
-func (w *worker) isReplicationError(err string) bool {
+func (w *worker) isTransientReplicationError(err string) bool {
 	return strings.Contains(err, replica.ErrReplicas.Error()) || // coordinator: any error due to replicating to shutdown node
 		strings.Contains(err, "connect: Post") || // rest: failed to connect to shutdown node
 		strings.Contains(err, "status code: 404, error: request not found") || // rest: failed to find request on shutdown node
 		(strings.Contains(err, "resolve node name") && strings.Contains(err, "to host")) || // memberlist: failed to resolve to other shutdown node in cluster
-		(strings.Contains(err, "the client connection is closing")) // grpc: connection to other shutdown node is closed
+		strings.Contains(err, "the client connection is closing") || // grpc: connection to other shutdown node is closed
+		strings.Contains(err, "Node not ready") // rest: node is not ready to accept requests (still starting up or shutting down)
 }
 
 func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
@@ -138,7 +139,7 @@ func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.Ba
 				continue
 			}
 			errored[err.Index] = struct{}{}
-			if w.isReplicationError(err.Error) && retries < 3 {
+			if w.isTransientReplicationError(err.Error) && retries < 3 {
 				retriable = append(retriable, objs[err.Index])
 				continue
 			}
@@ -211,7 +212,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 				continue
 			}
 			errored[err.Index] = struct{}{}
-			if w.isReplicationError(err.Error) && retries < 3 {
+			if w.isTransientReplicationError(err.Error) && retries < 3 {
 				retriable = append(retriable, refs[err.Index])
 				continue
 			}
