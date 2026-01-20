@@ -25,9 +25,13 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestUpsertTool_InsertOneObject(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
+const testServerAddr = "localhost:8080"
+const testAPIKey = "admin-key"
+const toolNameUpsert = "weaviate-objects-upsert"
+
+func TestUpsertToolInsertOneObject(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+	apiKey := testAPIKey
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassAuth(t, cls.Class, apiKey)
@@ -39,7 +43,7 @@ func TestUpsertTool_InsertOneObject(t *testing.T) {
 
 	// Insert a single object
 	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, "weaviate-objects-upsert", &create.UpsertObjectArgs{
+	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -66,9 +70,9 @@ func TestUpsertTool_InsertOneObject(t *testing.T) {
 	assert.Equal(t, "Test Article", obj.Properties.(map[string]interface{})["title"])
 }
 
-func TestUpsertTool_InsertMultipleObjects(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
+func TestUpsertToolInsertMultipleObjects(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+	apiKey := testAPIKey
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassAuth(t, cls.Class, apiKey)
@@ -80,7 +84,7 @@ func TestUpsertTool_InsertMultipleObjects(t *testing.T) {
 
 	// Insert multiple objects in a batch
 	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, "weaviate-objects-upsert", &create.UpsertObjectArgs{
+	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -123,9 +127,9 @@ func TestUpsertTool_InsertMultipleObjects(t *testing.T) {
 	}
 }
 
-func TestUpsertTool_UpdateOneObject(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
+func TestUpsertToolUpdateOneObject(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+	apiKey := testAPIKey
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassAuth(t, cls.Class, apiKey)
@@ -151,7 +155,7 @@ func TestUpsertTool_UpdateOneObject(t *testing.T) {
 
 	// Now update the object using upsert with the same UUID
 	var resp *create.UpsertObjectResp
-	err = helper.CallToolOnce(ctx, t, "weaviate-objects-upsert", &create.UpsertObjectArgs{
+	err = helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -179,9 +183,9 @@ func TestUpsertTool_UpdateOneObject(t *testing.T) {
 	assert.Equal(t, "Updated Title", obj.Properties.(map[string]interface{})["title"])
 }
 
-func TestUpsertTool_UpdateMultipleObjects(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
+func TestUpsertToolUpdateMultipleObjects(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+	apiKey := testAPIKey
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassAuth(t, cls.Class, apiKey)
@@ -228,7 +232,7 @@ func TestUpsertTool_UpdateMultipleObjects(t *testing.T) {
 
 	// Now update all three objects in a batch
 	var resp *create.UpsertObjectResp
-	err = helper.CallToolOnce(ctx, t, "weaviate-objects-upsert", &create.UpsertObjectArgs{
+	err = helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -277,9 +281,9 @@ func TestUpsertTool_UpdateMultipleObjects(t *testing.T) {
 	}
 }
 
-func TestUpsertTool_MixedInsertAndUpdate(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
+func TestUpsertToolMixedInsertAndUpdate(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+	apiKey := testAPIKey
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassAuth(t, cls.Class, apiKey)
@@ -303,7 +307,7 @@ func TestUpsertTool_MixedInsertAndUpdate(t *testing.T) {
 
 	// Perform a mixed batch: update existing object and insert new ones
 	var resp *create.UpsertObjectResp
-	err = helper.CallToolOnce(ctx, t, "weaviate-objects-upsert", &create.UpsertObjectArgs{
+	err = helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -360,9 +364,9 @@ func TestUpsertTool_MixedInsertAndUpdate(t *testing.T) {
 	assert.Equal(t, "New Content 2", newObj2.Properties.(map[string]interface{})["contents"])
 }
 
-func TestUpsertTool_WithVectors(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
+func TestUpsertToolWithVectors(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+	apiKey := testAPIKey
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassAuth(t, cls.Class, apiKey)
@@ -375,7 +379,7 @@ func TestUpsertTool_WithVectors(t *testing.T) {
 	// Insert object with custom vector
 	var resp *create.UpsertObjectResp
 	customVector := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
-	err := helper.CallToolOnce(ctx, t, "weaviate-objects-upsert", &create.UpsertObjectArgs{
+	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -408,9 +412,9 @@ func TestUpsertTool_WithVectors(t *testing.T) {
 	}
 }
 
-func TestUpsertTool_EmptyBatch(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
+func TestUpsertToolEmptyBatch(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+	apiKey := testAPIKey
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassAuth(t, cls.Class, apiKey)
@@ -422,7 +426,7 @@ func TestUpsertTool_EmptyBatch(t *testing.T) {
 
 	// Try to upsert with empty objects array
 	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, "weaviate-objects-upsert", &create.UpsertObjectArgs{
+	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects:        []create.ObjectToUpsert{},
 	}, &resp, apiKey)
