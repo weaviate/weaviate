@@ -9,10 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package compressionhelpers
+package compression
 
-// Exported for testing.
-var (
-	FastWalshHadamardTransform64  = fastWalshHadamardTransform64
-	FastWalshHadamardTransform256 = fastWalshHadamardTransform256
-)
+// RQData holds the serialization data for Rotational Quantization compression.
+type RQData struct {
+	InputDim uint32
+	Bits     uint32
+	Rotation FastRotation
+	Rounding []float32
+}
