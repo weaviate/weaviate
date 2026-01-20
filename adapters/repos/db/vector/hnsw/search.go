@@ -199,20 +199,17 @@ func (h *hnsw) cacheSize() int64 {
 }
 
 func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
-	return allowList != nil
-	/*
-		if allowList == nil || !h.acornSearch.Load() {
-			return false
-		}
+	if allowList == nil || !h.acornSearch.Load() {
+		return false
+	}
 
-		cacheSize := h.cacheSize()
-		allowListSize := allowList.Len()
-		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
-			return false
-		}
+	cacheSize := h.cacheSize()
+	allowListSize := allowList.Len()
+	if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
+		return false
+	}
 
-		return true
-	*/
+	return true
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
@@ -870,8 +867,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				break
 				//panic(idx)
 			}
+			if eps.Contains(idx) {
+				break
+			}
+
 			entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
 			eps.Insert(idx, entryPointDistance)
+			idx, ok = it.Next()
 			seeds--
 		}
 		h.shardedNodeLocks.RUnlockAll()

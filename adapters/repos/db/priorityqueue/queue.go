@@ -29,6 +29,15 @@ type Queue[T supportedValueType] struct {
 	less  func(items []Item[T], i, j int) bool
 }
 
+func (q *Queue[T]) Contains(idx uint64) bool {
+	for _, id := range q.items {
+		if id.ID == idx {
+			return true
+		}
+	}
+	return false
+}
+
 // NewMin constructs a priority queue which prioritizes items with smaller distance
 func NewMin[T supportedValueType](capacity int) *Queue[T] {
 	return &Queue[T]{
