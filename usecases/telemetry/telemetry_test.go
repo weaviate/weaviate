@@ -639,10 +639,6 @@ func TestClientTracker(t *testing.T) {
 	})
 
 	t.Run("identify client from User-Agent", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-		tracker := NewClientTracker(logger)
-		defer tracker.Stop()
-
 		testCases := []struct {
 			name     string
 			header   string
@@ -686,23 +682,9 @@ func TestClientTracker(t *testing.T) {
 					req.Header.Set("X-Weaviate-Client", tc.header)
 				}
 
-				// Track the request
-				tracker.Track(req)
-
-				// Get counts and verify
-				counts := tracker.GetAndReset()
-				if tc.expected != ClientTypeUnknown {
-					versions, exists := counts[tc.expected]
-					assert.True(t, exists, "Expected %s to be tracked", tc.expected)
-					var totalCount int64
-					for _, count := range versions {
-						totalCount += count
-					}
-					assert.Greater(t, totalCount, int64(0), "Expected %s to have count > 0", tc.expected)
-				} else {
-					// Unknown clients should not be tracked
-					assert.Empty(t, counts)
-				}
+				// Test client identification directly
+				clientInfo := identifyClient(req)
+				assert.Equal(t, tc.expected, clientInfo.Type)
 			})
 		}
 	})
