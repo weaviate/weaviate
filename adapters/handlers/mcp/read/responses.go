@@ -13,10 +13,18 @@ package read
 
 import "github.com/weaviate/weaviate/entities/models"
 
+type GetCollectionConfigResp struct {
+	Collections []*models.Class `json:"collections" jsonschema_description:"The returned collection configurations"`
+}
+
 type GetTenantsResp struct {
 	Tenants []*models.Tenant `json:"tenants" jsonschema_description:"The returned tenants"`
 }
 
-type GetSchemaResp struct {
-	Schema *models.Schema `json:"schema" jsonschema_description:"The returned schema"`
+type FetchLogsResp struct {
+	Logs string `json:"logs" jsonschema_description:"The fetched log content"`
+}
+
+type GetObjectsResp struct {
+	Objects []*models.Object `json:"objects" jsonschema_description:"Array of retrieved objects"`
 }

@@ -14,27 +14,49 @@ package create
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type WeaviateCreator struct {
 	auth.Auth
 
 	objectsManager    objectsManager
+	schemaManager     schemaManager
+	batchManager      batchManager
 	defaultCollection string
 }
 
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
 		*additional.ReplicationProperties) (*models.Object, error)
+	UpdateObject(context.Context, *models.Principal, string, strfmt.UUID, *models.Object,
+		*additional.ReplicationProperties) (*models.Object, error)
+	GetObject(context.Context, *models.Principal, string, strfmt.UUID, additional.Properties,
+		*additional.ReplicationProperties, string) (*models.Object, error)
 }
 
-func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager) *WeaviateCreator {
+type schemaManager interface {
+	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
+}
+
+type batchManager interface {
+	DeleteObjects(ctx context.Context, principal *models.Principal, match *models.BatchDeleteMatch,
+		deletionTimeUnixMilli *int64, dryRun *bool, output *string,
+		repl *additional.ReplicationProperties, tenant string) (*objects.BatchDeleteResponse, error)
+	AddObjects(ctx context.Context, principal *models.Principal,
+		objects []*models.Object, fields []*string, repl *additional.ReplicationProperties) (objects.BatchObjects, error)
+}
+
+func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager, schemaManager schemaManager, batchManager batchManager) *WeaviateCreator {
 	return &WeaviateCreator{
 		defaultCollection: "DefaultCollection",
 		objectsManager:    objectsManager,
+		schemaManager:     schemaManager,
+		batchManager:      batchManager,
 		Auth:              *auth,
 	}
 }

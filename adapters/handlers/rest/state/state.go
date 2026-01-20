@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/loghook"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -62,6 +63,7 @@ type State struct {
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
 	Logger                *logrus.Logger
+	LogBuffer             *loghook.BufferHook
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL
 	Modules               *modules.Provider

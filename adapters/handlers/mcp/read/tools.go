@@ -12,25 +12,58 @@
 package read
 
 import (
+	"os"
+	"strings"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 )
 
-func Tools(reader *WeaviateReader) []server.ServerTool {
-	return []server.ServerTool{
+func Tools(reader *WeaviateReader, descriptions map[string]string) []server.ServerTool {
+	tools := []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
-				"get-schema",
-				mcp.WithDescription("Retrieves the schema of the database."),
+				"weaviate-collections-get-config",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-collections-get-config",
+					"Retrieves collection configuration(s). If collection_name is provided, returns only that collection's config. Otherwise returns all collections.")),
+				mcp.WithInputSchema[GetCollectionConfigArgs](),
 			),
-			Handler: mcp.NewStructuredToolHandler(reader.GetSchema),
+			Handler: mcp.NewStructuredToolHandler(reader.GetCollectionConfig),
 		},
 		{
 			Tool: mcp.NewTool(
-				"get-tenants",
-				mcp.WithDescription("Retrieves the tenants of a collection in the database."),
+				"weaviate-tenants-list",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-tenants-list",
+					"Lists the tenants of a collection in the database.")),
+				mcp.WithInputSchema[GetTenantsArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(reader.GetTenants),
 		},
+		{
+			Tool: mcp.NewTool(
+				"weaviate-objects-get",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-get",
+					"Retrieves one or more objects from a collection. Can fetch specific objects by UUID or retrieve a paginated list of objects.")),
+				mcp.WithInputSchema[GetObjectsArgs](),
+			),
+			Handler: mcp.NewStructuredToolHandler(reader.GetObjects),
+		},
 	}
+
+	// Conditionally add logs tool if enabled
+	logsEnabled := os.Getenv("MCP_SERVER_READ_LOGS_ENABLED")
+	if strings.ToLower(logsEnabled) == "true" {
+		tools = append(tools, server.ServerTool{
+			Tool: mcp.NewTool(
+				"weaviate-logs-fetch",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-logs-fetch",
+					"Fetches Weaviate server logs from the in-memory buffer with pagination support. Supports optional limit (default 2000, max 50000) and offset (default 0) parameters.")),
+				mcp.WithInputSchema[FetchLogsArgs](),
+			),
+			Handler: mcp.NewStructuredToolHandler(reader.FetchLogs),
+		})
+	}
+
+	return tools
 }

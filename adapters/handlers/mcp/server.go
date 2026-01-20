@@ -13,6 +13,8 @@ package mcp
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/server"
@@ -45,9 +47,9 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 		),
 		// TODO: configurable collection name
 		defaultCollection: "DefaultCollection",
-		creator:           create.NewWeaviateCreator(authHandler, objectsManager),
+		creator:           create.NewWeaviateCreator(authHandler, objectsManager, state.SchemaManager, state.BatchManager),
 		searcher:          search.NewWeaviateSearcher(authHandler, state.Traverser),
-		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager),
+		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager, objectsManager, state.LogBuffer),
 	}
 	s.registerTools()
 	return s, nil
@@ -65,7 +67,20 @@ func (s *MCPServer) Serve() {
 }
 
 func (s *MCPServer) registerTools() {
-	s.server.AddTools(create.Tools(s.creator)...)
-	s.server.AddTools(search.Tools(s.searcher)...)
-	s.server.AddTools(read.Tools(s.reader)...)
+	// Load configuration for custom tool descriptions
+	config := LoadConfig()
+	descriptions := config.ToDescriptionMap()
+
+	// Check if write access is disabled (default is true/disabled)
+	writeDisabled := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED")
+	if writeDisabled == "" || strings.ToLower(writeDisabled) == "true" {
+		// Write access disabled - only register read and search tools
+		s.server.AddTools(search.Tools(s.searcher, descriptions)...)
+		s.server.AddTools(read.Tools(s.reader, descriptions)...)
+	} else {
+		// Write access enabled - register all tools
+		s.server.AddTools(create.Tools(s.creator, descriptions)...)
+		s.server.AddTools(search.Tools(s.searcher, descriptions)...)
+		s.server.AddTools(read.Tools(s.reader, descriptions)...)
+	}
 }

@@ -14,16 +14,37 @@ package create
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 )
 
-func Tools(creator *WeaviateCreator) []server.ServerTool {
+func Tools(creator *WeaviateCreator, descriptions map[string]string) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
-				"insert-one",
-				mcp.WithDescription("Insert a single object into a collection in the database."),
+				"weaviate-collections-create",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-collections-create",
+					"Creates a new collection (class) in the Weaviate database with the specified configuration.")),
+				mcp.WithInputSchema[CreateCollectionArgs](),
 			),
-			Handler: mcp.NewStructuredToolHandler(creator.InsertOne),
+			Handler: mcp.NewStructuredToolHandler(creator.CreateCollection),
+		},
+		{
+			Tool: mcp.NewTool(
+				"weaviate-objects-delete",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-delete",
+					"Deletes objects from a collection based on optional where filters. Supports dry-run mode (default: true) to preview deletions before executing.")),
+				mcp.WithInputSchema[DeleteObjectsArgs](),
+			),
+			Handler: mcp.NewStructuredToolHandler(creator.DeleteObjects),
+		},
+		{
+			Tool: mcp.NewTool(
+				"weaviate-objects-upsert",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-upsert",
+					"Upserts (inserts or updates) one or more objects into a collection in batch. Supports batch operations for efficient bulk inserts and updates.")),
+				mcp.WithInputSchema[UpsertObjectArgs](),
+			),
+			Handler: mcp.NewStructuredToolHandler(creator.UpsertObject),
 		},
 	}
 }
