@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -112,6 +112,27 @@ func (suite *ReplicationNotImplementedTestSuite) TestReplicationNotImplemented()
 	t.Run("GET /replication/sharding-state", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams(), nil)
 		require.IsType(t, &replication.GetCollectionShardingStateNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for get collection sharding state but got %v", err))
+	})
+
+	t.Run("GET /replication/scale", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.GetReplicationScalePlan(
+			replication.NewGetReplicationScalePlanParams().
+				WithCollection("test-collection").
+				WithReplicationFactor(3),
+			nil)
+		require.IsType(t, &replication.GetReplicationScalePlanNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for get replication scale plan but got %v", err))
+	})
+
+	t.Run("POST /replication/scale", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+			replication.NewApplyReplicationScalePlanParams().
+				WithBody(&models.ReplicationScalePlan{
+					Collection:        "test-collection",
+					PlanID:            strfmt.UUID("123e4567-e89b-12d3-a456-426614174000"),
+					ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{},
+				}),
+			nil)
+		require.IsType(t, &replication.ApplyReplicationScalePlanNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for replication scale apply but got %v", err))
 	})
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,9 +13,9 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -25,12 +25,13 @@ import (
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -64,27 +65,6 @@ func addHandleRoot(next http.Handler) http.Handler {
 	})
 }
 
-// clusterv1Regexp is used to intercept requests and redirect them to a dedicated http server independent of swagger
-var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
-
-// addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
-// If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
-// If the request doesn't match, it will continue to the next handler.
-func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
-	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
-	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/v1/cluster/statistics":
-			next.ServeHTTP(w, r)
-		case clusterv1Regexp.MatchString(r.URL.Path):
-			raftRouter.ServeHTTP(w, r)
-		default:
-			next.ServeHTTP(w, r)
-		}
-	})
-}
-
 func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		mux := http.NewServeMux()
@@ -110,7 +90,7 @@ func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Ha
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
-func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context) func(http.Handler) http.Handler {
+func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context, telemeter *telemetry.Telemeter) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
@@ -128,9 +108,16 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
+		// Add client tracking middleware early in the chain to capture all requests
+		if telemeter != nil {
+			handler = telemetry.ClientTrackingMiddleware(telemeter.GetClientTracker())(handler)
+		}
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		handler = addSourceIpToContext(handler)
+		handler = addOperationalMode(appState, handler)
+		// Add OpenTelemetry tracing middleware (only has an effect if tracing is enabled)
+		handler = monitoring.AddTracingToHTTPMiddleware(handler, appState.Logger)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = monitoring.InstrumentHTTP(
 				handler,
@@ -141,8 +128,6 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 				appState.HTTPServerMetrics.ResponseBodySize,
 			)
 		}
-		// Must be the last middleware as it might skip the next handler
-		handler = addClusterHandlerMiddleware(handler, appState)
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			handler = addSentryHandler(handler)
 		}
@@ -272,4 +257,54 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func addOperationalMode(state *state.State, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch state.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_ONLY:
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) {
+				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
+				return
+			}
+		case config.SCALE_OUT:
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) {
+				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
+				return
+			}
+		case config.WRITE_ONLY:
+			if config.IsHTTPRead(r.Method) && !whitelist(r.URL.Path, config.WriteOnlyWhitelist) {
+				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
+				return
+			}
+		default:
+			// all good
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
+	resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}}}
+	data, marshalErr := json.Marshal(resp)
+	if marshalErr != nil {
+		http.Error(w, "error when marshalling errorResponse in operational mode middleware", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	w.Write(data)
+}
+
+func whitelist(path string, whitelist map[string]struct{}) bool {
+	split := strings.Split(path, "/")
+	root := split[1]
+	if root != "v1" {
+		return true
+	}
+	namespace := split[2]
+	if _, ok := whitelist[namespace]; ok {
+		return true
+	}
+	return false
 }

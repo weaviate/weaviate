@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -129,6 +129,24 @@ func TestGRPCAggregateRequest(t *testing.T) {
 				},
 			},
 			error: false,
+		},
+		{
+			name: "multiple target vectors",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				Search: &pb.AggregateRequest_Hybrid{
+					Hybrid: &pb.Hybrid{
+						Alpha: 0.5,
+						NearText: &pb.NearTextSearch{
+							Query:     []string{"hello"},
+							Certainty: ptr(0.6),
+						},
+						Targets: &pb.Targets{TargetVectors: []string{"first_vec", "second_vec"}},
+					},
+				},
+			},
+			error: true,
 		},
 	}
 

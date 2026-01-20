@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,9 +38,16 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
-	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
-		db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
-		return nil, fmt.Errorf("cannot process batch: %w", err)
+	// Only check memory if async indexing is disabled. If async indexing is
+	// enabled, the allocation (and therefore the decision on whether enough
+	// memory is available) is deferred until the dequeue step. This way, pushing
+	// onto the queue is not blocked, and dequeing does not accidentally run OOM
+	// because enqueuing was too fast.
+	if !db.AsyncIndexingEnabled {
+		if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
+			db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
+			return nil, fmt.Errorf("cannot process batch: %w", err)
+		}
 	}
 
 	for _, item := range objs {

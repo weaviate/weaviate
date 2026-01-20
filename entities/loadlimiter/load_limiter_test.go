@@ -1,0 +1,77 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package loadlimiter
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+)
+
+func TestNewLoadLimiter_DefaultLimit(t *testing.T) {
+	tests := []struct {
+		name          string
+		limit         int
+		expectedLimit int64
+	}{
+		{
+			name:          "with custom limit",
+			limit:         100,
+			expectedLimit: 100,
+		},
+		{
+			name:          "with default limit",
+			limit:         0,
+			expectedLimit: defaultLoadingLimit,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			limiter := NewLoadLimiter(monitoring.NoopRegisterer, "dummy", tc.limit)
+
+			var count int64
+			for limiter.sema.TryAcquire(1) {
+				count++
+			}
+
+			require.Equal(t, tc.expectedLimit, count)
+		})
+	}
+}
+
+func TestNewLoadLimiter_ControlsConcurrency(t *testing.T) {
+	var (
+		limiter = NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 5)
+		start   = time.Now()
+	)
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			require.NoError(t, limiter.Acquire(context.Background()))
+			defer limiter.Release()
+
+			time.Sleep(100 * time.Millisecond)
+		}()
+	}
+	wg.Wait()
+
+	require.GreaterOrEqual(t, time.Since(start), 200*time.Millisecond)
+}

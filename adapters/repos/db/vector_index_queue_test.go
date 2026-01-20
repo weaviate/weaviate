@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,13 +27,12 @@ import (
 )
 
 func TestVectorIndexQueueBatchSize(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
 	os.Setenv("ASYNC_INDEXING_BATCH_SIZE", "6000")
 	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms")
 
 	ctx := context.Background()
 	className := "TestClass"
-	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true, true)
 
 	defer func(path string) {
 		err := os.RemoveAll(path)

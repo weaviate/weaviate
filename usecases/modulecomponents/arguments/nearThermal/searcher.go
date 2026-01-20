@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,11 +21,21 @@ import (
 )
 
 type Searcher[T dto.Embedding] struct {
-	vectorizer bindVectorizer[T]
+	vectorForParams modulecapabilities.VectorForParams[T]
 }
 
 func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
-	return &Searcher[T]{vectorizer}
+	return &Searcher[T]{func(ctx context.Context, params any, className string,
+		findVectorFn modulecapabilities.FindVectorFn[T],
+		cfg moduletools.ClassConfig,
+	) (T, error) {
+		// find vector for given search query
+		vector, err := vectorizer.VectorizeThermal(ctx, params.(*NearThermalParams).Thermal, cfg)
+		if err != nil {
+			return nil, errors.Errorf("vectorize thermal: %v", err)
+		}
+		return vector, nil
+	}}
 }
 
 type bindVectorizer[T dto.Embedding] interface {
@@ -34,22 +44,6 @@ type bindVectorizer[T dto.Embedding] interface {
 
 func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
-	vectorSearches["nearThermal"] = &vectorForParams[T]{s.vectorizer}
+	vectorSearches["nearThermal"] = s.vectorForParams
 	return vectorSearches
-}
-
-type vectorForParams[T dto.Embedding] struct {
-	vectorizer bindVectorizer[T]
-}
-
-func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
-	findVectorFn modulecapabilities.FindVectorFn[T],
-	cfg moduletools.ClassConfig,
-) (T, error) {
-	// find vector for given search query
-	vector, err := v.vectorizer.VectorizeThermal(ctx, params.(*NearThermalParams).Thermal, cfg)
-	if err != nil {
-		return nil, errors.Errorf("vectorize thermal: %v", err)
-	}
-	return vector, nil
 }

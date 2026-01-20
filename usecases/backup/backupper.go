@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,28 +47,6 @@ func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacS
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
-}
-
-// Backup is called by the User
-func (b *backupper) Backup(ctx context.Context,
-	store nodeStore, id string, classes []string, overrideBucket, overridePath string,
-) (*backup.CreateMeta, error) {
-	// make sure there is no active backup
-	req := Request{
-		Method:  OpCreate,
-		ID:      id,
-		Classes: classes,
-		Bucket:  overrideBucket,
-		Path:    overridePath,
-	}
-	if _, err := b.backup(store, &req); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	return &backup.CreateMeta{
-		Path:   store.HomeDir(overrideBucket, overridePath),
-		Status: backup.Started,
-	}, nil
 }
 
 func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState, error) {
@@ -131,17 +109,23 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 				Error(err)
 			b.lastAsyncError = err
 			return
-
 		}
 		provider := newUploader(b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
+		compressionType, err := CompressionTypeFromLevel(req.Level)
+		if err != nil {
+			b.logger.WithField("action", "create_backup").Error(err)
+			b.lastAsyncError = err
+			return
+		}
 		result := backup.BackupDescriptor{
-			StartedAt:     time.Now().UTC(),
-			ID:            id,
-			Classes:       make([]backup.ClassDescriptor, 0, len(req.Classes)),
-			Version:       Version,
-			ServerVersion: config.ServerVersion,
+			StartedAt:       time.Now().UTC(),
+			ID:              id,
+			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
+			Version:         Version,
+			ServerVersion:   config.ServerVersion,
+			CompressionType: &compressionType,
 		}
 
 		// the coordinator might want to abort the backup

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,7 +30,8 @@ type PropertyValuesHelper interface {
 	GetPropertyAsStringWithNotExists(cfg moduletools.ClassConfig, name, defaultValue, notExistsValue string) string
 	GetPropertyAsBool(cfg moduletools.ClassConfig, name string, defaultValue bool) bool
 	GetPropertyAsBoolWithNotExists(cfg moduletools.ClassConfig, name string, defaultValue, notExistsValue bool) bool
-	GetNumber(in interface{}) (float32, error)
+	GetNumber(in any) (float32, error)
+	GetPropertyAsListOfStrings(cfg moduletools.ClassConfig, name string, defaultValue []string) []string
 }
 
 type classPropertyValuesHelper struct {
@@ -150,7 +151,7 @@ func (h *classPropertyValuesHelper) GetPropertyAsBoolWithNotExists(cfg moduletoo
 	}
 }
 
-func (h *classPropertyValuesHelper) GetNumber(in interface{}) (float32, error) {
+func (h *classPropertyValuesHelper) GetNumber(in any) (float32, error) {
 	switch i := in.(type) {
 	case float64:
 		return float32(i), nil
@@ -175,7 +176,28 @@ func (h *classPropertyValuesHelper) GetNumber(in interface{}) (float32, error) {
 	}
 }
 
-func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map[string]interface{} {
+func (h *classPropertyValuesHelper) GetPropertyAsListOfStrings(cfg moduletools.ClassConfig, name string, defaultValue []string) []string {
+	if cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return defaultValue
+	}
+
+	value := h.GetSettings(cfg)[name]
+	switch v := value.(type) {
+	case []string:
+		return v
+	case []any:
+		val := make([]string, len(v))
+		for i := range v {
+			val[i] = fmt.Sprintf("%v", v[i])
+		}
+		return val
+	default:
+		return defaultValue
+	}
+}
+
+func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map[string]any {
 	if h.moduleName != "" {
 		if settings := cfg.ClassByModuleName(h.moduleName); len(settings) > 0 {
 			return settings
@@ -189,7 +211,7 @@ func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map
 	return cfg.Class()
 }
 
-func getNumberValue[T int | int64 | float64](settings map[string]interface{},
+func getNumberValue[T int | int64 | float64](settings map[string]any,
 	name string, defaultValue, notExistsValue *T,
 ) *T {
 	value := settings[name]

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -167,6 +167,10 @@ func (c RQCode) String() string {
 
 func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 	return rq.encode(x, rq.bits)
+}
+
+func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
+	return rq.UnRotate(rq.Restore(compressed))
 }
 
 func dotProduct(x, y []float32) float32 {
@@ -360,6 +364,7 @@ type RQData struct {
 	InputDim uint32
 	Bits     uint32
 	Rotation FastRotation
+	Rounding []float32
 }
 
 func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
@@ -368,4 +373,12 @@ func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
 		Bits:     rq.bits,
 		Rotation: *rq.rotation,
 	})
+}
+
+func (rq *RotationalQuantizer) Data() RQData {
+	return RQData{
+		InputDim: rq.inputDim,
+		Bits:     rq.bits,
+		Rotation: *rq.rotation,
+	}
 }

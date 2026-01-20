@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -219,8 +219,11 @@ func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface
 		params.Temperature = temperature
 	}
 	if params.MaxTokens == nil {
-		maxTokens := settings.MaxTokenCount(params.Service, params.Model)
+		maxTokens := settings.MaxTokens(params.Service, params.Model)
 		params.MaxTokens = maxTokens
+	}
+	if len(params.StopSequences) == 0 {
+		params.StopSequences = settings.StopSequences(params.Service, params.Model)
 	}
 
 	params.Images = generativecomponents.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
@@ -359,7 +362,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 			Prompt:            builder.String(),
 			Temperature:       params.Temperature,
 			MaxTokensToSample: params.MaxTokens,
-			StopSequences:     settings.StopSequences(service, model),
+			StopSequences:     params.StopSequences,
 			TopK:              settings.TopK(service, model),
 			TopP:              settings.TopP(service, model),
 			AnthropicVersion:  "bedrock-2023-05-31",
@@ -370,7 +373,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 			Temperature:   params.Temperature,
 			MaxTokens:     params.MaxTokens,
 			TopP:          settings.TopP(service, model),
-			StopSequences: settings.StopSequences(service, model),
+			StopSequences: params.StopSequences,
 		}, nil
 	} else if v.isCohereCommandRModel(model) {
 		return bedrockCohereCommandRRequest{

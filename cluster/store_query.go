@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -140,6 +140,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.replicationManager.QueryShardingStateByCollectionAndShard(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get sharding state by collection and shard: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN:
+		payload, err = st.replicationManager.QueryReplicationScalePlan(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication scale plan: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_ALL_REPLICATION_DETAILS:
 		payload, err = st.replicationManager.GetAllReplicationDetails(req)

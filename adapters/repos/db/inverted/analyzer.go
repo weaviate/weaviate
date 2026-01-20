@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,6 +64,7 @@ func DedupItems(props []Property) []Property {
 
 type Analyzer struct {
 	isFallbackToSearchable IsFallbackToSearchable
+	className              string
 }
 
 // Text tokenizes given input according to selected tokenization,
@@ -77,7 +78,7 @@ func (a *Analyzer) Text(tokenization, in string) []Countable {
 func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
 	var terms []string
 	for _, in := range inArr {
-		terms = append(terms, tokenizer.Tokenize(tokenization, in)...)
+		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
 	}
 
 	counts := map[string]uint64{}
@@ -240,9 +241,9 @@ func (a *Analyzer) Ref(in models.MultipleRef) ([]Countable, error) {
 	return out, nil
 }
 
-func NewAnalyzer(isFallbackToSearchable IsFallbackToSearchable) *Analyzer {
+func NewAnalyzer(isFallbackToSearchable IsFallbackToSearchable, className string) *Analyzer {
 	if isFallbackToSearchable == nil {
 		isFallbackToSearchable = func() bool { return false }
 	}
-	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable}
+	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable, className: className}
 }

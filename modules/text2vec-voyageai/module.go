@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,12 +41,16 @@ var batchSettings = batch.Settings{
 	MaxObjectsPerBatch: 128, //  https://docs.voyageai.com/docs/embeddings#python-api
 	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int {
 		model := ent.NewClassSettings(cfg).Model()
-		if model == "voyage-2" {
+		switch model {
+		case "voyage-2":
 			return 320000
-		} else if model == "voyage-large-2" || model == "voyage-code-2" {
+		case "voyage-large-2", "voyage-code-2":
 			return 120000
+		case "voyage-3", "voyage-3-lite", "voyage-3-large", "voyage-3.5", "voyage-3.5-lite", "voyage-context-3":
+			return 160000
+		default:
+			return 120000 // unknown model, use the smallest limit
 		}
-		return 120000 // unknown model, use the smallest limit
 	},
 	HasTokenLimit:    true,
 	ReturnsRateLimit: true,
@@ -159,6 +163,14 @@ func (m *VoyageAIModule) AdditionalProperties() map[string]modulecapabilities.Ad
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *VoyageAIModule) MigrateProperties() []modulecapabilities.MigrateProperty {
+	return []modulecapabilities.MigrateProperty{
+		{Name: "baseURL"},
+		{Name: "model"},
+		{Name: "truncate"},
+	}
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
@@ -167,4 +179,5 @@ var (
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
+	_ = modulecapabilities.MigrateProperties(New())
 )

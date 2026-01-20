@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -146,8 +146,6 @@ type Config struct {
 	Parser schema.Parser
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema schema.LoadLegacySchema
-	// SaveLegacySchema is responsible for loading new schema into boltDB
-	SaveLegacySchema schema.SaveLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
 
@@ -310,7 +308,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
-	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
 	return Store{
@@ -519,11 +517,6 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	}
 }
 
-// StoreSchemaV1() is responsible for saving new schema (RAFT) to boltDB
-func (st *Store) StoreSchemaV1() error {
-	return st.cfg.SaveLegacySchema(st.schemaManager.NewSchemaReader().States())
-}
-
 func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
 		return nil
@@ -539,14 +532,6 @@ func (st *Store) Close(ctx context.Context) error {
 			st.log.Info("successfully transferred leadership to another server")
 		}
 	}
-
-	// leave memberlist first to announce node graceful departure
-	if err := st.cfg.NodeSelector.Leave(); err != nil {
-		st.log.WithError(err).Error("leave node from cluster")
-	}
-
-	// drain any ongoing operations
-	time.Sleep(st.cfg.DrainSleep)
 
 	// Shutdown memberlist after leave to clean up resources and connections
 	if err := st.cfg.NodeSelector.Shutdown(); err != nil {

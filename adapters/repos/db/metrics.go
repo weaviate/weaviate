@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -173,7 +173,7 @@ func NewMetrics(
 
 	var err error
 
-	m.asyncReplicationGoroutinesRunning, err = monitoring.EnsureRegisteredMetric(
+	m.asyncReplicationGoroutinesRunning, _, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: "weaviate",
@@ -185,7 +185,9 @@ func NewMetrics(
 		return nil, fmt.Errorf("registering async_replication_goroutines_running: %w", err)
 	}
 
-	m.asyncReplicationHashTreeInitCount, err = monitoring.EnsureRegisteredMetric(
+	var alreadyRegistered bool
+
+	m.asyncReplicationHashTreeInitCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
@@ -196,8 +198,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_hashtree_init_count: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationHashTreeInitCount.Add(0)
+	}
 
-	m.asyncReplicationHashTreeInitRunning, err = monitoring.EnsureRegisteredMetric(
+	m.asyncReplicationHashTreeInitRunning, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "weaviate",
@@ -208,8 +213,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_hashtree_init_running: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationHashTreeInitRunning.Set(0)
+	}
 
-	m.asyncReplicationHashTreeInitFailureCount, err = monitoring.EnsureRegisteredMetric(
+	m.asyncReplicationHashTreeInitFailureCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
@@ -220,8 +228,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_hashtree_init_failure_count: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationHashTreeInitFailureCount.Add(0)
+	}
 
-	m.asyncReplicationHashTreeInitDuration, err = monitoring.EnsureRegisteredMetric(
+	m.asyncReplicationHashTreeInitDuration, _, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "weaviate",
@@ -234,7 +245,7 @@ func NewMetrics(
 		return nil, fmt.Errorf("registering async_replication_hashtree_init_duration_seconds: %w", err)
 	}
 
-	m.asyncReplicationIterationCount, err = monitoring.EnsureRegisteredMetric(
+	m.asyncReplicationIterationCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
@@ -245,8 +256,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_iteration_count: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationIterationCount.Add(0)
+	}
 
-	m.asyncReplicationIterationFailureCount, err = monitoring.EnsureRegisteredMetric(
+	m.asyncReplicationIterationFailureCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
@@ -257,8 +271,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_iteration_failure_count: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationIterationFailureCount.Add(0)
+	}
 
-	m.asyncReplicationIterationDuration, err = monitoring.EnsureRegisteredMetric(
+	m.asyncReplicationIterationDuration, _, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "weaviate",
@@ -271,7 +288,7 @@ func NewMetrics(
 		return nil, fmt.Errorf("registering async_replication_iteration_duration_seconds: %w", err)
 	}
 
-	m.asyncReplicationHashtreeDiffDuration, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+	m.asyncReplicationHashtreeDiffDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "weaviate",
 			Name:      "async_replication_hashtree_diff_duration_seconds",
@@ -283,7 +300,7 @@ func NewMetrics(
 		return nil, fmt.Errorf("registering async_replication_hashtree_diff_duration_seconds: %w", err)
 	}
 
-	m.asyncReplicationObjectDigestsDiffDuration, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+	m.asyncReplicationObjectDigestsDiffDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "weaviate",
 			Name:      "async_replication_object_digests_diff_duration_seconds",
@@ -295,7 +312,7 @@ func NewMetrics(
 		return nil, fmt.Errorf("registering async_replication_object_digests_diff_duration_seconds: %w", err)
 	}
 
-	m.asyncReplicationPropagationCount, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+	m.asyncReplicationPropagationCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
 			Name:      "async_replication_propagation_count",
@@ -305,8 +322,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_propagation_count: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationPropagationCount.Add(0)
+	}
 
-	m.asyncReplicationPropagationFailureCount, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+	m.asyncReplicationPropagationFailureCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
 			Name:      "async_replication_propagation_failure_count",
@@ -316,8 +336,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_propagation_failure_count: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationPropagationFailureCount.Add(0)
+	}
 
-	m.asyncReplicationPropagationObjectCount, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+	m.asyncReplicationPropagationObjectCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
 			Name:      "async_replication_propagation_object_count",
@@ -327,8 +350,11 @@ func NewMetrics(
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_propagation_object_count: %w", err)
 	}
+	if !alreadyRegistered {
+		m.asyncReplicationPropagationObjectCount.Add(0)
+	}
 
-	m.asyncReplicationPropagationDuration, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+	m.asyncReplicationPropagationDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "weaviate",
 			Name:      "async_replication_propagation_duration_seconds",

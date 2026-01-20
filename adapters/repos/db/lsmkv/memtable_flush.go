@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -281,7 +282,10 @@ func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key
 func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
-	totalDataLength := totalValueSizeCollection(flat)
+	totalDataLength, keysToSkip, err := totalValueSizeCollection(flat, m.shouldSkipKeyFunc)
+	if err != nil {
+		return nil, err
+	}
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
@@ -298,7 +302,12 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	keys := make([]segmentindex.Key, len(flat))
 
 	totalWritten := headerSize
-	for i, node := range flat {
+	i := 0
+	for j, node := range flat {
+		if _, ok := keysToSkip[j]; ok {
+			continue
+		}
+
 		ki, err := (&segmentCollectionNode{
 			values:     node.values,
 			primaryKey: node.key,
@@ -309,10 +318,11 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 		}
 
 		keys[i] = ki
+		i++
 		totalWritten = ki.ValueEnd
 	}
 
-	return keys, nil
+	return keys[:i], nil
 }
 
 func totalKeyAndValueSize(in []*binarySearchNode) int {
@@ -328,9 +338,19 @@ func totalKeyAndValueSize(in []*binarySearchNode) int {
 	return sum
 }
 
-func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
+func totalValueSizeCollection(in []*binarySearchNodeMulti, shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)) (int, map[int]struct{}, error) {
 	var sum int
-	for _, n := range in {
+	keysToSkip := map[int]struct{}{}
+	for i, n := range in {
+		if shouldSkipKeyFunc != nil {
+			if shouldSkipKey, err := shouldSkipKeyFunc(n.key, context.Background()); err != nil {
+				return 0, nil, errors.Wrap(err, "should skip key")
+			} else if shouldSkipKey {
+				keysToSkip[i] = struct{}{}
+				continue
+			}
+		}
+
 		sum += 8 // uint64 to indicate array length
 		for _, v := range n.values {
 			sum += 1 // bool to indicate value tombstone
@@ -342,5 +362,5 @@ func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
 		sum += len(n.key)
 	}
 
-	return sum
+	return sum, keysToSkip, nil
 }

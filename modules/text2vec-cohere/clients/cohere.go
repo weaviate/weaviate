@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,10 +41,11 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	icheck := ent.NewClassSettings(cfg)
 	res, err := v.client.Vectorize(ctx, input, cohere.Settings{
-		Model:     icheck.Model(),
-		BaseURL:   icheck.BaseURL(),
-		Truncate:  icheck.Truncate(),
-		InputType: cohere.SearchDocument,
+		Model:      icheck.Model(),
+		BaseURL:    icheck.BaseURL(),
+		Truncate:   icheck.Truncate(),
+		InputType:  cohere.SearchDocument,
+		Dimensions: icheck.Dimensions(),
 	})
 	return res, nil, 0, err
 }
@@ -54,10 +55,11 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	icheck := ent.NewClassSettings(cfg)
 	return v.client.Vectorize(ctx, input, cohere.Settings{
-		Model:     icheck.Model(),
-		BaseURL:   icheck.BaseURL(),
-		Truncate:  icheck.Truncate(),
-		InputType: cohere.SearchQuery,
+		Model:      icheck.Model(),
+		BaseURL:    icheck.BaseURL(),
+		Truncate:   icheck.Truncate(),
+		InputType:  cohere.SearchQuery,
+		Dimensions: icheck.Dimensions(),
 	})
 }
 

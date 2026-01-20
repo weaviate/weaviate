@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -194,5 +194,90 @@ func TestBitmapFactory(t *testing.T) {
 		assert.Equal(t, int(expPrefilledMaxId)+1, bmf.prefilled.GetCardinality())
 		assert.Equal(t, maxId, bm.Maximum())
 		assert.Equal(t, int(maxId)+1, bm.GetCardinality())
+	})
+}
+
+func TestIterator(t *testing.T) {
+	testCases := []struct {
+		name string
+		vals []uint64
+	}{
+		{
+			name: "empty bitmap",
+			vals: []uint64{},
+		},
+		{
+			name: "bitmap with only 0",
+			vals: []uint64{0},
+		},
+		{
+			name: "bitmap with few values including 0",
+			vals: []uint64{0, 3, 5, 10},
+		},
+		{
+			name: "bitmap with few values excluding 0",
+			vals: []uint64{3, 5, 9, 10},
+		},
+	}
+
+	t.Run("returns ok when value is returned", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				bm := NewBitmap(tc.vals...)
+				it := NewIterator(bm)
+
+				for _, expVal := range tc.vals {
+					val, ok := it.Next()
+					assert.Equal(t, expVal, val)
+					assert.True(t, ok)
+				}
+				for range 5 {
+					val, ok := it.Next()
+					assert.Equal(t, uint64(0), val)
+					assert.False(t, ok)
+				}
+			})
+		}
+	})
+
+	t.Run("resets iterator", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				bm := NewBitmap(tc.vals...)
+				it := NewIterator(bm)
+
+				for range 7 {
+					it.Next()
+				}
+				it.Reset()
+
+				for _, expVal := range tc.vals {
+					val, ok := it.Next()
+					assert.Equal(t, expVal, val)
+					assert.True(t, ok)
+				}
+				for range 5 {
+					val, ok := it.Next()
+					assert.Equal(t, uint64(0), val)
+					assert.False(t, ok)
+				}
+			})
+		}
+	})
+
+	t.Run("runs in loop", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				bm := NewBitmap(tc.vals...)
+				it := NewIterator(bm)
+
+				vals := make([]uint64, 0, len(tc.vals))
+				for val, ok := it.Next(); ok; val, ok = it.Next() {
+					vals = append(vals, val)
+				}
+
+				assert.Equal(t, tc.vals, vals)
+			})
+		}
 	})
 }

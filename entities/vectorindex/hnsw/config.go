@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -328,4 +329,37 @@ func NewDefaultMultiVectorUserConfig() UserConfig {
 	uc.SetDefaults()
 	uc.Multivector = MultivectorConfig{Enabled: true}
 	return uc
+}
+
+func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compression string) (config.VectorIndexConfig, error) {
+	hnswConfig := vectorIndexConfig.(UserConfig)
+	pqEnabled := hnswConfig.PQ.Enabled
+	sqEnabled := hnswConfig.SQ.Enabled
+	rqEnabled := hnswConfig.RQ.Enabled
+	bqEnabled := hnswConfig.BQ.Enabled
+	skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
+	hnswConfig.TrackDefaultQuantization = false
+	if pqEnabled || sqEnabled || rqEnabled || bqEnabled || skipDefaultQuantization {
+		return hnswConfig, nil
+	}
+	switch compression {
+	case "pq":
+		hnswConfig.PQ.Enabled = true
+	case "sq":
+		hnswConfig.SQ.Enabled = true
+	case "rq-1":
+		hnswConfig.RQ.Enabled = true
+		hnswConfig.RQ.Bits = 1
+		hnswConfig.RQ.RescoreLimit = DefaultBRQRescoreLimit
+	case "rq-8":
+		hnswConfig.RQ.Enabled = true
+		hnswConfig.RQ.Bits = 8
+		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
+	case "bq":
+		hnswConfig.BQ.Enabled = true
+	default:
+		return hnswConfig, errors.New("invalid default quantization for hnsw index: " + compression)
+	}
+	hnswConfig.TrackDefaultQuantization = true
+	return hnswConfig, nil
 }

@@ -9,6 +9,13 @@ packages:
     interfaces:
       Parser:
       replicationFSM:
+  github.com/weaviate/weaviate/usecases/replica:
+   interfaces:
+      RClient:
+      WClient:
+  github.com/weaviate/weaviate/usecases/replica/types:
+    interfaces:
+      Replicator:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
@@ -23,6 +30,7 @@ packages:
   github.com/weaviate/weaviate/usecases/cluster:
     interfaces:
       NodeSelector:
+      NodeResolver:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:

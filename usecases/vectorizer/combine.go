@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,7 @@ func CombineVectorsWithWeights(vectors [][]float32, weights []float32) []float32
 	sums := make([]float32, maxVectorLength)
 	dividers := make([]int32, maxVectorLength)
 	for indx, vector := range vectors {
-		for i := 0; i < len(vector); i++ {
+		for i := range vector {
 			if weights != nil {
 				// apply weight to vector value
 				sums[i] += vector[i] * weights[indx]
@@ -43,7 +43,7 @@ func CombineVectorsWithWeights(vectors [][]float32, weights []float32) []float32
 			dividers[i]++
 		}
 	}
-	for i := 0; i < len(sums); i++ {
+	for i := range sums {
 		sums[i] /= float32(dividers[i])
 	}
 

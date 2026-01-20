@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -179,14 +179,7 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (written int64, err error) {
 	if err := os.Mkdir(s.ScratchSpacePath, 0o777); err != nil {
 		return written, errors.Wrap(err, "create scratch space")
 	}
-	defer func() {
-		diskio.Fsync(s.ScratchSpacePath)
-
-		rerr := os.RemoveAll(s.ScratchSpacePath)
-		if err == nil {
-			err = rerr
-		}
-	}()
+	defer os.RemoveAll(s.ScratchSpacePath)
 
 	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
 	primaryFD, err := os.Create(primaryFileName)

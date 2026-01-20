@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,23 +19,22 @@ import (
 	"strings"
 	"testing"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestBM25FJourneyBlock(t *testing.T) {
@@ -68,7 +67,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -347,7 +346,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -371,7 +370,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 			}
 			require.Nil(t, err)
 			// Check results in correct order
-			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(4), res[0].DocID)
 			require.Equal(t, uint64(3), res[3].DocID)
 
 			// Check scores
@@ -418,7 +417,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -538,7 +537,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -626,7 +625,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -654,7 +653,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			require.Nil(t, err)
 
 			// Check results in correct order
-			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(4), res[0].DocID)
 			require.Equal(t, uint64(6), res[2].DocID)
 
 			// Print results
@@ -708,7 +707,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -755,19 +754,19 @@ func TestBM25FCompareBlock(t *testing.T) {
 				}
 
 				// Not all the scores are unique and the search is not stable, so pick ones that don't move
-				require.Equal(t, uint64(1), objs[0].DocID)
-				require.Equal(t, uint64(2), objs[1].DocID)
-				require.Equal(t, uint64(0), objs[2].DocID)
-				require.Equal(t, uint64(6), objs[3].DocID)
-				require.Equal(t, uint64(5), objs[4].DocID)
-				require.Equal(t, uint64(4), objs[5].DocID)
+				require.Equal(t, uint64(4), objs[0].DocID)
+				require.Equal(t, uint64(5), objs[1].DocID)
+				require.Equal(t, uint64(6), objs[2].DocID)
+				require.Equal(t, uint64(0), objs[3].DocID)
+				require.Equal(t, uint64(2), objs[4].DocID)
+				require.Equal(t, uint64(1), objs[5].DocID)
 
-				require.Equal(t, uint64(1), withBM25Fobjs[0].DocID)
-				require.Equal(t, uint64(2), withBM25Fobjs[1].DocID)
-				require.Equal(t, uint64(0), withBM25Fobjs[2].DocID)
-				require.Equal(t, uint64(6), withBM25Fobjs[3].DocID)
-				require.Equal(t, uint64(5), withBM25Fobjs[4].DocID)
-				require.Equal(t, uint64(4), withBM25Fobjs[5].DocID)
+				require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
+				require.Equal(t, uint64(5), withBM25Fobjs[1].DocID)
+				require.Equal(t, uint64(6), withBM25Fobjs[2].DocID)
+				require.Equal(t, uint64(0), withBM25Fobjs[3].DocID)
+				require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
+				require.Equal(t, uint64(1), withBM25Fobjs[5].DocID)
 
 			}
 		})
@@ -816,7 +815,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -929,7 +928,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -1022,7 +1021,7 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)

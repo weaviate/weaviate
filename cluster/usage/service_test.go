@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,18 +26,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/usage/types"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -50,7 +50,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	replication := 1
 	uniqueShards := 1
 	shardName := "abcd"
-	ObjectStorageSize := int64(437)
+	ObjectStorageSize := int64(353)
 	vectorName := "abcd"
 	vectorType := "hnsw"
 	compression := "standard"
@@ -247,7 +247,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 
 	require.NotNil(t, hotShard)
 	assert.Equal(t, int64(2), hotShard.ObjectsCount)
-	assert.Equal(t, uint64(736), hotShard.ObjectsStorageBytes)
+	assert.Equal(t, uint64(612), hotShard.ObjectsStorageBytes)
 	assert.Equal(t, strings.ToLower(models.TenantActivityStatusACTIVE), hotShard.Status)
 	assert.Len(t, hotShard.NamedVectors, 1)
 
@@ -523,7 +523,7 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 		TrackVectorDimensions:     true,
 		MaxReuseWalSize:           0, // disable to make count easier
 		DisableLazyLoadShards:     true,
-	}, &db.FakeRemoteClient{}, &db.FakeNodeResolver{}, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &db.FakeRemoteClient{}, mockNodeSelector, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 

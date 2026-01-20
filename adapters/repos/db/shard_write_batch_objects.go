@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
@@ -41,12 +40,6 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 	return s.putBatch(ctx, objects)
 }
 
-// asyncEnabled is a quick and dirty way to create a feature flag for async
-// indexing.
-func asyncEnabled() bool {
-	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
-}
-
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 // adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 // When the last batch finishes, all workers receive a shutdown signal and exit
@@ -54,7 +47,7 @@ func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	s.activityTrackerWrite.Add(1)
-	if asyncEnabled() {
+	if s.index.AsyncIndexingEnabled {
 		return s.putBatchAsync(ctx, objects)
 	}
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch

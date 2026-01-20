@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -102,13 +102,12 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	} else {
 		dist, err = n.distancer.DistanceToNode(id)
 	}
-
-	var e storobj.ErrNotFound
-	if errors.As(err, &e) {
-		n.graph.handleDeletedNode(e.DocID, "processNode")
-		return math.MaxFloat32, nil
-	}
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID, "processNode")
+			return math.MaxFloat32, nil
+		}
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
 	}
@@ -305,9 +304,11 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
 	}
 
-	for _, neighborID := range neighborsCpy {
-		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
-			return errors.Wrapf(err, "connect neighbor %d", neighborID)
+	if !n.tombstoneCleanupNodes {
+		for _, neighborID := range neighborsCpy {
+			if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
+				return errors.Wrapf(err, "connect neighbor %d", neighborID)
+			}
 		}
 	}
 
@@ -354,14 +355,14 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// we need to run the heuristic
 
 		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
-		var e storobj.ErrNotFound
-		if err != nil && errors.As(err, &e) {
-			n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-			// it seems either the node or the neighbor were deleted in the meantime,
-			// there is nothing we can do now
-			return nil
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+				// it seems either the node or the neighbor were deleted in the meantime,
+				// there is nothing we can do now
+				return nil
+			}
 			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
 
@@ -370,13 +371,13 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		for _, existingConnection := range currentConnections {
 			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-				// was deleted in the meantime
-				continue
-			}
 			if err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+					// was deleted in the meantime
+					continue
+				}
 				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
 
@@ -531,12 +532,12 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	} else {
 		dist, err = n.distancer.DistanceToNode(candidate)
 	}
-	var e storobj.ErrNotFound
-	if errors.As(err, &e) {
-		n.graph.handleDeletedNode(e.DocID, "tryEpCandidate")
-		return false, nil
-	}
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID, "tryEpCandidate")
+			return false, nil
+		}
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
 	}
 

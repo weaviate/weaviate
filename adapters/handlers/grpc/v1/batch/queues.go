@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,17 @@ import (
 
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
+
+func newBatchAcksMessage(uuids, beacons []string) *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Acks_{
+			Acks: &pb.BatchStreamReply_Acks{
+				Uuids:   uuids,
+				Beacons: beacons,
+			},
+		},
+	}
+}
 
 func newBatchResultsMessage(successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
@@ -54,6 +65,17 @@ func newBatchStartedMessage() *pb.BatchStreamReply {
 	}
 }
 
+func newBatchOutOfMemoryMessage(uuids, beacons []string) *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_OutOfMemory_{
+			OutOfMemory: &pb.BatchStreamReply_OutOfMemory{
+				Uuids:   uuids,
+				Beacons: beacons,
+			},
+		},
+	}
+}
+
 func newBatchBackoffMessage(batchSize int) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Backoff_{
@@ -75,14 +97,9 @@ type (
 	reportingQueue  chan *report
 )
 
-// NewProcessingQueue creates a buffered channel to store objects for batch writing.
-//
-// The buffer size can be adjusted based on expected load and performance requirements
-// to optimize throughput and resource usage. But is required so that there is a small buffer
-// that can be quickly flushed in the event of a shutdown.
-func NewProcessingQueue(numWorkers int) processingQueue {
-	bufferSize := int(math.Ceil(float64(numWorkers) / 4))
-	return make(processingQueue, bufferSize)
+// NewProcessingQueue creates a channel for batch writing.
+func NewProcessingQueue() processingQueue {
+	return make(processingQueue)
 }
 
 func NewReportingQueues() *reportingQueues {

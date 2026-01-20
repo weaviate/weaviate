@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,15 @@ import (
 	"fmt"
 	"time"
 )
+
+// DeleteMarkerAdd marks folders of indices that have been deleted during an ongoing backup and are already removed from
+// store and schema. However, we want to keep them on disk to ensure that the backup can complete. The folders are
+// removed after backup completion. In case of a crash they are deleted at the next startup.
+const DeleteMarker = "__DELETE_ME_AFTER_BACKUP__"
+
+func DeleteMarkerAdd(filename string) string {
+	return fmt.Sprintf("%s%s", DeleteMarker, filename)
+}
 
 // NodeDescriptor contains data related to one participant in DBRO
 type NodeDescriptor struct {
@@ -37,6 +46,7 @@ type DistributedBackupDescriptor struct {
 	Leader                  string                     `json:"leader"`
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+	CompressionType         CompressionType            `json:"compressionType"`
 }
 
 // Len returns how many nodes exist in d
@@ -258,6 +268,14 @@ type ClassDescriptor struct {
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }
 
+type CompressionType string
+
+const (
+	CompressionZSTD CompressionType = "zstd"
+	CompressionGZIP CompressionType = "gzip"
+	CompressionNone CompressionType = "none"
+)
+
 // BackupDescriptor contains everything needed to completely restore a list of classes
 type BackupDescriptor struct {
 	StartedAt               time.Time         `json:"startedAt"`
@@ -271,6 +289,16 @@ type BackupDescriptor struct {
 	ServerVersion           string            `json:"serverVersion"`
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
+}
+
+// List all existing classes in d
+func (d *BackupDescriptor) GetCompressionType() CompressionType {
+	if d.CompressionType == nil {
+		// backward compatibility with old backups that don't have this field and default to gzip
+		return CompressionGZIP
+	}
+	return *d.CompressionType
 }
 
 // List all existing classes in d

@@ -41,7 +41,7 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      - path: ^deprecations/gen\.go$
+      - path: ^deprecations/gen\.go$  # generated file
         linters:
           - staticcheck
           - govet
@@ -86,7 +86,11 @@ linters:
         text: SA1019
       - linters:
           - staticcheck
-        path: adapters/handlers/grpc/v1/batch_parse_request.go
+        path: adapters/handlers/grpc/v1/batch/parse.go
+        text: SA1019
+      - linters:
+          - staticcheck
+        path: usecases/memwatch/monitor.go
         text: SA1019
       - linters:
           - staticcheck

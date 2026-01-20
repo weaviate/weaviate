@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,17 +12,15 @@
 package config
 
 import (
-	"github.com/pkg/errors"
+	"errors"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
-	modelProperty = "model"
-)
-
-const (
+	DefaultBaseURL     = "https://api.cohere.ai"
 	DefaultCohereModel = "rerank-v3.5"
 )
 
@@ -40,19 +38,21 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultCohereModel)
-	if model == nil {
-		return errors.Errorf("no model provided")
-	}
 
+	if model := ic.Model(); model == "" {
+		return errors.New("no model provided")
+	}
 	return nil
 }
 
-func (ic *classSettings) getStringProperty(name string, defaultValue string) *string {
-	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
-	return &asString
+func (cs *classSettings) BaseURL() string {
+	return cs.getStringProperty("baseURL", DefaultBaseURL)
 }
 
 func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultCohereModel)
+	return ic.getStringProperty("model", DefaultCohereModel)
+}
+
+func (ic *classSettings) getStringProperty(name string, defaultValue string) string {
+	return ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, defaultValue, defaultValue)
 }

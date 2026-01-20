@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,12 +24,11 @@ import (
 )
 
 type Searcher[T dto.Embedding] struct {
-	vectorizer vectorizer[T]
-	movements  *movements[T]
+	vectorForParams *vectorForParams[T]
 }
 
 func NewSearcher[T dto.Embedding](vectorizer vectorizer[T]) *Searcher[T] {
-	return &Searcher[T]{vectorizer, newMovements[T]()}
+	return &Searcher[T]{vectorForParams: &vectorForParams[T]{vectorizer, newMovements[T]()}}
 }
 
 type vectorizer[T dto.Embedding] interface {
@@ -38,7 +37,7 @@ type vectorizer[T dto.Embedding] interface {
 
 func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
-	vectorSearches["nearText"] = &vectorForParams[T]{s.vectorizer, s.movements}
+	vectorSearches["nearText"] = s.vectorForParams.VectorForParams
 	return vectorSearches
 }
 
@@ -127,7 +126,7 @@ func (s *vectorForParams[T]) vectorFromValuesAndObjects(ctx context.Context,
 				id = ref.TargetID
 			}
 
-			vector, _, err := findVectorFn.FindVector(ctx, className, id, tenant, cfg.TargetVector())
+			vector, _, err := findVectorFn(ctx, className, id, tenant, cfg.TargetVector())
 			if err != nil {
 				return nil, err
 			}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,30 +18,32 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.etcd.io/bbolt"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	spfreshent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
-	"go.etcd.io/bbolt"
 )
 
-func (s *Shard) initShardVectors(ctx context.Context, lazyLoadSegments bool) error {
+func (s *Shard) initShardVectors(ctx context.Context) error {
 	if s.index.vectorIndexUserConfig != nil {
-		if err := s.initLegacyVector(ctx, lazyLoadSegments); err != nil {
+		if err := s.initLegacyVector(ctx, s.lazySegmentLoadingEnabled); err != nil {
 			return err
 		}
 	}
 
-	if err := s.initTargetVectors(ctx, lazyLoadSegments); err != nil {
+	if err := s.initTargetVectors(ctx, s.lazySegmentLoadingEnabled); err != nil {
 		return err
 	}
 
@@ -71,6 +73,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	}
 
 	var vectorIndex VectorIndex
+
+	makeBucketOptions := s.makeDefaultBucketOptions
+	if lazyLoadSegments != s.lazySegmentLoadingEnabled {
+		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
+	}
 
 	switch vectorIndexUserConfig.IndexType() {
 	case vectorindex.VectorIndexTypeHNSW:
@@ -119,18 +126,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 					)
 				},
-				AllocChecker:                 s.index.allocChecker,
-				MinMMapSize:                  s.index.Config.MinMMapSize,
-				MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
-				WaitForCachePrefill:          s.index.Config.HNSWWaitForCachePrefill,
-				FlatSearchConcurrency:        s.index.Config.HNSWFlatSearchConcurrency,
-				AcornFilterRatio:             s.index.Config.HNSWAcornFilterRatio,
-				VisitedListPoolMaxSize:       s.index.Config.VisitedListPoolMaxSize,
-				DisableSnapshots:             s.index.Config.HNSWDisableSnapshots,
-				SnapshotOnStartup:            s.index.Config.HNSWSnapshotOnStartup,
-				LazyLoadSegments:             lazyLoadSegments,
-				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
-				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
+				AllocChecker:           s.index.allocChecker,
+				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
+				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
+				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
+				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
+				MakeBucketOptions:      makeBucketOptions,
+				AsyncIndexingEnabled:   s.index.AsyncIndexingEnabled,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -153,17 +157,13 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		vecIdxID := s.vectorIndexID(targetVector)
 
 		vi, err := flat.New(flat.Config{
-			ID:                           vecIdxID,
-			TargetVector:                 targetVector,
-			RootPath:                     s.path(),
-			Logger:                       s.index.logger,
-			DistanceProvider:             distProv,
-			AllocChecker:                 s.index.allocChecker,
-			MinMMapSize:                  s.index.Config.MinMMapSize,
-			MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
-			LazyLoadSegments:             lazyLoadSegments,
-			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
-			WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
+			ID:                vecIdxID,
+			TargetVector:      targetVector,
+			RootPath:          s.path(),
+			Logger:            s.index.logger,
+			DistanceProvider:  distProv,
+			AllocChecker:      s.index.allocChecker,
+			MakeBucketOptions: makeBucketOptions,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -213,56 +213,54 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 				)
 			},
-			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:                     sharedDB,
-			HNSWDisableSnapshots:         s.index.Config.HNSWDisableSnapshots,
-			HNSWSnapshotOnStartup:        s.index.Config.HNSWSnapshotOnStartup,
-			MinMMapSize:                  s.index.Config.MinMMapSize,
-			MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
-			LazyLoadSegments:             lazyLoadSegments,
-			AllocChecker:                 s.index.allocChecker,
-			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
+			TombstoneCallbacks:    s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:              sharedDB,
+			HNSWDisableSnapshots:  s.index.Config.HNSWDisableSnapshots,
+			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
+			AllocChecker:          s.index.allocChecker,
+			MakeBucketOptions:     makeBucketOptions,
+			AsyncIndexingEnabled:  s.index.AsyncIndexingEnabled,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
-	case vectorindex.VectorIndexTypeSPFresh:
-		if !s.index.SPFreshEnabled {
-			return nil, errors.New("spfresh index is available only in experimental mode")
+	case vectorindex.VectorIndexTypeHFresh:
+		if !s.index.HFreshEnabled {
+			return nil, errors.New("hfresh index is available only in experimental mode")
 		}
-		userConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
+		userConfig, ok := vectorIndexUserConfig.(hfreshent.UserConfig)
 		if !ok {
-			return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
+			return nil, errors.Errorf("hfresh vector index: config is not hfresh.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
 
-		spfreshConfigID := s.vectorIndexID(targetVector)
-		spfreshConfig := &spfresh.Config{
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+
+		hfreshConfigID := s.vectorIndexID(targetVector)
+		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
+
+		hfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
 			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
-			RootPath:          filepath.Join(s.path(), "spfresh"),
-			ID:                spfreshConfigID,
+			RootPath:          rootPath,
+			ID:                hfreshConfigID,
 			TargetVector:      targetVector,
 			ShardName:         s.name,
 			ClassName:         s.index.Config.ClassName.String(),
 			PrometheusMetrics: s.promMetrics,
-			Store: spfresh.StoreConfig{
-				MinMMapSize:                  s.index.Config.MinMMapSize,
-				MaxReuseWalSize:              s.index.Config.MaxReuseWalSize,
-				AllocChecker:                 s.index.allocChecker,
-				LazyLoadSegments:             lazyLoadSegments,
-				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
-				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
+			Store: hfresh.StoreConfig{
+				MakeBucketOptions: makeBucketOptions,
 			},
 			VectorForIDThunk:   hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			Centroids: spfresh.CentroidConfig{
+			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                    s.index.logger,
-					RootPath:                  s.path(),
-					ID:                        spfreshConfigID + "_centroids",
+					RootPath:                  rootPath,
+					ID:                        hfreshConfigID + "_centroids",
 					ShardName:                 s.name,
 					ClassName:                 s.index.Config.ClassName.String(),
 					PrometheusMetrics:         s.promMetrics,
@@ -270,7 +268,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 					DistanceProvider:          distProv,
 					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-						return hnsw.NewCommitLogger(s.path(), spfreshConfigID+"_centroids",
+						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							hnsw.WithAllocChecker(s.index.allocChecker),
 							hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
@@ -282,30 +280,26 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 						)
 					},
-					AllocChecker:                 s.index.allocChecker,
-					MinMMapSize:                  s.index.Config.MinMMapSize,
-					MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
-					WaitForCachePrefill:          s.index.Config.HNSWWaitForCachePrefill,
-					FlatSearchConcurrency:        s.index.Config.HNSWFlatSearchConcurrency,
-					AcornFilterRatio:             s.index.Config.HNSWAcornFilterRatio,
-					VisitedListPoolMaxSize:       s.index.Config.VisitedListPoolMaxSize,
-					DisableSnapshots:             s.index.Config.HNSWDisableSnapshots,
-					SnapshotOnStartup:            s.index.Config.HNSWSnapshotOnStartup,
-					LazyLoadSegments:             lazyLoadSegments,
-					WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
-					WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
+					AllocChecker:           s.index.allocChecker,
+					WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+					FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
+					AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
+					VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+					DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
+					SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
+					MakeBucketOptions:      makeBucketOptions,
 				},
 			},
 		}
 
-		vi, err := spfresh.New(spfreshConfig, userConfig, s.store)
+		vi, err := hfresh.New(hfreshConfig, userConfig, s.store)
 		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
+			return nil, errors.Wrapf(err, "init shard %q: hfresh index", s.ID())
 		}
 		vectorIndex = vi
 	default:
 		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeSPFresh)
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeHFresh)
 	}
 	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil

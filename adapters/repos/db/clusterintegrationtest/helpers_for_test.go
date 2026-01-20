@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -165,14 +165,14 @@ func class() *models.Class {
 	}
 }
 
-func multiVectorClass(asyncIndexing bool) *models.Class {
+func multiVectorClass(asyncIndexingEnabled bool) *models.Class {
 	namedVectors := map[string]models.VectorConfig{
 		"custom1": {VectorIndexConfig: enthnsw.UserConfig{}},
 		"custom2": {VectorIndexType: "hnsw", VectorIndexConfig: enthnsw.UserConfig{}},
 		"custom3": {VectorIndexType: "flat", VectorIndexConfig: flatent.UserConfig{}},
 	}
 
-	if asyncIndexing {
+	if asyncIndexingEnabled {
 		namedVectors["custom4"] = models.VectorConfig{VectorIndexType: "dynamic", VectorIndexConfig: dynamicent.UserConfig{}}
 	}
 

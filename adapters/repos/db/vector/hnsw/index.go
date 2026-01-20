@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -195,17 +196,25 @@ type hnsw struct {
 
 	visitedListPoolMaxSize int
 
+	asyncIndexingEnabled bool
+
 	// only used for multivector mode
-	multivector     atomic.Bool
-	muvera          atomic.Bool
-	muveraEncoder   *multivector.MuveraEncoder
-	docIDVectors    map[uint64][]uint64
-	vecIDcounter    uint64
-	maxDocID        uint64
-	MinMMapSize     int64
-	MaxWalReuseSize int64
+	multivector       atomic.Bool
+	muvera            atomic.Bool
+	muveraEncoder     *multivector.MuveraEncoder
+	docIDVectors      map[uint64][]uint64
+	vecIDcounter      uint64
+	maxDocID          uint64
+	makeBucketOptions lsmkv.MakeBucketOptions
 
 	fs common.FS
+}
+
+func (h *hnsw) Get(id uint64) ([]float32, error) {
+	if !h.compressed.Load() {
+		return h.cache.Get(context.Background(), id)
+	}
+	return h.compressor.Get(id)
 }
 
 type CommitLogger interface {
@@ -220,7 +229,7 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
@@ -280,9 +289,7 @@ func New(cfg Config, uc ent.UserConfig,
 			err := store.CreateOrLoadBucket(
 				context.Background(),
 				cfg.ID+"_muvera_vectors",
-				lsmkv.WithStrategy(lsmkv.StrategyReplace),
-				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
@@ -360,13 +367,18 @@ func New(cfg Config, uc ent.UserConfig,
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:   cfg.AsyncIndexingEnabled,
 
-		docIDVectors:    make(map[uint64][]uint64),
-		muveraEncoder:   muveraEncoder,
-		MinMMapSize:     cfg.MinMMapSize,
-		MaxWalReuseSize: cfg.MaxWalReuseSize,
-		fs:              common.NewOSFS(),
+		docIDVectors:      make(map[uint64][]uint64),
+		muveraEncoder:     muveraEncoder,
+		makeBucketOptions: cfg.MakeBucketOptions,
+		fs:                common.NewOSFS(),
 	}
+	index.logger = cfg.Logger.WithFields(logrus.Fields{
+		"shard":        cfg.ShardName,
+		"class":        cfg.ClassName,
+		"targetVector": index.getTargetVector(),
+	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
@@ -377,11 +389,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
 		}
 		if err != nil {
 			return nil, err
@@ -401,13 +413,7 @@ func New(cfg Config, uc ent.UserConfig,
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
 				cfg.ID+"_mv_mappings",
-				lsmkv.WithStrategy(lsmkv.StrategyReplace),
-				lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
-				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
-				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
-				lsmkv.WithAllocChecker(cfg.AllocChecker),
-				lsmkv.WithMinMMapSize(cfg.MinMMapSize),
-				lsmkv.WithMinWalThreshold(cfg.MaxWalReuseSize),
+				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
@@ -552,12 +558,12 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
-			continue
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
+				continue
+			}
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
@@ -703,7 +709,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-func (h *hnsw) Drop(ctx context.Context) error {
+func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -721,7 +727,7 @@ func (h *hnsw) Drop(ctx context.Context) error {
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
 	// write while it's still running
-	err := h.commitLog.Drop(ctx)
+	err := h.commitLog.Drop(ctx, keepFiles)
 	if err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
@@ -885,7 +891,17 @@ func (h *hnsw) Upgraded() bool {
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
+	if h.compressed.Load() {
+		return uint64(h.compressor.CountVectors())
+	}
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) CurrentVectorsLen() uint64 {
+	if h.compressed.Load() {
+		return h.compressor.MaxVectorID()
+	}
+	return uint64(h.cache.Len())
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -1027,14 +1043,15 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
-		CacheSize:          h.cache.Len(),
 		Compressed:         h.compressed.Load(),
 	}
 
 	if stats.Compressed {
 		stats.CompressorStats = h.compressor.Stats()
+		stats.CacheSize = h.compressor.Len()
 	} else {
 		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+		stats.CacheSize = h.cache.Len()
 	}
 
 	stats.CompressionType = stats.CompressorStats.CompressionType()

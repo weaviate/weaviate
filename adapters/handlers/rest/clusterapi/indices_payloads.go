@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,13 +21,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/file"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -38,6 +37,11 @@ import (
 )
 
 var IndicesPayloads = indicesPayloads{}
+
+const (
+	MethodGet string = "GET"
+	MethodPut string = "PUT"
+)
 
 type indicesPayloads struct {
 	ErrorList                  errorListPayload
@@ -163,6 +167,59 @@ func (e errorListPayload) Unmarshal(in []byte) []error {
 	return converted
 }
 
+// marshallStorObj converts a *storobj.Object to a byte slice suitable for network transmission
+// This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
+// This function ensures that the models.Object vectors are nil and that only the storobj vectors are sent
+func marshallStorObj(in *storobj.Object) ([]byte, error) {
+	obj := storobj.Object{
+		MarshallerVersion: in.MarshallerVersion,
+		Object: models.Object{
+			Additional:         in.Object.Additional,
+			Class:              in.Object.Class,
+			CreationTimeUnix:   in.Object.CreationTimeUnix,
+			ID:                 in.Object.ID,
+			LastUpdateTimeUnix: in.Object.LastUpdateTimeUnix,
+			Properties:         in.Object.Properties,
+			Tenant:             in.Object.Tenant,
+			// TODO(tommy): Vector and Vectors will be removed from this layer to avoid double sending and only kept in storobj in a future version
+			// This code needs to be released to all deployed clusters before that change can be made to avoid breaking cluster compatibilities during rolling restarts
+			Vector:  in.Object.Vector,
+			Vectors: in.Object.Vectors,
+		},
+		Vector:         in.Vector,
+		VectorLen:      in.VectorLen,
+		BelongsToNode:  in.BelongsToNode,
+		BelongsToShard: in.BelongsToShard,
+		IsConsistent:   in.IsConsistent,
+		DocID:          in.DocID,
+		Vectors:        in.Vectors,
+		MultiVectors:   in.MultiVectors,
+	}
+	return obj.MarshalBinary()
+}
+
+// unmarshallStorObj converts a byte slice received over the network into a *storobj.Object
+// This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
+// This function ensures that the models.Object vectors are properly populated from the storobj vectors when required
+func unmarshallStorObj(in []byte) (*storobj.Object, error) {
+	obj, err := storobj.FromBinary(in)
+	if err != nil {
+		return nil, err
+	}
+	obj.Object.Vector = obj.Vector
+	if len(obj.Vectors) == 0 && len(obj.MultiVectors) == 0 {
+		return obj, nil
+	}
+	obj.Object.Vectors = make(models.Vectors)
+	for k, v := range obj.Vectors {
+		obj.Object.Vectors[k] = v
+	}
+	for k, v := range obj.MultiVectors {
+		obj.Object.Vectors[k] = v
+	}
+	return obj, nil
+}
+
 type singleObjectPayload struct{}
 
 func (p singleObjectPayload) MIME() string {
@@ -182,12 +239,30 @@ func (p singleObjectPayload) CheckContentTypeHeader(r *http.Response) (string, b
 	return ct, ct == p.MIME()
 }
 
-func (p singleObjectPayload) Marshal(in *storobj.Object) ([]byte, error) {
-	return in.MarshalBinary()
+func (p singleObjectPayload) Marshal(in *storobj.Object, method string) ([]byte, error) {
+	switch method {
+	case MethodPut:
+		// Need to take vectors out of models.Object into storobj
+		return marshallStorObj(in)
+	case MethodGet:
+		// Don't need to modify anything since GET requests don't double send
+		return in.MarshalBinary()
+	default:
+		return nil, fmt.Errorf("unsupported operation type: %s", method)
+	}
 }
 
-func (p singleObjectPayload) Unmarshal(in []byte) (*storobj.Object, error) {
-	return storobj.FromBinary(in)
+func (p singleObjectPayload) Unmarshal(in []byte, method string) (*storobj.Object, error) {
+	switch method {
+	case MethodPut:
+		// Need to add vectors back to models.Object from storobj
+		return unmarshallStorObj(in)
+	case MethodGet:
+		// Don't need to modify anything since GET requests don't double send
+		return storobj.FromBinary(in)
+	default:
+		return nil, fmt.Errorf("unsupported operation type: %s", method)
+	}
 }
 
 type objectListPayload struct{}
@@ -209,7 +284,7 @@ func (p objectListPayload) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
 }
 
-func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
+func (p objectListPayload) Marshal(in []*storobj.Object, method string) ([]byte, error) {
 	// NOTE: This implementation is not optimized for allocation efficiency,
 	// reserve 1024 byte per object which is rather arbitrary
 	out := make([]byte, 0, 1024*len(in))
@@ -217,7 +292,18 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
 		if ind != nil {
-			bytes, err := ind.MarshalBinary()
+			var bytes []byte
+			var err error
+			switch method {
+			case MethodPut:
+				// Need to take vectors out of models.Object into storobj
+				bytes, err = marshallStorObj(ind)
+			case MethodGet:
+				// Don't need to modify anything since GET requests don't double send
+				bytes, err = ind.MarshalBinary()
+			default:
+				return nil, fmt.Errorf("unsupported operation type: %s", method)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -233,7 +319,34 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 	return out, nil
 }
 
-func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
+// MarshalWithAdditional is like Marshal but uses MarshalBinaryOptional to conditionally
+// include vectors and properties based on the additional.Properties parameter.
+// This reduces network bandwidth by not transmitting vectors when they are not requested.
+func (p objectListPayload) MarshalWithAdditional(in []*storobj.Object, addProps additional.Properties) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		if ind != nil {
+			bytes, err := ind.MarshalBinaryOptional(addProps)
+			if err != nil {
+				return nil, err
+			}
+
+			length := uint64(len(bytes))
+			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+			out = append(out, reusableLengthBuf...)
+			out = append(out, bytes...)
+		}
+	}
+
+	return out, nil
+}
+
+func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Object, error) {
 	var out []*storobj.Object
 
 	reusableLengthBuf := make([]byte, 8)
@@ -254,7 +367,17 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 			return nil, err
 		}
 
-		obj, err := storobj.FromBinary(payloadBytes)
+		var obj *storobj.Object
+		switch method {
+		case MethodPut:
+			// Need to add vectors back to models.Object from storobj
+			obj, err = unmarshallStorObj(payloadBytes)
+		case MethodGet:
+			// Don't need to modify anything since GET requests don't double send
+			obj, err = storobj.FromBinary(payloadBytes)
+		default:
+			return nil, fmt.Errorf("unsupported operation type: %s", method)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -580,7 +703,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
 	read += 8
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(in[read : read+objsLength])
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(in[read:read+objsLength], MethodGet)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -603,7 +726,40 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 ) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
-	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)
+	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs, MethodGet)
+	if err != nil {
+		return nil, err
+	}
+
+	objsLength := uint64(len(objsBytes))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
+
+	out = append(out, reusableLengthBuf...)
+	out = append(out, objsBytes...)
+
+	distsLength := uint64(len(dists))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
+	out = append(out, reusableLengthBuf...)
+
+	distsBuf := make([]byte, distsLength*4)
+	for i, dist := range dists {
+		distUint32 := math.Float32bits(dist)
+		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
+	}
+	out = append(out, distsBuf...)
+
+	return out, nil
+}
+
+// MarshalWithAdditional is like Marshal but uses MarshalWithAdditional to conditionally
+// include vectors and properties based on the additional.Properties parameter.
+// This reduces network bandwidth by not transmitting vectors when they are not requested.
+func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
+	dists []float32, addProps additional.Properties,
+) ([]byte, error) {
+	reusableLengthBuf := make([]byte, 8)
+	var out []byte
+	objsBytes, err := IndicesPayloads.ObjectList.MarshalWithAdditional(objs, addProps)
 	if err != nil {
 		return nil, err
 	}

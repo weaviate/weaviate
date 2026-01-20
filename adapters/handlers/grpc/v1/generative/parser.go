@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -213,13 +213,17 @@ func (p *Parser) anthropic(in *pb.GenerativeAnthropic) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		anthropicParams.Name: anthropicParams.Params{
 			BaseURL:         in.GetBaseUrl(),
 			Model:           in.GetModel(),
 			Temperature:     in.Temperature,
 			MaxTokens:       p.int64ToInt(in.MaxTokens),
-			StopSequences:   in.StopSequences.GetValues(),
+			StopSequences:   stopSequences,
 			TopP:            in.TopP,
 			TopK:            p.int64ToInt(in.TopK),
 			Images:          p.getStringPtrs(in.Images),
@@ -245,6 +249,10 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		awsParams.Name: awsParams.Params{
 			Service:         in.GetService(),
@@ -255,6 +263,7 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 			Model:           in.GetModel(),
 			Temperature:     in.Temperature,
 			MaxTokens:       p.int64ToInt(in.MaxTokens),
+			StopSequences:   stopSequences,
 			Images:          p.getStringPtrs(in.Images),
 			ImageProperties: p.getStrings(in.ImageProperties),
 		},
@@ -265,6 +274,10 @@ func (p *Parser) cohere(in *pb.GenerativeCohere) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		cohereParams.Name: cohereParams.Params{
 			BaseURL:          in.GetBaseUrl(),
@@ -273,7 +286,7 @@ func (p *Parser) cohere(in *pb.GenerativeCohere) map[string]any {
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
 			K:                p.int64ToInt(in.K),
 			P:                in.P,
-			StopSequences:    in.StopSequences.GetValues(),
+			StopSequences:    stopSequences,
 			FrequencyPenalty: in.FrequencyPenalty,
 			PresencePenalty:  in.PresencePenalty,
 			Images:           p.getStringPtrs(in.Images),
@@ -359,6 +372,10 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		googleParams.Name: googleParams.Params{
 			ApiEndpoint:      in.GetApiEndpoint(),
@@ -370,7 +387,7 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
 			TopP:             in.TopP,
 			TopK:             p.int64ToInt(in.TopK),
-			StopSequences:    in.StopSequences.GetValues(),
+			StopSequences:    stopSequences,
 			PresencePenalty:  in.PresencePenalty,
 			FrequencyPenalty: in.FrequencyPenalty,
 			Images:           p.getStringPtrs(in.Images),

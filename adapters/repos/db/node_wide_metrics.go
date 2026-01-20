@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -115,8 +115,8 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.Lock(name)
-			defer index.shardCreateLocks.Unlock(name)
+			index.shardCreateLocks.RLock(name)
+			defer index.shardCreateLocks.RUnlock(name)
 			exists, err := index.tenantDirExists(name)
 			if err != nil {
 				o.db.logger.
@@ -300,8 +300,8 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		cn := index.Config.ClassName.String()
 		current[cn] = make(activityByTenant)
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.Lock(name)
-			defer index.shardCreateLocks.Unlock(name)
+			index.shardCreateLocks.RLock(name)
+			defer index.shardCreateLocks.RUnlock(name)
 
 			act := activity{}
 			act.read, act.write = shard.Activity()
@@ -410,8 +410,8 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 				// Avoid loading cold shards, as it may create I/O spikes.
 				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-					index.shardCreateLocks.Lock(shardName)
-					defer index.shardCreateLocks.Unlock(shardName)
+					index.shardCreateLocks.RLock(shardName)
+					defer index.shardCreateLocks.RUnlock(shardName)
 
 					dim := calculateShardDimensionMetrics(ctx, sl)
 					total = total.Add(dim)

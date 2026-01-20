@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,12 +28,13 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
-	MachineID        strfmt.UUID `json:"machineId"`
-	Type             string      `json:"type"`
-	Version          string      `json:"version"`
-	ObjectsCount     int64       `json:"objs"`
-	OS               string      `json:"os"`
-	Arch             string      `json:"arch"`
-	UsedModules      []string    `json:"usedModules,omitempty"`
-	CollectionsCount int         `json:"collectionsCount"`
+	MachineID        strfmt.UUID                     `json:"machineId"`
+	Type             string                          `json:"type"`
+	Version          string                          `json:"version"`
+	ObjectsCount     int64                           `json:"objs"`
+	OS               string                          `json:"os"`
+	Arch             string                          `json:"arch"`
+	UsedModules      []string                        `json:"usedModules,omitempty"`
+	CollectionsCount int                             `json:"collectionsCount"`
+	ClientUsage      map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
 }

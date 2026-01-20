@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -98,7 +98,7 @@ func Test_DynamicEF(t *testing.T) {
 			actualEF := index.searchTimeEF(test.limit)
 			assert.Equal(t, test.expectedEf, actualEF)
 
-			require.Nil(t, index.Drop(context.Background()))
+			require.Nil(t, index.Drop(context.Background(), false))
 		})
 	}
 }

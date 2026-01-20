@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -220,7 +220,7 @@ func (s BaseClassSettings) GetPropertyAsBool(name string, defaultValue bool) boo
 	return s.propertyHelper.GetPropertyAsBool(s.cfg, name, defaultValue)
 }
 
-func (s BaseClassSettings) GetNumber(in interface{}) (float32, error) {
+func (s BaseClassSettings) GetNumber(in any) (float32, error) {
 	return s.propertyHelper.GetNumber(in)
 }
 
@@ -254,7 +254,7 @@ func (s BaseClassSettings) ValidateIndexState(class *models.Class) error {
 	return errInvalidProperties
 }
 
-func (s BaseClassSettings) GetSettings() map[string]interface{} {
+func (s BaseClassSettings) GetSettings() map[string]any {
 	if s.cfg == nil || s.propertyHelper == nil {
 		return nil
 	}

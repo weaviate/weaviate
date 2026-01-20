@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,10 +14,13 @@ package usagegcs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/googleapis/gax-go/v2"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 
@@ -108,6 +111,18 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		Metadata: map[string]string{
 			"version": usage.Version,
 		},
+	}).WithRetry(&gax.Backoff{
+		Initial:    2 * time.Second, // Note: the client uses a jitter internally
+		Max:        60 * time.Second,
+		Multiplier: 3,
+	}, func(err error) bool {
+		var gerr *googleapi.Error
+		if errors.As(err, &gerr) {
+			g.Logger.WithField("gcs_upload", "retry").Debugf("retrying due to code: %v", gerr.Code)
+			// retry only on those given error codes
+			return gerr.Code == 401 || gerr.Code == 429 || (gerr.Code >= 500 && gerr.Code < 600)
+		}
+		return false
 	}).Media(bytes.NewReader(data)).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("failed to upload to GCS: %w", err)
