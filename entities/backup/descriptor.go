@@ -251,6 +251,40 @@ func (s *ShardDescriptor) ClearTemporary() {
 	s.PropLengthTracker = nil
 }
 
+func (s *ShardDescriptor) CopyFilesInShard() *FileList {
+	filesInShard := &FileList{Files: make([]string, len(s.Files))}
+	copy(filesInShard.Files, s.Files)
+	return filesInShard
+}
+
+// FileList holds a list of file paths and allows modification of the underlying slice
+type FileList struct {
+	Files []string
+}
+
+// Len returns the number of files in the list
+func (f *FileList) Len() int {
+	return len(f.Files)
+}
+
+// PopFront removes and returns the first file from the list
+func (f *FileList) PopFront() string {
+	if len(f.Files) == 0 {
+		return ""
+	}
+	file := f.Files[0]
+	f.Files = f.Files[1:]
+	return file
+}
+
+// Peek returns the first file without removing it
+func (f *FileList) Peek() string {
+	if len(f.Files) == 0 {
+		return ""
+	}
+	return f.Files[0]
+}
+
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
 	Name          string             `json:"name"` // DB class name, also selected by user
