@@ -334,12 +334,18 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideName, overridePath)
-		t.Logf("backup status response: %+v, err: %v", resp, err)
-		assert.NoError(t1, err, "expected nil, got: %v", err)
+		var errorMessage string
+		if err != nil {
+			if b, err2 := json.Marshal(err); err2 == nil {
+				errorMessage = string(b)
+			}
+		}
+		t.Logf("backup status response: %+v, err: %v", resp, errorMessage)
+		require.NoError(t1, err, "expected nil, got: %v", err)
 
-		assert.NotNil(t1, resp)
-		assert.NotNil(t1, resp.Payload)
-		assert.NotNil(t1, resp.Payload.Status)
+		require.NotNil(t1, resp)
+		require.NotNil(t1, resp.Payload)
+		require.NotNil(t1, resp.Payload.Status)
 		assert.Equal(t1, backupID, resp.Payload.ID)
 		assert.Equal(t1, backend, resp.Payload.Backend)
 		assert.Contains(t1, resp.Payload.Path, overrideName)
