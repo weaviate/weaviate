@@ -424,10 +424,30 @@ func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []strin
 // compactCommitLogsOnStartup performs forced compaction of all commit logs into a single condensed file.
 // It writes to a temporary directory, fsyncs, then atomically renames the directory.
 func (l *hnswCommitLogger) compactCommitLogsOnStartup(state *DeserializationResult, logger logrus.FieldLogger) error {
-	logger.WithField("action", "hnsw_forced_compaction").Info("start forced compaction on startup")
-
 	commitLogDir := commitLogDirectory(l.rootPath, l.id)
 	tempCommitLogDir := commitLogDir + ".tmp"
+	backupCommitLogDir := commitLogDir + ".old"
+	markerFile := filepath.Join(l.rootPath, l.id+".hnsw.force-compacted")
+
+	if _, err := l.fs.Stat(markerFile); err == nil {
+		logger.WithField("action", "hnsw_forced_compaction").Info("skipping: already force-compacted")
+		return nil
+	}
+
+	if _, err := l.fs.Stat(commitLogDir); os.IsNotExist(err) {
+		if _, err := l.fs.Stat(backupCommitLogDir); err == nil {
+			logger.WithField("action", "hnsw_forced_compaction").Info("recovering: restoring from backup directory")
+			if err := l.fs.Rename(backupCommitLogDir, commitLogDir); err != nil {
+				return errors.Wrapf(err, "restore backup commit log directory")
+			}
+		}
+	}
+
+	if err := l.fs.RemoveAll(tempCommitLogDir); err != nil {
+		return errors.Wrapf(err, "remove existing temporary commit log directory")
+	}
+
+	logger.WithField("action", "hnsw_forced_compaction").Info("starting forced compaction")
 
 	allFiles, err := getCommitFiles(l.rootPath, l.id, 0, l.fs)
 	if err != nil {
@@ -440,11 +460,6 @@ func (l *hnswCommitLogger) compactCommitLogsOnStartup(state *DeserializationResu
 			"required":   10,
 		}).Info("skipping compaction: insufficient commit log files")
 		return nil
-	}
-
-	// Remove temp directory if it already exists
-	if err := l.fs.RemoveAll(tempCommitLogDir); err != nil {
-		return errors.Wrapf(err, "remove existing temporary commit log directory")
 	}
 
 	// Clean up all existing snapshots (as we are compacting)
@@ -480,8 +495,6 @@ func (l *hnswCommitLogger) compactCommitLogsOnStartup(state *DeserializationResu
 		return errors.Wrapf(err, "close commit logger before directory swap")
 	}
 	l.Unlock()
-
-	backupCommitLogDir := commitLogDir + ".old"
 
 	// rm dir.old, rename dir -> dir.old
 	if _, err := l.fs.Stat(commitLogDir); err == nil {
@@ -520,6 +533,14 @@ func (l *hnswCommitLogger) compactCommitLogsOnStartup(state *DeserializationResu
 	l.Lock()
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 	l.Unlock()
+
+	// Write marker file to indicate successful compaction
+	markerFd, err := l.fs.OpenFile(markerFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		logger.WithError(err).Warn("failed to create force-compacted marker file")
+	} else {
+		_ = markerFd.Close()
+	}
 
 	logger.WithField("action", "hnsw_forced_compaction").Info("forced compaction completed successfully")
 	return nil
