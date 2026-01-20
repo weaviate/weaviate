@@ -291,6 +291,7 @@ func (c *coordinator) Restore(
 			// Check for external cancellation before proceeding to Finalizing
 			if c.lastOp.get().Status == backup.Cancelled {
 				c.descriptor.Status = backup.Cancelled
+				c.descriptor.Error = "restore cancelled by user"
 			} else {
 				c.descriptor.Status = backup.Finalizing
 				c.lastOp.set(backup.Finalizing)
@@ -300,14 +301,18 @@ func (c *coordinator) Restore(
 			}
 		}
 
-		// Time schema apply phase (Raft commits for each class)
-		schemaApplyStart := time.Now()
-		c.restoreClasses(ctx, schema, req)
-		c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
-
-		// Set final status - restoreClasses may have set Failed, otherwise set Success
+		// Only proceed with schema apply if we successfully transitioned to Finalizing
+		// Skip if status is Cancelled, Failed, or any other non-Finalizing state
 		if c.descriptor.Status == backup.Finalizing {
-			c.descriptor.Status = backup.Success
+			// Time schema apply phase (Raft commits for each class)
+			schemaApplyStart := time.Now()
+			c.restoreClasses(ctx, schema, req)
+			c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
+
+			// Set final status - restoreClasses may have set Failed, otherwise set Success
+			if c.descriptor.Status == backup.Finalizing {
+				c.descriptor.Status = backup.Success
+			}
 		}
 		c.lastOp.set(c.descriptor.Status)
 
@@ -524,6 +529,8 @@ func (c *coordinator) commit(ctx context.Context,
 	// Check for external cancellation before starting
 	if c.lastOp.get().Status == backup.Cancelled {
 		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
+		c.descriptor.Status = backup.Cancelled
+		c.descriptor.Error = "restore cancelled by user"
 		return
 	}
 
@@ -541,6 +548,8 @@ func (c *coordinator) commit(ctx context.Context,
 				st.Reason = "operation cancelled by user"
 				c.Participants[node] = st
 			}
+			c.descriptor.Status = backup.Cancelled
+			c.descriptor.Error = "restore cancelled by user"
 			return
 		}
 
@@ -549,6 +558,8 @@ func (c *coordinator) commit(ctx context.Context,
 			// continue with polling
 		case <-ctx.Done():
 			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: context cancelled")
+			c.descriptor.Status = backup.Cancelled
+			c.descriptor.Error = "restore cancelled: context cancelled"
 			return
 		}
 		retryAfter = c.timeoutNextRound
