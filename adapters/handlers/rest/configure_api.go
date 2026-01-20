@@ -1096,7 +1096,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.TelemetryPushInterval,
 	)
 
-	mcpServer, _ := mcp.NewMCPServer(appState, objectsManager)
+	mcpServer, _ := mcp.NewMCPServer(appState)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)

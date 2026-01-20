@@ -25,27 +25,28 @@ import (
 
 func TestSearchWithHybridTool(t *testing.T) {
 	helper.SetupClient("localhost:8080")
+	apiKey := "admin-key"
 
 	cls := articles.ParagraphsClass()
-	helper.DeleteClass(t, cls.Class)
-	helper.CreateClass(t, cls)
-	defer helper.DeleteClass(t, cls.Class)
+	helper.DeleteClassAuth(t, cls.Class, apiKey)
+	helper.CreateClassAuth(t, cls, apiKey)
+	defer helper.DeleteClassAuth(t, cls.Class, apiKey)
 
 	contents := "A para"
 	objects := []*models.Object{
 		articles.NewParagraph().WithContents(contents).Object(),
 	}
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchAuth(t, objects, apiKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var results []any
-	err := callToolOnce[any](ctx, t, "search-with-hybrid", &search.SearchWithHybridArgs{
+	err := helper.CallToolOnce(ctx, t, "search-with-hybrid", &search.SearchWithHybridArgs{
 		Collection:       cls.Class,
 		Query:            contents,
 		TargetProperties: []string{cls.Properties[0].Name},
-	}, &results)
+	}, &results, apiKey)
 	require.Nil(t, err)
 
 	require.Len(t, results, 1)

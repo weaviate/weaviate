@@ -11,6 +11,11 @@
 
 package create
 
-type InsertOneResp struct {
-	ID string `json:"id" jsonschema_description:"ID of the inserted object"`
+type UpsertObjectResult struct {
+	ID    string `json:"id,omitempty" jsonschema_description:"UUID of the upserted object (only present if successful)"`
+	Error string `json:"error,omitempty" jsonschema_description:"Error message if the upsert failed for this object"`
+}
+
+type UpsertObjectResp struct {
+	Results []UpsertObjectResult `json:"results" jsonschema_description:"Results for each object in the batch, in the same order as the input"`
 }
