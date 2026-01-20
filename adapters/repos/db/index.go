@@ -1035,14 +1035,6 @@ const (
 // The shard will be nil if the shard is not found, or if the local shard should not be used.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName string, shardName string, operation localShardOperation, schemaVersion uint64) (ShardLike, func(), error) {
-	// Wait for schema version if provided. This ensures we have the latest schema state
-	// before checking shard ownership, which is important for multi-tenant operations.
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return nil, func() {}, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
-		}
-	}
-
 	// Get shard without initializing first
 	shard, release, err := i.GetShard(ctx, shardName)
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
@@ -1062,6 +1054,12 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 	var ws routerTypes.WriteReplicaSet
 	switch operation {
 	case localShardOperationWrite:
+		if schemaVersion > 0 {
+			if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+				return nil, func() {}, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+			}
+		}
+
 		ws, err = i.router.GetWriteReplicasLocation(className, tenantName, shardName)
 		if err != nil {
 			// Router check failed (e.g., tenant is not HOT, is FREEZING, etc.)
@@ -1070,6 +1068,28 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 		}
 
 		isReplica := slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName())
+		if !isReplica && schemaVersion > 0 && len(ws.NodeNames()) > 0 {
+			var allowFallback bool
+			var localAndHot bool
+
+			_ = i.schemaReader.Read(className, true, func(class *models.Class, state *sharding.State) error {
+				if class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.AutoTenantActivation {
+					allowFallback = true
+				}
+				if state != nil {
+					if physical, ok := state.Physical[shardName]; ok {
+						localAndHot = state.IsLocalShard(shardName) &&
+							physical.ActivityStatus() == models.TenantActivityStatusHOT
+					}
+				}
+				return nil
+			})
+
+			if allowFallback && localAndHot {
+				isReplica = true
+			}
+		}
+
 		// If we should have the shard but it doesn't exist, initialize it
 		// Only initialize if tenant is HOT (router check passed) and we're a replica
 		if isReplica && shard == nil {
