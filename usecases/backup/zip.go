@@ -114,7 +114,7 @@ func (z *zip) Close() error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64) (written int64, err error) {
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64, chunkKey string) (written int64, err error) {
 	var n int64 // temporary written bytes
 
 	// write in-memory files only for the first chunk of the shard, these files are small and we can assume that they will
@@ -144,13 +144,13 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 		}
 	}
 
-	n, err = z.WriteRegulars(ctx, filesInShard, preCompressionSize)
+	n, err = z.WriteRegulars(ctx, sd, filesInShard, preCompressionSize, chunkKey)
 	written += n
 
 	return written, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
+func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64, chunkKey string) (written int64, err error) {
 	// Process files in sd.Files and remove them as we go (pop from front).
 	firstFile := true
 	for filesInShard.Len() > 0 {
@@ -162,7 +162,7 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, sizeExceeded, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
+		n, sizeExceeded, err := z.WriteRegular(ctx, sd, relPath, preCompressionSize, firstFile, chunkKey)
 		if err != nil {
 			return written, err
 		}
@@ -179,7 +179,7 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64, firstFile bool) (written int64, sizeExceeded bool, err error) {
+func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, preCompressionSize *atomic.Int64, firstFile bool, chunkKey string) (written int64, sizeExceeded bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return written, false, err
 	}
@@ -204,6 +204,10 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	// always write at least one file per chunk
 	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
 		return 0, true, nil
+	}
+
+	if info.Size() > z.maxChunkSizeInBytes {
+		sd.BigFilesChunk[relPath] = entBackup.BigFiles{ChunkKey: chunkKey, Size: info.Size(), ModifiedAt: info.ModTime()}
 	}
 
 	f, err := os.Open(absPath)

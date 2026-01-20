@@ -470,7 +470,7 @@ func (u *uploader) compress(ctx context.Context,
 			return err
 		}
 
-		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize); err != nil {
+		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize, chunkKey); err != nil {
 			return err
 		}
 		shard.Chunk = chunk

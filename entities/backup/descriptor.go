@@ -225,9 +225,10 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
-	Name  string   `json:"name"`
-	Node  string   `json:"node"`
-	Files []string `json:"files,omitempty"`
+	Name          string              `json:"name"`
+	Node          string              `json:"node"`
+	Files         []string            `json:"files,omitempty"`
+	BigFilesChunk map[string]BigFiles `json:"big_files_chunk,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -295,6 +296,12 @@ func (f *FileList) Peek() string {
 		return ""
 	}
 	return f.Files[f.start]
+}
+
+type BigFiles struct {
+	ChunkKey   string    `json:"chunk_key"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modified_at"`
 }
 
 // ClassDescriptor contains everything needed to completely restore a class
