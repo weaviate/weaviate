@@ -12,12 +12,13 @@ func (h *HFresh) wrapAllowList(ctx context.Context, allowList helpers.AllowList)
 	defer h.visitedPool.Return(wrappedIdVisited)
 	idVisited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(idVisited)
-	return &hfAllowList{
+	return &HfAllowList{
 		wrapped:          allowList,
 		ctx:              ctx,
 		h:                h,
 		idVisited:        idVisited,
 		wrappedIdVisited: wrappedIdVisited,
+		Culprit:          make([]uint64, h.Centroids.GetMaxID()),
 	}
 }
 
@@ -52,15 +53,16 @@ func (i *HFALIterator) Next() (uint64, bool) {
 	return 0, false
 }
 
-type hfAllowList struct {
+type HfAllowList struct {
 	wrapped          helpers.AllowList
 	ctx              context.Context
 	h                *HFresh
 	wrappedIdVisited visited.ListSet
 	idVisited        visited.ListSet
+	Culprit          []uint64
 }
 
-func (a *hfAllowList) Contains(id uint64) bool {
+func (a *HfAllowList) Contains(id uint64) bool {
 	if a.idVisited.Visited(id) {
 		return true
 	}
@@ -85,6 +87,7 @@ func (a *hfAllowList) Contains(id uint64) bool {
 		if !a.wrappedIdVisited.Visited(metadata.ID) && a.wrapped.Contains(metadata.ID) {
 			a.wrappedIdVisited.Visit(metadata.ID)
 			a.idVisited.Visit(id)
+			a.Culprit[id] = metadata.ID
 			return true
 		}
 	}
@@ -92,63 +95,63 @@ func (a *hfAllowList) Contains(id uint64) bool {
 }
 
 // DeepCopy implements [helpers.AllowList].
-func (a *hfAllowList) DeepCopy() helpers.AllowList {
+func (a *HfAllowList) DeepCopy() helpers.AllowList {
 	panic("unimplemented")
 }
 
 // Insert implements [helpers.AllowList].
-func (a *hfAllowList) Insert(ids ...uint64) {
+func (a *HfAllowList) Insert(ids ...uint64) {
 	panic("unimplemented")
 }
 
 // IsEmpty implements [helpers.AllowList].
-func (a *hfAllowList) IsEmpty() bool {
+func (a *HfAllowList) IsEmpty() bool {
 	panic("unimplemented")
 }
 
 // Iterator implements [helpers.AllowList].
-func (a *hfAllowList) Iterator() helpers.AllowListIterator {
+func (a *HfAllowList) Iterator() helpers.AllowListIterator {
 	return a.h.NewHFALIterator(a)
 }
 
 // Len implements [helpers.AllowList].
-func (a *hfAllowList) Len() int {
+func (a *HfAllowList) Len() int {
 	return int(a.h.Centroids.GetMaxID())
 }
 
 // LimitedIterator implements [helpers.AllowList].
-func (a *hfAllowList) LimitedIterator(limit int) helpers.AllowListIterator {
+func (a *HfAllowList) LimitedIterator(limit int) helpers.AllowListIterator {
 	panic("unimplemented")
 }
 
 // Max implements [helpers.AllowList].
-func (a *hfAllowList) Max() uint64 {
+func (a *HfAllowList) Max() uint64 {
 	panic("unimplemented")
 }
 
 // Min implements [helpers.AllowList].
-func (a *hfAllowList) Min() uint64 {
+func (a *HfAllowList) Min() uint64 {
 	panic("unimplemented")
 }
 
 // Size implements [helpers.AllowList].
-func (a *hfAllowList) Size() uint64 {
+func (a *HfAllowList) Size() uint64 {
 	panic("unimplemented")
 }
 
 // Slice implements [helpers.AllowList].
-func (a *hfAllowList) Slice() []uint64 {
+func (a *HfAllowList) Slice() []uint64 {
 	panic("unimplemented")
 }
 
 // Truncate implements [helpers.AllowList].
-func (a *hfAllowList) Truncate(uint64) helpers.AllowList {
+func (a *HfAllowList) Truncate(uint64) helpers.AllowList {
 	panic("unimplemented")
 }
 
 // WrapOnWrite implements [helpers.AllowList].
-func (a *hfAllowList) WrapOnWrite() helpers.AllowList {
+func (a *HfAllowList) WrapOnWrite() helpers.AllowList {
 	panic("unimplemented")
 }
 
-func (a *hfAllowList) Close() {}
+func (a *HfAllowList) Close() {}

@@ -535,6 +535,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					continue
 				}
 
+				if results.Contains(neighborID) {
+					panic("wow")
+				}
 				results.Insert(neighborID, distance)
 
 				if h.compressed.Load() {
@@ -604,6 +607,9 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			continue
 		}
 
+		if results.Contains(ep.ID) {
+			panic("##############")
+		}
 		results.Insert(ep.ID, ep.Dist)
 	}
 }
@@ -868,11 +874,15 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 			if !ok || !allowList.Contains(idx) {
 				break
-				//panic(idx)
 			}
+
 			entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+			if eps.Contains(idx) {
+				panic(eps)
+			}
 			eps.Insert(idx, entryPointDistance)
 			seeds--
+			idx, ok = it.Next()
 		}
 		h.shardedNodeLocks.RUnlockAll()
 	}

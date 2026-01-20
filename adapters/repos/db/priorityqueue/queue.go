@@ -115,6 +115,15 @@ func (q *Queue[T]) ResetCap(capacity int) {
 	q.items = make([]Item[T], 0, capacity)
 }
 
+func (q *Queue[T]) Contains(id uint64) bool {
+	for _, i := range q.items {
+		if i.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Insert creates a valueless item and adds it to the queue
 func (q *Queue[T]) Insert(id uint64, distance float32) int {
 	item := Item[T]{

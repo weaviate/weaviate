@@ -43,6 +43,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		nAllowList = h.wrapAllowList(ctx, allowList)
 	}
 	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
+	h.logger.Error(centroids.data)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,14 +54,14 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	q := NewResultSet(rescoreLimit)
 
 	// compute the max distance to filter out candidates that are too far away
-	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
+	//maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
 	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
 	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
-		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
+		/*if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
-		}
+		}*/
 		count, err := h.PostingMap.CountVectorIDs(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
@@ -80,9 +81,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
-
-	totalValid := 0
-	culprit := -1
 
 	totalVectors := 0
 	for i, p := range postings {
@@ -115,7 +113,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			if allowList != nil && !allowList.Contains(id) {
 				continue
 			}
-			totalValid++
 
 			dist, err := v.Distance(h.distancer, queryVector)
 			if err != nil {
@@ -136,36 +133,13 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		}
 	}
 
-	if totalValid < 10 {
-		for i, p := range postings {
-			pp, _ := h.PostingMap.Get(ctx, selectedCentroids[i])
-			pp.RLock()
-			pIds := []uint64{}
-			ppIds := []uint64{}
-			pass := true
-			for _, v := range p {
-				deleted, err := h.VersionMap.IsDeleted(context.Background(), v.ID())
-				if err != nil {
-					h.logger.Error(err, "failed to check if vector %d is deleted", v.ID())
-				}
-				if deleted {
-					continue
-				}
-				pIds = append(pIds, v.ID())
-				pass = pass && allowList.Contains(v.ID())
-			}
-			for _, metadata := range pp.Iter() {
-				ppIds = append(ppIds, metadata.ID)
-			}
-			pp.RUnlock()
-			//h.logger.Error(pIds)
-			//h.logger.Error(ppIds)
-			h.logger.Error(pass)
-			h.logger.Error(nAllowList.Contains(selectedCentroids[i]))
+	if q.Len() < 10 {
+		culprits := nAllowList.(*HfAllowList).Culprit
+		h.logger.Error("####################")
+		for _, idx := range selectedCentroids {
+			h.logger.Error(idx, culprits[idx], allowList.Contains(culprits[idx]))
 		}
-		h.logger.Error(culprit)
-		h.logger.Error(totalValid)
-		//panic("")
+		panic("")
 	}
 
 	rescored := NewResultSet(k)
