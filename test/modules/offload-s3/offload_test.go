@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -212,6 +213,14 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		t.Run("verify object creation", func(t *testing.T) {
 			for i, obj := range tenantObjects {
 				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
+				if err != nil {
+					oe := &objects.ObjectsClassGetInternalServerError{}
+					as := errors.As(err, &oe)
+					require.True(t, as)
+					t.Log(oe.Payload.Error[0])
+					t.Log(oe.Error())
+					t.Log(oe.Payload)
+				}
 				require.Nil(t, err)
 				assert.Equal(t, obj.Class, resp.Class)
 				assert.Equal(t, obj.Properties, resp.Properties)
