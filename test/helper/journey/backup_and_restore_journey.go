@@ -299,7 +299,7 @@ func (b *book) toObject(class string) *models.Object {
 	}
 }
 
-func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, backend string, overrideName, overridePath string) {
+func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, backend string, overrideBucket, overridePath string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -319,21 +319,22 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 	}
 	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects)
 
-	// wait for compactions
-	time.Sleep(30 * time.Second)
-
 	backupID := "backup-large-collection"
 
 	cfg := helper.DefaultBackupConfig()
+	cfg.Bucket = overrideBucket
+	cfg.Path = overridePath
 
 	resp, err := helper.CreateBackup(t, cfg, booksClass.Class, backend, backupID)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)
 	assert.Equal(t, backupID, resp.Payload.ID)
+	require.Equal(t, resp.Payload.Bucket, overrideBucket)
+	require.Contains(t, resp.Payload.Path, overridePath)
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
-		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideName, overridePath)
+		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 		var errorMessage string
 		if err != nil {
 			if b, err2 := json.Marshal(err); err2 == nil {
@@ -346,24 +347,25 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 		require.NotNil(t1, resp)
 		require.NotNil(t1, resp.Payload)
 		require.NotNil(t1, resp.Payload.Status)
-		assert.Equal(t1, backupID, resp.Payload.ID)
-		assert.Equal(t1, backend, resp.Payload.Backend)
-		assert.Contains(t1, resp.Payload.Path, overrideName)
-		assert.Contains(t1, resp.Payload.Path, overridePath)
+		require.Equal(t1, backupID, resp.Payload.ID)
+		require.Equal(t1, backend, resp.Payload.Backend)
 
-		assert.True(t1, *resp.Payload.Status == "SUCCESS")
+		require.True(t1, *resp.Payload.Status == "SUCCESS")
 	}, 120*time.Second, 1000*time.Millisecond)
 
-	time.Sleep(time.Second)
 	helper.DeleteClass(t, booksClass.Class)
 
-	respRest, err := helper.RestoreBackup(t, nil, booksClass.Class, backend, backupID, nil, false)
+	cfgRestore := helper.DefaultRestoreConfig()
+	cfgRestore.Bucket = overrideBucket
+	cfgRestore.Path = overridePath
+
+	respRest, err := helper.RestoreBackup(t, cfgRestore, booksClass.Class, backend, backupID, nil, false)
 	require.NoError(t, err, "expected nil, got: %v", err)
 	assert.Equal(t, backupID, respRest.Payload.ID)
 	assert.Equal(t, backend, respRest.Payload.Backend)
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
-		resp, err := helper.RestoreBackupStatus(t, backend, backupID, overrideName, overridePath)
+		resp, err := helper.RestoreBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 		assert.Nil(t1, err, "expected nil, got: %v", err)
 
 		assert.NotNil(t1, resp)
