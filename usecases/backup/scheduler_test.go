@@ -1158,4 +1158,82 @@ func TestCancellingRestore(t *testing.T) {
 		assert.Nil(t, err)
 		fakeScheduler.backend.AssertExpectations(t)
 	})
+
+	t.Run("CancellingAlreadyInCancellingState", func(t *testing.T) {
+		// When status is already CANCELLING, another coordinator is handling it - return early
+		fakeScheduler := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Cancelling,
+			ID:     backupID,
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err) // Should return nil - another coordinator is handling
+		fakeScheduler.backend.AssertExpectations(t)
+		// Verify no PutObject was called - we should NOT try to write when already CANCELLING
+		fakeScheduler.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("CancellingWritesCANCELLINGFirst", func(t *testing.T) {
+		// Verify that CancelRestore writes CANCELLING status before proceeding
+		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Transferring,
+			ID:     backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"node1": {Classes: []string{"Class1"}},
+			},
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		var putObjectCalls []backup.Status
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+		fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+		fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Run(func(args mock.Arguments) {
+			data := args.Get(3).([]byte)
+			var desc backup.DistributedBackupDescriptor
+			json.Unmarshal(data, &desc)
+			putObjectCalls = append(putObjectCalls, desc.Status)
+		}).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err)
+		// Verify CANCELLING was written first, then CANCELLED
+		assert.Len(t, putObjectCalls, 2)
+		assert.Equal(t, backup.Cancelling, putObjectCalls[0], "First write should be CANCELLING")
+		assert.Equal(t, backup.Cancelled, putObjectCalls[1], "Second write should be CANCELLED")
+	})
+
+	t.Run("CancellingPutMetaFailsExitsEarly", func(t *testing.T) {
+		// When PutMeta fails to write CANCELLING (e.g., storage contention),
+		// we should exit early without calling Abort - another coordinator may be handling it
+		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Transferring,
+			ID:     backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"node1": {Classes: []string{"Class1"}},
+			},
+		}
+		b, _ := json.Marshal(ds)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		// PutObject fails - simulating storage contention or another coordinator winning
+		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(fmt.Errorf("storage write failed")).Once()
+
+		err := fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err) // Should return nil - let another coordinator handle it
+		// Should NOT call Abort since we couldn't claim cancellation
+		fakeScheduler.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
+	})
 }

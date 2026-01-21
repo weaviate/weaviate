@@ -283,12 +283,14 @@ func (c *coordinator) Restore(
 		// checkStorageCancelled reads from storage to check if restore was cancelled.
 		// Storage is the authoritative source since it works across all nodes in the cluster.
 		// Returns true if the restore should stop due to cancellation.
+		// Treats both CANCELLING and CANCELLED as cancellation signals - CANCELLING means
+		// another coordinator has claimed and is processing the cancellation.
 		checkStorageCancelled := func() bool {
 			storedMeta, err := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
 			if err != nil {
 				return false // Can't read storage, continue with operation
 			}
-			if storedMeta.Status == backup.Cancelled {
+			if storedMeta.Status == backup.Cancelled || storedMeta.Status == backup.Cancelling {
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = storedMeta.Error
 				if c.descriptor.Error == "" {

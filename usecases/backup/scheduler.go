@@ -345,16 +345,34 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
 			return err
 		}
-		// if existed meta and not in the next cases shall be cancellable
 		switch meta.Status {
-		case backup.Cancelled:
+		case backup.Cancelled, backup.Cancelling:
+			// Cancellation already in progress or complete
 			return nil
 		case backup.Success:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
 		case backup.Finalizing:
 			return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
 		default:
-			// Transferring, Started - continue with cancellation
+			// Transferring, Started - attempt to claim cancellation
+		}
+
+		// Attempt to claim cancellation by writing CANCELLING status first.
+		// This acts as a distributed lock - the first coordinator to write CANCELLING wins.
+		meta.Status = backup.Cancelling
+		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
+			s.logger.WithField("action", "cancel_restore").
+				WithField("backup_id", backupID).
+				Warnf("failed to write cancelling status, another coordinator may be handling: %v", err)
+			// Another coordinator may have won, let them handle it
+			return nil
+		}
+
+		// Re-read to verify we won the race (another coordinator may have written simultaneously)
+		verifyMeta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+		if verifyMeta != nil && verifyMeta.Status == backup.Cancelled {
+			// Another coordinator already completed cancellation
+			return nil
 		}
 	} else {
 		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
@@ -366,6 +384,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 		}
 	}
 
+	// We've claimed cancellation (or meta was nil) - proceed with abort
 	nodes, err := s.restorer.Nodes(ctx, &Request{
 		Method:  OpRestore,
 		Backend: backend,
@@ -381,7 +400,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// Update coordinator's lastOp status to prevent stale reads from OnStatus()
 	s.restorer.lastOp.set(backup.Cancelled)
 
-	// Write CANCELED status to restore_config.json
+	// Write final CANCELED status to restore_config.json
 	if meta != nil {
 		meta.Status = backup.Cancelled
 		meta.Error = "restore canceled by user"
