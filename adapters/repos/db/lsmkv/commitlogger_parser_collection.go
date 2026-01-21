@@ -112,25 +112,6 @@ func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
 			if err := p.memtable.SetTombstone(docID); err != nil {
 				return err
 			}
-			// we need to delete all existing entries for this docID for all keys,
-			// as the tombstone will only apply to the previously existing segments
-			// This was not a problem for wal recovery + flush, as the flush would
-			// create a new segment that would automatically fix this, but now we are
-			// replaying into the memtable directly, and we need to ensure the memtable is
-			// in a consistent state.
-			for _, v := range p.memtable.keyMap.flattenInOrder() {
-				var filtered []MapPair
-				for _, v := range v.values {
-					vDocID := binary.BigEndian.Uint64(v.Key)
-					if vDocID != docID {
-						filtered = append(filtered, v)
-					}
-				}
-				if len(filtered) == len(v.values) {
-					continue
-				}
-				p.memtable.keyMap.replace(v.key, filtered)
-			}
 		}
 
 		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {

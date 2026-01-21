@@ -480,6 +480,29 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
+	if m.strategy == StrategyInverted && pair.Tombstone {
+		docID := binary.BigEndian.Uint64(pair.Key)
+		// we need to delete all existing entries for this docID for all keys,
+		// as the tombstone will only apply to the previously existing segments
+		// This was not a problem for wal recovery + flush, as the flush would
+		// create a new segment that would automatically fix this, but now we are
+		// replaying into the memtable directly, and we need to ensure the memtable is
+		// in a consistent state.
+		for _, v := range m.keyMap.flattenInOrder() {
+			var filtered []MapPair
+			for _, v := range v.values {
+				vDocID := binary.BigEndian.Uint64(v.Key)
+				if vDocID != docID {
+					filtered = append(filtered, v)
+				}
+			}
+			if len(filtered) == len(v.values) {
+				continue
+			}
+			m.keyMap.replace(v.key, filtered)
+		}
+	}
+
 	m.keyMap.insert(key, pair)
 	m.size += uint64(len(key) + len(valuesForCommitLog))
 	m.metrics.observeSize(m.size)
