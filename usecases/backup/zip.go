@@ -294,29 +294,15 @@ func (u *unzip) Close() (err error) {
 }
 
 func (u *unzip) ReadChunk() (written int64, err error) {
-	return u.ReadChunkWithContext(context.Background())
-}
-
-func (u *unzip) ReadChunkWithContext(ctx context.Context) (written int64, err error) {
 	if err := u.init(); err != nil {
 		return 0, err
 	}
 	parentPath := ""
 	for {
-		// Check for cancellation before reading next entry
-		if err := ctx.Err(); err != nil {
-			return written, fmt.Errorf("restore cancelled: %w", err)
-		}
-
 		header, err := u.r.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) { // end of the loop
 				return written, nil
-			}
-			// Check if context was cancelled - if so, the error is likely due to
-			// the pipe being closed. Return a cancellation error for graceful handling.
-			if ctx.Err() != nil {
-				return written, fmt.Errorf("restore cancelled: %w", ctx.Err())
 			}
 			return written, fmt.Errorf("fetch next: %w", err)
 		}
@@ -341,12 +327,8 @@ func (u *unzip) ReadChunkWithContext(ctx context.Context) (written int64, err er
 					return written, fmt.Errorf("crateDir %s: %w", target, err)
 				}
 			}
-			n, err := copyFileWithContext(ctx, target, header, u.r)
+			n, err := copyFile(target, header, u.r)
 			if err != nil {
-				// Check if context was cancelled during copy
-				if ctx.Err() != nil {
-					return written, fmt.Errorf("restore cancelled: %w", ctx.Err())
-				}
 				return written, fmt.Errorf("copy file %s: %w", target, err)
 			}
 			written += n
@@ -354,45 +336,17 @@ func (u *unzip) ReadChunkWithContext(ctx context.Context) (written int64, err er
 	}
 }
 
-func copyFileWithContext(ctx context.Context, target string, h *tar.Header, r io.Reader) (written int64, err error) {
+func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err error) {
 	f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
 	if err != nil {
 		return written, fmt.Errorf("create: %w", err)
 	}
 	defer f.Close()
-
-	// Use a buffer for copying so we can check context periodically
-	buf := make([]byte, 32*1024) // 32KB buffer
-	for {
-		// Check for cancellation before each read
-		if err := ctx.Err(); err != nil {
-			return written, err
-		}
-
-		nr, readErr := r.Read(buf)
-		if nr > 0 {
-			nw, writeErr := f.Write(buf[0:nr])
-			if nw > 0 {
-				written += int64(nw)
-			}
-			if writeErr != nil {
-				return written, fmt.Errorf("copy: %w", writeErr)
-			}
-			if nr != nw {
-				return written, fmt.Errorf("copy: %w", io.ErrShortWrite)
-			}
-		}
-		if readErr != nil {
-			if readErr == io.EOF {
-				return written, nil
-			}
-			// Check if context was cancelled - the read error may be due to pipe closure
-			if ctx.Err() != nil {
-				return written, ctx.Err()
-			}
-			return written, fmt.Errorf("copy: %w", readErr)
-		}
+	written, err = io.Copy(f, r)
+	if err != nil {
+		return written, fmt.Errorf("copy: %w", err)
 	}
+	return written, nil
 }
 
 type vFileInfo struct {

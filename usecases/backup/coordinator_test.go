@@ -780,64 +780,6 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		assert.Equal(t, "restore cancelled", coordinator.Participants["N1"].Reason)
 	})
 
-	t.Run("ExternalCancellationBeforeCommit", func(t *testing.T) {
-		fc := newFakeCoordinator(nodeResolver)
-		coordinator := fc.coordinator()
-		coordinator.descriptor = &backup.DistributedBackupDescriptor{
-			ID:          backupID,
-			NodeMapping: make(map[string]string),
-			Nodes: map[string]*backup.NodeDescriptor{
-				"N1": {Classes: []string{"Class1"}},
-				"N2": {Classes: []string{"Class2"}},
-			},
-		}
-
-		coordinator.lastOp.set(backup.Cancelled)
-		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
-		node2Addr := map[string]string{"N1": "N1", "N2": "N2"}
-
-		coordinator.commit(ctx, req, node2Addr, true)
-
-		assert.Equal(t, backup.Cancelled, coordinator.descriptor.Status)
-		assert.Equal(t, "restore cancelled by user", coordinator.descriptor.Error)
-		fc.client.AssertNotCalled(t, "Commit", mock.Anything, mock.Anything, mock.Anything)
-		fc.client.AssertNotCalled(t, "Status", mock.Anything, mock.Anything, mock.Anything)
-	})
-
-	t.Run("CancellationMarksRemainingNodes", func(t *testing.T) {
-		fc := newFakeCoordinator(nodeResolver)
-		coordinator := fc.coordinator()
-		coordinator.descriptor = &backup.DistributedBackupDescriptor{
-			ID:          backupID,
-			NodeMapping: make(map[string]string),
-			Nodes: map[string]*backup.NodeDescriptor{
-				"N1": {Classes: []string{"Class1"}},
-				"N2": {Classes: []string{"Class2"}},
-			},
-		}
-
-		coordinator.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
-		coordinator.Participants["N2"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
-
-		fc.client.On("Commit", any, "N1", mock.Anything).Return(nil).
-			Run(func(mock.Arguments) { coordinator.lastOp.set(backup.Cancelled) })
-		fc.client.On("Commit", any, "N2", mock.Anything).Return(nil)
-
-		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
-		node2Addr := map[string]string{"N1": "N1", "N2": "N2"}
-
-		coordinator.timeoutNextRound = 1 * time.Millisecond
-		coordinator.commit(ctx, req, node2Addr, true)
-
-		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
-		assert.Equal(t, backup.Cancelled, coordinator.Participants["N2"].Status)
-		assert.Equal(t, "operation cancelled by user", coordinator.Participants["N1"].Reason)
-		assert.Equal(t, "operation cancelled by user", coordinator.Participants["N2"].Reason)
-		assert.Equal(t, backup.Cancelled, coordinator.descriptor.Status)
-		assert.Equal(t, "restore cancelled by user", coordinator.descriptor.Error)
-		fc.client.AssertNotCalled(t, "Status", mock.Anything, mock.Anything, mock.Anything)
-	})
-
 	t.Run("DetectContextCanceledInCommitAll", func(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		coordinator := fc.coordinator()

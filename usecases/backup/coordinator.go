@@ -280,15 +280,44 @@ func (c *coordinator) Restore(
 		defer c.lastOp.reset()
 		ctx := context.Background()
 
+		// checkStorageCancelled reads from storage to check if restore was cancelled.
+		// Storage is the authoritative source since it works across all nodes in the cluster.
+		// Returns true if the restore should stop due to cancellation.
+		checkStorageCancelled := func() bool {
+			storedMeta, err := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+			if err != nil {
+				return false // Can't read storage, continue with operation
+			}
+			if storedMeta.Status == backup.Cancelled {
+				c.descriptor.Status = backup.Cancelled
+				c.descriptor.Error = storedMeta.Error
+				if c.descriptor.Error == "" {
+					c.descriptor.Error = "restore cancelled by user"
+				}
+				c.lastOp.set(backup.Cancelled)
+				return true
+			}
+			return false
+		}
+
 		// Time commit polling phase (waits for all nodes to finish staging)
 		commitStart := time.Now()
 		c.commit(ctx, &statusReq, nodes, true)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
+		// Check storage for cancellation before transitioning to Finalizing.
+		// This handles the case where CancelRestore was called (possibly on a different node)
+		// and wrote CANCELLED status to storage while we were in commit phase.
+		if checkStorageCancelled() {
+			c.log.WithField("backup_id", desc.ID).Info("restore cancelled (detected from storage after commit)")
+			// Don't write to storage - CancelRestore already wrote the CANCELLED status
+			return
+		}
+
 		// Block cancellation by setting status to Finalizing before schema apply
 		// Only proceed if staging was successful (Transferred = staging complete)
 		if c.descriptor.Status == backup.Transferred {
-			// Check for external cancellation before proceeding to Finalizing
+			// Check for external cancellation via lastOp (same-node cancellation)
 			if c.lastOp.get().Status == backup.Cancelled {
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = "restore cancelled by user"
@@ -304,32 +333,21 @@ func (c *coordinator) Restore(
 		// Only proceed with schema apply if we successfully transitioned to Finalizing
 		// Skip if status is Cancelled, Failed, or any other non-Finalizing state
 		if c.descriptor.Status == backup.Finalizing {
-			// Final check before schema apply - respect external cancellation that may have
-			// occurred after the check at line 292 but before we reach here
-			if c.lastOp.get().Status == backup.Cancelled {
-				c.descriptor.Status = backup.Cancelled
-				c.descriptor.Error = "restore cancelled by user"
-			} else {
-				// Time schema apply phase (Raft commits for each class)
-				schemaApplyStart := time.Now()
-				c.restoreClasses(schema, req)
-				c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
+			// Time schema apply phase (Raft commits for each class)
+			schemaApplyStart := time.Now()
+			c.restoreClasses(ctx, schema, req)
+			c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
 
-				// Set final status - restoreClasses may have set Failed, otherwise set Success
-				if c.descriptor.Status == backup.Finalizing {
-					c.descriptor.Status = backup.Success
-				}
-			}
-		}
-		// Read authoritative status from lastOp before final storage write.
-		// lastOp is the single source of truth while operation is active.
-		if c.lastOp.get().Status == backup.Cancelled {
-			c.descriptor.Status = backup.Cancelled
-			if c.descriptor.Error == "" {
-				c.descriptor.Error = "restore cancelled by user"
+			// Set final status - restoreClasses may have set Failed, otherwise set Success
+			if c.descriptor.Status == backup.Finalizing {
+				c.descriptor.Status = backup.Success
 			}
 		}
 		c.lastOp.set(c.descriptor.Status)
+
+		// Note: No need to check for cancellation after schema apply.
+		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
+		// so CANCELLED cannot be written to storage during schema apply.
 
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
@@ -360,6 +378,7 @@ func (c *coordinator) observeRestorePhase(phase string, duration time.Duration) 
 // other classes might be successfully restored.
 
 func (c *coordinator) restoreClasses(
+	ctx context.Context,
 	schema []backup.ClassDescriptor,
 	req *Request,
 ) {
@@ -378,23 +397,24 @@ func (c *coordinator) restoreClasses(
 	restoreErrors := make([]string, 0, 5)
 	hasReqClasses := len(req.Classes) > 0
 	for _, cls := range schema {
-		// Check for external cancellation between class restores
-		if c.lastOp.get().Status == backup.Cancelled {
+		// Check for context cancellation between class restores
+		// Note: Once in Finalizing state, external cancellation via CancelRestore() is blocked,
+		// but we still respect context cancellation for internal consistency
+		if err := ctx.Err(); err != nil {
 			c.log.WithFields(logrus.Fields{
 				"action":    "restore_classes",
 				"backup_id": c.descriptor.ID,
 				"class":     cls.Name,
-			}).Warn("schema apply interrupted by external cancellation")
-			c.descriptor.Error = "restore cancelled by user"
-			c.descriptor.Status = backup.Cancelled
+			}).Warn("schema apply interrupted by context cancellation")
+			c.descriptor.Error = fmt.Sprintf("schema apply interrupted: %v", err)
+			c.descriptor.Status = backup.Failed
 			return
 		}
 
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
-		// Class restoration is not cancellable by context, due to the irreversible nature of schema apply.
-		if err := c.schema.RestoreClass(context.Background(), &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
+		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			restoreErrors = append(restoreErrors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
