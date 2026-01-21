@@ -41,6 +41,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	nAllowList := allowList
 	if allowList != nil {
 		nAllowList = h.wrapAllowList(ctx, allowList)
+		defer nAllowList.(*hfAllowList).UnWrap()
 	}
 	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
 	if err != nil {

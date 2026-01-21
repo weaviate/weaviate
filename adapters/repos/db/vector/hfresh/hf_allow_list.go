@@ -9,9 +9,7 @@ import (
 
 func (h *HFresh) wrapAllowList(ctx context.Context, allowList helpers.AllowList) helpers.AllowList {
 	wrappedIdVisited := h.visitedPool.Borrow()
-	defer h.visitedPool.Return(wrappedIdVisited)
 	idVisited := h.visitedPool.Borrow()
-	defer h.visitedPool.Return(idVisited)
 	return &hfAllowList{
 		wrapped:          allowList,
 		ctx:              ctx,
@@ -19,6 +17,11 @@ func (h *HFresh) wrapAllowList(ctx context.Context, allowList helpers.AllowList)
 		idVisited:        idVisited,
 		wrappedIdVisited: wrappedIdVisited,
 	}
+}
+
+func (al *hfAllowList) UnWrap() {
+	defer al.h.visitedPool.Return(al.wrappedIdVisited)
+	defer al.h.visitedPool.Return(al.idVisited)
 }
 
 func (h *HFresh) NewHFALIterator(allowList helpers.AllowList) helpers.AllowListIterator {

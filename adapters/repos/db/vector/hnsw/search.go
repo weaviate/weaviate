@@ -866,9 +866,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			if !ok || !allowList.Contains(idx) {
 				break
 			}
-			if eps.Contains(idx) {
-				break
-			}
 
 			entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
 			eps.Insert(idx, entryPointDistance)
