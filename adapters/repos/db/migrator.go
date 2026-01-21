@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -154,6 +154,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
+			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
 			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
 			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
 			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,

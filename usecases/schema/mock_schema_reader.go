@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -749,6 +749,52 @@ func (_c *MockSchemaReader_ReadOnlyVersionedClass_Call) Return(_a0 versioned.Cla
 }
 
 func (_c *MockSchemaReader_ReadOnlyVersionedClass_Call) RunAndReturn(run func(string) versioned.Class) *MockSchemaReader_ReadOnlyVersionedClass_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReadSchema provides a mock function with given fields: reader
+func (_m *MockSchemaReader) ReadSchema(reader func(models.Class, uint64)) error {
+	ret := _m.Called(reader)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReadSchema")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(func(models.Class, uint64)) error); ok {
+		r0 = rf(reader)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSchemaReader_ReadSchema_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadSchema'
+type MockSchemaReader_ReadSchema_Call struct {
+	*mock.Call
+}
+
+// ReadSchema is a helper method to define mock.On call
+//   - reader func(models.Class , uint64)
+func (_e *MockSchemaReader_Expecter) ReadSchema(reader interface{}) *MockSchemaReader_ReadSchema_Call {
+	return &MockSchemaReader_ReadSchema_Call{Call: _e.mock.On("ReadSchema", reader)}
+}
+
+func (_c *MockSchemaReader_ReadSchema_Call) Run(run func(reader func(models.Class, uint64))) *MockSchemaReader_ReadSchema_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(func(models.Class, uint64)))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_ReadSchema_Call) Return(_a0 error) *MockSchemaReader_ReadSchema_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_ReadSchema_Call) RunAndReturn(run func(func(models.Class, uint64)) error) *MockSchemaReader_ReadSchema_Call {
 	_c.Call.Return(run)
 	return _c
 }

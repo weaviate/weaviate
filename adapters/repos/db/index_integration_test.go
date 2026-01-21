@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,6 +36,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -162,7 +163,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
-		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
@@ -219,7 +220,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
-		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
@@ -405,7 +406,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
-		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
@@ -601,7 +602,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		RootPath:                dirName,
 		ClassName:               schema.ClassName(class.Class),
 		ReplicationFactor:       1,
-		ShardLoadLimiter:        NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:        loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		AsyncReplicationEnabled: true,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
@@ -669,7 +670,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		ClassName:             schema.ClassName(class.Class),
 		DisableLazyLoadShards: true,
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)

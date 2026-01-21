@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,6 +46,9 @@ type BackupCreateStatusResponse struct {
 
 	// Destination path of backup files valid for the selected backend.
 	Path string `json:"path,omitempty"`
+
+	// Size of the backup in Gibs
+	Size float64 `json:"size,omitempty"`
 
 	// Timestamp when the backup process started
 	// Format: date-time

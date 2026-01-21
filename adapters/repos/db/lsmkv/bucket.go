@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -185,6 +185,10 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	// function to decide whether a key should be skipped
+	// during compaction for the SetCollection strategy
+	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -288,6 +292,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			shouldSkipKey:                b.shouldSkipKey,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -1255,7 +1260,7 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker, b.shouldSkipKey)
 	if err != nil {
 		return nil, err
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,11 +25,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -425,21 +425,21 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
+func (l *hnswCommitLogger) AddPQCompression(data compression.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddPQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+func (l *hnswCommitLogger) AddSQCompression(data compression.SQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+func (l *hnswCommitLogger) AddRQCompression(data compression.RQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -453,7 +453,7 @@ func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return l.commitLogger.AddMuvera(data)
 }
 
-func (l *hnswCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (l *hnswCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -559,6 +559,8 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_switch").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log switch failed")
 	}
 	return executed
@@ -576,6 +578,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
@@ -583,6 +587,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
 
@@ -590,6 +596,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_snapshot_creating").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (snapshot) failed")
 	}
 

@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -250,9 +251,9 @@ func (r *SnapshotReader) readPQData(reader io.Reader, res *DeserializationResult
 		return errors.Wrap(err, "read PQ useBitsEncoding")
 	}
 
-	pqData := &compressionhelpers.PQData{
+	pqData := &compression.PQData{
 		Dimensions:          dims,
-		EncoderType:         compressionhelpers.Encoder(encoderType),
+		EncoderType:         compression.Encoder(encoderType),
 		Ks:                  ks,
 		M:                   m,
 		EncoderDistribution: dist,
@@ -260,11 +261,11 @@ func (r *SnapshotReader) readPQData(reader io.Reader, res *DeserializationResult
 	}
 
 	// Read encoders
-	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
+	var encoderReader func(io.Reader, *compression.PQData, uint16) (compression.PQSegmentEncoder, error)
 	switch pqData.EncoderType {
-	case compressionhelpers.UseTileEncoder:
+	case compression.UseTileEncoder:
 		encoderReader = readSnapshotTileEncoder
-	case compressionhelpers.UseKMeansEncoder:
+	case compression.UseKMeansEncoder:
 		encoderReader = readSnapshotKMeansEncoder
 	default:
 		return fmt.Errorf("unsupported PQ encoder type %d", encoderType)
@@ -283,7 +284,7 @@ func (r *SnapshotReader) readPQData(reader io.Reader, res *DeserializationResult
 }
 
 // readSnapshotTileEncoder reads a tile encoder from the snapshot.
-func readSnapshotTileEncoder(reader io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func readSnapshotTileEncoder(reader io.Reader, data *compression.PQData, i uint16) (compression.PQSegmentEncoder, error) {
 	bins, err := readSnapshotFloat64(reader)
 	if err != nil {
 		return nil, err
@@ -323,7 +324,7 @@ func readSnapshotTileEncoder(reader io.Reader, data *compressionhelpers.PQData, 
 }
 
 // readSnapshotKMeansEncoder reads a KMeans encoder from the snapshot.
-func readSnapshotKMeansEncoder(reader io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func readSnapshotKMeansEncoder(reader io.Reader, data *compression.PQData, i uint16) (compression.PQSegmentEncoder, error) {
 	ds := int(data.Dimensions / data.M)
 	centers := make([][]float32, 0, data.Ks)
 
@@ -366,7 +367,7 @@ func (r *SnapshotReader) readSQData(reader io.Reader, res *DeserializationResult
 		return errors.Wrap(err, "read SQ B")
 	}
 
-	res.CompressionSQData = &compressionhelpers.SQData{
+	res.CompressionSQData = &compression.SQData{
 		Dimensions: dims,
 		A:          math.Float32frombits(aBits),
 		B:          math.Float32frombits(bBits),
@@ -392,9 +393,9 @@ func (r *SnapshotReader) readRQData(reader io.Reader, res *DeserializationResult
 	}
 
 	// Read swaps
-	swaps := make([][]compressionhelpers.Swap, rounds)
+	swaps := make([][]compression.Swap, rounds)
 	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		swaps[i] = make([]compression.Swap, outputDim/2)
 		for j := uint32(0); j < outputDim/2; j++ {
 			if err := binary.Read(reader, binary.LittleEndian, &swaps[i][j].I); err != nil {
 				return errors.Wrap(err, "read RQ swap I")
@@ -418,10 +419,10 @@ func (r *SnapshotReader) readRQData(reader io.Reader, res *DeserializationResult
 		}
 	}
 
-	res.CompressionRQData = &compressionhelpers.RQData{
+	res.CompressionRQData = &compression.RQData{
 		InputDim: inputDim,
 		Bits:     bits,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,
 			Swaps:     swaps,
@@ -446,9 +447,9 @@ func (r *SnapshotReader) readBRQData(reader io.Reader, res *DeserializationResul
 	}
 
 	// Read swaps
-	swaps := make([][]compressionhelpers.Swap, rounds)
+	swaps := make([][]compression.Swap, rounds)
 	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		swaps[i] = make([]compression.Swap, outputDim/2)
 		for j := uint32(0); j < outputDim/2; j++ {
 			if err := binary.Read(reader, binary.LittleEndian, &swaps[i][j].I); err != nil {
 				return errors.Wrap(err, "read BRQ swap I")
@@ -482,9 +483,9 @@ func (r *SnapshotReader) readBRQData(reader io.Reader, res *DeserializationResul
 		rounding[i] = math.Float32frombits(bits)
 	}
 
-	res.CompressionBRQData = &compressionhelpers.BRQData{
+	res.CompressionBRQData = &compression.BRQData{
 		InputDim: inputDim,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,
 			Swaps:     swaps,

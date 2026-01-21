@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -34,6 +35,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
+	gocron "github.com/netresearch/go-cron"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -49,6 +51,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -67,6 +70,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/cron"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -150,8 +154,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
@@ -219,7 +223,7 @@ func calcCPUs(cpuString string) (int, error) {
 	return cores, nil
 }
 
-func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
+func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 
 	// config.ServerVersion is deprecated: It's there to be backward compatible
@@ -227,36 +231,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	config.ServerVersion = build.Version
 
 	appState := startupRoutine(ctx, options)
-
-	// this is before initRuntimeOverrides to be able to init module configs
-	// as runtime overrides are applied after initModules
-	if err := registerModules(appState); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
-	}
-
-	// while we accept an overall longer startup, e.g. due to a recovery, we
-	// still want to limit the module startup context, as that's mostly service
-	// discovery / dependency checking
-	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	if err := initModules(moduleCtx, appState); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
-	}
-	// now that modules are loaded we can run the remaining config validation
-	// which is module dependent
-	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid config")
-	}
-
-	// initializing at the top to reflect the config changes before we pass on to different components.
-	initRuntimeOverrides(appState)
 
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
@@ -450,6 +424,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
 		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
 		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
@@ -469,6 +444,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -554,6 +530,23 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		)
 	}
 
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(
+		appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize,
+		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
+	)
+
+	opts = append(opts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(maxSize)),
+		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
+	)
+
 	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
 	grpcIddleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
 
@@ -601,7 +594,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		Logger:                          appState.Logger,
 		IsLocalHost:                     appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:                schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:                schemaRepo.SaveLegacySchema,
 		SentryEnabled:                   appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,
@@ -667,7 +659,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
-	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
@@ -692,22 +683,20 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
+	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	reindexer := configureReindexer(appState, reindexCtx)
 	repo.WithReindexer(reindexer)
 
-	metaStoreReadyErr := fmt.Errorf("meta store ready")
-	metaStoreFailedErr := fmt.Errorf("meta store failed")
-	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
+	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
 				Fatal("could not open cloud meta store")
-			storeReadyCancel(metaStoreFailedErr)
+			metaStoreReady.failure(err)
 		} else {
-			storeReadyCancel(metaStoreReadyErr)
+			metaStoreReady.success()
 		}
 	}, appState.Logger)
 
@@ -749,16 +738,25 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
-			// wait until meta store is ready, as reindex tasks needs schema
-			<-storeReadyCtx.Done()
-			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-				appState.Logger.
-					WithField("action", "startup").
-					Info("Reindexing inverted indexes")
-				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.WithError(err).Error("Reindexing inverted indexes skipped")
+				return
 			}
+			l.Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
 		}, appState.Logger)
 	}
+
+	enterrors.GoWrapper(func() {
+		l := appState.Logger.WithField("action", "startup")
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			l.WithError(err).Error("Configuring crons skipped")
+			return
+		}
+		l.Info("Configuring crons")
+		configureCrons(appState, serverShutdownCtx)
+	}, appState.Logger)
 
 	configureServer = makeConfigureServer(appState)
 
@@ -793,8 +791,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 			// and stopping tasks.
 			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
-			<-storeReadyCtx.Done()
-			if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+			if metaStoreReady.waitForMetaStore() != nil {
 				return
 			}
 			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
@@ -817,7 +814,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	tasks := []db.ShardReindexTaskV3{}
 	logger := appState.Logger.WithField("action", "reindexV3")
 	cfg := appState.ServerConfig.Config
-	concurrency := concurrency.TimesFloatNUMCPU(cfg.ReindexerGoroutinesFactor)
+	concurrency := concurrency.TimesFloatGOMAXPROCS(cfg.ReindexerGoroutinesFactor)
 
 	if cfg.ReindexMapToBlockmaxAtStartup {
 		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
@@ -845,6 +842,147 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	}
 	reindexer.Init()
 	return reindexer
+}
+
+func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
+	// enterrors.GoWrapper(func() {
+	// 	f := func() {
+	// 		fmt.Println("--------------------------------------------------------------------------------")
+
+	// 		nodes := appState.SchemaManager.Nodes()
+	// 		nodeName := appState.SchemaManager.NodeName()
+	// 		fmt.Printf("  ==> SchemaManager.Nodes: %v\n"+
+	// 			"      SchemaManager.NodeName: %v\n", nodes, nodeName)
+	// 		fmt.Println()
+
+	// 		allHostnames := appState.Cluster.AllHostnames()
+	// 		allNames := appState.Cluster.AllNames()
+	// 		allOtherClusterMembers := appState.Cluster.AllOtherClusterMembers(0)
+	// 		nodeCount := appState.Cluster.NodeCount()
+	// 		fmt.Printf("  ==> Cluster.AllHostnames: %v\n"+
+	// 			"      Cluster.AllNames: %v\n"+
+	// 			"      Cluster.AllOtherClusterMembers: %v\n"+
+	// 			"      Cluster.NodeCount: %v\n", allHostnames, allNames, allOtherClusterMembers, nodeCount)
+	// 		fmt.Println()
+
+	// 		for _, name := range allNames {
+	// 			nodeAddress := appState.Cluster.NodeAddress(name)
+	// 			nodeHostname, b := appState.Cluster.NodeHostname(name)
+	// 			nodeInfo, b2 := appState.Cluster.NodeInfo(name)
+	// 			fmt.Printf("  ==> Cluster.NodeAddress[%s]: %v\n"+
+	// 				"      Cluster.NodeHostname[%s]: %v [%v]\n"+
+	// 				"      Cluster.NodeInfo[%s]: %#v [%v]\n", name, nodeAddress, name, nodeHostname, b, name, nodeInfo, b2)
+	// 			fmt.Println()
+	// 		}
+
+	// 		fmt.Println("--------------------------------------------------------------------------------")
+	// 	}
+	// 	f()
+
+	// 	t := time.NewTicker(5 * time.Second)
+	// 	for {
+	// 		<-t.C
+	// 		f()
+	// 	}
+
+	// }, appState.Logger)
+
+	type jobSpec struct {
+		name     string
+		schedule string
+		job      gocron.Job
+	}
+
+	logger := appState.Logger.WithField("action", "cron")
+	cronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
+	specs := []jobSpec{}
+
+	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
+		l := logger.WithField("action", "cron_ttl_scheduler")
+
+		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
+			Then(cron.NewGoCronJob(func() {
+				if !appState.ClusterService.IsLeader() {
+					l.Debug("not a ttl scheduler - skipping")
+					return
+				}
+
+				var err error
+				started := time.Now()
+
+				l.Info("triggering deletion of expired objects")
+				defer func() {
+					l = l.WithField("took", time.Since(started))
+					if err != nil {
+						l.WithError(err).Error("triggering deletion of expired objects failed")
+					} else {
+						l.Info("triggering deletion of expired objects succeeded")
+					}
+				}()
+
+				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
+			}))
+
+		specs = append(specs, jobSpec{
+			name:     "trigger_deletion_objects_expired",
+			schedule: schedule,
+			job:      triggerDeletionObjectsExpiredJob,
+		})
+	}
+
+	if len(specs) == 0 {
+		logger.Info("no jobs configured")
+		return
+	}
+
+	opts := []gocron.Option{
+		gocron.WithLogger(cronLogger),
+		gocron.WithChain(gocron.Recover(cronLogger)),
+	}
+	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
+		opts = append(opts, gocron.WithSeconds())
+	}
+	cr := gocron.New(opts...)
+	for i := range specs {
+		l := logger.WithField("job_name", specs[i].name)
+
+		entryId, err := cr.AddJob(specs[i].schedule, specs[i].job)
+		if err != nil {
+			l.WithError(err).Error("failed adding job")
+			continue
+		}
+		l.WithField("entry", entryId).Info("added job")
+	}
+	cr.Start()
+
+	<-serverShutdownCtx.Done()
+	cr.Stop()
+}
+
+type metaStoreReady struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+}
+
+func newMetaStoreReady() *metaStoreReady {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	return &metaStoreReady{ctx: ctx, cancel: cancel}
+}
+
+func (msr *metaStoreReady) success() {
+	msr.cancel(nil)
+}
+
+func (msr *metaStoreReady) failure(err error) {
+	msr.cancel(err)
+}
+
+func (msr *metaStoreReady) waitForMetaStore() error {
+	<-msr.ctx.Done()
+	if err := context.Cause(msr.ctx); !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
@@ -878,7 +1016,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
-	appState := MakeAppState(ctx, connectorOptionGroup)
+	serverShutdownCtx, serverShutdownCancel := context.WithCancelCause(context.Background())
+	appState := MakeAppState(ctx, serverShutdownCtx, connectorOptionGroup)
 
 	appState.Logger.WithFields(logrus.Fields{
 		"server_version": config.ServerVersion,
@@ -919,6 +1058,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB, appState.Logger, appState.ClusterHttpClient, appState.Cluster)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -947,10 +1087,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
-	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
+	telemeter := telemetry.New(
+		appState.DB,
+		appState.SchemaManager,
+		appState.Logger,
+		getTelemetryURL(appState),
+		appState.ServerConfig.Config.TelemetryPushInterval,
+	)
 
-	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
+	setupMiddlewares := makeSetupMiddlewares(appState)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
@@ -975,6 +1121,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.ServerShutdown = func() {
+		// leave memberlist first to announce node graceful departure
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.WithError(err).Error("leave node from cluster")
+		}
+
+		// drain any ongoing operations
+		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
+
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -993,8 +1147,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to stop opentelemetry: %s", err.Error())
 		}
 
-		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
+		serverShutdownCancel(fmt.Errorf("server shutdown"))
 
 		if appState.DistributedTaskScheduler != nil {
 			appState.DistributedTaskScheduler.Close()
@@ -1081,6 +1234,8 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
+	// Initialize runtime config and load overridden config
+	runtimeConfigManager := initRuntimeOverrides(appState)
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
@@ -1145,6 +1300,34 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
+
+	// Register enabled modules
+	if err := registerModules(appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't load")
+	}
+	// while we accept an overall longer startup, e.g. due to a recovery, we
+	// still want to limit the module startup context, as that's mostly service
+	// discovery / dependency checking
+	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	if err := initModules(moduleCtx, appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't initialize")
+	}
+	// now that modules are loaded we can run the remaining config validation
+	// which is module dependent
+	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("invalid config")
+	}
+
+	// Initialize runtime config hooks and start runtime config background process
+	postInitRuntimeOverrides(appState, runtimeConfigManager)
 
 	return appState
 }
@@ -1860,7 +2043,6 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	// Wrap with OpenTelemetry tracing (only has an effect if tracing is enabled)
@@ -1968,6 +2150,18 @@ func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
 }
 
+// getTelemetryURL returns the telemetry consumer URL from config.
+// If a custom URL is set, it's base64-encoded to match the expected format.
+// Returns empty string if no custom URL is set (telemetry.New will use default).
+func getTelemetryURL(state *state.State) string {
+	url := state.ServerConfig.Config.TelemetryURL
+	if url == "" {
+		return ""
+	}
+	// The telemetry package expects base64-encoded URLs
+	return base64.StdEncoding.EncodeToString([]byte(url))
+}
+
 type membership struct {
 	*cluster.State
 	raft *rCluster.Service
@@ -1980,10 +2174,9 @@ func (m membership) LeaderID() string {
 
 // initRuntimeOverrides assumes, Configs from envs are loaded before
 // initializing runtime overrides.
-func initRuntimeOverrides(appState *state.State) {
+func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[config.WeaviateRuntimeConfig] {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
-
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
 		registered := &config.WeaviateRuntimeConfig{}
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
@@ -2001,34 +2194,17 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
+		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 
-		if appState.Modules.UsageEnabled() {
-			// gcs config
-			registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
-			registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
-			// s3 config
-			registered.UsageS3Bucket = appState.ServerConfig.Config.Usage.S3Bucket
-			registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
-			// common config
-			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-			registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
-			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
-			registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
-		}
-
-		hooks := make(map[string]func() error)
-		if appState.OIDC.Config.Enabled {
-			registered.OIDCIssuer = appState.OIDC.Config.Issuer
-			registered.OIDCClientID = appState.OIDC.Config.ClientID
-			registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
-			registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
-			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
-			registered.OIDCScopes = appState.OIDC.Config.Scopes
-			registered.OIDCCertificate = appState.OIDC.Config.Certificate
-			registered.OIDCJWKSUrl = appState.OIDC.Config.JWKSUrl
-
-			hooks["OIDC"] = appState.OIDC.Init
-			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
+			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
+			registered.OIDCClientID = appState.ServerConfig.Config.Authentication.OIDC.ClientID
+			registered.OIDCSkipClientIDCheck = appState.ServerConfig.Config.Authentication.OIDC.SkipClientIDCheck
+			registered.OIDCUsernameClaim = appState.ServerConfig.Config.Authentication.OIDC.UsernameClaim
+			registered.OIDCGroupsClaim = appState.ServerConfig.Config.Authentication.OIDC.GroupsClaim
+			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
+			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
+			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
 		}
 
 		cm, err := configRuntime.NewConfigManager(
@@ -2038,20 +2214,53 @@ func initRuntimeOverrides(appState *state.State) {
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
-			hooks,
 			prometheus.DefaultRegisterer)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Error("could not create runtime config manager")
+			appState.Logger.WithField("action", "startup").Errorf("could not create runtime config manager: %v", err)
 		}
+		return cm
+	}
+	return nil
+}
 
+// postInitRuntimeOverrides registers hooks and starts runtime config background process
+func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigManager[config.WeaviateRuntimeConfig]) {
+	if appState.ServerConfig.Config.RuntimeOverrides.Enabled && cm != nil {
+		// register any additional runtime configs
+		if appState.Modules.UsageEnabled() {
+			cm.RegisterAdditional(func(registered *config.WeaviateRuntimeConfig) {
+				// gcs config
+				registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
+				registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
+				// s3 config
+				registered.UsageS3Bucket = appState.ServerConfig.Config.Usage.S3Bucket
+				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
+				// common config
+				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
+				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
+				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
+			})
+		}
+		// register hooks
+		hooks := make(map[string]func() error)
+		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
+			hooks["OIDC"] = appState.OIDC.Init
+		}
+		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		cm.RegisterHooks(hooks)
+		// reload current overrides file to take into account additional settings
+		if err := cm.ReloadConfig(); err != nil {
+			appState.Logger.WithField("action", "startup").Errorf("could not reload config: %v", err)
+		}
+		// start runtime config background check
 		enterrors.GoWrapper(func() {
 			// NOTE: Not using parent `ctx` because that is getting cancelled in the caller even during startup.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			if err := cm.Run(ctx); err != nil {
-				appState.Logger.WithField("action", "runtime config manager startup").WithError(err).
-					Fatal("runtime config manager stopped")
+				appState.Logger.WithField("action", "runtime config manager startup").Fatalf("runtime config manager stopped: %v", err)
 			}
 		}, appState.Logger)
 	}

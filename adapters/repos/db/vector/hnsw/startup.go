@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -257,7 +258,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	return nil
 }
 
-func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -302,7 +303,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 	return err
 }
 
-func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {

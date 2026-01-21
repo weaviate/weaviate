@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -259,7 +260,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 
@@ -338,7 +339,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	sch := schema.Schema{
@@ -387,7 +388,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		shardCreateLocks:       esync.NewKeyRWLocker(),
 		backupLock:             esync.NewKeyRWLocker(),
 		scheduler:              repo.scheduler,
-		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())

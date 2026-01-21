@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -234,11 +235,11 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddPQCompression(compressionhelpers.PQData) error
-	AddSQCompression(compressionhelpers.SQData) error
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
-	AddRQCompression(compressionhelpers.RQData) error
-	AddBRQCompression(compressionhelpers.BRQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -374,6 +375,11 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
+	index.logger = cfg.Logger.WithFields(logrus.Fields{
+		"shard":        cfg.ShardName,
+		"class":        cfg.ClassName,
+		"targetVector": index.getTargetVector(),
+	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
@@ -553,12 +559,12 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
-			continue
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
+				continue
+			}
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
@@ -886,6 +892,9 @@ func (h *hnsw) Upgraded() bool {
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
+	if h.compressed.Load() {
+		return uint64(h.compressor.CountVectors())
+	}
 	return uint64(h.cache.CountVectors())
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -49,7 +50,7 @@ type Monitor struct {
 	maxMemoryMappings int64
 
 	// state
-	mu                     sync.Mutex
+	mu                     sync.RWMutex
 	limit                  int64
 	usedMemory             int64
 	usedMappings           int64
@@ -93,8 +94,8 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 }
 
 func (m *Monitor) CheckAlloc(sizeInBytes int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if float64(m.usedMemory+sizeInBytes)/float64(m.limit) > m.maxRatio {
 		return enterrors.ErrNotEnoughMemory
@@ -321,6 +322,23 @@ func EstimateStorObjectMemory(object *storobj.Object) int64 {
 	// (30 Bytes from the data field models.Object + 16 Bytes from
 	// remaining data fields of storobj.Object).
 	return int64(len(object.Vector)*4 + 46)
+}
+
+func EstimateBatchObjectMemory(object *protocol.BatchObject) int64 {
+	if len(object.Vector) > 0 {
+		return int64(len(object.Vector)*4 + 30)
+	}
+	if len(object.VectorBytes) > 0 {
+		return int64(len(object.VectorBytes) + 30)
+	}
+	if len(object.Vectors) > 0 {
+		size := 0
+		for _, vec := range object.Vectors {
+			size += len(vec.VectorBytes)
+		}
+		return int64(size + 30)
+	}
+	return 0
 }
 
 func EstimateObjectDeleteMemory() int64 {

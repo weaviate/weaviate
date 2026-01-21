@@ -17,9 +17,9 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
@@ -142,7 +142,7 @@ func (w *WALWriter) WriteResetIndex() error {
 }
 
 // WriteAddPQ writes an AddPQ commit.
-func (w *WALWriter) WriteAddPQ(data *compressionhelpers.PQData) error {
+func (w *WALWriter) WriteAddPQ(data *compression.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
@@ -164,7 +164,7 @@ func (w *WALWriter) WriteAddPQ(data *compressionhelpers.PQData) error {
 }
 
 // WriteAddSQ writes an AddSQ commit.
-func (w *WALWriter) WriteAddSQ(data *compressionhelpers.SQData) error {
+func (w *WALWriter) WriteAddSQ(data *compression.SQData) error {
 	toWrite := make([]byte, 11)
 	toWrite[0] = byte(AddSQ)
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
@@ -175,7 +175,7 @@ func (w *WALWriter) WriteAddSQ(data *compressionhelpers.SQData) error {
 }
 
 // WriteAddRQ writes an AddRQ commit.
-func (w *WALWriter) WriteAddRQ(data *compressionhelpers.RQData) error {
+func (w *WALWriter) WriteAddRQ(data *compression.RQData) error {
 	// Calculate sizes: header (1 + 4 + 4 + 4 + 4 = 17 bytes)
 	// Swaps: rounds * (outputDim/2) * 4 bytes (2 uint16 per swap)
 	// Signs: rounds * outputDim * 4 bytes (1 float32 per sign)
@@ -208,7 +208,7 @@ func (w *WALWriter) WriteAddRQ(data *compressionhelpers.RQData) error {
 }
 
 // WriteAddBRQ writes an AddBRQ commit.
-func (w *WALWriter) WriteAddBRQ(data *compressionhelpers.BRQData) error {
+func (w *WALWriter) WriteAddBRQ(data *compression.BRQData) error {
 	// Calculate sizes: header (1 + 4 + 4 + 4 = 13 bytes)
 	// Swaps: rounds * (outputDim/2) * 4 bytes (2 uint16 per swap)
 	// Signs: rounds * outputDim * 4 bytes (1 float32 per sign)

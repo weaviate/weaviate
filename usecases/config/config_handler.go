@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -132,6 +132,7 @@ type Config struct {
 	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
+	MaximumConcurrentBucketLoads        int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
@@ -148,6 +149,8 @@ type Config struct {
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
+	TelemetryURL                        string                   `json:"telemetry_url" yaml:"telemetry_url"`
+	TelemetryPushInterval               time.Duration            `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
@@ -229,6 +232,14 @@ type Config struct {
 
 	// The minimum timeout for the server to wait before it returns an error
 	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
+
+	// Time expired objects should be deleted at by background routine
+	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
+	ObjectsTTLDeleteSchedule string `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+
+	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
+	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
+	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -427,7 +438,7 @@ const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward
 const (
 	// minimal interval for new hnws snapshot to be created after last one
 	DefaultHNSWSnapshotIntervalSeconds                  = 6 * 3600 // 6h
-	DefaultHNSWSnapshotDisabled                         = true
+	DefaultHNSWSnapshotDisabled                         = false
 	DefaultHNSWSnapshotOnStartup                        = true
 	DefaultHNSWSnapshotMinDeltaCommitlogsNumber         = 1
 	DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage = 5 // 5%

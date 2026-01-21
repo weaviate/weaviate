@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,7 +25,6 @@ import (
 )
 
 type DistanceLookUpTable struct {
-	calculated []bool
 	distances  []float32
 	center     [][]float32
 	segments   int
@@ -35,7 +34,6 @@ type DistanceLookUpTable struct {
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
 	distances := make([]float32, segments*centroids)
-	calculated := make([]bool, segments*centroids)
 	parsedCenter := make([][]float32, segments)
 	ds := len(center) / segments
 	for c := 0; c < segments; c++ {
@@ -44,7 +42,6 @@ func NewDistanceLookUpTable(segments int, centroids int, center []float32) *Dist
 
 	dlt := &DistanceLookUpTable{
 		distances:  distances,
-		calculated: calculated,
 		center:     parsedCenter,
 		segments:   segments,
 		centroids:  centroids,
@@ -58,17 +55,10 @@ func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []floa
 	lut.segments = segments
 	lut.centroids = centroids
 	if len(lut.distances) != elems ||
-		len(lut.calculated) != elems ||
 		len(lut.center) != segments {
 		lut.distances = make([]float32, segments*centroids)
-		lut.calculated = make([]bool, segments*centroids)
 		lut.center = make([][]float32, segments)
-	} else {
-		for i := range lut.calculated {
-			lut.calculated[i] = false
-		}
 	}
-
 	ds := len(center) / segments
 	for c := 0; c < segments; c++ {
 		lut.center[c] = center[c*ds : (c+1)*ds]
@@ -76,40 +66,77 @@ func (lut *DistanceLookUpTable) Reset(segments int, centroids int, center []floa
 	lut.flatCenter = center
 }
 
+// PrecomputeTable precomputes all possible segment x centroid pairs for the
+// given query vector. Using 1536d embeddings as an example, where we might use
+// 4 dims per seg, we would end up with 384 centroids and therefore 98304
+// distance computations. That's still pretty fast and allows us to remove all
+// branches from the LookUp function on the hot path.
+func (lut *DistanceLookUpTable) PrecomputeTable(pq *ProductQuantizer, queryVec []float32) {
+	for i := range pq.kms {
+		for c := range pq.ks {
+			centroid := pq.kms[i].Centroid(byte(c))
+			dist := pq.distance.Step(lut.center[i], centroid)
+			lut.setCodeDist(i, byte(c), dist)
+		}
+	}
+}
+
+// LookUp is now branchless, it can no longer lazily compute distances on the
+// fly. It requires that distances are precalculated. PrecomputeTable is called
+// from CenterAt making sure that it's impossible to forget to precompute.
 func (lut *DistanceLookUpTable) LookUp(
 	encoded []byte,
 	pq *ProductQuantizer,
 ) float32 {
 	var sum float32
 
-	for i := range pq.kms {
-		c := ExtractCode8(encoded, i)
-		if lut.distCalculated(i, c) {
-			sum += lut.codeDist(i, c)
-		} else {
-			centroid := pq.kms[i].Centroid(c)
-			dist := pq.distance.Step(lut.center[i], centroid)
-			lut.setCodeDist(i, c, dist)
-			lut.setDistCalculated(i, c)
-			sum += dist
-		}
+	if len(encoded) < len(pq.kms) {
+		// compiler hint for Bounds-Check Elimination
+		panic("LookUp: encoded length less than number of segments")
 	}
+
+	if len(lut.distances) < len(pq.kms)*lut.centroids {
+		// This branch is impossible, the prefilling would have already panicked,
+		// but it acts as a hint to the compiler for Bounds-Check Elimination.
+		panic("LookUp: LUT distances length less than required")
+	}
+
+	i := 0
+
+	// Manually unroll loop 8 times: sweet spot on M1 macbook, may vary by
+	// platform, but certainly shouldn't hurt.
+	for ; i+7 < len(pq.kms); i += 8 {
+		c0 := ExtractCode8(encoded, i)
+		c1 := ExtractCode8(encoded, i+1)
+		c2 := ExtractCode8(encoded, i+2)
+		c3 := ExtractCode8(encoded, i+3)
+		c4 := ExtractCode8(encoded, i+4)
+		c5 := ExtractCode8(encoded, i+5)
+		c6 := ExtractCode8(encoded, i+6)
+		c7 := ExtractCode8(encoded, i+7)
+		v0 := lut.codeDist(i, c0)
+		v1 := lut.codeDist(i+1, c1)
+		v2 := lut.codeDist(i+2, c2)
+		v3 := lut.codeDist(i+3, c3)
+		v4 := lut.codeDist(i+4, c4)
+		v5 := lut.codeDist(i+5, c5)
+		v6 := lut.codeDist(i+6, c6)
+		v7 := lut.codeDist(i+7, c7)
+		sum += v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7
+	}
+
+	// handle tail (if any)
+	for ; i < len(pq.kms); i++ {
+		c := ExtractCode8(encoded, i)
+		sum += lut.codeDist(i, c)
+	}
+
 	return pq.distance.Wrap(sum)
 }
 
 // meant for better readability, rely on the fact that the compiler will inline this
 func (lut *DistanceLookUpTable) posForSegmentAndCode(segment int, code byte) int {
 	return segment*lut.centroids + int(code)
-}
-
-// meant for better readability, rely on the fact that the compiler will inline this
-func (lut *DistanceLookUpTable) distCalculated(segment int, code byte) bool {
-	return lut.calculated[lut.posForSegmentAndCode(segment, code)]
-}
-
-// meant for better readability, rely on the fact that the compiler will inline this
-func (lut *DistanceLookUpTable) setDistCalculated(segment int, code byte) {
-	lut.calculated[lut.posForSegmentAndCode(segment, code)] = true
 }
 
 // meant for better readability, rely on the fact that the compiler will inline this
@@ -178,21 +205,6 @@ func (p PQStats) CompressionRatio(dimensions int) float64 {
 	return float64(originalSize) / float64(compressedSize)
 }
 
-// PQData is an alias for the PQData type in entities/vectorindex/compression.
-type PQData = compression.PQData
-
-// PQEncoder is an alias for PQSegmentEncoder for backward compatibility.
-type PQEncoder = compression.PQSegmentEncoder
-
-// Encoder is an alias for the Encoder type in entities/vectorindex/compression.
-type Encoder = compression.Encoder
-
-// Encoder constants for backward compatibility.
-const (
-	UseTileEncoder   = compression.UseTileEncoder
-	UseKMeansEncoder = compression.UseKMeansEncoder
-)
-
 func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensions int, logger logrus.FieldLogger) (*ProductQuantizer, error) {
 	if cfg.Segments <= 0 {
 		return nil, errors.New("segments cannot be 0 nor negative")
@@ -228,7 +240,7 @@ func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensio
 	return pq, nil
 }
 
-func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []PQEncoder, logger logrus.FieldLogger) (*ProductQuantizer, error) {
+func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []compression.PQSegmentEncoder, logger logrus.FieldLogger) (*ProductQuantizer, error) {
 	cfg.Segments = len(encoders)
 	pq, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
@@ -307,11 +319,14 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 	}
 
 	dist := float32(0)
+	stride := pq.ks * pq.ks
+	globalDistances := pq.globalDistances
 
 	for i := 0; i < pq.m; i++ {
-		cX := ExtractCode8(x, i)
-		cY := ExtractCode8(y, i)
-		dist += pq.globalDistances[i*pq.ks*pq.ks+int(cX)*pq.ks+int(cY)]
+		segmentBase := i * stride
+		cX := int(x[i])
+		cY := int(y[i])
+		dist += globalDistances[segmentBase+cX*pq.ks+cY]
 	}
 
 	return pq.distance.Wrap(dist), nil
@@ -430,7 +445,9 @@ func (pq *ProductQuantizer) Decode(code []byte) []float32 {
 }
 
 func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
-	return pq.dlutPool.Get(int(pq.m), int(pq.ks), vec)
+	lut := pq.dlutPool.Get(int(pq.m), int(pq.ks), vec)
+	lut.PrecomputeTable(pq, vec)
+	return lut
 }
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {

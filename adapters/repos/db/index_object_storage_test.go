@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -166,7 +167,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
-				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
@@ -337,7 +338,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
 		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
@@ -417,7 +418,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
 		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),

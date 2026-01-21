@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -226,6 +227,54 @@ func TestDeserializerReadNode(t *testing.T) {
 		require.NotNil(t, res.Nodes[id])
 		assert.Equal(t, int(level), res.Nodes[id].level)
 	}
+}
+
+func TestDeserializerReadInvalidNode(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	logger, _ := test.NewNullLogger()
+
+	ids := []uint64{
+		1,
+		100,
+		maxNodeID + 1,
+		300,
+		5,
+	}
+
+	levels := []uint16{
+		2,
+		4,
+		6,
+		8,
+		10,
+	}
+
+	serialize := func(buf []byte, id uint64, level uint16) []byte {
+		buf = binary.LittleEndian.AppendUint64(buf, id)
+		buf = binary.LittleEndian.AppendUint16(buf, level)
+		return buf
+	}
+
+	var buf []byte
+	for i, id := range ids {
+		level := levels[i]
+		buf = serialize(buf, id, level)
+	}
+
+	data := bytes.NewReader(buf)
+	d := NewDeserializer(logger)
+
+	reader := bufio.NewReader(data)
+
+	for range ids {
+		err := d.ReadNode(reader, res)
+		require.Nil(t, err)
+	}
+	require.Len(t, res.Nodes, 2004)
+	require.Equal(t, 2, res.Nodes[1].level)
+	require.Equal(t, 4, res.Nodes[100].level)
+	require.Equal(t, 8, res.Nodes[300].level)
+	require.Equal(t, 10, res.Nodes[5].level)
 }
 
 func TestDeserializerReadEP(t *testing.T) {
@@ -531,7 +580,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 
 	t.Run("add pq data to the first log", func(t *testing.T) {
 		data, _ := testinghelpers.RandomVecs(20, 0, dimensions)
-		kms := make([]compressionhelpers.PQEncoder, 4)
+		kms := make([]compression.PQSegmentEncoder, 4)
 		for i := 0; i < 4; i++ {
 			kms[i] = compressionhelpers.NewKMeansEncoder(
 				dimensions,
@@ -541,11 +590,11 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 			err := kms[i].Fit(data)
 			require.Nil(t, err)
 		}
-		pqData := compressionhelpers.PQData{
+		pqData := compression.PQData{
 			Ks:                  uint16(centroids),
 			M:                   4,
 			Dimensions:          uint16(dimensions),
-			EncoderType:         compressionhelpers.UseKMeansEncoder,
+			EncoderType:         compression.UseKMeansEncoder,
 			EncoderDistribution: byte(compressionhelpers.NormalEncoderDistribution),
 			UseBitsEncoding:     false,
 			TrainingLimit:       100_000,
@@ -669,10 +718,10 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 
 	dimension := uint32(10)
 	bits := uint32(8)
-	rotation := compressionhelpers.FastRotation{
+	rotation := compression.FastRotation{
 		OutputDim: 4,
 		Rounds:    5,
-		Swaps: [][]compressionhelpers.Swap{
+		Swaps: [][]compression.Swap{
 			{
 				{I: 0, J: 2},
 				{I: 1, J: 3},
@@ -703,7 +752,7 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 		},
 	}
 	t.Run("add rotational quantization data to the first log", func(t *testing.T) {
-		rqData := compressionhelpers.RQData{
+		rqData := compression.RQData{
 			InputDim: dimension,
 			Bits:     bits,
 			Rotation: rotation,

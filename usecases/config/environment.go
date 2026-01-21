@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -51,7 +52,7 @@ const (
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
-	DefaultReplicationEngineFileCopyChunkSize = 64 * 1024 // 64 KB
+	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -148,6 +149,23 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
+	}
+
+	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
+	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
+		config.ObjectsTtlAllowSeconds = true
+	}
+	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
+	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
+		parser := cron.StandardParser()
+		if config.ObjectsTtlAllowSeconds {
+			// equivalent of cron.WithSeconds() option
+			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		}
+		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
+			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+		}
+		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -765,6 +783,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err = parsePositiveInt(
+		"MAXIMUM_CONCURRENT_BUCKET_LOADS",
+		func(val int) { config.MaximumConcurrentBucketLoads = val },
+		DefaultMaxConcurrentBucketLoads,
+	); err != nil {
+		return err
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_MAX_MESSAGE_SIZE",
 		func(val int) { config.GRPC.MaxMsgSize = val },
@@ -827,6 +853,20 @@ func FromEnv(config *Config) error {
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
+	}
+
+	// Telemetry URL override (useful for local development with telemetry dashboard)
+	if v := os.Getenv("TELEMETRY_URL"); v != "" {
+		config.TelemetryURL = v
+	}
+
+	// Telemetry push interval override
+	if v := os.Getenv("TELEMETRY_PUSH_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
+		}
+		config.TelemetryPushInterval = interval
 	}
 
 	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
@@ -965,6 +1005,12 @@ func FromEnv(config *Config) error {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
+
+	operationalMode := READ_WRITE
+	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
+		operationalMode = v
+	}
+	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
 	return nil
 }
@@ -1369,7 +1415,8 @@ const (
 	DefaultPersistenceMemtablesMinDuration     = 15
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
-	DefaultMaxConcurrentShardLoads             = 500
+	DefaultMaxConcurrentShardLoads             = 100
+	DefaultMaxConcurrentBucketLoads            = 100
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100

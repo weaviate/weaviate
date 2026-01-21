@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,7 @@ type HNSWIndex struct {
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
 	counter   atomic.Int32
-	quantizer *compressionhelpers.RotationalQuantizer
+	quantizer *compressionhelpers.BinaryRotationalQuantizer
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
@@ -69,7 +69,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	return &index, nil
 }
 
-func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer) {
+func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQuantizer) {
 	i.quantizer = quantizer
 }
 
@@ -80,7 +80,7 @@ func (i *HNSWIndex) Get(id uint64) *Centroid {
 	}
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   i.quantizer.Encode(vec),
+		Compressed:   i.quantizer.CompressedBytes(i.quantizer.Encode(vec)),
 		Deleted:      false,
 	}
 }

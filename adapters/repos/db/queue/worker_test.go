@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -244,8 +244,11 @@ func TestWorker_ExponentialBackoff(t *testing.T) {
 		{3, 4 * time.Second},
 		{4, 8 * time.Second},
 		{5, 16 * time.Second},
-		{6, 30 * time.Second},  // Capped at 30s
-		{10, 30 * time.Second}, // Still capped
+		{6, 30 * time.Second},     // Capped at 30s
+		{10, 30 * time.Second},    // Still capped
+		{100, 30 * time.Second},   // Still capped
+		{1000, 30 * time.Second},  // Still capped
+		{10000, 30 * time.Second}, // Still capped
 	}
 
 	for _, tc := range testCases {

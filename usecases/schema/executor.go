@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,13 +19,13 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"golang.org/x/exp/slices"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -180,14 +180,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
-	ctx := context.Background()
-	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (e *executor) DeleteClass(cls string, hasFrozen bool) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls, hasFrozen); err != nil {
@@ -287,7 +279,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates, false); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, true); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

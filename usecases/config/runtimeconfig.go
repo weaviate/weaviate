@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,6 +48,7 @@ type WeaviateRuntimeConfig struct {
 	UsagePolicyVersion                   *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 	UsageVerifyPermissions               *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
+	OperationalMode                      *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
 	DefaultQuantization                  *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 
 	// RAFT specific configs

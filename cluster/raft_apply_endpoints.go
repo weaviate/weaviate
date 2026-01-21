@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -274,14 +274,6 @@ func (s *Raft) UpdateTenantsProcess(ctx context.Context, class string, req *cmd.
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
-}
-
-func (s *Raft) StoreSchemaV1() error {
-	command := &cmd.ApplyRequest{
-		Type: cmd.ApplyRequest_TYPE_STORE_SCHEMA_V1,
-	}
-	_, err := s.Execute(context.Background(), command)
-	return err
 }
 
 func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, error) {

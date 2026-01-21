@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -118,14 +118,26 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
-	if s.haltForTransferInactivityTimer == nil {
+	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
 		return
 	}
 
-	if !s.haltForTransferInactivityTimer.Stop() {
-		<-s.haltForTransferInactivityTimer.C // drain the channel if necessary
+	// if Stop returns false, the timer has either already fired or been stopped.
+	// in the "already fired" case, there may be a value in t.C that we need to drain.
+	if !t.Stop() {
+		select {
+		case <-t.C:
+			// drained a pending tick.
+		default:
+			// channel was already drained; nothing to do.
+		}
 	}
-	s.haltForTransferInactivityTimer.Reset(s.haltForTransferInactivityTimeout)
+
+	t.Reset(d)
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {

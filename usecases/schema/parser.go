@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,6 +38,7 @@ type modulesProvider interface {
 	IsGenerative(string) bool
 	IsReranker(string) bool
 	IsMultiVector(string) bool
+	MigrateVectorizerSettings(any, any) bool
 }
 
 type Parser struct {
@@ -241,7 +242,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if err := validateImmutableFields(class, update); err != nil {
+	if err := validateImmutableFields(class, update, p.modules); err != nil {
 		return nil, err
 	}
 
@@ -455,11 +456,21 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if reflect.DeepEqual(initialModConf[module], updatedModConf[module]) {
+		if deepEqualVectorizerSettings(initialModConf[module], updatedModConf[module]) {
 			continue
 		}
 
-		return fmt.Errorf("can only update generative and reranker module configs. Got: %v", module)
+		// There might be module settings that need to be migrated to new names, for example
+		// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
+		// and migrate baseUrl to baseURL
+		if p.modules.MigrateVectorizerSettings(initialModConf, updatedModConf) {
+			// Module settings have been migrated, let's recheck vectorizer settings
+			if deepEqualVectorizerSettings(initialModConf[module], updatedModConf[module]) {
+				continue
+			}
+		}
+
+		return fmt.Errorf("can only update generative and reranker module configs. Got: %v for class: %s", module, updated.Class)
 	}
 
 	if initial.ModuleConfig == nil {

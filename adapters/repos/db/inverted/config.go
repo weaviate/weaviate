@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -96,7 +96,7 @@ func validateBM25Config(conf *models.BM25Config) error {
 		return errors.Errorf("BM25.k1 must be >= 0")
 	}
 	if conf.B < 0 || conf.B > 1 {
-		return errors.Errorf("BM25.b must be <= 0 and <= 1")
+		return errors.Errorf("BM25.b must be >= 0 and <= 1")
 	}
 
 	return nil

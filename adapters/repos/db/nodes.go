@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -109,13 +109,14 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 	}
 
 	status := models.NodeStatus{
-		Name:       db.schemaGetter.NodeName(),
-		Version:    db.config.ServerVersion,
-		GitHash:    db.config.GitHash,
-		Status:     &clusterHealthStatus,
-		Shards:     shards,
-		Stats:      nodeStats,
-		BatchStats: db.localNodeBatchStats(),
+		Name:            db.schemaGetter.NodeName(),
+		Version:         db.config.ServerVersion,
+		GitHash:         db.config.GitHash,
+		Status:          &clusterHealthStatus,
+		Shards:          shards,
+		Stats:           nodeStats,
+		BatchStats:      db.localNodeBatchStats(),
+		OperationalMode: db.config.OperationalMode.Get(),
 	}
 
 	return &status

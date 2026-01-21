@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -687,7 +688,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 
 	fs := common.NewOSFS()
 
-	encoders := []compressionhelpers.PQEncoder{
+	encoders := []compression.PQSegmentEncoder{
 		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
@@ -709,11 +710,11 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	}
 
 	t.Run("add pq info", func(t *testing.T) {
-		uncondensed.AddPQCompression(compressionhelpers.PQData{
+		uncondensed.AddPQCompression(compression.PQData{
 			Ks:                  4,
 			M:                   3,
 			Dimensions:          6,
-			EncoderType:         compressionhelpers.UseKMeansEncoder,
+			EncoderType:         compression.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
 			Encoders:            encoders,
 			UseBitsEncoding:     false,
@@ -747,11 +748,11 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		require.Nil(t, err)
 
 		assert.True(t, res.Compressed)
-		expected := compressionhelpers.PQData{
+		expected := compression.PQData{
 			Ks:                  4,
 			M:                   3,
 			Dimensions:          6,
-			EncoderType:         compressionhelpers.UseKMeansEncoder,
+			EncoderType:         compression.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
 			Encoders:            encoders,
 			UseBitsEncoding:     false,
@@ -858,13 +859,13 @@ func TestCondensorWithRQ8Information(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
-	rqData := compressionhelpers.RQData{
+	rqData := compression.RQData{
 		InputDim: 10,
 		Bits:     8,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: 4,
 			Rounds:    5,
-			Swaps: [][]compressionhelpers.Swap{
+			Swaps: [][]compression.Swap{
 				{
 					{I: 0, J: 2},
 					{I: 1, J: 3},
@@ -944,12 +945,12 @@ func TestCondensorWithRQ1Information(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
-	brqData := compressionhelpers.BRQData{
+	brqData := compression.BRQData{
 		InputDim: 10,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: 4,
 			Rounds:    5,
-			Swaps: [][]compressionhelpers.Swap{
+			Swaps: [][]compression.Swap{
 				{
 					{I: 0, J: 2},
 					{I: 1, J: 3},
@@ -1072,7 +1073,7 @@ func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) (*MemoryCon
 	cl.SetEntryPointWithMaxLayer(3, 3)
 	cl.AddTombstone(2)
 
-	var encoders []compressionhelpers.PQEncoder
+	var encoders []compression.PQSegmentEncoder
 	m := 32000
 	for i := 0; i < m; i++ {
 		encoders = append(encoders,
@@ -1085,11 +1086,11 @@ func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) (*MemoryCon
 		)
 	}
 
-	cl.AddPQCompression(compressionhelpers.PQData{
+	cl.AddPQCompression(compression.PQData{
 		Ks:                  4,
 		M:                   uint16(m),
 		Dimensions:          64000,
-		EncoderType:         compressionhelpers.UseKMeansEncoder,
+		EncoderType:         compression.UseKMeansEncoder,
 		EncoderDistribution: uint8(0),
 		Encoders:            encoders,
 		UseBitsEncoding:     false,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -366,7 +366,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursor(), right.newCollectionCursor(),
 			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, sg.shouldSkipKey)
 
 		if err := c.do(); err != nil {
 			return false, err

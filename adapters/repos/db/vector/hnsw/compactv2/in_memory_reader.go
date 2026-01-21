@@ -17,8 +17,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
@@ -48,10 +48,10 @@ type DeserializationResult struct {
 	Tombstones         map[uint64]struct{}
 	TombstonesDeleted  map[uint64]struct{}
 	EntrypointChanged  bool
-	CompressionPQData  *compressionhelpers.PQData
-	CompressionSQData  *compressionhelpers.SQData
-	CompressionRQData  *compressionhelpers.RQData
-	CompressionBRQData *compressionhelpers.BRQData
+	CompressionPQData  *compression.PQData
+	CompressionSQData  *compression.SQData
+	CompressionRQData  *compression.RQData
+	CompressionBRQData *compression.BRQData
 	MuveraEnabled      bool
 	EncoderMuvera      *multivector.MuveraData
 	Compressed         bool

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-dev"
+    "version": "1.36.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -1793,11 +1793,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -1809,7 +1809,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -1829,7 +1829,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1841,13 +1841,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6166,6 +6166,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -6697,6 +6702,9 @@ func init() {
         },
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
+        },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
         },
         "properties": {
           "description": "Define properties of the collection.",
@@ -7425,6 +7433,16 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
+        },
         "shards": {
           "description": "The list of the shards with it's statistics.",
           "type": "array",
@@ -7508,6 +7526,31 @@ func init() {
         "vectors": {
           "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
+        }
+      }
+    },
+    "ObjectTtlConfig": {
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to ` + "`" + `deleteOn` + "`" + ` value, denoting object's expiration time. Has to be positive for ` + "`" + `deleteOn` + "`" + ` set to ` + "`" + `_creationTimeUnix` + "`" + ` or ` + "`" + `_lastUpdateTimeUnix` + "`" + `, any for custom property (default: ` + "`" + `0` + "`" + `).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to ` + "`" + `_creationTimeUnix` + "`" + `, ` + "`" + `_lastUpdateTimeUnix` + "`" + ` or custom property of ` + "`" + `date` + "`" + ` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "filterExpiredObjects": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -9270,7 +9313,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-dev"
+    "version": "1.36.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -10991,11 +11034,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -11007,7 +11050,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -11027,7 +11070,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -11039,13 +11082,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15486,6 +15529,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -16152,6 +16200,9 @@ func init() {
         },
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
+        },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
         },
         "properties": {
           "description": "Define properties of the collection.",
@@ -16936,6 +16987,16 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
+        },
         "shards": {
           "description": "The list of the shards with it's statistics.",
           "type": "array",
@@ -17019,6 +17080,31 @@ func init() {
         "vectors": {
           "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
+        }
+      }
+    },
+    "ObjectTtlConfig": {
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to ` + "`" + `deleteOn` + "`" + ` value, denoting object's expiration time. Has to be positive for ` + "`" + `deleteOn` + "`" + ` set to ` + "`" + `_creationTimeUnix` + "`" + ` or ` + "`" + `_lastUpdateTimeUnix` + "`" + `, any for custom property (default: ` + "`" + `0` + "`" + `).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to ` + "`" + `_creationTimeUnix` + "`" + `, ` + "`" + `_lastUpdateTimeUnix` + "`" + ` or custom property of ` + "`" + `date` + "`" + ` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "filterExpiredObjects": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },

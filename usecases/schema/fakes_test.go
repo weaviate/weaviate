@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,10 +95,6 @@ func (f *fakeSchemaManager) Remove(ctx context.Context, nodeID string) error {
 
 func (f *fakeSchemaManager) Stats() map[string]any {
 	return map[string]any{}
-}
-
-func (f *fakeSchemaManager) StoreSchemaV1() error {
-	return nil
 }
 
 func (f *fakeSchemaManager) ClassEqual(name string) string {
@@ -259,6 +255,11 @@ func (f *fakeSchemaManager) TenantsShardsWithVersion(ctx context.Context, versio
 
 func (f *fakeSchemaManager) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
 	args := f.Called(class, reader)
+	return args.Error(0)
+}
+
+func (f *fakeSchemaManager) ReadSchema(reader func(models.Class, uint64)) error {
+	args := f.Called(reader)
 	return args.Error(0)
 }
 

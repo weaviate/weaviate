@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,13 +95,8 @@ func checkShardingState(s *sharding.State) error {
 	}
 
 	if s.PartitioningEnabled {
-		// NOTE: Partitioned sharding (multi-tenancy) uses direct tenant-to-shard mapping where each
-		// tenant maps directly to a physical shard. Virtual sharding is not used in this mode and
-		// Virtual slice is intentionally left nil/empty in InitState. Only Physical map validation
-		// is required since sharding decisions are made directly against Physical shards.
-		if s.Physical == nil {
-			return fmt.Errorf("invalid sharding state: physical map is nil (partitioned)")
-		}
+		// If we are multi-tenant, and there is no physical map (e.g. no tenants at all in the collection)
+		// then just return early without error
 		return nil
 	}
 
@@ -128,6 +123,19 @@ func (rs SchemaReader) Read(class string, retryIfClassNotFound bool, reader func
 			}
 			return reader(class, state)
 		})
+	})
+}
+
+// ReadSchema performs a read operation `reader` on the specified class and sharding state
+func (rs SchemaReader) ReadSchema(reader func(models.Class, uint64)) error {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadSchema"))
+	defer t.ObserveDuration()
+
+	return rs.retry(func(s *schema) error {
+		s.ReadSchema(func(class models.Class, version uint64) {
+			reader(class, version)
+		})
+		return nil
 	})
 }
 

@@ -17,7 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -50,7 +50,7 @@ func TestSnapshotIterator_GlobalCommits(t *testing.T) {
 		Entrypoint:        42,
 		Level:             3,
 		Compressed:        true,
-		CompressionSQData: &compressionhelpers.SQData{
+		CompressionSQData: &compression.SQData{
 			A:          0.5,
 			B:          1.5,
 			Dimensions: 128,

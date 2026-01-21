@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -67,18 +67,21 @@ type PrometheusMetrics struct {
 	QueryDimensions                     *prometheus.CounterVec
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
-	BackupRestoreDurations              *prometheus.SummaryVec
-	BackupStoreDurations                *prometheus.SummaryVec
-	BucketPauseDurations                *prometheus.SummaryVec
-	BackupRestoreClassDurations         *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations    *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
-	BackupRestoreDataTransferred        *prometheus.CounterVec
-	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
 	FileIOReads                         *prometheus.SummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
+
+	// Backup/Restore metrics
+	BackupRestoreDurations            *prometheus.SummaryVec
+	BackupStoreDurations              *prometheus.SummaryVec
+	BucketPauseDurations              *prometheus.SummaryVec
+	BackupRestoreClassDurations       *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations *prometheus.SummaryVec
+	BackupRestoreDataTransferred      *prometheus.CounterVec
+	BackupStoreDataTransferred        *prometheus.CounterVec
+	RestorePhaseDurations             *prometheus.HistogramVec
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -106,6 +109,7 @@ type PrometheusMetrics struct {
 	VectorIndexPostingSize                   *prometheus.HistogramVec
 	VectorIndexPendingBackgroundOperations   *prometheus.GaugeVec
 	VectorIndexBackgroundOperationsDurations *prometheus.SummaryVec
+	VectorIndexBackgroundOperationsCount     *prometheus.GaugeVec
 	VectorIndexStoreOperationsDurations      *prometheus.SummaryVec
 
 	VectorDimensionsSum                 *prometheus.GaugeVec
@@ -403,19 +407,20 @@ func GetMetrics() *PrometheusMetrics {
 // EnsureRegisteredMetric tries to register the given metric with the given
 // registerer. If the metric is already registered, it returns the existing
 // metric.
-func EnsureRegisteredMetric[T prometheus.Collector](reg prometheus.Registerer, metric T) (T, error) {
+func EnsureRegisteredMetric[T prometheus.Collector](reg prometheus.Registerer, metric T) (T, bool, error) {
 	if err := reg.Register(metric); err != nil {
 		var alreadyRegistered prometheus.AlreadyRegisteredError
 		if errors.As(err, &alreadyRegistered) {
 			existing, ok := alreadyRegistered.ExistingCollector.(T)
 			if !ok {
-				return metric, fmt.Errorf("metric already registered but not as expected type: %T", metric)
+				return metric, true, fmt.Errorf("metric already registered but not as expected type: %T", metric)
 			}
-			return existing, nil
+			return existing, true, nil
 		}
-		return metric, err
+		return metric, false, err
 	}
-	return metric, nil
+
+	return metric, false, nil
 }
 
 func InitCounterVec(vec *prometheus.CounterVec, labelNames [][]string) {
@@ -658,6 +663,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_index_background_operations_durations_ms",
 			Help: "Duration of typical vector index background operations (split, merge, reassign)",
 		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexBackgroundOperationsCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_background_operations_count",
+			Help: "Total number of background operations (split, merge, reassign)",
+		}, []string{"operation", "class_name", "shard_name"}),
 		VectorIndexStoreOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "vector_index_store_operations_durations_ms",
 			Help: "Duration of store operations (put, append, get)",
@@ -730,6 +739,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		RestorePhaseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_restore_phase_duration_seconds",
+			Help:    "Duration of restore phases (prepare, object_storage_download, schema_apply)",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
+		}, []string{"phase"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{

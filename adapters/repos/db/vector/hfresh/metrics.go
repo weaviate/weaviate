@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,10 +29,13 @@ type Metrics struct {
 	postingSize      prometheus.Observer
 	splitsPending    prometheus.Gauge
 	split            prometheus.Observer
+	splitCount       prometheus.Gauge
 	mergesPending    prometheus.Gauge
 	merge            prometheus.Observer
+	mergeCount       prometheus.Gauge
 	reassignsPending prometheus.Gauge
 	reassign         prometheus.Observer
+	reassignCount    prometheus.Gauge
 	centroids        prometheus.Observer
 	storeGet         prometheus.Observer
 	storeAppend      prometheus.Observer
@@ -104,6 +107,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "split",
 	})
 
+	splitCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "split",
+	})
+
 	mergesPending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
@@ -116,6 +125,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "merge",
 	})
 
+	mergeCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "merge",
+	})
+
 	reassignsPending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
@@ -123,6 +138,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	})
 
 	reassign := prom.VectorIndexBackgroundOperationsDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "reassign",
+	})
+
+	reassignCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "reassign",
@@ -163,10 +184,13 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		postingSize:      postingSize,
 		splitsPending:    splitsPending,
 		split:            split,
+		splitCount:       splitCount,
 		mergesPending:    mergesPending,
 		merge:            merge,
+		mergeCount:       mergeCount,
 		reassignsPending: reassignsPending,
 		reassign:         reassign,
+		reassignCount:    reassignCount,
 		centroids:        centroids,
 		storeGet:         storeGet,
 		storeAppend:      storeAppend,
@@ -240,6 +264,22 @@ func (m *Metrics) SplitDuration(start time.Time) {
 	m.split.Observe(float64(time.Since(start).Milliseconds()))
 }
 
+func (m *Metrics) IncSplitCount() {
+	if !m.enabled {
+		return
+	}
+
+	m.splitCount.Inc()
+}
+
+func (m *Metrics) SetSplitCount(count int64) {
+	if !m.enabled {
+		return
+	}
+
+	m.splitsPending.Add(float64(count))
+}
+
 func (m *Metrics) EnqueueMergeTask() {
 	if !m.enabled {
 		return
@@ -264,6 +304,22 @@ func (m *Metrics) MergeDuration(start time.Time) {
 	m.merge.Observe(float64(time.Since(start).Milliseconds()))
 }
 
+func (m *Metrics) IncMergeCount() {
+	if !m.enabled {
+		return
+	}
+
+	m.mergeCount.Inc()
+}
+
+func (m *Metrics) SetMergeCount(count int64) {
+	if !m.enabled {
+		return
+	}
+
+	m.mergesPending.Add(float64(count))
+}
+
 func (m *Metrics) EnqueueReassignTask() {
 	if !m.enabled {
 		return
@@ -286,6 +342,22 @@ func (m *Metrics) ReassignDuration(start time.Time) {
 	}
 
 	m.reassign.Observe(float64(time.Since(start).Milliseconds()))
+}
+
+func (m *Metrics) IncReassignCount() {
+	if !m.enabled {
+		return
+	}
+
+	m.reassignCount.Inc()
+}
+
+func (m *Metrics) SetReassignCount(count int64) {
+	if !m.enabled {
+		return
+	}
+
+	m.reassignsPending.Add(float64(count))
 }
 
 func (m *Metrics) CentroidSearchDuration(start time.Time) {

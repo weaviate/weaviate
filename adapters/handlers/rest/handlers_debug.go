@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -1093,6 +1093,39 @@ func setupDebugHandlers(appState *state.State) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
+	}))
+
+	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expiration := r.URL.Query().Get("expiration")
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+
+		var err error
+		var expirationTime time.Time
+
+		if expiration != "" {
+			expirationTime, err = time.Parse(time.RFC3339, expiration)
+			if err != nil {
+				http.Error(w, fmt.Errorf("invalid expiration: %w", err).Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			expirationTime = time.Now()
+		}
+
+		targetOwnNode := false
+		if targetOwnNodeStr != "" {
+			if targetOwnNodeStr == "true" {
+				targetOwnNode = true
+			}
+		}
+
+		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
+		if err != nil {
+			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
 	}))
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -348,14 +348,12 @@ func (s *State) CountPhysicalShards() int {
 }
 
 func (s *State) AllPhysicalShards() []string {
-	var names []string
+	names := make([]string, 0, len(s.Physical))
 	for _, physical := range s.Physical {
 		names = append(names, physical.Name)
 	}
 
-	sort.Slice(names, func(a, b int) bool {
-		return names[a] < names[b]
-	})
+	sort.Strings(names)
 
 	return names
 }

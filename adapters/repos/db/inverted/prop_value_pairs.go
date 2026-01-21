@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -107,7 +107,7 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 		processDocIDs(maxN, pv.operator, dbmCh, resultCh)
 	}, s.logger)
 
-	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	if outerConcurrencyLimit <= 1 {
 		// resolve docIDs sequentially in main goroutine
 		for i, child := range pv.children {
@@ -137,7 +137,7 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 					return nil
 				}
 
-				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
 				dbm, err := child.resolveDocIDs(ctx, s, limit)
 				if err != nil {
 					err = errors.Wrapf(err, "nested child %d", i)

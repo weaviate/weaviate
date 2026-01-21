@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,9 +16,6 @@ import (
 	"net/http"
 	"sync"
 
-	grpcconn "github.com/weaviate/weaviate/grpc/conn"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
@@ -29,10 +26,12 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -40,8 +39,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -60,18 +59,17 @@ type State struct {
 	AuthzSnapshotter fsm.Snapshotter
 	RBAC             *rbac.Manager
 
-	ServerConfig          *config.WeaviateConfig
-	LDIntegration         *configRuntime.LDIntegration
-	Logger                *logrus.Logger
-	gqlMutex              sync.Mutex
-	GraphQL               graphql.GraphQL
-	Modules               *modules.Provider
-	SchemaManager         *schema.Manager
-	Cluster               *cluster.State
-	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
-	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
-	RemoteReplicaIncoming *replica.RemoteReplicaIncoming
-	Traverser             *traverser.Traverser
+	ServerConfig        *config.WeaviateConfig
+	LDIntegration       *configRuntime.LDIntegration
+	Logger              *logrus.Logger
+	gqlMutex            sync.Mutex
+	GraphQL             graphql.GraphQL
+	Modules             *modules.Provider
+	SchemaManager       *schema.Manager
+	Cluster             *cluster.State
+	RemoteIndexIncoming *sharding.RemoteIndexIncoming
+	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
+	Traverser           *traverser.Traverser
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
@@ -88,6 +86,8 @@ type State struct {
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
 	InternalServer types.ClusterServer
+
+	ObjectTTLCoordinator *objectttl.Coordinator
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator

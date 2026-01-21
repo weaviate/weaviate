@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -146,6 +146,15 @@ func (s *schema) Read(class string, retryIfClassNotFound bool, reader func(*mode
 		}
 	}
 	return meta.RLockGuard(reader)
+}
+
+// ReadSchema performs a read operation `reader` on the schema
+func (s *schema) ReadSchema(reader func(models.Class, uint64)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, meta := range s.classes {
+		reader(meta.Class, meta.ClassVersion)
+	}
 }
 
 func (s *schema) metaClass(class string) *metaClass {
@@ -365,6 +374,14 @@ func (s *schema) deleteClass(name string) bool {
 	}
 
 	return true
+}
+
+func (s *schema) classExists(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, exists := s.classes[name]
+	return exists
 }
 
 // replaceClasses replaces the existing `schema.Classes` with given `classes`

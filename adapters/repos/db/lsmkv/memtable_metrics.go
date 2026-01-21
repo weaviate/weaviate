@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,7 +54,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 		return nil, nil
 	}
 
-	flushingCount, err := monitoring.EnsureRegisteredMetric(metrics.register,
+	flushingCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -66,9 +66,11 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_memtable_flush_total: %w", err)
 	}
-	monitoring.InitCounterVec(flushingCount, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(flushingCount, bucketStrategiesLabels)
+	}
 
-	flushingInProgress, err := monitoring.EnsureRegisteredMetric(metrics.register,
+	flushingInProgress, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
@@ -80,9 +82,11 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_memtable_flush_in_progress: %w", err)
 	}
-	monitoring.InitGaugeVec(flushingInProgress, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitGaugeVec(flushingInProgress, bucketStrategiesLabels)
+	}
 
-	flushingFailureCount, err := monitoring.EnsureRegisteredMetric(metrics.register,
+	flushingFailureCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -94,9 +98,11 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_memtable_flush_failures_total: %w", err)
 	}
-	monitoring.InitCounterVec(flushingFailureCount, bucketStrategiesLabels)
+	if !alreadyRegistered {
+		monitoring.InitCounterVec(flushingFailureCount, bucketStrategiesLabels)
+	}
 
-	flushingDuration, err := monitoring.EnsureRegisteredMetric(metrics.register,
+	flushingDuration, _, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -110,7 +116,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 		return nil, fmt.Errorf("register lsm_memtable_flush_duration_seconds: %w", err)
 	}
 
-	flushMemtableSize, err := monitoring.EnsureRegisteredMetric(metrics.register,
+	flushMemtableSize, _, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",

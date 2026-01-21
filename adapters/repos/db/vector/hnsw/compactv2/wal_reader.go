@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 // Use the same logical limit as the stateful deserializer, but local to this file.
@@ -103,25 +104,25 @@ func (c *ResetIndexCommit) Type() HnswCommitType { return ResetIndex }
 // Compression-related commits
 
 type AddPQCommit struct {
-	Data *compressionhelpers.PQData
+	Data *compression.PQData
 }
 
 func (c *AddPQCommit) Type() HnswCommitType { return AddPQ }
 
 type AddSQCommit struct {
-	Data *compressionhelpers.SQData
+	Data *compression.SQData
 }
 
 func (c *AddSQCommit) Type() HnswCommitType { return AddSQ }
 
 type AddRQCommit struct {
-	Data *compressionhelpers.RQData
+	Data *compression.RQData
 }
 
 func (c *AddRQCommit) Type() HnswCommitType { return AddRQ }
 
 type AddBRQCommit struct {
-	Data *compressionhelpers.BRQData
+	Data *compression.BRQData
 }
 
 func (c *AddBRQCommit) Type() HnswCommitType { return AddBRQ }
@@ -463,7 +464,7 @@ func (w *WALCommitReader) readDeleteNode() (Commit, error) {
 // Compression readers (copied, but return *Data instead of mutating state)
 // ---------------------------------------------------------------------------
 
-func readTileEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func readTileEncoder(r io.Reader, data *compression.PQData, i uint16) (compression.PQSegmentEncoder, error) {
 	bins, err := readFloat64(r)
 	if err != nil {
 		return nil, err
@@ -499,7 +500,7 @@ func readTileEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (co
 	return compressionhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
-func readKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func readKMeansEncoder(r io.Reader, data *compression.PQData, i uint16) (compression.PQSegmentEncoder, error) {
 	ds := int(data.Dimensions / data.M)
 	centers := make([][]float32, 0, data.Ks)
 	for k := uint16(0); k < data.Ks; k++ {
@@ -524,7 +525,7 @@ func readKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (
 
 // PQ
 
-func readPQData(r io.Reader) (*compressionhelpers.PQData, error) {
+func readPQData(r io.Reader) (*compression.PQData, error) {
 	dims, err := readUint16(r)
 	if err != nil {
 		return nil, err
@@ -550,8 +551,8 @@ func readPQData(r io.Reader) (*compressionhelpers.PQData, error) {
 		return nil, err
 	}
 
-	encoder := compressionhelpers.Encoder(encByte)
-	pqData := compressionhelpers.PQData{
+	encoder := compression.Encoder(encByte)
+	pqData := compression.PQData{
 		Dimensions:          dims,
 		EncoderType:         encoder,
 		Ks:                  ks,
@@ -560,12 +561,12 @@ func readPQData(r io.Reader) (*compressionhelpers.PQData, error) {
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
 
-	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
+	var encoderReader func(io.Reader, *compression.PQData, uint16) (compression.PQSegmentEncoder, error)
 
 	switch encoder {
-	case compressionhelpers.UseTileEncoder:
+	case compression.UseTileEncoder:
 		encoderReader = readTileEncoder
-	case compressionhelpers.UseKMeansEncoder:
+	case compression.UseKMeansEncoder:
 		encoderReader = readKMeansEncoder
 	default:
 		return nil, errors.New("unsupported encoder type")
@@ -584,7 +585,7 @@ func readPQData(r io.Reader) (*compressionhelpers.PQData, error) {
 
 // SQ
 
-func readSQData(r io.Reader) (*compressionhelpers.SQData, error) {
+func readSQData(r io.Reader) (*compression.SQData, error) {
 	a, err := readFloat32(r)
 	if err != nil {
 		return nil, err
@@ -597,7 +598,7 @@ func readSQData(r io.Reader) (*compressionhelpers.SQData, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &compressionhelpers.SQData{
+	return &compression.SQData{
 		A:          a,
 		B:          b,
 		Dimensions: dims,
@@ -606,7 +607,7 @@ func readSQData(r io.Reader) (*compressionhelpers.SQData, error) {
 
 // RQ
 
-func readRQData(r io.Reader) (*compressionhelpers.RQData, error) {
+func readRQData(r io.Reader) (*compression.RQData, error) {
 	inputDim, err := readUint32(r)
 	if err != nil {
 		return nil, err
@@ -624,9 +625,9 @@ func readRQData(r io.Reader) (*compressionhelpers.RQData, error) {
 		return nil, err
 	}
 
-	swaps := make([][]compressionhelpers.Swap, rounds)
+	swaps := make([][]compression.Swap, rounds)
 	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		swaps[i] = make([]compression.Swap, outputDim/2)
 		for j := uint32(0); j < outputDim/2; j++ {
 			swaps[i][j].I, err = readUint16(r)
 			if err != nil {
@@ -651,10 +652,10 @@ func readRQData(r io.Reader) (*compressionhelpers.RQData, error) {
 		}
 	}
 
-	return &compressionhelpers.RQData{
+	return &compression.RQData{
 		InputDim: inputDim,
 		Bits:     bits,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,
 			Swaps:     swaps,
@@ -665,7 +666,7 @@ func readRQData(r io.Reader) (*compressionhelpers.RQData, error) {
 
 // BRQ
 
-func readBRQData(r io.Reader) (*compressionhelpers.BRQData, error) {
+func readBRQData(r io.Reader) (*compression.BRQData, error) {
 	inputDim, err := readUint32(r)
 	if err != nil {
 		return nil, err
@@ -679,9 +680,9 @@ func readBRQData(r io.Reader) (*compressionhelpers.BRQData, error) {
 		return nil, err
 	}
 
-	swaps := make([][]compressionhelpers.Swap, rounds)
+	swaps := make([][]compression.Swap, rounds)
 	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		swaps[i] = make([]compression.Swap, outputDim/2)
 		for j := uint32(0); j < outputDim/2; j++ {
 			swaps[i][j].I, err = readUint16(r)
 			if err != nil {
@@ -714,9 +715,9 @@ func readBRQData(r io.Reader) (*compressionhelpers.BRQData, error) {
 		}
 	}
 
-	return &compressionhelpers.BRQData{
+	return &compression.BRQData{
 		InputDim: inputDim,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,
 			Swaps:     swaps,

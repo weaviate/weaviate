@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,8 @@ package compressionhelpers
 
 import (
 	"context"
-	"fmt"
+
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type CompressionDistanceBag interface {
@@ -35,11 +36,11 @@ func (bag *quantizedDistanceBag[T]) Load(ctx context.Context, id uint64) error {
 func (bag *quantizedDistanceBag[T]) Distance(x, y uint64) (float32, error) {
 	v1, found := bag.elements[x]
 	if !found {
-		return 0, fmt.Errorf("missing id in bag: %d", x)
+		return 0, storobj.NewErrNotFoundf(x, "compressionBag")
 	}
 	v2, found := bag.elements[y]
 	if !found {
-		return 0, fmt.Errorf("missing id in bag: %d", y)
+		return 0, storobj.NewErrNotFoundf(y, "compressionBag")
 	}
 	return bag.compressor.DistanceBetweenCompressedVectors(v1, v2)
 }

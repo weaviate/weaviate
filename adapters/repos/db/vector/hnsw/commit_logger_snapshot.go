@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,10 +31,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -1280,7 +1280,7 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			if err != nil {
 				return errors.Wrapf(err, "read PQData.EncoderType")
 			}
-			encoderType := compressionhelpers.Encoder(b[0])
+			encoderType := compression.Encoder(b[0])
 
 			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderDistribution
 			if err != nil {
@@ -1294,9 +1294,9 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			}
 			useBitsEncoding := b[0] == 1
 
-			encoder := compressionhelpers.Encoder(encoderType)
+			encoder := compression.Encoder(encoderType)
 
-			res.CompressionPQData = &compressionhelpers.PQData{
+			res.CompressionPQData = &compression.PQData{
 				Dimensions:          dims,
 				EncoderType:         encoder,
 				Ks:                  ks,
@@ -1305,12 +1305,12 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 				UseBitsEncoding:     useBitsEncoding,
 			}
 
-			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
+			var encoderReader func(r io.Reader, res *compression.PQData, i uint16) (compression.PQSegmentEncoder, error)
 
 			switch encoder {
-			case compressionhelpers.UseTileEncoder:
+			case compression.UseTileEncoder:
 				encoderReader = ReadTileEncoder
-			case compressionhelpers.UseKMeansEncoder:
+			case compression.UseKMeansEncoder:
 				encoderReader = ReadKMeansEncoder
 			default:
 				return errors.New("unsuported encoder type")
@@ -1343,7 +1343,7 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			}
 			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 
-			res.CompressionSQData = &compressionhelpers.SQData{
+			res.CompressionSQData = &compression.SQData{
 				Dimensions: dims,
 				A:          a,
 				B:          b,
@@ -1374,9 +1374,9 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			}
 			rounds := binary.LittleEndian.Uint32(b[:4])
 
-			swaps := make([][]compressionhelpers.Swap, rounds)
+			swaps := make([][]compression.Swap, rounds)
 			for i := uint32(0); i < rounds; i++ {
-				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				swaps[i] = make([]compression.Swap, outputDim/2)
 				for j := uint32(0); j < outputDim/2; j++ {
 					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].I
 					if err != nil {
@@ -1405,10 +1405,10 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 				}
 			}
 
-			res.CompressionRQData = &compressionhelpers.RQData{
+			res.CompressionRQData = &compression.RQData{
 				InputDim: inputDim,
 				Bits:     bits,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,
 					Swaps:     swaps,
@@ -1638,7 +1638,7 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			if err != nil {
 				return errors.Wrapf(err, "read PQData.EncoderType")
 			}
-			encoderType := compressionhelpers.Encoder(b[0])
+			encoderType := compression.Encoder(b[0])
 
 			_, err = io.ReadFull(mr, b[:1]) // PQData.EncoderDistribution
 			if err != nil {
@@ -1652,9 +1652,9 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			useBitsEncoding := b[0] == 1
 
-			encoder := compressionhelpers.Encoder(encoderType)
+			encoder := compression.Encoder(encoderType)
 
-			res.CompressionPQData = &compressionhelpers.PQData{
+			res.CompressionPQData = &compression.PQData{
 				Dimensions:          dims,
 				EncoderType:         encoder,
 				Ks:                  ks,
@@ -1663,12 +1663,12 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 				UseBitsEncoding:     useBitsEncoding,
 			}
 
-			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
+			var encoderReader func(r io.Reader, res *compression.PQData, i uint16) (compression.PQSegmentEncoder, error)
 
 			switch encoder {
-			case compressionhelpers.UseTileEncoder:
+			case compression.UseTileEncoder:
 				encoderReader = ReadTileEncoder
-			case compressionhelpers.UseKMeansEncoder:
+			case compression.UseKMeansEncoder:
 				encoderReader = ReadKMeansEncoder
 			default:
 				return errors.New("unsupported encoder type")
@@ -1701,7 +1701,7 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 
-			res.CompressionSQData = &compressionhelpers.SQData{
+			res.CompressionSQData = &compression.SQData{
 				Dimensions: dims,
 				A:          a,
 				B:          b,
@@ -1732,9 +1732,9 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			rounds := binary.LittleEndian.Uint32(b[:4])
 
-			swaps := make([][]compressionhelpers.Swap, rounds)
+			swaps := make([][]compression.Swap, rounds)
 			for i := uint32(0); i < rounds; i++ {
-				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				swaps[i] = make([]compression.Swap, outputDim/2)
 				for j := uint32(0); j < outputDim/2; j++ {
 					_, err = io.ReadFull(mr, b[:2]) // RQData.Rotation.Swaps[i][j].I
 					if err != nil {
@@ -1763,10 +1763,10 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 				}
 			}
 
-			res.CompressionRQData = &compressionhelpers.RQData{
+			res.CompressionRQData = &compression.RQData{
 				InputDim: inputDim,
 				Bits:     bits,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,
 					Swaps:     swaps,
@@ -1793,10 +1793,10 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			rounds := binary.LittleEndian.Uint32(b[:4])
 
-			swaps := make([][]compressionhelpers.Swap, rounds)
+			swaps := make([][]compression.Swap, rounds)
 
 			for i := uint32(0); i < rounds; i++ {
-				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				swaps[i] = make([]compression.Swap, outputDim/2)
 				for j := uint32(0); j < outputDim/2; j++ {
 					_, err = ReadAndHash(mr, hasher, b[:2]) // BRQData.Rotation.Swaps[i][j].I
 					if err != nil {
@@ -1835,9 +1835,9 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 				rounding[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 			}
 
-			res.CompressionBRQData = &compressionhelpers.BRQData{
+			res.CompressionBRQData = &compression.BRQData{
 				InputDim: inputDim,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,
 					Swaps:     swaps,

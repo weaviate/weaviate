@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,21 +13,25 @@ package cohere
 
 import "fmt"
 
+type UrlBuilder interface {
+	URL(baseURL string) string
+}
+
 type cohereUrlBuilder struct {
-	origin   string
-	pathMask string
+	origin string
+	path   string
 }
 
-func newCohereUrlBuilder() *cohereUrlBuilder {
+func NewCohereUrlBuilder(path string) UrlBuilder {
 	return &cohereUrlBuilder{
-		origin:   "https://api.cohere.ai",
-		pathMask: "/v2/embed",
+		origin: "https://api.cohere.ai",
+		path:   path,
 	}
 }
 
-func (c *cohereUrlBuilder) url(baseURL string) string {
+func (c *cohereUrlBuilder) URL(baseURL string) string {
 	if baseURL != "" {
-		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
+		return fmt.Sprintf("%s%s", baseURL, c.path)
 	}
-	return fmt.Sprintf("%s%s", c.origin, c.pathMask)
+	return fmt.Sprintf("%s%s", c.origin, c.path)
 }

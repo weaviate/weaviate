@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -746,13 +746,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		defer returnFn()
 	}
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
-	var e storobj.ErrNotFound
-	if err != nil && errors.As(err, &e) {
-		h.handleDeletedNode(e.DocID, "knnSearchByVector")
-		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-	}
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID, "knnSearchByVector")
+			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 

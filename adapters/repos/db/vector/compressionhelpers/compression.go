@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -45,10 +46,10 @@ type CompressorDistancer interface {
 type ReturnDistancerFn func()
 
 type CommitLogger interface {
-	AddPQCompression(PQData) error
-	AddSQCompression(SQData) error
-	AddRQCompression(RQData) error
-	AddBRQCompression(BRQData) error
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 }
 
 type CompressionStats interface {
@@ -474,7 +475,7 @@ func RestoreHNSWPQCompressor(
 	dimensions int,
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
-	encoders []PQEncoder,
+	encoders []compression.PQSegmentEncoder,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
@@ -547,7 +548,7 @@ func RestoreHNSWPQMultiCompressor(
 	dimensions int,
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
-	encoders []PQEncoder,
+	encoders []compression.PQSegmentEncoder,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
@@ -818,7 +819,7 @@ func RestoreRQCompressor(
 	bits int,
 	outputDim int,
 	rounds int,
-	swaps [][]Swap,
+	swaps [][]compression.Swap,
 	signs [][]float32,
 	rounding []float32,
 	store *lsmkv.Store,
@@ -935,7 +936,7 @@ func RestoreRQMultiCompressor(
 	bits int,
 	outputDim int,
 	rounds int,
-	swaps [][]Swap,
+	swaps [][]compression.Swap,
 	signs [][]float32,
 	rounding []float32,
 	store *lsmkv.Store,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -163,6 +163,14 @@ func (m *VoyageAIModule) AdditionalProperties() map[string]modulecapabilities.Ad
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *VoyageAIModule) MigrateProperties() []modulecapabilities.MigrateProperty {
+	return []modulecapabilities.MigrateProperty{
+		{Name: "baseURL"},
+		{Name: "model"},
+		{Name: "truncate"},
+	}
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
@@ -171,4 +179,5 @@ var (
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
+	_ = modulecapabilities.MigrateProperties(New())
 )

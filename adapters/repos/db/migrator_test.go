@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -103,7 +104,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
-				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
@@ -271,7 +272,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				ClassName:             schema.ClassName("TestClass"),
 				RootPath:              t.TempDir(),
 				ReplicationFactor:     1,
-				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				DisableLazyLoadShards: !tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
@@ -377,7 +378,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
-		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)

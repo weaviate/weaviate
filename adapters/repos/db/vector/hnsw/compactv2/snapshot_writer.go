@@ -20,8 +20,8 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -62,10 +62,10 @@ type SnapshotWriter struct {
 	maxNodeID  uint64
 
 	// Compression data (only one can be set at a time)
-	pqData  *compressionhelpers.PQData
-	sqData  *compressionhelpers.SQData
-	rqData  *compressionhelpers.RQData
-	brqData *compressionhelpers.BRQData
+	pqData  *compression.PQData
+	sqData  *compression.SQData
+	rqData  *compression.RQData
+	brqData *compression.BRQData
 
 	// Muvera encoder data (can be set alongside compression)
 	muveraData *multivector.MuveraData
@@ -103,22 +103,22 @@ func (s *SnapshotWriter) SetEntrypoint(entrypoint uint64, level uint16) {
 }
 
 // SetPQData sets the Product Quantization compression data.
-func (s *SnapshotWriter) SetPQData(data *compressionhelpers.PQData) {
+func (s *SnapshotWriter) SetPQData(data *compression.PQData) {
 	s.pqData = data
 }
 
 // SetSQData sets the Scalar Quantization compression data.
-func (s *SnapshotWriter) SetSQData(data *compressionhelpers.SQData) {
+func (s *SnapshotWriter) SetSQData(data *compression.SQData) {
 	s.sqData = data
 }
 
 // SetRQData sets the Rotational Quantization compression data.
-func (s *SnapshotWriter) SetRQData(data *compressionhelpers.RQData) {
+func (s *SnapshotWriter) SetRQData(data *compression.RQData) {
 	s.rqData = data
 }
 
 // SetBRQData sets the Binary Rotational Quantization compression data.
-func (s *SnapshotWriter) SetBRQData(data *compressionhelpers.BRQData) {
+func (s *SnapshotWriter) SetBRQData(data *compression.BRQData) {
 	s.brqData = data
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -304,6 +305,7 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 
 func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
+	start := time.Now()
 	client, err := s.getClient(ctx)
 	if err != nil {
 		return -1, errors.Wrap(err, "write: cannot get client")
@@ -327,7 +329,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 
 	info, err := client.PutObject(ctx, bucket, remotePath, r, -1, opt)
 	if err != nil {
-		return info.Size, fmt.Errorf("write object %q", remotePath)
+		return info.Size, fmt.Errorf("write object %q failed after %v seconds with: %w", remotePath, time.Since(start).Seconds(), err)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.

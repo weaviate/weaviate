@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package batch
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,7 +40,7 @@ func TestWorkerLoop(t *testing.T) {
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
-		processingQueue := NewProcessingQueue(1)
+		processingQueue := NewProcessingQueue()
 
 		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -52,7 +51,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, &atomic.Int32{}, nil, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		UUID0 := uuid.New().String()
 		ref1 := &pb.BatchReference{
@@ -64,22 +63,26 @@ func TestWorkerLoop(t *testing.T) {
 
 		// Send data
 		wg.Add(2)
-		processingQueue <- &processRequest{
-			objects:          []*pb.BatchObject{{Uuid: UUID0}},
-			references:       nil,
-			streamId:         StreamId,
-			consistencyLevel: nil,
-			wg:               &wg,
-			streamCtx:        ctx,
-		}
-		processingQueue <- &processRequest{
-			objects:          nil,
-			references:       []*pb.BatchReference{ref1},
-			streamId:         StreamId,
-			consistencyLevel: nil,
-			wg:               &wg,
-			streamCtx:        ctx,
-		}
+		go func() {
+			processingQueue <- &processRequest{
+				objects:          []*pb.BatchObject{{Uuid: UUID0}},
+				references:       nil,
+				streamId:         StreamId,
+				consistencyLevel: nil,
+				streamCtx:        ctx,
+				onComplete:       func() { wg.Done() },
+				onStart:          func() {},
+			}
+			processingQueue <- &processRequest{
+				objects:          nil,
+				references:       []*pb.BatchReference{ref1},
+				streamId:         StreamId,
+				consistencyLevel: nil,
+				streamCtx:        ctx,
+				onComplete:       func() { wg.Done() },
+				onStart:          func() {},
+			}
+		}()
 
 		rq, ok := reportingQueues.Get(StreamId)
 		require.True(t, ok, "Expected reporting queue to exist and to contain message")
@@ -115,7 +118,7 @@ func TestWorkerLoop(t *testing.T) {
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
-		processingQueue := NewProcessingQueue(1)
+		processingQueue := NewProcessingQueue()
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
@@ -149,7 +152,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, &atomic.Int32{}, nil, logger)
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		UUID0 := uuid.New().String()
@@ -176,8 +179,9 @@ func TestWorkerLoop(t *testing.T) {
 				references:       []*pb.BatchReference{ref1, ref2},
 				streamId:         StreamId,
 				consistencyLevel: nil,
-				wg:               &wg,
 				streamCtx:        ctx,
+				onComplete:       func() { wg.Done() },
+				onStart:          func() {},
 			}
 		}()
 

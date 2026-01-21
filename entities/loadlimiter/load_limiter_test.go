@@ -4,12 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package loadlimiter
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func TestNewShardLoadLimiter_DefaultLimit(t *testing.T) {
+func TestNewLoadLimiter_DefaultLimit(t *testing.T) {
 	tests := []struct {
 		name          string
 		limit         int
@@ -35,13 +35,13 @@ func TestNewShardLoadLimiter_DefaultLimit(t *testing.T) {
 		{
 			name:          "with default limit",
 			limit:         0,
-			expectedLimit: defaultShardLoadingLimit,
+			expectedLimit: defaultLoadingLimit,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			limiter := NewShardLoadLimiter(monitoring.NoopRegisterer, tc.limit)
+			limiter := NewLoadLimiter(monitoring.NoopRegisterer, "dummy", tc.limit)
 
 			var count int64
 			for limiter.sema.TryAcquire(1) {
@@ -53,9 +53,9 @@ func TestNewShardLoadLimiter_DefaultLimit(t *testing.T) {
 	}
 }
 
-func TestNewShardLoadLimiter_ControlsConcurrency(t *testing.T) {
+func TestNewLoadLimiter_ControlsConcurrency(t *testing.T) {
 	var (
-		limiter = NewShardLoadLimiter(monitoring.NoopRegisterer, 5)
+		limiter = NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 5)
 		start   = time.Now()
 	)
 

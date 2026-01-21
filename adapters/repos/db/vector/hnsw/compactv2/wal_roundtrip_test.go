@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func testLogger() logrus.FieldLogger {
@@ -364,14 +365,14 @@ func TestWALRoundTrip_ResetIndex(t *testing.T) {
 
 func TestWALRoundTrip_AddPQ_TileEncoder(t *testing.T) {
 	// Create PQ data with TileEncoder
-	pqData := &compressionhelpers.PQData{
+	pqData := &compression.PQData{
 		Dimensions:          128,
-		EncoderType:         compressionhelpers.UseTileEncoder,
+		EncoderType:         compression.UseTileEncoder,
 		Ks:                  256,
 		M:                   4,
 		EncoderDistribution: 1,
 		UseBitsEncoding:     true,
-		Encoders:            make([]compressionhelpers.PQEncoder, 4),
+		Encoders:            make([]compression.PQSegmentEncoder, 4),
 	}
 
 	// Create tile encoders for each segment
@@ -416,14 +417,14 @@ func TestWALRoundTrip_AddPQ_KMeansEncoder(t *testing.T) {
 	ks := uint16(256)
 	segmentSize := int(dimensions / m)
 
-	pqData := &compressionhelpers.PQData{
+	pqData := &compression.PQData{
 		Dimensions:          dimensions,
-		EncoderType:         compressionhelpers.UseKMeansEncoder,
+		EncoderType:         compression.UseKMeansEncoder,
 		Ks:                  ks,
 		M:                   m,
 		EncoderDistribution: 0,
 		UseBitsEncoding:     false,
-		Encoders:            make([]compressionhelpers.PQEncoder, m),
+		Encoders:            make([]compression.PQSegmentEncoder, m),
 	}
 
 	// Create KMeans encoders for each segment
@@ -480,7 +481,7 @@ func TestWALRoundTrip_AddSQ(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			sqData := &compressionhelpers.SQData{
+			sqData := &compression.SQData{
 				A:          tc.a,
 				B:          tc.b,
 				Dimensions: tc.dimensions,
@@ -521,22 +522,22 @@ func TestWALRoundTrip_AddRQ(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rqData := &compressionhelpers.RQData{
+			rqData := &compression.RQData{
 				InputDim: tc.inputDim,
 				Bits:     tc.bits,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: tc.outputDim,
 					Rounds:    tc.rounds,
-					Swaps:     make([][]compressionhelpers.Swap, tc.rounds),
+					Swaps:     make([][]compression.Swap, tc.rounds),
 					Signs:     make([][]float32, tc.rounds),
 				},
 			}
 
 			// Populate swaps and signs
 			for i := uint32(0); i < tc.rounds; i++ {
-				rqData.Rotation.Swaps[i] = make([]compressionhelpers.Swap, tc.outputDim/2)
+				rqData.Rotation.Swaps[i] = make([]compression.Swap, tc.outputDim/2)
 				for j := uint32(0); j < tc.outputDim/2; j++ {
-					rqData.Rotation.Swaps[i][j] = compressionhelpers.Swap{
+					rqData.Rotation.Swaps[i][j] = compression.Swap{
 						I: uint16(j * 2),
 						J: uint16(j*2 + 1),
 					}
@@ -598,12 +599,12 @@ func TestWALRoundTrip_AddBRQ(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			brqData := &compressionhelpers.BRQData{
+			brqData := &compression.BRQData{
 				InputDim: tc.inputDim,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: tc.outputDim,
 					Rounds:    tc.rounds,
-					Swaps:     make([][]compressionhelpers.Swap, tc.rounds),
+					Swaps:     make([][]compression.Swap, tc.rounds),
 					Signs:     make([][]float32, tc.rounds),
 				},
 				Rounding: make([]float32, tc.outputDim),
@@ -611,9 +612,9 @@ func TestWALRoundTrip_AddBRQ(t *testing.T) {
 
 			// Populate swaps and signs
 			for i := uint32(0); i < tc.rounds; i++ {
-				brqData.Rotation.Swaps[i] = make([]compressionhelpers.Swap, tc.outputDim/2)
+				brqData.Rotation.Swaps[i] = make([]compression.Swap, tc.outputDim/2)
 				for j := uint32(0); j < tc.outputDim/2; j++ {
-					brqData.Rotation.Swaps[i][j] = compressionhelpers.Swap{
+					brqData.Rotation.Swaps[i][j] = compression.Swap{
 						I: uint16(j * 2),
 						J: uint16(j*2 + 1),
 					}

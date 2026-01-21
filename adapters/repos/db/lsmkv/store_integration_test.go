@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 	logger := nullLogger()
 
 	t.Run("cycle 1", func(t *testing.T) {
-		store, err := New(dirName, dirName, logger, nil,
+		store, err := New(dirName, dirName, logger, nil, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop())
@@ -70,7 +70,7 @@ func testStoreLifecycle(ctx context.Context, t *testing.T, opts []BucketOption) 
 	})
 
 	t.Run("cycle 2", func(t *testing.T) {
-		store, err := New(dirName, dirName, logger, nil,
+		store, err := New(dirName, dirName, logger, nil, nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop())

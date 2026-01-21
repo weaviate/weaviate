@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,15 +60,18 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	h.initDimensionsOnce.Do(func() {
 		size := uint32(len(vector))
 		atomic.StoreUint32(&h.dims, size)
-		h.setMaxPostingSize()
-		err = h.Metadata.SetDimensions(size)
+		err = h.setMaxPostingSize()
+		if err != nil {
+			return
+		}
+		err = h.IndexMetadata.SetDimensions(size)
 		if err != nil {
 			err = errors.Wrap(err, "could not persist dimensions")
 			return // Fail the entire initialization
 		}
-
-		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
+		h.quantizer = compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
 		h.Centroids.SetQuantizer(h.quantizer)
+
 		if err = h.persistQuantizationData(); err != nil {
 			err = errors.Wrap(err, "could not persist RQ data")
 			return // Fail the entire initialization
@@ -84,16 +87,19 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	}
 
 	// add the vector to the version map.
-	// TODO: if the vector already exists, invalidate all previous instances
-	// by incrementing the version
 	version, err := h.VersionMap.Increment(h.ctx, id, VectorVersion(0))
 	if err != nil {
-		return errors.Wrapf(err, "failed to increment version map for vector %d", id)
+		if !errors.Is(err, ErrVersionIncrementFailed) {
+			return errors.Wrapf(err, "failed to increment version map for vector %d", id)
+		}
+
+		// vector already exists, no need to re-insert
+		return nil
 	}
 
 	var v Vector
 
-	compressed := h.quantizer.Encode(vector)
+	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
 	v = NewVector(id, version, compressed)
 
 	targets, _, err := h.RNGSelect(vector, 0)
@@ -141,7 +147,10 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 
 	// if no postings were found, create a new posting while holding the lock
 	if targets.Len() == 0 {
-		postingID := h.IDs.Next()
+		postingID, err := h.IDs.Next()
+		if err != nil {
+			return nil, err
+		}
 		// use the vector as the centroid and register it in the SPTAG
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
@@ -193,7 +202,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// increment the size of the posting
-	count, err := h.PostingSizes.Inc(ctx, centroidID, 1)
+	count, err := h.PostingMetadata.AddVectorID(ctx, centroidID, vector.ID())
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err

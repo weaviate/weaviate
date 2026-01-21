@@ -20,8 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -415,7 +415,7 @@ func TestSnapshotRoundTrip_WithSQCompression(t *testing.T) {
 	sw.SetEntrypoint(0, 0)
 
 	// Set SQ compression data
-	sqData := &compressionhelpers.SQData{
+	sqData := &compression.SQData{
 		A:          0.5,
 		B:          1.5,
 		Dimensions: 128,
@@ -452,13 +452,13 @@ func TestSnapshotRoundTrip_WithRQCompression(t *testing.T) {
 	sw.SetEntrypoint(0, 0)
 
 	// Set RQ compression data
-	rqData := &compressionhelpers.RQData{
+	rqData := &compression.RQData{
 		InputDim: 128,
 		Bits:     4,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: 64,
 			Rounds:    2,
-			Swaps: [][]compressionhelpers.Swap{
+			Swaps: [][]compression.Swap{
 				{{I: 0, J: 1}, {I: 2, J: 3}},
 				{{I: 4, J: 5}, {I: 6, J: 7}},
 			},
@@ -477,7 +477,7 @@ func TestSnapshotRoundTrip_WithRQCompression(t *testing.T) {
 	// Pad swaps to match outputDim/2
 	for i := range rqData.Rotation.Swaps {
 		for len(rqData.Rotation.Swaps[i]) < int(rqData.Rotation.OutputDim/2) {
-			rqData.Rotation.Swaps[i] = append(rqData.Rotation.Swaps[i], compressionhelpers.Swap{I: 0, J: 1})
+			rqData.Rotation.Swaps[i] = append(rqData.Rotation.Swaps[i], compression.Swap{I: 0, J: 1})
 		}
 	}
 	sw.SetRQData(rqData)
@@ -509,14 +509,14 @@ func TestSnapshotRoundTrip_WithBRQCompression(t *testing.T) {
 	sw.SetEntrypoint(0, 0)
 
 	// Set BRQ compression data
-	brqData := &compressionhelpers.BRQData{
+	brqData := &compression.BRQData{
 		InputDim: 128,
-		Rotation: compressionhelpers.FastRotation{
+		Rotation: compression.FastRotation{
 			OutputDim: 64,
 			Rounds:    2,
-			Swaps: [][]compressionhelpers.Swap{
-				make([]compressionhelpers.Swap, 32),
-				make([]compressionhelpers.Swap, 32),
+			Swaps: [][]compression.Swap{
+				make([]compression.Swap, 32),
+				make([]compression.Swap, 32),
 			},
 			Signs: [][]float32{
 				make([]float32, 64),
@@ -528,7 +528,7 @@ func TestSnapshotRoundTrip_WithBRQCompression(t *testing.T) {
 	// Fill with test data
 	for i := range brqData.Rotation.Swaps {
 		for j := range brqData.Rotation.Swaps[i] {
-			brqData.Rotation.Swaps[i][j] = compressionhelpers.Swap{I: uint16(j), J: uint16(j + 1)}
+			brqData.Rotation.Swaps[i][j] = compression.Swap{I: uint16(j), J: uint16(j + 1)}
 		}
 	}
 	for i := range brqData.Rotation.Signs {
@@ -631,7 +631,7 @@ func TestSnapshotRoundTrip_WithCompressionAndMuvera(t *testing.T) {
 	sw.SetEntrypoint(0, 0)
 
 	// Set SQ compression
-	sqData := &compressionhelpers.SQData{
+	sqData := &compression.SQData{
 		A:          0.25,
 		B:          0.75,
 		Dimensions: 64,
@@ -685,25 +685,25 @@ func TestSnapshotWriter_CompressionHelpers(t *testing.T) {
 
 	t.Run("isCompressed returns true for PQ", func(t *testing.T) {
 		sw := NewSnapshotWriter(nil)
-		sw.SetPQData(&compressionhelpers.PQData{})
+		sw.SetPQData(&compression.PQData{})
 		assert.True(t, sw.isCompressed())
 	})
 
 	t.Run("isCompressed returns true for SQ", func(t *testing.T) {
 		sw := NewSnapshotWriter(nil)
-		sw.SetSQData(&compressionhelpers.SQData{})
+		sw.SetSQData(&compression.SQData{})
 		assert.True(t, sw.isCompressed())
 	})
 
 	t.Run("isCompressed returns true for RQ", func(t *testing.T) {
 		sw := NewSnapshotWriter(nil)
-		sw.SetRQData(&compressionhelpers.RQData{})
+		sw.SetRQData(&compression.RQData{})
 		assert.True(t, sw.isCompressed())
 	})
 
 	t.Run("isCompressed returns true for BRQ", func(t *testing.T) {
 		sw := NewSnapshotWriter(nil)
-		sw.SetBRQData(&compressionhelpers.BRQData{})
+		sw.SetBRQData(&compression.BRQData{})
 		assert.True(t, sw.isCompressed())
 	})
 

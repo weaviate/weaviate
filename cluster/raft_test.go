@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -306,7 +306,11 @@ func TestRaftEndpoints(t *testing.T) {
 	cls = &models.Class{
 		Class: "D",
 	}
-	ss = &sharding.State{PartitioningEnabled: false, Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
+	ss = &sharding.State{
+		PartitioningEnabled: false,
+		Physical:            map[string]sharding.Physical{"S0": {Name: "S0"}},
+		Virtual:             []sharding.Virtual{{}}, // Doesn't matter for test
+	}
 	_, err = srv.AddClass(ctx, cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schemaReader.ClassEqual("D"), "D")

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,10 +13,7 @@ package hfresh
 
 import (
 	"context"
-	"encoding/binary"
 	stderrors "errors"
-	"fmt"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -36,6 +32,7 @@ import (
 
 const (
 	reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
+	DefaultRNGFactor  = 10.0
 )
 
 var (
@@ -50,17 +47,19 @@ var _ common.VectorIndex = (*HFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type HFresh struct {
-	id             string
-	logger         logrus.FieldLogger
-	config         *Config // Config contains internal configuration settings.
-	metrics        *Metrics
-	scheduler      *queue.Scheduler
-	maxPostingSize uint32
-	minPostingSize uint32
-	replicas       uint32
-	rngFactor      float32
-	searchProbe    uint32
-	store          *lsmkv.Store
+	id               string
+	logger           logrus.FieldLogger
+	config           *Config // Config contains internal configuration settings.
+	metrics          *Metrics
+	scheduler        *queue.Scheduler
+	maxPostingSizeKB uint32 // User configurable i/o budget
+	maxPostingSize   uint32
+	minPostingSize   uint32
+	replicas         uint32
+	rngFactor        float32
+	searchProbe      uint32
+	rescoreLimit     uint32
+	store            *lsmkv.Store
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -68,15 +67,15 @@ type HFresh struct {
 	initDimensionsOnce sync.Once
 	dims               uint32 // Number of dimensions of expected vectors
 	distancer          *Distancer
-	quantizer          *compressionhelpers.RotationalQuantizer
+	quantizer          *compressionhelpers.BinaryRotationalQuantizer
 
 	// Internal components
-	Centroids    *HNSWIndex              // Provides access to the centroids.
-	PostingStore *PostingStore           // Used for managing persistence of postings.
-	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
-	VersionMap   *VersionMap             // Stores vector versions in-memory.
-	PostingSizes *PostingSizes           // Stores the size of each posting in-memory.
-	Metadata     *MetadataStore          // Stores metadata about the index.
+	Centroids       *HNSWIndex            // Provides access to the centroids.
+	PostingStore    *PostingStore         // Used for managing persistence of postings.
+	IDs             *common.Sequence      // Shared monotonic counter for generating unique IDs for new postings.
+	VersionMap      *VersionMap           // Stores vector versions in-memory.
+	IndexMetadata   *IndexMetadataStore   // Stores metadata about the index.
+	PostingMetadata *PostingMetadataStore // Stores metadata about the postings.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -100,17 +99,14 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewPostingStore(store, metrics, cfg.ID, cfg.Store)
-	if err != nil {
-		return nil, err
-	}
-
 	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingSizes, err := NewPostingSizes(bucket, metrics)
+	postingMetadata := NewPostingMetadataStore(bucket, metrics)
+
+	postingStore, err := NewPostingStore(store, postingMetadata, bucket, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -120,40 +116,43 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	metadata := NewMetadataStore(bucket)
+	indexMetadata := NewIndexMetadataStore(bucket)
 
 	h := HFresh{
-		id:           cfg.ID,
-		logger:       cfg.Logger.WithField("component", "HFresh"),
-		config:       cfg,
-		scheduler:    cfg.Scheduler,
-		store:        store,
-		metrics:      metrics,
-		PostingStore: postingStore,
-		vectorForId:  cfg.VectorForIDThunk,
-		VersionMap:   versionMap,
-		PostingSizes: postingSizes,
-		Metadata:     metadata,
-		postingLocks: common.NewDefaultShardedRWLocks(),
+		id:              cfg.ID,
+		logger:          cfg.Logger.WithField("component", "HFresh"),
+		config:          cfg,
+		scheduler:       cfg.Scheduler,
+		store:           store,
+		metrics:         metrics,
+		PostingStore:    postingStore,
+		vectorForId:     cfg.VectorForIDThunk,
+		VersionMap:      versionMap,
+		PostingMetadata: postingMetadata,
+		IndexMetadata:   indexMetadata,
+		postingLocks:    common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:    visited.NewPool(1, 512, -1),
-		maxPostingSize: uc.MaxPostingSize,
-		minPostingSize: uc.MinPostingSize,
-		replicas:       uc.Replicas,
-		rngFactor:      uc.RNGFactor,
-		searchProbe:    uc.SearchProbe,
+		visitedPool:      visited.NewPool(1, 512, -1),
+		maxPostingSizeKB: uc.MaxPostingSizeKB,
+		replicas:         uc.Replicas,
+		rngFactor:        DefaultRNGFactor,
+		searchProbe:      uc.SearchProbe,
+		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
 	if err != nil {
 		return nil, err
 	}
-	h.IDs = *common.NewMonotonicCounter(h.Centroids.GetMaxID())
+	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	if err != nil {
+		return nil, err
+	}
 
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 
-	taskQueue, err := NewTaskQueue(&h)
+	taskQueue, err := NewTaskQueue(&h, bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +194,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	}
 
 	atomic.StoreUint32(&h.searchProbe, parsed.SearchProbe)
+	atomic.StoreUint32(&h.rescoreLimit, uint32(parsed.RQ.RescoreLimit))
 
 	callback()
 	return nil
@@ -230,6 +230,11 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
+	err = h.IDs.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	err = h.Centroids.hnsw.Shutdown(ctx)
 	if err != nil {
 		errs = append(errs, err)
@@ -239,7 +244,21 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 }
 
 func (h *HFresh) Flush() error {
-	return h.Centroids.hnsw.Flush()
+	var errs []error
+
+	// flush the HNSW commit log
+	err := h.Centroids.hnsw.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	// flush the task queues
+	err = h.taskQueue.Flush()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	return stderrors.Join(errs...)
 }
 
 func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {
@@ -276,30 +295,13 @@ func (h *HFresh) Iterate(fn func(id uint64) bool) {
 	h.logger.Warn("Iterate is not implemented for HFresh index")
 }
 
-func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
-	return slice
-}
-
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
-	var bucketName string
-	if h.config.TargetVector != "" {
-		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, h.config.TargetVector)
-	} else {
-		bucketName = helpers.VectorsBucketLSM
-	}
-
 	distFunc := func(id uint64) (float32, error) {
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := h.store.Bucket(bucketName).Get(buf[:])
+		vector, err := h.vectorForId(h.ctx, id)
 		if err != nil {
 			return 0, err
 		}
-
-		dist, err := h.config.DistanceProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := h.config.DistanceProvider.SingleDist(queryVector, vector)
 		if err != nil {
 			return 0, err
 		}
