@@ -27,6 +27,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compactv2"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // e2e_compactor_validation performs end-to-end validation of the Compactor orchestrator:
@@ -116,7 +117,7 @@ func main() {
 	}
 	sort.Strings(workingCondensedFiles)
 
-	var controlResult *compactv2.DeserializationResult
+	var controlResult *ent.DeserializationResult
 	for i, logPath := range workingCondensedFiles {
 		fmt.Printf("  [%d/%d] %s\n", i+1, len(workingCondensedFiles), filepath.Base(logPath))
 		logFile, _ := os.Open(logPath)
@@ -129,11 +130,11 @@ func main() {
 	step2Duration := time.Since(startStep2)
 
 	fmt.Printf("\n✓ Control result (took %v):\n", step2Duration)
-	fmt.Printf("  Nodes: %d\n", len(controlResult.Nodes))
-	fmt.Printf("  Tombstones: %d\n", len(controlResult.Tombstones))
-	fmt.Printf("  TombstonesDeleted: %d\n", len(controlResult.TombstonesDeleted))
-	fmt.Printf("  NodesDeleted: %d\n", len(controlResult.NodesDeleted))
-	fmt.Printf("  Entrypoint: %d (level %d)\n\n", controlResult.Entrypoint, controlResult.Level)
+	fmt.Printf("  Nodes: %d\n", len(controlResult.Graph.Nodes))
+	fmt.Printf("  Tombstones: %d\n", len(controlResult.Graph.Tombstones))
+	fmt.Printf("  TombstonesDeleted: %d\n", len(controlResult.Graph.TombstonesDeleted))
+	fmt.Printf("  NodesDeleted: %d\n", len(controlResult.Graph.NodesDeleted))
+	fmt.Printf("  Entrypoint: %d (level %d)\n\n", controlResult.Graph.Entrypoint, controlResult.Graph.Level)
 
 	// Step 3: Run the Compactor in a loop until no more work to do
 	fmt.Println("Step 3: Running Compactor in a loop until convergence...")
@@ -189,7 +190,7 @@ func main() {
 		panic(fmt.Errorf("file discovery: %w", err))
 	}
 
-	var finalResult *compactv2.DeserializationResult
+	var finalResult *ent.DeserializationResult
 
 	if state.Snapshot != nil {
 		// Read snapshot
@@ -218,11 +219,11 @@ func main() {
 	step4Duration := time.Since(startStep4)
 
 	fmt.Printf("\n✓ Final result (took %v):\n", step4Duration)
-	fmt.Printf("  Nodes: %d\n", len(finalResult.Nodes))
-	fmt.Printf("  Tombstones: %d\n", len(finalResult.Tombstones))
-	fmt.Printf("  TombstonesDeleted: %d\n", len(finalResult.TombstonesDeleted))
-	fmt.Printf("  NodesDeleted: %d\n", len(finalResult.NodesDeleted))
-	fmt.Printf("  Entrypoint: %d (level %d)\n\n", finalResult.Entrypoint, finalResult.Level)
+	fmt.Printf("  Nodes: %d\n", len(finalResult.Graph.Nodes))
+	fmt.Printf("  Tombstones: %d\n", len(finalResult.Graph.Tombstones))
+	fmt.Printf("  TombstonesDeleted: %d\n", len(finalResult.Graph.TombstonesDeleted))
+	fmt.Printf("  NodesDeleted: %d\n", len(finalResult.Graph.NodesDeleted))
+	fmt.Printf("  Entrypoint: %d (level %d)\n\n", finalResult.Graph.Entrypoint, finalResult.Graph.Level)
 
 	// Step 5: Compare control vs final result
 	fmt.Println("Step 5: Comparing control vs compacted results...")
@@ -284,7 +285,7 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func compareResults(indent string, a, b *compactv2.DeserializationResult) bool {
+func compareResults(indent string, a, b *ent.DeserializationResult) bool {
 	match := true
 
 	// Compare tombstones
@@ -305,17 +306,17 @@ func compareResults(indent string, a, b *compactv2.DeserializationResult) bool {
 	return match
 }
 
-func compareTombstones(indent string, a, b *compactv2.DeserializationResult) bool {
+func compareTombstones(indent string, a, b *ent.DeserializationResult) bool {
 	match := true
 
-	if len(a.Tombstones) != len(b.Tombstones) {
-		fmt.Printf("%sTombstones: %d vs %d ❌\n", indent, len(a.Tombstones), len(b.Tombstones))
+	if len(a.Graph.Tombstones) != len(b.Graph.Tombstones) {
+		fmt.Printf("%sTombstones: %d vs %d ❌\n", indent, len(a.Graph.Tombstones), len(b.Graph.Tombstones))
 		match = false
 
 		// Find differences
 		missing := []uint64{}
-		for id := range a.Tombstones {
-			if _, ok := b.Tombstones[id]; !ok {
+		for id := range a.Graph.Tombstones {
+			if _, ok := b.Graph.Tombstones[id]; !ok {
 				missing = append(missing, id)
 			}
 		}
@@ -324,8 +325,8 @@ func compareTombstones(indent string, a, b *compactv2.DeserializationResult) boo
 		}
 
 		extra := []uint64{}
-		for id := range b.Tombstones {
-			if _, ok := a.Tombstones[id]; !ok {
+		for id := range b.Graph.Tombstones {
+			if _, ok := a.Graph.Tombstones[id]; !ok {
 				extra = append(extra, id)
 			}
 		}
@@ -333,59 +334,59 @@ func compareTombstones(indent string, a, b *compactv2.DeserializationResult) boo
 			fmt.Printf("%s  Extra in second: %d tombstones (first 5: %v)\n", indent, len(extra), extra[:min(5, len(extra))])
 		}
 	} else {
-		fmt.Printf("%sTombstones: %d ✓\n", indent, len(a.Tombstones))
+		fmt.Printf("%sTombstones: %d ✓\n", indent, len(a.Graph.Tombstones))
 	}
 
-	if len(a.TombstonesDeleted) != len(b.TombstonesDeleted) {
-		fmt.Printf("%sTombstonesDeleted: %d vs %d ❌\n", indent, len(a.TombstonesDeleted), len(b.TombstonesDeleted))
+	if len(a.Graph.TombstonesDeleted) != len(b.Graph.TombstonesDeleted) {
+		fmt.Printf("%sTombstonesDeleted: %d vs %d ❌\n", indent, len(a.Graph.TombstonesDeleted), len(b.Graph.TombstonesDeleted))
 		match = false
 	} else {
-		fmt.Printf("%sTombstonesDeleted: %d ✓\n", indent, len(a.TombstonesDeleted))
+		fmt.Printf("%sTombstonesDeleted: %d ✓\n", indent, len(a.Graph.TombstonesDeleted))
 	}
 
 	return match
 }
 
-func compareMetadata(indent string, a, b *compactv2.DeserializationResult) bool {
+func compareMetadata(indent string, a, b *ent.DeserializationResult) bool {
 	match := true
 
-	if len(a.NodesDeleted) != len(b.NodesDeleted) {
-		fmt.Printf("%sNodesDeleted: %d vs %d ❌\n", indent, len(a.NodesDeleted), len(b.NodesDeleted))
+	if len(a.Graph.NodesDeleted) != len(b.Graph.NodesDeleted) {
+		fmt.Printf("%sNodesDeleted: %d vs %d ❌\n", indent, len(a.Graph.NodesDeleted), len(b.Graph.NodesDeleted))
 		match = false
 	} else {
-		fmt.Printf("%sNodesDeleted: %d ✓\n", indent, len(a.NodesDeleted))
+		fmt.Printf("%sNodesDeleted: %d ✓\n", indent, len(a.Graph.NodesDeleted))
 	}
 
-	if a.Entrypoint != b.Entrypoint {
-		fmt.Printf("%sEntrypoint: %d vs %d ❌\n", indent, a.Entrypoint, b.Entrypoint)
+	if a.Graph.Entrypoint != b.Graph.Entrypoint {
+		fmt.Printf("%sEntrypoint: %d vs %d ❌\n", indent, a.Graph.Entrypoint, b.Graph.Entrypoint)
 		match = false
 	} else {
-		fmt.Printf("%sEntrypoint: %d ✓\n", indent, a.Entrypoint)
+		fmt.Printf("%sEntrypoint: %d ✓\n", indent, a.Graph.Entrypoint)
 	}
 
-	if a.Level != b.Level {
-		fmt.Printf("%sLevel: %d vs %d ❌\n", indent, a.Level, b.Level)
+	if a.Graph.Level != b.Graph.Level {
+		fmt.Printf("%sLevel: %d vs %d ❌\n", indent, a.Graph.Level, b.Graph.Level)
 		match = false
 	} else {
-		fmt.Printf("%sLevel: %d ✓\n", indent, a.Level)
+		fmt.Printf("%sLevel: %d ✓\n", indent, a.Graph.Level)
 	}
 
 	return match
 }
 
-func compareNodes(indent string, a, b *compactv2.DeserializationResult) bool {
+func compareNodes(indent string, a, b *ent.DeserializationResult) bool {
 	match := true
 
 	// Count non-nil nodes
 	nonNilA := 0
-	for _, node := range a.Nodes {
+	for _, node := range a.Graph.Nodes {
 		if node != nil {
 			nonNilA++
 		}
 	}
 
 	nonNilB := 0
-	for _, node := range b.Nodes {
+	for _, node := range b.Graph.Nodes {
 		if node != nil {
 			nonNilB++
 		}
@@ -399,9 +400,9 @@ func compareNodes(indent string, a, b *compactv2.DeserializationResult) bool {
 	}
 
 	// Compare individual nodes and their connections
-	maxLen := len(a.Nodes)
-	if len(b.Nodes) > maxLen {
-		maxLen = len(b.Nodes)
+	maxLen := len(a.Graph.Nodes)
+	if len(b.Graph.Nodes) > maxLen {
+		maxLen = len(b.Graph.Nodes)
 	}
 
 	mismatchedNodes := 0
@@ -409,12 +410,12 @@ func compareNodes(indent string, a, b *compactv2.DeserializationResult) bool {
 	firstMismatch := true
 
 	for i := uint64(0); i < uint64(maxLen); i++ {
-		var nodeA, nodeB *compactv2.Vertex
-		if int(i) < len(a.Nodes) {
-			nodeA = a.Nodes[i]
+		var nodeA, nodeB *ent.Vertex
+		if int(i) < len(a.Graph.Nodes) {
+			nodeA = a.Graph.Nodes[i]
 		}
-		if int(i) < len(b.Nodes) {
-			nodeB = b.Nodes[i]
+		if int(i) < len(b.Graph.Nodes) {
+			nodeB = b.Graph.Nodes[i]
 		}
 
 		// Both nil - ok
@@ -487,7 +488,7 @@ func compareNodes(indent string, a, b *compactv2.DeserializationResult) bool {
 	return match
 }
 
-func compareConnections(a, b *compactv2.Vertex) bool {
+func compareConnections(a, b *ent.Vertex) bool {
 	if a.Connections == nil && b.Connections == nil {
 		return true
 	}
@@ -539,29 +540,29 @@ func min(a, b int) int {
 // accounting for snapshot format limitations:
 //   - Snapshots don't store TombstonesDeleted or NodesDeleted maps
 //   - Instead, deleted nodes become nil and deleted tombstones are absent
-func compareResultsForSnapshot(indent string, control, snapshot *compactv2.DeserializationResult) bool {
+func compareResultsForSnapshot(indent string, control, snapshot *ent.DeserializationResult) bool {
 	match := true
 
 	// Verify entrypoint and level
-	if control.Entrypoint != snapshot.Entrypoint {
-		fmt.Printf("%sEntrypoint: %d vs %d ❌\n", indent, control.Entrypoint, snapshot.Entrypoint)
+	if control.Graph.Entrypoint != snapshot.Graph.Entrypoint {
+		fmt.Printf("%sEntrypoint: %d vs %d ❌\n", indent, control.Graph.Entrypoint, snapshot.Graph.Entrypoint)
 		match = false
 	} else {
-		fmt.Printf("%sEntrypoint: %d ✓\n", indent, control.Entrypoint)
+		fmt.Printf("%sEntrypoint: %d ✓\n", indent, control.Graph.Entrypoint)
 	}
 
-	if control.Level != snapshot.Level {
-		fmt.Printf("%sLevel: %d vs %d ❌\n", indent, control.Level, snapshot.Level)
+	if control.Graph.Level != snapshot.Graph.Level {
+		fmt.Printf("%sLevel: %d vs %d ❌\n", indent, control.Graph.Level, snapshot.Graph.Level)
 		match = false
 	} else {
-		fmt.Printf("%sLevel: %d ✓\n", indent, control.Level)
+		fmt.Printf("%sLevel: %d ✓\n", indent, control.Graph.Level)
 	}
 
 	// Verify NodesDeleted: these nodes MUST be nil in snapshot
 	nodesDeletedCorrect := 0
 	nodesDeletedWrong := 0
-	for nodeID := range control.NodesDeleted {
-		if nodeID < uint64(len(snapshot.Nodes)) && snapshot.Nodes[nodeID] != nil {
+	for nodeID := range control.Graph.NodesDeleted {
+		if nodeID < uint64(len(snapshot.Graph.Nodes)) && snapshot.Graph.Nodes[nodeID] != nil {
 			nodesDeletedWrong++
 		} else {
 			nodesDeletedCorrect++
@@ -577,8 +578,8 @@ func compareResultsForSnapshot(indent string, control, snapshot *compactv2.Deser
 	// Verify TombstonesDeleted: these MUST NOT have tombstones in snapshot
 	tombstonesDeletedCorrect := 0
 	tombstonesDeletedWrong := 0
-	for nodeID := range control.TombstonesDeleted {
-		if _, hasTombstone := snapshot.Tombstones[nodeID]; hasTombstone {
+	for nodeID := range control.Graph.TombstonesDeleted {
+		if _, hasTombstone := snapshot.Graph.Tombstones[nodeID]; hasTombstone {
 			tombstonesDeletedWrong++
 		} else {
 			tombstonesDeletedCorrect++
@@ -593,24 +594,24 @@ func compareResultsForSnapshot(indent string, control, snapshot *compactv2.Deser
 
 	// Compute expected active tombstones
 	expectedTombstones := make(map[uint64]struct{})
-	for id := range control.Tombstones {
-		if _, deleted := control.TombstonesDeleted[id]; !deleted {
+	for id := range control.Graph.Tombstones {
+		if _, deleted := control.Graph.TombstonesDeleted[id]; !deleted {
 			expectedTombstones[id] = struct{}{}
 		}
 	}
 
 	// Verify tombstone counts
-	if len(expectedTombstones) != len(snapshot.Tombstones) {
-		fmt.Printf("%sActive tombstones: expected %d, got %d ❌\n", indent, len(expectedTombstones), len(snapshot.Tombstones))
+	if len(expectedTombstones) != len(snapshot.Graph.Tombstones) {
+		fmt.Printf("%sActive tombstones: expected %d, got %d ❌\n", indent, len(expectedTombstones), len(snapshot.Graph.Tombstones))
 		match = false
 	} else {
 		fmt.Printf("%sActive tombstones: %d ✓\n", indent, len(expectedTombstones))
 	}
 
 	// Compare nodes (only non-deleted ones)
-	maxLen := len(control.Nodes)
-	if len(snapshot.Nodes) > maxLen {
-		maxLen = len(snapshot.Nodes)
+	maxLen := len(control.Graph.Nodes)
+	if len(snapshot.Graph.Nodes) > maxLen {
+		maxLen = len(snapshot.Graph.Nodes)
 	}
 
 	nonNilMatched := 0
@@ -618,18 +619,18 @@ func compareResultsForSnapshot(indent string, control, snapshot *compactv2.Deser
 	linkMismatches := 0
 
 	for i := 0; i < maxLen; i++ {
-		var controlNode, snapshotNode *compactv2.Vertex
+		var controlNode, snapshotNode *ent.Vertex
 
-		if i < len(control.Nodes) {
-			controlNode = control.Nodes[i]
+		if i < len(control.Graph.Nodes) {
+			controlNode = control.Graph.Nodes[i]
 		}
-		if i < len(snapshot.Nodes) {
-			snapshotNode = snapshot.Nodes[i]
+		if i < len(snapshot.Graph.Nodes) {
+			snapshotNode = snapshot.Graph.Nodes[i]
 		}
 
 		// If node is deleted in control, expect nil in snapshot
 		if controlNode != nil {
-			if _, deleted := control.NodesDeleted[controlNode.ID]; deleted {
+			if _, deleted := control.Graph.NodesDeleted[controlNode.ID]; deleted {
 				controlNode = nil
 			}
 		}
