@@ -52,7 +52,7 @@ type VersionMap struct {
 
 func NewVersionMap(bucket *lsmkv.Bucket) (*VersionMap, error) {
 	cache, err := otter.New(&otter.Options[uint64, VectorVersion]{
-		MaximumSize: 1_000_000,
+		MaximumSize: 1000,
 	})
 	if err != nil {
 		return nil, err
@@ -66,18 +66,19 @@ func NewVersionMap(bucket *lsmkv.Bucket) (*VersionMap, error) {
 
 // Get returns the size of the vector with the given ID.
 func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	version, err := v.cache.Get(ctx, vectorID, otter.LoaderFunc[uint64, VectorVersion](func(ctx context.Context, key uint64) (VectorVersion, error) {
+	loader := otter.LoaderFunc[uint64, VectorVersion](func(ctx context.Context, key uint64) (VectorVersion, error) {
 		version, err := v.store.Get(ctx, vectorID)
 		if err != nil {
 			if errors.Is(err, ErrVectorNotFound) {
 				return 0, otter.ErrNotFound
 			}
 
-			return 0, err
+			return 0, otter.ErrNotFound
 		}
 
 		return version, nil
-	}))
+	})
+	version, err := v.cache.Get(ctx, vectorID, loader)
 	if errors.Is(err, otter.ErrNotFound) {
 		return 0, ErrVectorNotFound
 	}
@@ -90,9 +91,12 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 	var err error
 	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
 		if !found {
-			err = v.store.Set(ctx, vectorID, VectorVersion(1))
+			oldVersion, err = v.store.Get(ctx, vectorID)
 			if err != nil {
-				return 0, otter.CancelOp
+				err = v.store.Set(ctx, vectorID, VectorVersion(1))
+				if err != nil {
+					return 0, otter.CancelOp
+				}
 			}
 		}
 		if oldVersion.Deleted() || oldVersion != previousVersion {
