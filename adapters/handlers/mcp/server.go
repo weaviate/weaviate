@@ -77,7 +77,8 @@ func (s *MCPServer) registerTools() {
 	s.server.AddTools(search.Tools(s.searcher)...)
 	s.server.AddTools(read.Tools(s.reader)...)
 
-	// Check if write access is disabled (default is true/disabled)
+	// Write access is disabled by default. It is enabled only when
+	// MCP_SERVER_WRITE_ACCESS_DISABLED is set to "false" (case-insensitive).
 	writeDisabled := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED")
 	if strings.ToLower(writeDisabled) == "false" {
 		s.server.AddTools(create.Tools(s.creator, descriptions)...)
