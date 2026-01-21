@@ -1112,22 +1112,10 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 		if err != nil {
 			return shard, release, nil
 		}
-
-		isReplica := slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName())
-		// If we should have the shard but it doesn't exist, initialize it
-		// This handles the case where tenant was reactivated but shard hasn't been loaded yet
-		if isReplica && shard == nil {
-			shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
-			if err != nil {
-				return nil, release, err
-			}
+		if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
+			return nil, release, nil
 		}
-
-		// Return shard only if we should have it
-		if isReplica {
-			return shard, release, nil
-		}
-		return nil, release, nil
+		return shard, release, nil
 	default:
 		return nil, func() {}, fmt.Errorf("invalid local shard operation: %s", operation)
 	}
