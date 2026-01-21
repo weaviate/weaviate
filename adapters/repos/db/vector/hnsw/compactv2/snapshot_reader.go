@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -75,7 +76,7 @@ func NewSnapshotReaderWithBlockSize(logger logrus.FieldLogger, blockSize int64) 
 }
 
 // ReadFromFile reads a snapshot file into a DeserializationResult.
-func (r *SnapshotReader) ReadFromFile(filename string) (*DeserializationResult, error) {
+func (r *SnapshotReader) ReadFromFile(filename string) (*ent.DeserializationResult, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open snapshot file %q", filename)
@@ -88,13 +89,9 @@ func (r *SnapshotReader) ReadFromFile(filename string) (*DeserializationResult, 
 // Read reads a snapshot from a reader into a DeserializationResult.
 // Uses concurrent block reading with multiple goroutines for optimal performance.
 // The reader must implement io.Reader, io.Seeker, and io.ReaderAt for concurrent access.
-func (r *SnapshotReader) Read(reader ReadSeekReaderAt) (*DeserializationResult, error) {
-	res := &DeserializationResult{
-		NodesDeleted:      make(map[uint64]struct{}),
-		Tombstones:        make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
-	}
+func (r *SnapshotReader) Read(reader ReadSeekReaderAt) (*ent.DeserializationResult, error) {
+	// Initialize with 0 capacity since we'll set Nodes after reading the node count from metadata
+	res := ent.NewDeserializationResult(0)
 
 	// Read and verify metadata
 	if err := r.readMetadata(reader, res); err != nil {
@@ -110,7 +107,7 @@ func (r *SnapshotReader) Read(reader ReadSeekReaderAt) (*DeserializationResult, 
 }
 
 // readMetadata reads the snapshot metadata header.
-func (r *SnapshotReader) readMetadata(reader io.Reader, res *DeserializationResult) error {
+func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.DeserializationResult) error {
 	// Read version
 	var version uint8
 	if err := binary.Read(reader, binary.LittleEndian, &version); err != nil {
@@ -155,23 +152,27 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *DeserializationResu
 	metaReader := bytes.NewReader(metadata)
 
 	// Entrypoint
-	if err := binary.Read(metaReader, binary.LittleEndian, &res.Entrypoint); err != nil {
+	var entrypoint uint64
+	if err := binary.Read(metaReader, binary.LittleEndian, &entrypoint); err != nil {
 		return errors.Wrap(err, "read entrypoint")
 	}
+	res.Graph.Entrypoint = entrypoint
 
 	// Level
-	if err := binary.Read(metaReader, binary.LittleEndian, &res.Level); err != nil {
+	var level uint16
+	if err := binary.Read(metaReader, binary.LittleEndian, &level); err != nil {
 		return errors.Wrap(err, "read level")
 	}
+	res.Graph.Level = level
 
 	// isCompressed
 	var isCompressed uint8
 	if err := binary.Read(metaReader, binary.LittleEndian, &isCompressed); err != nil {
 		return errors.Wrap(err, "read isCompressed")
 	}
-	res.Compressed = isCompressed != 0
+	res.SetCompressed(isCompressed != 0)
 
-	if res.Compressed {
+	if res.Compressed() {
 		if err := r.readCompressionData(metaReader, res); err != nil {
 			return errors.Wrap(err, "read compression data")
 		}
@@ -182,9 +183,9 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *DeserializationResu
 	if err := binary.Read(metaReader, binary.LittleEndian, &isEncoded); err != nil {
 		return errors.Wrap(err, "read isEncoded")
 	}
-	res.MuveraEnabled = isEncoded != 0
+	res.SetMuveraEnabled(isEncoded != 0)
 
-	if res.MuveraEnabled {
+	if res.MuveraEnabled() {
 		if err := r.readMuveraData(metaReader, res); err != nil {
 			return errors.Wrap(err, "read muvera data")
 		}
@@ -197,15 +198,15 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *DeserializationResu
 	}
 
 	// Pre-allocate nodes slice
-	res.Nodes = make([]*Vertex, nodeCount)
+	res.Graph.Nodes = make([]*ent.Vertex, nodeCount)
 
-	res.EntrypointChanged = true
+	res.Graph.EntrypointChanged = true
 
 	return nil
 }
 
 // readCompressionData reads compression data from the metadata.
-func (r *SnapshotReader) readCompressionData(reader io.Reader, res *DeserializationResult) error {
+func (r *SnapshotReader) readCompressionData(reader io.Reader, res *ent.DeserializationResult) error {
 	// Read compression type
 	var compressionType uint8
 	if err := binary.Read(reader, binary.LittleEndian, &compressionType); err != nil {
@@ -227,7 +228,7 @@ func (r *SnapshotReader) readCompressionData(reader io.Reader, res *Deserializat
 }
 
 // readPQData reads Product Quantization data from the reader.
-func (r *SnapshotReader) readPQData(reader io.Reader, res *DeserializationResult) error {
+func (r *SnapshotReader) readPQData(reader io.Reader, res *ent.DeserializationResult) error {
 	var dims, ks, m uint16
 	var encoderType, dist uint8
 	var useBitsEncoding uint8
@@ -279,7 +280,7 @@ func (r *SnapshotReader) readPQData(reader io.Reader, res *DeserializationResult
 		pqData.Encoders = append(pqData.Encoders, encoder)
 	}
 
-	res.CompressionPQData = pqData
+	res.SetCompressionPQData(pqData)
 	return nil
 }
 
@@ -353,7 +354,7 @@ func readSnapshotFloat64(reader io.Reader) (float64, error) {
 }
 
 // readSQData reads Scalar Quantization data from the reader.
-func (r *SnapshotReader) readSQData(reader io.Reader, res *DeserializationResult) error {
+func (r *SnapshotReader) readSQData(reader io.Reader, res *ent.DeserializationResult) error {
 	var dims uint16
 	var aBits, bBits uint32
 
@@ -367,16 +368,16 @@ func (r *SnapshotReader) readSQData(reader io.Reader, res *DeserializationResult
 		return errors.Wrap(err, "read SQ B")
 	}
 
-	res.CompressionSQData = &compression.SQData{
+	res.SetCompressionSQData(&compression.SQData{
 		Dimensions: dims,
 		A:          math.Float32frombits(aBits),
 		B:          math.Float32frombits(bBits),
-	}
+	})
 	return nil
 }
 
 // readRQData reads Rotational Quantization data from the reader.
-func (r *SnapshotReader) readRQData(reader io.Reader, res *DeserializationResult) error {
+func (r *SnapshotReader) readRQData(reader io.Reader, res *ent.DeserializationResult) error {
 	var inputDim, bits, outputDim, rounds uint32
 
 	if err := binary.Read(reader, binary.LittleEndian, &inputDim); err != nil {
@@ -419,7 +420,7 @@ func (r *SnapshotReader) readRQData(reader io.Reader, res *DeserializationResult
 		}
 	}
 
-	res.CompressionRQData = &compression.RQData{
+	res.SetCompressionRQData(&compression.RQData{
 		InputDim: inputDim,
 		Bits:     bits,
 		Rotation: compression.FastRotation{
@@ -428,12 +429,12 @@ func (r *SnapshotReader) readRQData(reader io.Reader, res *DeserializationResult
 			Swaps:     swaps,
 			Signs:     signs,
 		},
-	}
+	})
 	return nil
 }
 
 // readBRQData reads Binary Rotational Quantization data from the reader.
-func (r *SnapshotReader) readBRQData(reader io.Reader, res *DeserializationResult) error {
+func (r *SnapshotReader) readBRQData(reader io.Reader, res *ent.DeserializationResult) error {
 	var inputDim, outputDim, rounds uint32
 
 	if err := binary.Read(reader, binary.LittleEndian, &inputDim); err != nil {
@@ -483,7 +484,7 @@ func (r *SnapshotReader) readBRQData(reader io.Reader, res *DeserializationResul
 		rounding[i] = math.Float32frombits(bits)
 	}
 
-	res.CompressionBRQData = &compression.BRQData{
+	res.SetCompressionBRQData(&compression.BRQData{
 		InputDim: inputDim,
 		Rotation: compression.FastRotation{
 			OutputDim: outputDim,
@@ -492,12 +493,12 @@ func (r *SnapshotReader) readBRQData(reader io.Reader, res *DeserializationResul
 			Signs:     signs,
 		},
 		Rounding: rounding,
-	}
+	})
 	return nil
 }
 
 // readMuveraData reads Muvera encoder data from the reader.
-func (r *SnapshotReader) readMuveraData(reader io.Reader, res *DeserializationResult) error {
+func (r *SnapshotReader) readMuveraData(reader io.Reader, res *ent.DeserializationResult) error {
 	// Read encoder type
 	var encoderType uint8
 	if err := binary.Read(reader, binary.LittleEndian, &encoderType); err != nil {
@@ -558,7 +559,7 @@ func (r *SnapshotReader) readMuveraData(reader io.Reader, res *DeserializationRe
 		}
 	}
 
-	res.EncoderMuvera = &multivector.MuveraData{
+	res.SetEncoderMuvera(&multivector.MuveraData{
 		Dimensions:   dims,
 		NumClusters:  numClusters,
 		KSim:         kSim,
@@ -566,14 +567,14 @@ func (r *SnapshotReader) readMuveraData(reader io.Reader, res *DeserializationRe
 		Repetitions:  repetitions,
 		Gaussians:    gaussians,
 		S:            s,
-	}
+	})
 	return nil
 }
 
 // readBodyConcurrent reads the snapshot body blocks concurrently using multiple goroutines.
 // This significantly improves startup performance for large indexes.
-func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *DeserializationResult) error {
-	if len(res.Nodes) == 0 {
+func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.DeserializationResult) error {
+	if len(res.Graph.Nodes) == 0 {
 		return nil
 	}
 
@@ -658,7 +659,7 @@ LOOP:
 
 // readBlockConcurrent parses a single block and populates nodes in the result.
 // Uses mutex protection for concurrent access to the result.
-func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *DeserializationResult, mu *sync.Mutex) error {
+func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.DeserializationResult, mu *sync.Mutex) error {
 	if len(buf) < 8 {
 		return fmt.Errorf("block too small: %d bytes", len(buf))
 	}
@@ -702,12 +703,12 @@ func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *DeserializationRes
 		connData := rw.ReadBytesFromBuffer(uint64(connSize))
 
 		// Create node
-		if currNodeID < uint64(len(res.Nodes)) {
+		if currNodeID < uint64(len(res.Graph.Nodes)) {
 			// Copy connData since ReadBytesFromBuffer returns a slice of the underlying buffer
 			connDataCopy := make([]byte, len(connData))
 			copy(connDataCopy, connData)
 
-			node := &Vertex{
+			node := &ent.Vertex{
 				ID:          currNodeID,
 				Level:       int(level),
 				Connections: packedconn.NewWithData(connDataCopy),
@@ -715,9 +716,9 @@ func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *DeserializationRes
 
 			// Update result with mutex protection
 			mu.Lock()
-			res.Nodes[currNodeID] = node
+			res.Graph.Nodes[currNodeID] = node
 			if existence == 1 {
-				res.Tombstones[currNodeID] = struct{}{}
+				res.Graph.Tombstones[currNodeID] = struct{}{}
 			}
 			mu.Unlock()
 		}

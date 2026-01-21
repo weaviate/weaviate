@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestCompactV2EndToEnd tests the complete compactv2 pipeline:
@@ -152,22 +153,22 @@ func TestCompactV2EndToEnd(t *testing.T) {
 	// Step 7: Verify specific expected state
 	// =========================================================================
 	// Entrypoint should be node 0, level 2
-	assert.Equal(t, uint64(0), snapshotResult.Entrypoint)
-	assert.Equal(t, uint16(2), snapshotResult.Level)
+	assert.Equal(t, uint64(0), snapshotResult.Graph.Entrypoint)
+	assert.Equal(t, uint16(2), snapshotResult.Graph.Level)
 
 	// Node 4 should have a tombstone
-	_, hasTombstone := snapshotResult.Tombstones[4]
+	_, hasTombstone := snapshotResult.Graph.Tombstones[4]
 	assert.True(t, hasTombstone, "node 4 should have tombstone")
 
 	// Node 2 should be nil (deleted)
-	assert.Nil(t, snapshotResult.Nodes[2], "node 2 should be deleted")
+	assert.Nil(t, snapshotResult.Graph.Nodes[2], "node 2 should be deleted")
 
 	// Node 5 and 6 should exist (added in log2)
-	assert.NotNil(t, snapshotResult.Nodes[5], "node 5 should exist")
-	assert.NotNil(t, snapshotResult.Nodes[6], "node 6 should exist")
+	assert.NotNil(t, snapshotResult.Graph.Nodes[5], "node 5 should exist")
+	assert.NotNil(t, snapshotResult.Graph.Nodes[6], "node 6 should exist")
 
 	// Verify node 1's updated connections (should have 0,2,5,6 from log2)
-	node1 := snapshotResult.Nodes[1]
+	node1 := snapshotResult.Graph.Nodes[1]
 	require.NotNil(t, node1)
 	if node1.Connections != nil {
 		iter := node1.Connections.Iterator()
@@ -203,8 +204,8 @@ func TestCompactV2WithSafeFileWriter(t *testing.T) {
 
 		// Verify file exists and is readable
 		result := readFilesSequentially(t, []string{walPath}, logger)
-		assert.Equal(t, uint64(0), result.Entrypoint)
-		assert.Equal(t, 2, countNonNilNodes(result.Nodes))
+		assert.Equal(t, uint64(0), result.Graph.Entrypoint)
+		assert.Equal(t, 2, countNonNilNodes(result.Graph.Nodes))
 	})
 
 	// Test Sorted writer with SafeFileWriter
@@ -212,18 +213,20 @@ func TestCompactV2WithSafeFileWriter(t *testing.T) {
 		sortedPath := filepath.Join(dir, "test.sorted")
 
 		// Create test data
-		testResult := &DeserializationResult{
-			Entrypoint:        0,
-			Level:             1,
-			Nodes:             make([]*Vertex, 3),
-			Tombstones:        make(map[uint64]struct{}),
-			TombstonesDeleted: make(map[uint64]struct{}),
-			NodesDeleted:      make(map[uint64]struct{}),
-			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
+		testResult := &ent.DeserializationResult{
+			Graph: &ent.GraphState{
+				Entrypoint:        0,
+				Level:             1,
+				Nodes:             make([]*ent.Vertex, 3),
+				Tombstones:        make(map[uint64]struct{}),
+				TombstonesDeleted: make(map[uint64]struct{}),
+				NodesDeleted:      make(map[uint64]struct{}),
+				LinksReplaced:     make(map[uint64]map[uint16]struct{}),
+			},
 		}
-		testResult.Nodes[0] = &Vertex{ID: 0, Level: 1}
-		testResult.Nodes[1] = &Vertex{ID: 1, Level: 0}
-		testResult.Tombstones[2] = struct{}{}
+		testResult.Graph.Nodes[0] = &ent.Vertex{ID: 0, Level: 1}
+		testResult.Graph.Nodes[1] = &ent.Vertex{ID: 1, Level: 0}
+		testResult.Graph.Tombstones[2] = struct{}{}
 
 		sfw, err := NewSafeFileWriter(sortedPath, DefaultBufferSize)
 		require.NoError(t, err)
@@ -235,8 +238,8 @@ func TestCompactV2WithSafeFileWriter(t *testing.T) {
 
 		// Verify file exists and is readable
 		result := readFilesSequentially(t, []string{sortedPath}, logger)
-		assert.Equal(t, uint64(0), result.Entrypoint)
-		_, hasTombstone := result.Tombstones[2]
+		assert.Equal(t, uint64(0), result.Graph.Entrypoint)
+		_, hasTombstone := result.Graph.Tombstones[2]
 		assert.True(t, hasTombstone)
 	})
 
@@ -261,9 +264,9 @@ func TestCompactV2WithSafeFileWriter(t *testing.T) {
 		reader := NewSnapshotReader(logger)
 		result, err := reader.ReadFromFile(snapshotPath)
 		require.NoError(t, err)
-		assert.Equal(t, uint64(5), result.Entrypoint)
-		assert.Equal(t, uint16(2), result.Level)
-		_, hasTombstone := result.Tombstones[1]
+		assert.Equal(t, uint64(5), result.Graph.Entrypoint)
+		assert.Equal(t, uint16(2), result.Graph.Level)
+		_, hasTombstone := result.Graph.Tombstones[1]
 		assert.True(t, hasTombstone)
 	})
 }
@@ -298,7 +301,7 @@ func TestCleanupOrphanedTempFilesIntegration(t *testing.T) {
 
 // Helper functions
 
-func countNonNilNodes(nodes []*Vertex) int {
+func countNonNilNodes(nodes []*ent.Vertex) int {
 	count := 0
 	for _, n := range nodes {
 		if n != nil {
@@ -337,10 +340,10 @@ func convertRawToSorted(t *testing.T, rawPath, sortedPath string, logger *logrus
 	require.NoError(t, sfw.Commit())
 }
 
-func readFilesSequentially(t *testing.T, paths []string, logger *logrus.Logger) *DeserializationResult {
+func readFilesSequentially(t *testing.T, paths []string, logger *logrus.Logger) *ent.DeserializationResult {
 	t.Helper()
 
-	var result *DeserializationResult
+	var result *ent.DeserializationResult
 	for _, path := range paths {
 		f, err := os.Open(path)
 		require.NoError(t, err)
@@ -487,28 +490,28 @@ func writeCommitToWAL(w *WALWriter, c Commit) error {
 	}
 }
 
-func assertResultsEqual(t *testing.T, label string, a, b *DeserializationResult) {
+func assertResultsEqual(t *testing.T, label string, a, b *ent.DeserializationResult) {
 	t.Helper()
 
-	assert.Equal(t, a.Entrypoint, b.Entrypoint, "%s: entrypoint mismatch", label)
-	assert.Equal(t, a.Level, b.Level, "%s: level mismatch", label)
-	assert.Equal(t, len(a.Tombstones), len(b.Tombstones), "%s: tombstone count mismatch", label)
-	assert.Equal(t, len(a.TombstonesDeleted), len(b.TombstonesDeleted), "%s: tombstones deleted count mismatch", label)
-	assert.Equal(t, len(a.NodesDeleted), len(b.NodesDeleted), "%s: nodes deleted count mismatch", label)
+	assert.Equal(t, a.Graph.Entrypoint, b.Graph.Entrypoint, "%s: entrypoint mismatch", label)
+	assert.Equal(t, a.Graph.Level, b.Graph.Level, "%s: level mismatch", label)
+	assert.Equal(t, len(a.Graph.Tombstones), len(b.Graph.Tombstones), "%s: tombstone count mismatch", label)
+	assert.Equal(t, len(a.Graph.TombstonesDeleted), len(b.Graph.TombstonesDeleted), "%s: tombstones deleted count mismatch", label)
+	assert.Equal(t, len(a.Graph.NodesDeleted), len(b.Graph.NodesDeleted), "%s: nodes deleted count mismatch", label)
 
 	// Compare nodes
-	maxLen := len(a.Nodes)
-	if len(b.Nodes) > maxLen {
-		maxLen = len(b.Nodes)
+	maxLen := len(a.Graph.Nodes)
+	if len(b.Graph.Nodes) > maxLen {
+		maxLen = len(b.Graph.Nodes)
 	}
 
 	for i := 0; i < maxLen; i++ {
-		var nodeA, nodeB *Vertex
-		if i < len(a.Nodes) {
-			nodeA = a.Nodes[i]
+		var nodeA, nodeB *ent.Vertex
+		if i < len(a.Graph.Nodes) {
+			nodeA = a.Graph.Nodes[i]
 		}
-		if i < len(b.Nodes) {
-			nodeB = b.Nodes[i]
+		if i < len(b.Graph.Nodes) {
+			nodeB = b.Graph.Nodes[i]
 		}
 
 		if nodeA == nil && nodeB == nil {
@@ -528,7 +531,7 @@ func assertResultsEqual(t *testing.T, label string, a, b *DeserializationResult)
 	}
 }
 
-func assertConnectionsEqual(t *testing.T, label string, nodeID int, a, b *Vertex) {
+func assertConnectionsEqual(t *testing.T, label string, nodeID int, a, b *ent.Vertex) {
 	t.Helper()
 
 	if a.Connections == nil && b.Connections == nil {
@@ -552,40 +555,40 @@ func assertConnectionsEqual(t *testing.T, label string, nodeID int, a, b *Vertex
 	}
 }
 
-func assertSnapshotMatchesResult(t *testing.T, expected, snapshot *DeserializationResult) {
+func assertSnapshotMatchesResult(t *testing.T, expected, snapshot *ent.DeserializationResult) {
 	t.Helper()
 
-	assert.Equal(t, expected.Entrypoint, snapshot.Entrypoint, "entrypoint mismatch")
-	assert.Equal(t, expected.Level, snapshot.Level, "level mismatch")
+	assert.Equal(t, expected.Graph.Entrypoint, snapshot.Graph.Entrypoint, "entrypoint mismatch")
+	assert.Equal(t, expected.Graph.Level, snapshot.Graph.Level, "level mismatch")
 
 	// Compute expected active tombstones (excluding deleted ones)
 	expectedTombstones := make(map[uint64]struct{})
-	for id := range expected.Tombstones {
-		if _, deleted := expected.TombstonesDeleted[id]; !deleted {
+	for id := range expected.Graph.Tombstones {
+		if _, deleted := expected.Graph.TombstonesDeleted[id]; !deleted {
 			expectedTombstones[id] = struct{}{}
 		}
 	}
-	assert.Equal(t, len(expectedTombstones), len(snapshot.Tombstones), "active tombstone count mismatch")
+	assert.Equal(t, len(expectedTombstones), len(snapshot.Graph.Tombstones), "active tombstone count mismatch")
 
 	// Compare nodes (accounting for deleted nodes)
-	maxLen := len(expected.Nodes)
-	if len(snapshot.Nodes) > maxLen {
-		maxLen = len(snapshot.Nodes)
+	maxLen := len(expected.Graph.Nodes)
+	if len(snapshot.Graph.Nodes) > maxLen {
+		maxLen = len(snapshot.Graph.Nodes)
 	}
 
 	for i := 0; i < maxLen; i++ {
-		var expectedNode, snapshotNode *Vertex
+		var expectedNode, snapshotNode *ent.Vertex
 
-		if i < len(expected.Nodes) {
-			expectedNode = expected.Nodes[i]
+		if i < len(expected.Graph.Nodes) {
+			expectedNode = expected.Graph.Nodes[i]
 		}
-		if i < len(snapshot.Nodes) {
-			snapshotNode = snapshot.Nodes[i]
+		if i < len(snapshot.Graph.Nodes) {
+			snapshotNode = snapshot.Graph.Nodes[i]
 		}
 
 		// If node is deleted in expected, it should be nil in snapshot
 		if expectedNode != nil {
-			if _, deleted := expected.NodesDeleted[expectedNode.ID]; deleted {
+			if _, deleted := expected.Graph.NodesDeleted[expectedNode.ID]; deleted {
 				expectedNode = nil
 			}
 		}
@@ -633,10 +636,10 @@ func TestCompactV2RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify initial read
-	assert.Equal(t, uint64(0), result.Entrypoint)
-	assert.Equal(t, uint16(1), result.Level)
-	assert.Equal(t, 3, countNonNilNodes(result.Nodes))
-	_, hasTombstone := result.Tombstones[2]
+	assert.Equal(t, uint64(0), result.Graph.Entrypoint)
+	assert.Equal(t, uint16(1), result.Graph.Level)
+	assert.Equal(t, 3, countNonNilNodes(result.Graph.Nodes))
+	_, hasTombstone := result.Graph.Tombstones[2]
 	assert.True(t, hasTombstone)
 
 	// Write to sorted format
@@ -662,9 +665,9 @@ func TestCompactV2RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	snapshotWriter := NewSnapshotWriter(sfw.Writer())
-	snapshotWriter.SetEntrypoint(result.Entrypoint, result.Level)
+	snapshotWriter.SetEntrypoint(result.Graph.Entrypoint, result.Graph.Level)
 
-	for i, node := range result.Nodes {
+	for i, node := range result.Graph.Nodes {
 		if node == nil {
 			continue
 		}
@@ -678,7 +681,7 @@ func TestCompactV2RoundTrip(t *testing.T) {
 			}
 		}
 
-		_, hasTombstone := result.Tombstones[uint64(i)]
+		_, hasTombstone := result.Graph.Tombstones[uint64(i)]
 		snapshotWriter.AddNode(uint64(i), uint16(node.Level), connections, hasTombstone)
 	}
 
@@ -691,8 +694,8 @@ func TestCompactV2RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify snapshot matches
-	assert.Equal(t, result.Entrypoint, snapshotResult.Entrypoint)
-	assert.Equal(t, result.Level, snapshotResult.Level)
-	_, snapshotHasTombstone := snapshotResult.Tombstones[2]
+	assert.Equal(t, result.Graph.Entrypoint, snapshotResult.Graph.Entrypoint)
+	assert.Equal(t, result.Graph.Level, snapshotResult.Graph.Level)
+	_, snapshotHasTombstone := snapshotResult.Graph.Tombstones[2]
 	assert.True(t, snapshotHasTombstone)
 }

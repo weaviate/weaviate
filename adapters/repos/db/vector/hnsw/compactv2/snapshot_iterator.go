@@ -14,6 +14,7 @@ package compactv2
 import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // SnapshotIterator converts a snapshot into a commit stream for the N-way merger.
@@ -24,7 +25,7 @@ import (
 // iterator generates commits in sorted order (by node ID) to match the format
 // expected by the merger.
 type SnapshotIterator struct {
-	result        *DeserializationResult
+	result        *ent.DeserializationResult
 	id            int // Iterator precedence ID
 	globalCommits []Commit
 	currentNode   *NodeCommits
@@ -48,7 +49,7 @@ func NewSnapshotIterator(path string, id int, logger logrus.FieldLogger) (*Snaps
 
 // NewSnapshotIteratorFromResult creates a new iterator from a DeserializationResult.
 // This is useful for testing or when the snapshot is already loaded.
-func NewSnapshotIteratorFromResult(result *DeserializationResult, id int, logger logrus.FieldLogger) (*SnapshotIterator, error) {
+func NewSnapshotIteratorFromResult(result *ent.DeserializationResult, id int, logger logrus.FieldLogger) (*SnapshotIterator, error) {
 	it := &SnapshotIterator{
 		result:    result,
 		id:        id,
@@ -108,29 +109,29 @@ func (it *SnapshotIterator) buildGlobalCommits() []Commit {
 	commits := make([]Commit, 0)
 
 	// Compression commits (only one should be present)
-	if it.result.CompressionPQData != nil {
-		commits = append(commits, &AddPQCommit{Data: it.result.CompressionPQData})
+	if it.result.CompressionPQData() != nil {
+		commits = append(commits, &AddPQCommit{Data: it.result.CompressionPQData()})
 	}
-	if it.result.CompressionSQData != nil {
-		commits = append(commits, &AddSQCommit{Data: it.result.CompressionSQData})
+	if it.result.CompressionSQData() != nil {
+		commits = append(commits, &AddSQCommit{Data: it.result.CompressionSQData()})
 	}
-	if it.result.CompressionRQData != nil {
-		commits = append(commits, &AddRQCommit{Data: it.result.CompressionRQData})
+	if it.result.CompressionRQData() != nil {
+		commits = append(commits, &AddRQCommit{Data: it.result.CompressionRQData()})
 	}
-	if it.result.CompressionBRQData != nil {
-		commits = append(commits, &AddBRQCommit{Data: it.result.CompressionBRQData})
+	if it.result.CompressionBRQData() != nil {
+		commits = append(commits, &AddBRQCommit{Data: it.result.CompressionBRQData()})
 	}
 
 	// Muvera encoder
-	if it.result.MuveraEnabled && it.result.EncoderMuvera != nil {
-		commits = append(commits, &AddMuveraCommit{Data: it.result.EncoderMuvera})
+	if it.result.MuveraEnabled() && it.result.EncoderMuvera() != nil {
+		commits = append(commits, &AddMuveraCommit{Data: it.result.EncoderMuvera()})
 	}
 
 	// Entrypoint
-	if it.result.EntrypointChanged {
+	if it.result.EntrypointChanged() {
 		commits = append(commits, &SetEntryPointMaxLevelCommit{
-			Entrypoint: it.result.Entrypoint,
-			Level:      it.result.Level,
+			Entrypoint: it.result.Entrypoint(),
+			Level:      it.result.Level(),
 		})
 	}
 
@@ -140,7 +141,7 @@ func (it *SnapshotIterator) buildGlobalCommits() []Commit {
 // advance moves to the next non-nil node and builds its commits.
 func (it *SnapshotIterator) advance() error {
 	// If we've already exhausted nodes, check for tombstones beyond the array
-	if it.nodeIndex >= len(it.result.Nodes) {
+	if it.nodeIndex >= len(it.result.Graph.Nodes) {
 		beyondNode := it.findNextTombstoneBeyondNodes()
 		if beyondNode != nil {
 			it.currentNode = beyondNode
@@ -156,7 +157,7 @@ func (it *SnapshotIterator) advance() error {
 		it.nodeIndex++
 
 		// Check if we've exhausted all nodes
-		if it.nodeIndex >= len(it.result.Nodes) {
+		if it.nodeIndex >= len(it.result.Graph.Nodes) {
 			// Check if there are tombstones beyond the nodes array
 			beyondNode := it.findNextTombstoneBeyondNodes()
 			if beyondNode != nil {
@@ -168,11 +169,11 @@ func (it *SnapshotIterator) advance() error {
 			return nil
 		}
 
-		node := it.result.Nodes[it.nodeIndex]
+		node := it.result.Graph.Nodes[it.nodeIndex]
 		nodeID := uint64(it.nodeIndex)
 
 		// Check for tombstone at this position (even if node is nil)
-		_, hasTombstone := it.result.Tombstones[nodeID]
+		_, hasTombstone := it.result.Graph.Tombstones[nodeID]
 
 		// If node is nil but has a tombstone, generate tombstone commit only
 		if node == nil {
@@ -194,7 +195,7 @@ func (it *SnapshotIterator) advance() error {
 }
 
 // buildNodeCommits creates commits for a single node from snapshot state.
-func (it *SnapshotIterator) buildNodeCommits(nodeID uint64, node *Vertex, hasTombstone bool) *NodeCommits {
+func (it *SnapshotIterator) buildNodeCommits(nodeID uint64, node *ent.Vertex, hasTombstone bool) *NodeCommits {
 	commits := make([]Commit, 0)
 
 	// AddNode commit (with level)
@@ -243,9 +244,9 @@ func (it *SnapshotIterator) findNextTombstoneBeyondNodes() *NodeCommits {
 
 	var smallestID uint64
 	found := false
-	nodeLen := uint64(len(it.result.Nodes))
+	nodeLen := uint64(len(it.result.Graph.Nodes))
 
-	for id := range it.result.Tombstones {
+	for id := range it.result.Graph.Tombstones {
 		if id >= nodeLen {
 			if !found || id < smallestID {
 				smallestID = id
@@ -259,7 +260,7 @@ func (it *SnapshotIterator) findNextTombstoneBeyondNodes() *NodeCommits {
 	}
 
 	// Remove the tombstone from the map so we don't emit it again
-	delete(it.result.Tombstones, smallestID)
+	delete(it.result.Graph.Tombstones, smallestID)
 
 	return &NodeCommits{
 		NodeID:  smallestID,

@@ -307,18 +307,18 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify metadata
-	assert.Equal(t, uint64(5), result.Entrypoint)
-	assert.Equal(t, uint16(2), result.Level)
-	assert.True(t, result.EntrypointChanged)
-	assert.False(t, result.Compressed)
-	assert.False(t, result.MuveraEnabled)
+	assert.Equal(t, uint64(5), result.Graph.Entrypoint)
+	assert.Equal(t, uint16(2), result.Graph.Level)
+	assert.True(t, result.EntrypointChanged())
+	assert.False(t, result.Compressed())
+	assert.False(t, result.MuveraEnabled())
 
 	// Verify nodes
-	assert.Equal(t, 6, len(result.Nodes)) // nodes 0-5
+	assert.Equal(t, 6, len(result.Graph.Nodes)) // nodes 0-5
 
 	// Verify each node
 	for _, expected := range testNodes {
-		node := result.Nodes[expected.id]
+		node := result.Graph.Nodes[expected.id]
 		require.NotNil(t, node, "node %d should exist", expected.id)
 		assert.Equal(t, expected.id, node.ID)
 		assert.Equal(t, int(expected.level), node.Level)
@@ -331,12 +331,12 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Verify nil nodes
-	assert.Nil(t, result.Nodes[3])
-	assert.Nil(t, result.Nodes[4])
+	assert.Nil(t, result.Graph.Nodes[3])
+	assert.Nil(t, result.Graph.Nodes[4])
 
 	// Verify tombstones
-	assert.Equal(t, 1, len(result.Tombstones))
-	_, hasTombstone := result.Tombstones[2]
+	assert.Equal(t, 1, len(result.Graph.Tombstones))
+	_, hasTombstone := result.Graph.Tombstones[2]
 	assert.True(t, hasTombstone, "node 2 should have tombstone")
 }
 
@@ -435,15 +435,15 @@ func TestSnapshotRoundTrip_WithSQCompression(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify compression data
-	assert.True(t, result.Compressed)
-	require.NotNil(t, result.CompressionSQData)
-	assert.Equal(t, sqData.A, result.CompressionSQData.A)
-	assert.Equal(t, sqData.B, result.CompressionSQData.B)
-	assert.Equal(t, sqData.Dimensions, result.CompressionSQData.Dimensions)
+	assert.True(t, result.Compressed())
+	require.NotNil(t, result.CompressionSQData())
+	assert.Equal(t, sqData.A, result.CompressionSQData().A)
+	assert.Equal(t, sqData.B, result.CompressionSQData().B)
+	assert.Equal(t, sqData.Dimensions, result.CompressionSQData().Dimensions)
 
 	// Verify node data is also correct
-	assert.Equal(t, 1, len(result.Nodes))
-	assert.NotNil(t, result.Nodes[0])
+	assert.Equal(t, 1, len(result.Graph.Nodes))
+	assert.NotNil(t, result.Graph.Nodes[0])
 }
 
 func TestSnapshotRoundTrip_WithRQCompression(t *testing.T) {
@@ -495,12 +495,12 @@ func TestSnapshotRoundTrip_WithRQCompression(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify compression data
-	assert.True(t, result.Compressed)
-	require.NotNil(t, result.CompressionRQData)
-	assert.Equal(t, rqData.InputDim, result.CompressionRQData.InputDim)
-	assert.Equal(t, rqData.Bits, result.CompressionRQData.Bits)
-	assert.Equal(t, rqData.Rotation.OutputDim, result.CompressionRQData.Rotation.OutputDim)
-	assert.Equal(t, rqData.Rotation.Rounds, result.CompressionRQData.Rotation.Rounds)
+	assert.True(t, result.Compressed())
+	require.NotNil(t, result.CompressionRQData())
+	assert.Equal(t, rqData.InputDim, result.CompressionRQData().InputDim)
+	assert.Equal(t, rqData.Bits, result.CompressionRQData().Bits)
+	assert.Equal(t, rqData.Rotation.OutputDim, result.CompressionRQData().Rotation.OutputDim)
+	assert.Equal(t, rqData.Rotation.Rounds, result.CompressionRQData().Rotation.Rounds)
 }
 
 func TestSnapshotRoundTrip_WithBRQCompression(t *testing.T) {
@@ -554,12 +554,12 @@ func TestSnapshotRoundTrip_WithBRQCompression(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify compression data
-	assert.True(t, result.Compressed)
-	require.NotNil(t, result.CompressionBRQData)
-	assert.Equal(t, brqData.InputDim, result.CompressionBRQData.InputDim)
-	assert.Equal(t, brqData.Rotation.OutputDim, result.CompressionBRQData.Rotation.OutputDim)
-	assert.Equal(t, brqData.Rotation.Rounds, result.CompressionBRQData.Rotation.Rounds)
-	assert.Equal(t, brqData.Rounding, result.CompressionBRQData.Rounding)
+	assert.True(t, result.Compressed())
+	require.NotNil(t, result.CompressionBRQData())
+	assert.Equal(t, brqData.InputDim, result.CompressionBRQData().InputDim)
+	assert.Equal(t, brqData.Rotation.OutputDim, result.CompressionBRQData().Rotation.OutputDim)
+	assert.Equal(t, brqData.Rotation.Rounds, result.CompressionBRQData().Rotation.Rounds)
+	assert.Equal(t, brqData.Rounding, result.CompressionBRQData().Rounding)
 }
 
 func TestSnapshotRoundTrip_WithMuvera(t *testing.T) {
@@ -609,18 +609,18 @@ func TestSnapshotRoundTrip_WithMuvera(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify Muvera data
-	assert.True(t, result.MuveraEnabled)
-	require.NotNil(t, result.EncoderMuvera)
-	assert.Equal(t, muveraData.Dimensions, result.EncoderMuvera.Dimensions)
-	assert.Equal(t, muveraData.NumClusters, result.EncoderMuvera.NumClusters)
-	assert.Equal(t, muveraData.KSim, result.EncoderMuvera.KSim)
-	assert.Equal(t, muveraData.DProjections, result.EncoderMuvera.DProjections)
-	assert.Equal(t, muveraData.Repetitions, result.EncoderMuvera.Repetitions)
+	assert.True(t, result.MuveraEnabled())
+	require.NotNil(t, result.EncoderMuvera())
+	assert.Equal(t, muveraData.Dimensions, result.EncoderMuvera().Dimensions)
+	assert.Equal(t, muveraData.NumClusters, result.EncoderMuvera().NumClusters)
+	assert.Equal(t, muveraData.KSim, result.EncoderMuvera().KSim)
+	assert.Equal(t, muveraData.DProjections, result.EncoderMuvera().DProjections)
+	assert.Equal(t, muveraData.Repetitions, result.EncoderMuvera().Repetitions)
 
 	// Verify gaussians content
 	for i := range muveraData.Gaussians {
 		for j := range muveraData.Gaussians[i] {
-			assert.Equal(t, muveraData.Gaussians[i][j], result.EncoderMuvera.Gaussians[i][j])
+			assert.Equal(t, muveraData.Gaussians[i][j], result.EncoderMuvera().Gaussians[i][j])
 		}
 	}
 }
@@ -663,18 +663,18 @@ func TestSnapshotRoundTrip_WithCompressionAndMuvera(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify both compression and Muvera are present
-	assert.True(t, result.Compressed)
-	assert.True(t, result.MuveraEnabled)
-	require.NotNil(t, result.CompressionSQData)
-	require.NotNil(t, result.EncoderMuvera)
+	assert.True(t, result.Compressed())
+	assert.True(t, result.MuveraEnabled())
+	require.NotNil(t, result.CompressionSQData())
+	require.NotNil(t, result.EncoderMuvera())
 
 	// Verify SQ data
-	assert.Equal(t, sqData.A, result.CompressionSQData.A)
-	assert.Equal(t, sqData.B, result.CompressionSQData.B)
+	assert.Equal(t, sqData.A, result.CompressionSQData().A)
+	assert.Equal(t, sqData.B, result.CompressionSQData().B)
 
 	// Verify Muvera data
-	assert.Equal(t, muveraData.Dimensions, result.EncoderMuvera.Dimensions)
-	assert.Equal(t, muveraData.Gaussians[0][0], result.EncoderMuvera.Gaussians[0][0])
+	assert.Equal(t, muveraData.Dimensions, result.EncoderMuvera().Dimensions)
+	assert.Equal(t, muveraData.Gaussians[0][0], result.EncoderMuvera().Gaussians[0][0])
 }
 
 func TestSnapshotWriter_CompressionHelpers(t *testing.T) {

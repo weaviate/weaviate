@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // SortedWriter writes a .sorted commit log from a DeserializationResult.
@@ -45,7 +46,7 @@ func NewSortedWriter(w io.Writer, logger logrus.FieldLogger) *SortedWriter {
 }
 
 // WriteAll writes a complete sorted log from a deserialization result.
-func (s *SortedWriter) WriteAll(res *DeserializationResult) error {
+func (s *SortedWriter) WriteAll(res *ent.DeserializationResult) error {
 	// Phase 1: Write all global (non-node-specific) commits first
 	if err := s.writeGlobalCommits(res); err != nil {
 		return errors.Wrap(err, "write global commits")
@@ -62,38 +63,38 @@ func (s *SortedWriter) WriteAll(res *DeserializationResult) error {
 
 // writeGlobalCommits writes all commits that are not node-specific.
 // These must be written before any node-specific commits.
-func (s *SortedWriter) writeGlobalCommits(res *DeserializationResult) error {
+func (s *SortedWriter) writeGlobalCommits(res *ent.DeserializationResult) error {
 	// Write compression data
-	if res.Compressed {
-		if res.CompressionPQData != nil {
-			if err := s.writer.WriteAddPQ(res.CompressionPQData); err != nil {
+	if res.Compressed() {
+		if res.CompressionPQData() != nil {
+			if err := s.writer.WriteAddPQ(res.CompressionPQData()); err != nil {
 				return errors.Wrap(err, "write PQ compression")
 			}
-		} else if res.CompressionSQData != nil {
-			if err := s.writer.WriteAddSQ(res.CompressionSQData); err != nil {
+		} else if res.CompressionSQData() != nil {
+			if err := s.writer.WriteAddSQ(res.CompressionSQData()); err != nil {
 				return errors.Wrap(err, "write SQ compression")
 			}
-		} else if res.CompressionRQData != nil {
-			if err := s.writer.WriteAddRQ(res.CompressionRQData); err != nil {
+		} else if res.CompressionRQData() != nil {
+			if err := s.writer.WriteAddRQ(res.CompressionRQData()); err != nil {
 				return errors.Wrap(err, "write RQ compression")
 			}
-		} else if res.CompressionBRQData != nil {
-			if err := s.writer.WriteAddBRQ(res.CompressionBRQData); err != nil {
+		} else if res.CompressionBRQData() != nil {
+			if err := s.writer.WriteAddBRQ(res.CompressionBRQData()); err != nil {
 				return errors.Wrap(err, "write BRQ compression")
 			}
 		}
 	}
 
 	// Write Muvera data
-	if res.MuveraEnabled {
-		if err := s.writer.WriteAddMuvera(res.EncoderMuvera); err != nil {
+	if res.MuveraEnabled() {
+		if err := s.writer.WriteAddMuvera(res.EncoderMuvera()); err != nil {
 			return errors.Wrap(err, "write Muvera encoder")
 		}
 	}
 
 	// Write entrypoint
-	if res.EntrypointChanged {
-		if err := s.writer.WriteSetEntryPointMaxLevel(res.Entrypoint, res.Level); err != nil {
+	if res.EntrypointChanged() {
+		if err := s.writer.WriteSetEntryPointMaxLevel(res.Entrypoint(), res.Level()); err != nil {
 			return errors.Wrap(err, "write entrypoint")
 		}
 	}
@@ -103,11 +104,11 @@ func (s *SortedWriter) writeGlobalCommits(res *DeserializationResult) error {
 
 // writeNodeCommits writes all node-specific commits in node ID order.
 // For each node, it writes tombstones, deletions, node data, and links.
-func (s *SortedWriter) writeNodeCommits(res *DeserializationResult) error {
+func (s *SortedWriter) writeNodeCommits(res *ent.DeserializationResult) error {
 	// Helper function to write tombstone operations for a given node ID
 	writeTombstoneOps := func(nodeID uint64) error {
-		_, hasTombstone := res.Tombstones[nodeID]
-		_, tombstoneDeleted := res.TombstonesDeleted[nodeID]
+		_, hasTombstone := res.Graph.Tombstones[nodeID]
+		_, tombstoneDeleted := res.Graph.TombstonesDeleted[nodeID]
 
 		// Consolidate tombstone add/remove operations:
 		// If both add and remove exist, they cancel out (noop)
@@ -130,11 +131,11 @@ func (s *SortedWriter) writeNodeCommits(res *DeserializationResult) error {
 	}
 
 	// Phase 1: Iterate through all possible node IDs in the nodes array
-	for nodeID := uint64(0); nodeID < uint64(len(res.Nodes)); nodeID++ {
-		node := res.Nodes[nodeID]
+	for nodeID := uint64(0); nodeID < uint64(len(res.Graph.Nodes)); nodeID++ {
+		node := res.Graph.Nodes[nodeID]
 
 		// Check if this node was deleted
-		_, isDeleted := res.NodesDeleted[nodeID]
+		_, isDeleted := res.Graph.NodesDeleted[nodeID]
 
 		// If the node was deleted, write deletion info and tombstone info, then skip
 		if isDeleted {
@@ -205,16 +206,16 @@ func (s *SortedWriter) writeNodeCommits(res *DeserializationResult) error {
 
 	// Phase 2: Write tombstone operations for any node IDs beyond the nodes array
 	// Collect all tombstone IDs beyond the array and process them in sorted order
-	maxNodeID := uint64(len(res.Nodes))
+	maxNodeID := uint64(len(res.Graph.Nodes))
 	beyondIDs := make([]uint64, 0)
 
-	for id := range res.Tombstones {
+	for id := range res.Graph.Tombstones {
 		if id >= maxNodeID {
 			beyondIDs = append(beyondIDs, id)
 		}
 	}
 
-	for id := range res.TombstonesDeleted {
+	for id := range res.Graph.TombstonesDeleted {
 		if id >= maxNodeID {
 			// Check if not already in beyondIDs
 			found := false

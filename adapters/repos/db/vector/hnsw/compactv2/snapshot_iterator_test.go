@@ -18,17 +18,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 func TestSnapshotIterator_EmptySnapshot(t *testing.T) {
-	result := &DeserializationResult{
-		Nodes:             make([]*Vertex, 0),
-		Tombstones:        make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
-	}
+	result := ent.NewDeserializationResult(0)
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
 	require.NoError(t, err)
@@ -40,22 +35,16 @@ func TestSnapshotIterator_EmptySnapshot(t *testing.T) {
 }
 
 func TestSnapshotIterator_GlobalCommits(t *testing.T) {
-	result := &DeserializationResult{
-		Nodes:             make([]*Vertex, 0),
-		Tombstones:        make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
-		EntrypointChanged: true,
-		Entrypoint:        42,
-		Level:             3,
-		Compressed:        true,
-		CompressionSQData: &compression.SQData{
-			A:          0.5,
-			B:          1.5,
-			Dimensions: 128,
-		},
-	}
+	result := ent.NewDeserializationResult(0)
+	result.Graph.EntrypointChanged = true
+	result.Graph.Entrypoint = 42
+	result.Graph.Level = 3
+	result.SetCompressed(true)
+	result.SetCompressionSQData(&compression.SQData{
+		A:          0.5,
+		B:          1.5,
+		Dimensions: 128,
+	})
 
 	it, err := NewSnapshotIteratorFromResult(result, 5, logrus.New())
 	require.NoError(t, err)
@@ -84,14 +73,16 @@ func TestSnapshotIterator_SingleNode(t *testing.T) {
 	conns.BulkInsertAtLayer([]uint64{10, 20, 30}, 0)
 	conns.BulkInsertAtLayer([]uint64{100, 200}, 1)
 
-	result := &DeserializationResult{
-		Nodes: []*Vertex{
-			{ID: 0, Level: 1, Connections: conns},
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes: []*ent.Vertex{
+				{ID: 0, Level: 1, Connections: conns},
+			},
+			Tombstones:        make(map[uint64]struct{}),
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		},
-		Tombstones:        make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
@@ -153,16 +144,18 @@ func TestSnapshotIterator_MultipleNodes(t *testing.T) {
 	conns2.BulkInsertAtLayer([]uint64{0, 1}, 0)
 	conns2.BulkInsertAtLayer([]uint64{3}, 1)
 
-	result := &DeserializationResult{
-		Nodes: []*Vertex{
-			{ID: 0, Level: 0, Connections: conns0},
-			{ID: 1, Level: 0, Connections: conns1},
-			{ID: 2, Level: 1, Connections: conns2},
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes: []*ent.Vertex{
+				{ID: 0, Level: 0, Connections: conns0},
+				{ID: 1, Level: 0, Connections: conns1},
+				{ID: 2, Level: 1, Connections: conns2},
+			},
+			Tombstones:        make(map[uint64]struct{}),
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		},
-		Tombstones:        make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
@@ -189,16 +182,18 @@ func TestSnapshotIterator_NodesWithTombstones(t *testing.T) {
 	require.NoError(t, err)
 	conns.BulkInsertAtLayer([]uint64{1}, 0)
 
-	result := &DeserializationResult{
-		Nodes: []*Vertex{
-			{ID: 0, Level: 0, Connections: conns},
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes: []*ent.Vertex{
+				{ID: 0, Level: 0, Connections: conns},
+			},
+			Tombstones: map[uint64]struct{}{
+				0: {}, // Node 0 has a tombstone
+			},
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		},
-		Tombstones: map[uint64]struct{}{
-			0: {}, // Node 0 has a tombstone
-		},
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
@@ -220,18 +215,20 @@ func TestSnapshotIterator_NodesWithTombstones(t *testing.T) {
 
 func TestSnapshotIterator_NilNodesWithTombstones(t *testing.T) {
 	// Create result with nil nodes but tombstones
-	result := &DeserializationResult{
-		Nodes: []*Vertex{
-			nil, // Node 0 is nil
-			nil, // Node 1 is nil
-			nil, // Node 2 is nil
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes: []*ent.Vertex{
+				nil, // Node 0 is nil
+				nil, // Node 1 is nil
+				nil, // Node 2 is nil
+			},
+			Tombstones: map[uint64]struct{}{
+				1: {}, // Node 1 has a tombstone
+			},
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		},
-		Tombstones: map[uint64]struct{}{
-			1: {}, // Node 1 has a tombstone
-		},
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
@@ -260,17 +257,19 @@ func TestSnapshotIterator_SparseNodes(t *testing.T) {
 	require.NoError(t, err)
 	conns.BulkInsertAtLayer([]uint64{2}, 0)
 
-	result := &DeserializationResult{
-		Nodes: []*Vertex{
-			nil,                                   // Node 0 is nil
-			nil,                                   // Node 1 is nil
-			{ID: 2, Level: 0, Connections: conns}, // Node 2 exists
-			nil,                                   // Node 3 is nil
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes: []*ent.Vertex{
+				nil,                                   // Node 0 is nil
+				nil,                                   // Node 1 is nil
+				{ID: 2, Level: 0, Connections: conns}, // Node 2 exists
+				nil,                                   // Node 3 is nil
+			},
+			Tombstones:        make(map[uint64]struct{}),
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		},
-		Tombstones:        make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
@@ -290,17 +289,19 @@ func TestSnapshotIterator_SparseNodes(t *testing.T) {
 
 func TestSnapshotIterator_TombstonesBeyondNodesArray(t *testing.T) {
 	// Create result with tombstones beyond the nodes array
-	result := &DeserializationResult{
-		Nodes: []*Vertex{
-			nil, // Only one position in array
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes: []*ent.Vertex{
+				nil, // Only one position in array
+			},
+			Tombstones: map[uint64]struct{}{
+				5:  {}, // Beyond nodes array
+				10: {}, // Beyond nodes array
+			},
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		},
-		Tombstones: map[uint64]struct{}{
-			5:  {}, // Beyond nodes array
-			10: {}, // Beyond nodes array
-		},
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
@@ -323,12 +324,14 @@ func TestSnapshotIterator_TombstonesBeyondNodesArray(t *testing.T) {
 
 func TestSnapshotIterator_ImplementsIteratorLike(t *testing.T) {
 	// This test verifies that SnapshotIterator can be used where Iterator is expected
-	result := &DeserializationResult{
-		Nodes:             make([]*Vertex, 0),
-		Tombstones:        make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes:             make([]*ent.Vertex, 0),
+			Tombstones:        make(map[uint64]struct{}),
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
+		},
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())
@@ -345,14 +348,16 @@ func TestSnapshotIterator_NodeWithEmptyConnections(t *testing.T) {
 	require.NoError(t, err)
 	// Don't add any connections
 
-	result := &DeserializationResult{
-		Nodes: []*Vertex{
-			{ID: 0, Level: 0, Connections: conns},
+	result := &ent.DeserializationResult{
+		Graph: &ent.GraphState{
+			Nodes: []*ent.Vertex{
+				{ID: 0, Level: 0, Connections: conns},
+			},
+			Tombstones:        make(map[uint64]struct{}),
+			NodesDeleted:      make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		},
-		Tombstones:        make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-		TombstonesDeleted: make(map[uint64]struct{}),
-		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
 	it, err := NewSnapshotIteratorFromResult(result, 0, logrus.New())

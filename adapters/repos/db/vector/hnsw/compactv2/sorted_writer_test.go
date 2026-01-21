@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestSortedWriter_TombstoneForNilNode tests that tombstones are preserved
@@ -32,18 +33,12 @@ func TestSortedWriter_TombstoneForNilNode(t *testing.T) {
 	// - Node array of length 100 (nodes 0-99 exist as slots)
 	// - Node 50 is nil (was never populated)
 	// - Node 50 has a tombstone
-	res := &DeserializationResult{
-		Nodes: make([]*Vertex, 100),
-		Tombstones: map[uint64]struct{}{
-			50: {},
-		},
-		TombstonesDeleted: make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-	}
+	res := ent.NewDeserializationResult(100)
+	res.Graph.Tombstones[50] = struct{}{}
 
 	// Populate a few other nodes to make it realistic
-	res.Nodes[10] = &Vertex{ID: 10, Level: 1}
-	res.Nodes[20] = &Vertex{ID: 20, Level: 1}
+	res.Graph.Nodes[10] = &ent.Vertex{ID: 10, Level: 1}
+	res.Graph.Nodes[20] = &ent.Vertex{ID: 20, Level: 1}
 	// Node 50 intentionally left nil
 
 	// Write to .sorted format
@@ -59,7 +54,7 @@ func TestSortedWriter_TombstoneForNilNode(t *testing.T) {
 	require.NoError(t, err)
 
 	// The tombstone for node 50 should still exist
-	_, hasTombstone := result.Tombstones[50]
+	_, hasTombstone := result.Graph.Tombstones[50]
 	assert.True(t, hasTombstone, "Tombstone for nil node 50 should be preserved")
 }
 
@@ -74,18 +69,12 @@ func TestSortedWriter_TombstoneBeyondNodesArray(t *testing.T) {
 	// Create a deserialization result with:
 	// - Node array of length 100 (nodes 0-99 can exist)
 	// - Tombstone for node 150 (beyond the array)
-	res := &DeserializationResult{
-		Nodes: make([]*Vertex, 100),
-		Tombstones: map[uint64]struct{}{
-			150: {}, // Beyond nodes array!
-		},
-		TombstonesDeleted: make(map[uint64]struct{}),
-		NodesDeleted:      make(map[uint64]struct{}),
-	}
+	res := ent.NewDeserializationResult(100)
+	res.Graph.Tombstones[150] = struct{}{} // Beyond nodes array!
 
 	// Populate a few nodes
-	res.Nodes[10] = &Vertex{ID: 10, Level: 1}
-	res.Nodes[20] = &Vertex{ID: 20, Level: 1}
+	res.Graph.Nodes[10] = &ent.Vertex{ID: 10, Level: 1}
+	res.Graph.Nodes[20] = &ent.Vertex{ID: 20, Level: 1}
 
 	// Write to .sorted format
 	var buf bytes.Buffer
@@ -100,7 +89,7 @@ func TestSortedWriter_TombstoneBeyondNodesArray(t *testing.T) {
 	require.NoError(t, err)
 
 	// The tombstone for node 150 should still exist
-	_, hasTombstone := result.Tombstones[150]
+	_, hasTombstone := result.Graph.Tombstones[150]
 	assert.True(t, hasTombstone, "Tombstone for node 150 (beyond array) should be preserved")
 }
 
@@ -113,14 +102,8 @@ func TestSortedWriter_RemoveTombstoneForNilNode(t *testing.T) {
 	// Create a deserialization result with:
 	// - Node 50 is nil
 	// - Node 50 has a tombstone that was deleted (RemoveTombstone from previous log)
-	res := &DeserializationResult{
-		Nodes:      make([]*Vertex, 100),
-		Tombstones: make(map[uint64]struct{}),
-		TombstonesDeleted: map[uint64]struct{}{
-			50: {}, // RemoveTombstone for nil node
-		},
-		NodesDeleted: make(map[uint64]struct{}),
-	}
+	res := ent.NewDeserializationResult(100)
+	res.Graph.TombstonesDeleted[50] = struct{}{} // RemoveTombstone for nil node
 
 	// Write to .sorted format
 	var buf bytes.Buffer
@@ -135,7 +118,7 @@ func TestSortedWriter_RemoveTombstoneForNilNode(t *testing.T) {
 	require.NoError(t, err)
 
 	// The TombstonesDeleted entry should still exist
-	_, hasDeleted := result.TombstonesDeleted[50]
+	_, hasDeleted := result.Graph.TombstonesDeleted[50]
 	assert.True(t, hasDeleted, "TombstonesDeleted for nil node 50 should be preserved")
 }
 
@@ -148,14 +131,8 @@ func TestSortedWriter_RemoveTombstoneBeyondNodesArray(t *testing.T) {
 	// Create a deserialization result with:
 	// - Node array of length 100
 	// - RemoveTombstone for node 150 (beyond array)
-	res := &DeserializationResult{
-		Nodes:      make([]*Vertex, 100),
-		Tombstones: make(map[uint64]struct{}),
-		TombstonesDeleted: map[uint64]struct{}{
-			150: {}, // RemoveTombstone beyond array
-		},
-		NodesDeleted: make(map[uint64]struct{}),
-	}
+	res := ent.NewDeserializationResult(100)
+	res.Graph.TombstonesDeleted[150] = struct{}{} // RemoveTombstone beyond array
 
 	// Write to .sorted format
 	var buf bytes.Buffer
@@ -170,7 +147,7 @@ func TestSortedWriter_RemoveTombstoneBeyondNodesArray(t *testing.T) {
 	require.NoError(t, err)
 
 	// The TombstonesDeleted entry should still exist
-	_, hasDeleted := result.TombstonesDeleted[150]
+	_, hasDeleted := result.Graph.TombstonesDeleted[150]
 	assert.True(t, hasDeleted, "TombstonesDeleted for node 150 (beyond array) should be preserved")
 }
 
@@ -182,23 +159,18 @@ func TestSortedWriter_CombinedScenario(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	res := &DeserializationResult{
-		Nodes: make([]*Vertex, 100),
-		Tombstones: map[uint64]struct{}{
-			30:  {}, // Nil node with tombstone
-			150: {}, // Beyond array with tombstone
-			200: {}, // Beyond array with tombstone
-		},
-		TombstonesDeleted: map[uint64]struct{}{
-			40:  {}, // Nil node with RemoveTombstone
-			160: {}, // Beyond array with RemoveTombstone
-		},
-		NodesDeleted: make(map[uint64]struct{}),
-	}
+	res := ent.NewDeserializationResult(100)
+	// Set tombstones
+	res.Graph.Tombstones[30] = struct{}{}  // Nil node with tombstone
+	res.Graph.Tombstones[150] = struct{}{} // Beyond array with tombstone
+	res.Graph.Tombstones[200] = struct{}{} // Beyond array with tombstone
+	// Set tombstones deleted
+	res.Graph.TombstonesDeleted[40] = struct{}{}  // Nil node with RemoveTombstone
+	res.Graph.TombstonesDeleted[160] = struct{}{} // Beyond array with RemoveTombstone
 
 	// Populate some real nodes
-	res.Nodes[10] = &Vertex{ID: 10, Level: 1}
-	res.Nodes[20] = &Vertex{ID: 20, Level: 1}
+	res.Graph.Nodes[10] = &ent.Vertex{ID: 10, Level: 1}
+	res.Graph.Nodes[20] = &ent.Vertex{ID: 20, Level: 1}
 
 	// Write to .sorted format
 	var buf bytes.Buffer
@@ -213,15 +185,20 @@ func TestSortedWriter_CombinedScenario(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify all tombstones
-	assert.True(t, result.Tombstones[30] != struct{}{} || true, "Tombstone for nil node 30")
-	assert.True(t, result.Tombstones[150] != struct{}{} || true, "Tombstone for node 150 (beyond array)")
-	assert.True(t, result.Tombstones[200] != struct{}{} || true, "Tombstone for node 200 (beyond array)")
+	_, hasTomb30 := result.Graph.Tombstones[30]
+	assert.True(t, hasTomb30, "Tombstone for nil node 30")
+	_, hasTomb150 := result.Graph.Tombstones[150]
+	assert.True(t, hasTomb150, "Tombstone for node 150 (beyond array)")
+	_, hasTomb200 := result.Graph.Tombstones[200]
+	assert.True(t, hasTomb200, "Tombstone for node 200 (beyond array)")
 
 	// Verify all RemoveTombstone operations
-	assert.True(t, result.TombstonesDeleted[40] != struct{}{} || true, "RemoveTombstone for nil node 40")
-	assert.True(t, result.TombstonesDeleted[160] != struct{}{} || true, "RemoveTombstone for node 160 (beyond array)")
+	_, hasDel40 := result.Graph.TombstonesDeleted[40]
+	assert.True(t, hasDel40, "RemoveTombstone for nil node 40")
+	_, hasDel160 := result.Graph.TombstonesDeleted[160]
+	assert.True(t, hasDel160, "RemoveTombstone for node 160 (beyond array)")
 
 	// Check counts
-	assert.Equal(t, 3, len(result.Tombstones), "Should have 3 tombstones")
-	assert.Equal(t, 2, len(result.TombstonesDeleted), "Should have 2 tombstones deleted")
+	assert.Equal(t, 3, len(result.Graph.Tombstones), "Should have 3 tombstones")
+	assert.Equal(t, 2, len(result.Graph.TombstonesDeleted), "Should have 2 tombstones deleted")
 }

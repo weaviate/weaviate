@@ -17,8 +17,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
-	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
@@ -27,57 +25,6 @@ const (
 	maxConnectionsPerNodeInMemory = 4096
 	indexGrowthRate               = 1.2
 )
-
-// Vertex is an alias for ent.Vertex to allow external packages to use the
-// shared type from entities.
-type Vertex = ent.Vertex
-
-// DeserializationResult holds the complete in-memory state after deserializing
-// commit logs. This matches the structure from the v1 deserializer to enable
-// migration from .condensed to .sorted files.
-//
-// Note: This differs slightly from ent.DeserializationResult in the compression
-// data types. The compressionhelpers types are used here because they contain
-// behavioral methods (e.g., FastRotation.Rotate()) that are needed during
-// deserialization. The ent types are pure data structures for serialization.
-type DeserializationResult struct {
-	Nodes              []*Vertex
-	NodesDeleted       map[uint64]struct{}
-	Entrypoint         uint64
-	Level              uint16
-	Tombstones         map[uint64]struct{}
-	TombstonesDeleted  map[uint64]struct{}
-	EntrypointChanged  bool
-	CompressionPQData  *compression.PQData
-	CompressionSQData  *compression.SQData
-	CompressionRQData  *compression.RQData
-	CompressionBRQData *compression.BRQData
-	MuveraEnabled      bool
-	EncoderMuvera      *multivector.MuveraData
-	Compressed         bool
-
-	// LinksReplaced tracks which nodes and levels have had their links replaced
-	// rather than appended. This is critical for correctly handling .condensed
-	// files, as described in https://github.com/weaviate/weaviate/issues/1868.
-	//
-	// If there is no entry for a node/level, we must assume that all links were
-	// appended and prior state must exist. When we encounter a ReplaceLinksAtLevel
-	// or ClearLinksAtLevel operation, we explicitly set the replace flag so that
-	// future operations (including condensing multiple logs) correctly interpret
-	// whether links should be replaced or appended.
-	LinksReplaced map[uint64]map[uint16]struct{}
-}
-
-// ReplaceLinks checks if links at the given node and level should be replaced.
-func (dr *DeserializationResult) ReplaceLinks(node uint64, level uint16) bool {
-	levels, ok := dr.LinksReplaced[node]
-	if !ok {
-		return false
-	}
-
-	_, ok = levels[level]
-	return ok
-}
 
 // InMemoryReader deserializes commit logs into an in-memory HNSW graph state.
 // It uses the WALCommitReader to read commits and applies them to build up
@@ -102,18 +49,12 @@ func NewInMemoryReader(reader *WALCommitReader, logger logrus.FieldLogger) *InMe
 // Do reads all commits and builds the in-memory state.
 // If initialState is provided, commits are applied on top of it.
 // keepLinkReplaceInformation controls whether LinksReplaced tracking is maintained.
-func (r *InMemoryReader) Do(initialState *DeserializationResult, keepLinkReplaceInformation bool) (*DeserializationResult, error) {
+func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkReplaceInformation bool) (*ent.DeserializationResult, error) {
 	out := initialState
 	commitTypeMetrics := make(map[HnswCommitType]int)
 
 	if out == nil {
-		out = &DeserializationResult{
-			Nodes:             make([]*Vertex, cache.InitialSize),
-			NodesDeleted:      make(map[uint64]struct{}),
-			Tombstones:        make(map[uint64]struct{}),
-			TombstonesDeleted: make(map[uint64]struct{}),
-			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
-		}
+		out = ent.NewDeserializationResult(cache.InitialSize)
 	}
 
 	for {
@@ -131,9 +72,9 @@ func (r *InMemoryReader) Do(initialState *DeserializationResult, keepLinkReplace
 		case *AddNodeCommit:
 			err = r.readNode(commit, out)
 		case *SetEntryPointMaxLevelCommit:
-			out.Entrypoint = commit.Entrypoint
-			out.Level = commit.Level
-			out.EntrypointChanged = true
+			out.Graph.Entrypoint = commit.Entrypoint
+			out.Graph.Level = commit.Level
+			out.Graph.EntrypointChanged = true
 		case *AddLinkAtLevelCommit:
 			err = r.readLink(commit, out)
 		case *AddLinksAtLevelCommit:
@@ -141,16 +82,16 @@ func (r *InMemoryReader) Do(initialState *DeserializationResult, keepLinkReplace
 		case *ReplaceLinksAtLevelCommit:
 			err = r.readReplaceLinks(commit, out, keepLinkReplaceInformation)
 		case *AddTombstoneCommit:
-			out.Tombstones[commit.ID] = struct{}{}
+			out.Graph.Tombstones[commit.ID] = struct{}{}
 		case *RemoveTombstoneCommit:
-			_, ok := out.Tombstones[commit.ID]
+			_, ok := out.Graph.Tombstones[commit.ID]
 			if !ok {
 				// Tombstone is not present but may exist in older commit log
 				// We need to keep track of it so we can delete it later
-				out.TombstonesDeleted[commit.ID] = struct{}{}
+				out.Graph.TombstonesDeleted[commit.ID] = struct{}{}
 			} else {
 				// Tombstone is present, we can delete it
-				delete(out.Tombstones, commit.ID)
+				delete(out.Graph.Tombstones, commit.ID)
 			}
 		case *ClearLinksCommit:
 			err = r.readClearLinks(commit, out, keepLinkReplaceInformation)
@@ -159,25 +100,25 @@ func (r *InMemoryReader) Do(initialState *DeserializationResult, keepLinkReplace
 		case *DeleteNodeCommit:
 			err = r.readDeleteNode(commit, out)
 		case *ResetIndexCommit:
-			out.Entrypoint = 0
-			out.Level = 0
-			out.Nodes = make([]*Vertex, cache.InitialSize)
-			out.Tombstones = make(map[uint64]struct{})
+			out.Graph.Entrypoint = 0
+			out.Graph.Level = 0
+			out.Graph.Nodes = make([]*ent.Vertex, cache.InitialSize)
+			out.Graph.Tombstones = make(map[uint64]struct{})
 		case *AddPQCommit:
-			out.CompressionPQData = commit.Data
-			out.Compressed = true
+			out.SetCompressionPQData(commit.Data)
+			out.SetCompressed(true)
 		case *AddSQCommit:
-			out.CompressionSQData = commit.Data
-			out.Compressed = true
+			out.SetCompressionSQData(commit.Data)
+			out.SetCompressed(true)
 		case *AddRQCommit:
-			out.CompressionRQData = commit.Data
-			out.Compressed = true
+			out.SetCompressionRQData(commit.Data)
+			out.SetCompressed(true)
 		case *AddBRQCommit:
-			out.CompressionBRQData = commit.Data
-			out.Compressed = true
+			out.SetCompressionBRQData(commit.Data)
+			out.SetCompressed(true)
 		case *AddMuveraCommit:
-			out.EncoderMuvera = commit.Data
-			out.MuveraEnabled = true
+			out.SetEncoderMuvera(commit.Data)
+			out.SetMuveraEnabled(true)
 		default:
 			err = errors.Errorf("unrecognized commit type %T", c)
 		}
@@ -197,76 +138,76 @@ func (r *InMemoryReader) Do(initialState *DeserializationResult, keepLinkReplace
 	return out, nil
 }
 
-func (r *InMemoryReader) readNode(c *AddNodeCommit, res *DeserializationResult) error {
-	newNodes, changed, err := growIndexToAccommodateNode(res.Nodes, c.ID, r.logger)
+func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResult) error {
+	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
 	if err != nil {
 		return err
 	}
 
 	if changed {
-		res.Nodes = newNodes
+		res.Graph.Nodes = newNodes
 	}
 
-	if res.Nodes[c.ID] == nil {
+	if res.Graph.Nodes[c.ID] == nil {
 		conns, err := packedconn.NewWithMaxLayer(uint8(c.Level))
 		if err != nil {
 			return err
 		}
-		res.Nodes[c.ID] = &Vertex{
+		res.Graph.Nodes[c.ID] = &ent.Vertex{
 			Level:       int(c.Level),
 			ID:          c.ID,
 			Connections: conns,
 		}
 	} else {
-		if res.Nodes[c.ID].Connections == nil {
-			res.Nodes[c.ID].Connections, err = packedconn.NewWithMaxLayer(uint8(c.Level))
+		if res.Graph.Nodes[c.ID].Connections == nil {
+			res.Graph.Nodes[c.ID].Connections, err = packedconn.NewWithMaxLayer(uint8(c.Level))
 			if err != nil {
 				return err
 			}
 		} else {
-			res.Nodes[c.ID].Connections.GrowLayersTo(uint8(c.Level))
+			res.Graph.Nodes[c.ID].Connections.GrowLayersTo(uint8(c.Level))
 		}
-		res.Nodes[c.ID].Level = int(c.Level)
+		res.Graph.Nodes[c.ID].Level = int(c.Level)
 	}
 	return nil
 }
 
-func (r *InMemoryReader) readLink(c *AddLinkAtLevelCommit, res *DeserializationResult) error {
-	newNodes, changed, err := growIndexToAccommodateNode(res.Nodes, c.Source, r.logger)
+func (r *InMemoryReader) readLink(c *AddLinkAtLevelCommit, res *ent.DeserializationResult) error {
+	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.Source, r.logger)
 	if err != nil {
 		return err
 	}
 
 	if changed {
-		res.Nodes = newNodes
+		res.Graph.Nodes = newNodes
 	}
 
-	if res.Nodes[c.Source] == nil {
+	if res.Graph.Nodes[c.Source] == nil {
 		conns, err := packedconn.NewWithMaxLayer(uint8(c.Level))
 		if err != nil {
 			return err
 		}
-		res.Nodes[c.Source] = &Vertex{
+		res.Graph.Nodes[c.Source] = &ent.Vertex{
 			ID:          c.Source,
 			Connections: conns,
 		}
 	}
 
-	if res.Nodes[c.Source].Connections == nil {
+	if res.Graph.Nodes[c.Source].Connections == nil {
 		conns, err := packedconn.NewWithMaxLayer(uint8(c.Level))
 		if err != nil {
 			return err
 		}
-		res.Nodes[c.Source].Connections = conns
+		res.Graph.Nodes[c.Source].Connections = conns
 	} else {
-		res.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
+		res.Graph.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
 	}
 
-	res.Nodes[c.Source].Connections.InsertAtLayer(c.Target, uint8(c.Level))
+	res.Graph.Nodes[c.Source].Connections.InsertAtLayer(c.Target, uint8(c.Level))
 	return nil
 }
 
-func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *DeserializationResult) error {
+func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *ent.DeserializationResult) error {
 	targets := c.Targets
 	if len(targets) >= maxConnectionsPerNodeInMemory {
 		r.logger.Warnf("read AddLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d",
@@ -274,30 +215,30 @@ func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *Deserializa
 		targets = targets[:maxConnectionsPerNodeInMemory]
 	}
 
-	newNodes, changed, err := growIndexToAccommodateNode(res.Nodes, c.Source, r.logger)
+	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.Source, r.logger)
 	if err != nil {
 		return err
 	}
 
 	if changed {
-		res.Nodes = newNodes
+		res.Graph.Nodes = newNodes
 	}
 
-	if res.Nodes[c.Source] == nil {
-		res.Nodes[c.Source] = &Vertex{ID: c.Source}
+	if res.Graph.Nodes[c.Source] == nil {
+		res.Graph.Nodes[c.Source] = &ent.Vertex{ID: c.Source}
 	}
 
-	if res.Nodes[c.Source].Connections == nil {
-		res.Nodes[c.Source].Connections = &packedconn.Connections{}
+	if res.Graph.Nodes[c.Source].Connections == nil {
+		res.Graph.Nodes[c.Source].Connections = &packedconn.Connections{}
 	} else {
-		res.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
+		res.Graph.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
 	}
 
-	res.Nodes[c.Source].Connections.BulkInsertAtLayer(targets, uint8(c.Level))
+	res.Graph.Nodes[c.Source].Connections.BulkInsertAtLayer(targets, uint8(c.Level))
 	return nil
 }
 
-func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *DeserializationResult, keepReplaceInfo bool) error {
+func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *ent.DeserializationResult, keepReplaceInfo bool) error {
 	targets := c.Targets
 	if len(targets) >= maxConnectionsPerNodeInMemory {
 		r.logger.Warnf("read ReplaceLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d",
@@ -305,79 +246,79 @@ func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *Des
 		targets = targets[:maxConnectionsPerNodeInMemory]
 	}
 
-	newNodes, changed, err := growIndexToAccommodateNode(res.Nodes, c.Source, r.logger)
+	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.Source, r.logger)
 	if err != nil {
 		return err
 	}
 
 	if changed {
-		res.Nodes = newNodes
+		res.Graph.Nodes = newNodes
 	}
 
-	if res.Nodes[c.Source] == nil {
-		res.Nodes[c.Source] = &Vertex{ID: c.Source}
+	if res.Graph.Nodes[c.Source] == nil {
+		res.Graph.Nodes[c.Source] = &ent.Vertex{ID: c.Source}
 	}
 
-	if res.Nodes[c.Source].Connections == nil {
-		res.Nodes[c.Source].Connections = &packedconn.Connections{}
+	if res.Graph.Nodes[c.Source].Connections == nil {
+		res.Graph.Nodes[c.Source].Connections = &packedconn.Connections{}
 	} else {
-		res.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
+		res.Graph.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
 	}
 
-	res.Nodes[c.Source].Connections.ReplaceLayer(uint8(c.Level), targets)
+	res.Graph.Nodes[c.Source].Connections.ReplaceLayer(uint8(c.Level), targets)
 
 	if keepReplaceInfo {
 		// Mark the replace flag for this node and level, so that new commit logs
 		// generated on this result (condensing) do not lose information.
 		// This is critical for correctly handling .condensed files.
-		if _, ok := res.LinksReplaced[c.Source]; !ok {
-			res.LinksReplaced[c.Source] = map[uint16]struct{}{}
+		if _, ok := res.Graph.LinksReplaced[c.Source]; !ok {
+			res.Graph.LinksReplaced[c.Source] = map[uint16]struct{}{}
 		}
-		res.LinksReplaced[c.Source][c.Level] = struct{}{}
+		res.Graph.LinksReplaced[c.Source][c.Level] = struct{}{}
 	}
 
 	return nil
 }
 
-func (r *InMemoryReader) readClearLinks(c *ClearLinksCommit, res *DeserializationResult, keepReplaceInfo bool) error {
-	newNodes, changed, err := growIndexToAccommodateNode(res.Nodes, c.ID, r.logger)
+func (r *InMemoryReader) readClearLinks(c *ClearLinksCommit, res *ent.DeserializationResult, keepReplaceInfo bool) error {
+	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
 	if err != nil {
 		return err
 	}
 
 	if changed {
-		res.Nodes = newNodes
+		res.Graph.Nodes = newNodes
 	}
 
-	if res.Nodes[c.ID] == nil {
+	if res.Graph.Nodes[c.ID] == nil {
 		// node has been deleted or never existed, nothing to do
 		return nil
 	}
 
-	res.Nodes[c.ID].Connections, err = packedconn.NewWithMaxLayer(uint8(res.Nodes[c.ID].Level))
+	res.Graph.Nodes[c.ID].Connections, err = packedconn.NewWithMaxLayer(uint8(res.Graph.Nodes[c.ID].Level))
 	return err
 }
 
-func (r *InMemoryReader) readClearLinksAtLevel(c *ClearLinksAtLevelCommit, res *DeserializationResult, keepReplaceInfo bool) error {
-	newNodes, changed, err := growIndexToAccommodateNode(res.Nodes, c.ID, r.logger)
+func (r *InMemoryReader) readClearLinksAtLevel(c *ClearLinksAtLevelCommit, res *ent.DeserializationResult, keepReplaceInfo bool) error {
+	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
 	if err != nil {
 		return err
 	}
 
 	if changed {
-		res.Nodes = newNodes
+		res.Graph.Nodes = newNodes
 	}
 
 	if keepReplaceInfo {
 		// Mark the replace flag for this node and level, so that new commit logs
 		// generated on this result (condensing) do not lose information.
-		if _, ok := res.LinksReplaced[c.ID]; !ok {
-			res.LinksReplaced[c.ID] = map[uint16]struct{}{}
+		if _, ok := res.Graph.LinksReplaced[c.ID]; !ok {
+			res.Graph.LinksReplaced[c.ID] = map[uint16]struct{}{}
 		}
-		res.LinksReplaced[c.ID][c.Level] = struct{}{}
+		res.Graph.LinksReplaced[c.ID][c.Level] = struct{}{}
 	}
 
-	if res.Nodes[c.ID] == nil {
+	if res.Graph.Nodes[c.ID] == nil {
 		if !keepReplaceInfo {
 			// node has been deleted or never existed and we are not looking at a
 			// single log in isolation, nothing to do
@@ -390,56 +331,56 @@ func (r *InMemoryReader) readClearLinksAtLevel(c *ClearLinksAtLevelCommit, res *
 		if err != nil {
 			return err
 		}
-		res.Nodes[c.ID] = &Vertex{
+		res.Graph.Nodes[c.ID] = &ent.Vertex{
 			ID:          c.ID,
 			Connections: conns,
 		}
 	}
 
-	if res.Nodes[c.ID].Connections == nil {
+	if res.Graph.Nodes[c.ID].Connections == nil {
 		conns, err := packedconn.NewWithMaxLayer(uint8(c.Level))
 		if err != nil {
 			return err
 		}
-		res.Nodes[c.ID].Connections = conns
+		res.Graph.Nodes[c.ID].Connections = conns
 	} else {
-		res.Nodes[c.ID].Connections.GrowLayersTo(uint8(c.Level))
+		res.Graph.Nodes[c.ID].Connections.GrowLayersTo(uint8(c.Level))
 		// Only clear if the layer is not already empty
-		if res.Nodes[c.ID].Connections.LenAtLayer(uint8(c.Level)) > 0 {
-			res.Nodes[c.ID].Connections.ClearLayer(uint8(c.Level))
+		if res.Graph.Nodes[c.ID].Connections.LenAtLayer(uint8(c.Level)) > 0 {
+			res.Graph.Nodes[c.ID].Connections.ClearLayer(uint8(c.Level))
 		}
 	}
 
 	if keepReplaceInfo {
 		// Mark the replace flag for this node and level again
 		// (duplicated for consistency with original deserializer)
-		if _, ok := res.LinksReplaced[c.ID]; !ok {
-			res.LinksReplaced[c.ID] = map[uint16]struct{}{}
+		if _, ok := res.Graph.LinksReplaced[c.ID]; !ok {
+			res.Graph.LinksReplaced[c.ID] = map[uint16]struct{}{}
 		}
-		res.LinksReplaced[c.ID][c.Level] = struct{}{}
+		res.Graph.LinksReplaced[c.ID][c.Level] = struct{}{}
 	}
 
 	return nil
 }
 
-func (r *InMemoryReader) readDeleteNode(c *DeleteNodeCommit, res *DeserializationResult) error {
-	newNodes, changed, err := growIndexToAccommodateNode(res.Nodes, c.ID, r.logger)
+func (r *InMemoryReader) readDeleteNode(c *DeleteNodeCommit, res *ent.DeserializationResult) error {
+	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
 	if err != nil {
 		return err
 	}
 
 	if changed {
-		res.Nodes = newNodes
+		res.Graph.Nodes = newNodes
 	}
 
-	res.Nodes[c.ID] = nil
-	res.NodesDeleted[c.ID] = struct{}{}
+	res.Graph.Nodes[c.ID] = nil
+	res.Graph.NodesDeleted[c.ID] = struct{}{}
 	return nil
 }
 
 // growIndexToAccommodateNode grows the nodes slice if needed to accommodate the given ID.
 // Returns the new slice (if grown), whether it changed, and any error.
-func growIndexToAccommodateNode(index []*Vertex, id uint64, logger logrus.FieldLogger) ([]*Vertex, bool, error) {
+func growIndexToAccommodateNode(index []*ent.Vertex, id uint64, logger logrus.FieldLogger) ([]*ent.Vertex, bool, error) {
 	previousSize := uint64(len(index))
 	if id < previousSize {
 		// node will fit, nothing to do
@@ -464,7 +405,7 @@ func growIndexToAccommodateNode(index []*Vertex, id uint64, logger logrus.FieldL
 		newSize = id + cache.MinimumIndexGrowthDelta
 	}
 
-	newIndex := make([]*Vertex, newSize)
+	newIndex := make([]*ent.Vertex, newSize)
 	copy(newIndex, index)
 
 	logger.WithField("action", "hnsw_grow_index").
