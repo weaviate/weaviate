@@ -250,6 +250,7 @@ func createVectorHnswIndexTestConfig() Config {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
 	}
 }
 

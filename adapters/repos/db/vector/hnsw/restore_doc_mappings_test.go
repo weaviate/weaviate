@@ -25,6 +25,10 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+type restoreDocNoopBucketView struct{}
+
+func (n *restoreDocNoopBucketView) Release() {}
+
 func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 	rootPath := t.TempDir()
 	store := testinghelpers.NewDummyStore(t)
@@ -40,7 +44,8 @@ func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView { return &restoreDocNoopBucketView{} },
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			return nil, nil
 		},
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
@@ -72,7 +77,8 @@ func TestRestoreDocMappingsWithNilData(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView { return &restoreDocNoopBucketView{} },
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			return nil, nil
 		},
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)

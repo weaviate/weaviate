@@ -85,9 +85,10 @@ func TestDynamic(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -146,9 +147,10 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(nil),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(nil),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -164,6 +166,21 @@ func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *co
 		return vectors[int(id)], nil
 	}
 }
+
+func TempVectorForIDWithViewThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice, common.BucketView) ([]float32, error) {
+	return func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		copy(container.Slice, vectors[int(id)])
+		return vectors[int(id)], nil
+	}
+}
+
+func GetViewThunk() common.BucketView {
+	return &noopBucketView{}
+}
+
+type noopBucketView struct{}
+
+func (n *noopBucketView) Release() {}
 
 func TestDynamicWithTargetVectors(t *testing.T) {
 	ctx := context.Background()
@@ -214,9 +231,10 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -298,9 +316,10 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -534,10 +553,11 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					}
 					return vec, nil
 				},
-				TempVectorForIDThunk:    TempVectorForIDThunk(vectors),
-				TombstoneCallbacks:      noopCallback,
-				SharedDB:                db,
-				HNSWWaitForCachePrefill: true,
+				GetViewThunk:                 GetViewThunk,
+				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				TombstoneCallbacks:           noopCallback,
+				SharedDB:                     db,
+				HNSWWaitForCachePrefill:      true,
 			}
 			uc := ent.UserConfig{
 				Threshold: uint64(threshold),
@@ -693,9 +713,10 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -801,9 +822,10 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -876,9 +898,10 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
@@ -950,9 +973,10 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 				}
 				return vec, nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			TombstoneCallbacks:   noopCallback,
-			SharedDB:             db,
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
 		}, ent.UserConfig{
 			Threshold: uint64(vectors_size),
 			Distance:  distancer.Type(),
