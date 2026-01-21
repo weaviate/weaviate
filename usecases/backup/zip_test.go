@@ -106,7 +106,7 @@ func TestZip(t *testing.T) {
 			}()
 
 			// decompression writer
-			uzOutputLen, err := uz.ReadChunk()
+			uzOutputLen, err := uz.ReadChunk(nil)
 			if err != nil {
 				t.Fatalf("unzip: %v", err)
 			}
@@ -165,7 +165,7 @@ func TestUnzipPathEscape(t *testing.T) {
 		require.NoError(t, wc.Close())
 	}()
 
-	_, err = uz.ReadChunk()
+	_, err = uz.ReadChunk(nil)
 	require.ErrorContains(t, err, "outside shard root")
 
 	entries, err := os.ReadDir(completelyUnrelatedDir)
@@ -430,7 +430,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, wc.Close())
 			}()
-			_, err = uz.ReadChunk()
+			_, err = uz.ReadChunk(nil)
 			require.NoError(t, err)
 			require.NoError(t, uz.Close())
 
@@ -448,4 +448,127 @@ func TestRenamingDuringBackup(t *testing.T) {
 			require.Equal(t, counter, counter2)
 		})
 	}
+}
+
+func TestSkipReadingShards(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "source")
+	ctx := context.Background()
+	require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+
+	// Create two shards with different content
+	shard1 := backup.ShardDescriptor{
+		Name: "shard1",
+		Node: "node1",
+	}
+	shard2 := backup.ShardDescriptor{
+		Name: "shard2",
+		Node: "node1",
+	}
+
+	// Create files for shard1
+	shard1Dir := filepath.Join(dir, "shard1_data")
+	require.NoError(t, os.MkdirAll(shard1Dir, os.ModePerm))
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard1Dir, "file1.db"), []byte("shard1_content"), 0o644))
+	shard1.Files = append(shard1.Files, filepath.Join("shard1_data", "file1.db"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard1Dir, "indexcount"), []byte("100"), 0o644))
+	shard1.DocIDCounterPath = filepath.Join("shard1_data", "indexcount")
+	shard1.DocIDCounter = []byte("100")
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard1Dir, "version"), []byte("v1"), 0o644))
+	shard1.ShardVersionPath = filepath.Join("shard1_data", "version")
+	shard1.Version = []byte("v1")
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard1Dir, "proplengths"), []byte("prop1"), 0o644))
+	shard1.PropLengthTrackerPath = filepath.Join("shard1_data", "proplengths")
+	shard1.PropLengthTracker = []byte("prop1")
+
+	// Create files for shard2
+	shard2Dir := filepath.Join(dir, "shard2_data")
+	require.NoError(t, os.MkdirAll(shard2Dir, os.ModePerm))
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard2Dir, "file2.db"), []byte("shard2_content"), 0o644))
+	shard2.Files = append(shard2.Files, filepath.Join("shard2_data", "file2.db"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard2Dir, "indexcount"), []byte("200"), 0o644))
+	shard2.DocIDCounterPath = filepath.Join("shard2_data", "indexcount")
+	shard2.DocIDCounter = []byte("200")
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard2Dir, "version"), []byte("v2"), 0o644))
+	shard2.ShardVersionPath = filepath.Join("shard2_data", "version")
+	shard2.Version = []byte("v2")
+
+	require.NoError(t, os.WriteFile(filepath.Join(shard2Dir, "proplengths"), []byte("prop2"), 0o644))
+	shard2.PropLengthTrackerPath = filepath.Join("shard2_data", "proplengths")
+	shard2.PropLengthTracker = []byte("prop2")
+
+	// Create zip with both shards
+	z, rc, err := NewZip(dir, int(NoCompression))
+	require.NoError(t, err)
+
+	compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
+
+	go func() {
+		_, err := z.WriteShard(ctx, &shard1)
+		require.NoError(t, err)
+		_, err = z.WriteShard(ctx, &shard2)
+		require.NoError(t, err)
+		require.NoError(t, z.Close())
+	}()
+
+	_, err = io.Copy(compressBuf, rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+
+	// Test 1: ReadChunk(nil) should restore both shards
+	t.Run("restore_both_shards", func(t *testing.T) {
+		destDir := t.TempDir()
+		uz, wc := NewUnzip(destDir, backup.CompressionNone)
+
+		go func() {
+			_, err := io.Copy(wc, bytes.NewReader(compressBuf.Bytes()))
+			require.NoError(t, err)
+			require.NoError(t, wc.Close())
+		}()
+
+		_, err := uz.ReadChunk(nil)
+		require.NoError(t, err)
+		require.NoError(t, uz.Close())
+
+		// Verify both shards exist
+		shard1Content, err := os.ReadFile(filepath.Join(destDir, "shard1_data", "file1.db"))
+		require.NoError(t, err)
+		require.Equal(t, "shard1_content", string(shard1Content))
+
+		shard2Content, err := os.ReadFile(filepath.Join(destDir, "shard2_data", "file2.db"))
+		require.NoError(t, err)
+		require.Equal(t, "shard2_content", string(shard2Content))
+	})
+
+	// Test 2: ReadChunk([]string{"shard2"}) should skip shard2 and only restore shard1
+	t.Run("skip_shard2_restore_shard1", func(t *testing.T) {
+		destDir := t.TempDir()
+		uz, wc := NewUnzip(destDir, backup.CompressionNone)
+
+		go func() {
+			_, err := io.Copy(wc, bytes.NewReader(compressBuf.Bytes()))
+			require.NoError(t, err)
+			require.NoError(t, wc.Close())
+		}()
+
+		_, err := uz.ReadChunk([]string{"shard2"})
+		require.NoError(t, err)
+		require.NoError(t, uz.Close())
+
+		// Verify shard1 does NOT exist (it was skipped)
+		_, err = os.ReadFile(filepath.Join(destDir, "shard1_data", "file1.db"))
+		require.Error(t, err)
+		require.True(t, os.IsNotExist(err))
+
+		// Verify shard2 exists
+		shard2Content, err := os.ReadFile(filepath.Join(destDir, "shard2_data", "file2.db"))
+		require.NoError(t, err)
+		require.Equal(t, "shard2_content", string(shard2Content))
+	})
 }

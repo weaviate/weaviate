@@ -104,7 +104,8 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
 		defer b.lastOp.reset()
-		if err := b.waitForCoordinator(expiration, id); err != nil {
+		sharedBackupState, _, err := b.waitForCoordinator(expiration, id)
+		if err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
 			b.lastAsyncError = err
@@ -133,14 +134,27 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
+		logFields := logrus.Fields{
+			"action":              "create_backup",
+			"backup_id":           req.ID,
+			"override_bucket":     req.Bucket,
+			"override_path":       req.Path,
+			"shared_backup_state": sharedBackupState,
+		}
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, sharedBackupState); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
 		} else {
 			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
+
+		// write which shards were backed up from this node. On restore, we can check which node contains a shared
+		// backup
+		if err := store.PutMetaGlobal(ctx, result.ToSharedBackupLocation(b.node, sharedBackupState), GlobalSharedBackupFile+"_"+b.node, req.Bucket, req.Path); err != nil {
+			b.logger.WithFields(logFields).Errorf("coordinator: all chunks: put_meta: %v", err)
+		}
+
 		result.CompletedAt = time.Now().UTC()
 	}
 	enterrors.GoWrapper(f, b.logger)

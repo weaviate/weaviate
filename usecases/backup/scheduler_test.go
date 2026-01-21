@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -319,7 +320,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Backend: backendName,
 		}
 		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", ""}
+		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", "", backup.SharedBackupState{}, nil}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
 
@@ -335,6 +336,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req1.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+		fs.selector.On("ListShardsSync", any, any, any).Return(backup.SharedBackupState{}, nil)
 
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -408,6 +410,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+		fs.selector.On("ListShardsSync", mock.Anything, mock.Anything, mock.Anything).Return(backup.SharedBackupState{}, nil)
 
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -460,7 +463,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		keyNodeA    = backupID + "/" + nodeA
 		keyNodeB    = backupID + "/" + nodeB
 		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", ""}
+		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", backup.SharedBackupState{}, backup.SharedBackupLocations{}}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 	meta := backup.DistributedBackupDescriptor{
@@ -519,6 +522,8 @@ func TestSchedulerRestoration(t *testing.T) {
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
 		fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalSharedBackupFile+"_"+nodeA).Return(nil, errors.New("error"))
+		fs.backend.On("GetObject", ctx, backupID, GlobalSharedBackupFile+"_"+nodeB).Return(nil, errors.New("error"))
 
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
@@ -561,6 +566,8 @@ func TestSchedulerRestoration(t *testing.T) {
 			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
 			fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
 			fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalSharedBackupFile+"_"+nodeA).Return(nil, errors.New("error"))
+			fs.backend.On("GetObject", ctx, backupID, GlobalSharedBackupFile+"_"+nodeB).Return(nil, errors.New("error"))
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 			// first for initial "STARTED", second for updated participant status
 			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
@@ -637,6 +644,10 @@ func TestSchedulerRestoration(t *testing.T) {
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeA, BackupFile).Return(metaBytes1, nil)
 		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeB, BackupFile).Return(metaBytes2, nil)
+
+		fs.backend.On("GetObject", ctx, backupID, GlobalSharedBackupFile+"_"+oldNodeA).Return(metaBytes1, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalSharedBackupFile+"_"+oldNodeB).Return(metaBytes1, nil)
+
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil).Twice()
 		fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
@@ -1048,7 +1059,7 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
 	c := NewScheduler(f.auth, &f.client, &f.selector, provider,
-		f.nodeResolver, &f.schema, f.log)
+		f.nodeResolver, &f.schema, config.Backup{SharedBackupsEnabled: false}, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
