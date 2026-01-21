@@ -1043,13 +1043,8 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 
 		isReplica := slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName())
 		if !isReplica && schemaVersion > 0 && len(ws.NodeNames()) > 0 && i.partitioningEnabled {
-			var allowFallback bool
 			var localAndHot bool
-
-			_ = i.schemaReader.Read(className, true, func(class *models.Class, state *sharding.State) error {
-				if class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.AutoTenantActivation {
-					allowFallback = true
-				}
+			_ = i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 				if state != nil {
 					if physical, ok := state.Physical[shardName]; ok {
 						localAndHot = state.IsLocalShard(shardName) &&
@@ -1058,8 +1053,7 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 				}
 				return nil
 			})
-
-			if allowFallback && localAndHot {
+			if localAndHot {
 				isReplica = true
 			}
 		}
