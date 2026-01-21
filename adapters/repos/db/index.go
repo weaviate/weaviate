@@ -1054,7 +1054,10 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 	var ws routerTypes.WriteReplicaSet
 	switch operation {
 	case localShardOperationWrite:
-		if schemaVersion > 0 {
+		// For multi-tenant classes, we may get a specific schemaVersion to wait for before trusting
+		// router results. This is important for implicit tenant activation flows where RAFT/schema
+		// might have applied an update that the router has not yet fully reflected.
+		if schemaVersion > 0 && i.partitioningEnabled {
 			if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 				return nil, func() {}, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
 			}
@@ -1068,7 +1071,7 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 		}
 
 		isReplica := slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName())
-		if !isReplica && schemaVersion > 0 && len(ws.NodeNames()) > 0 {
+		if !isReplica && schemaVersion > 0 && len(ws.NodeNames()) > 0 && i.partitioningEnabled {
 			var allowFallback bool
 			var localAndHot bool
 
