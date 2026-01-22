@@ -266,7 +266,7 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 			// After attempting to add replacement replicas, ensure that removing the
 			// replica on the removed node will not violate the desired replication
 			// factor. If it would, skip the deletion for now and log a warning.
-			if finalCount <= desiredRF {
+			if finalCount < desiredRF {
 				s.log.WithFields(logrus.Fields{
 					"collection":         className,
 					"shard":              shardName,
@@ -280,6 +280,14 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 			if _, err := s.DeleteReplicaFromShard(ctx, className, shardName, removedNode); err != nil {
 				return fmt.Errorf("delete replica %q from shard %q in collection %q: %w", removedNode, shardName, className, err)
 			}
+
+			s.log.WithFields(logrus.Fields{
+				"collection":         className,
+				"shard":              shardName,
+				"removed_node":       removedNode,
+				"replication_factor": desiredRF,
+				"current_replicas":   finalCount,
+			}).Info("deleted replica from shard")
 		}
 	}
 
