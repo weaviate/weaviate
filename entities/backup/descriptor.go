@@ -278,7 +278,8 @@ func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescr *ShardDesc
 			if err != nil {
 				return fmt.Errorf("stat big file %v: %w", file, err)
 			}
-			if info.Size == infoNew.Size() || info.ModifiedAt.Equal(infoNew.ModTime()) {
+			// unchanged files. These can be skipped in incremental backup and restored form the previous backup
+			if info.Size == infoNew.Size() && info.ModifiedAt.Equal(infoNew.ModTime()) {
 				if s.IncrementalBackupInfo == nil {
 					s.IncrementalBackupInfo = make(map[string][]IncrementalBackupInfo)
 				}
