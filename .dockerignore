@@ -23,7 +23,6 @@ tools/
 **/*_test.go
 **/.DS_Store
 **/testdata/
-**/test_data/
 coverage-integration.txt
 coverage-unit.txt
 
