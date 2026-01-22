@@ -773,6 +773,26 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
+// isAsyncReplicationEnabled determines whether async replication should be
+// considered enabled, while preserving backward compatibility.
+//
+// Historically, async replication was controlled by a single boolean flag
+// (AsyncEnabled). Newer configs replace this with an explicit disable flag
+// (AsyncDisabled).
+//
+// Behavior:
+//   - If AsyncDisabled is set (new configs), it takes precedence and
+//     AsyncEnabled is ignored.
+//   - If AsyncDisabled is nil (legacy configs), fall back to AsyncEnabled.
+func isAsyncReplicationEnabled(cfg *models.ReplicationConfig) bool {
+	if cfg.AsyncDisabled != nil {
+		return !*cfg.AsyncDisabled
+	}
+
+	// Legacy behavior for older collections
+	return cfg.AsyncEnabled
+}
+
 func (i *Index) asyncReplicationGloballyDisabled() bool {
 	return i.globalreplicationConfig.AsyncReplicationDisabled.Get()
 }
@@ -783,7 +803,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationEnabled = isAsyncReplicationEnabled(cfg)
 
 	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig)
 	if err != nil {
@@ -800,7 +820,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 			}
 		}
 
-		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.Config.AsyncReplicationEnabled); err != nil {
+		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.asyncReplicationEnabled()); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -1084,6 +1104,10 @@ func (i *Index) AsyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
+	return i.asyncReplicationEnabled()
+}
+
+func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
 }
 
