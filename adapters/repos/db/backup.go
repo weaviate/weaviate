@@ -198,8 +198,10 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc, classBase
 		}
 
 		var shardBaseDescr *backup.ShardDescriptor
+		baseBackupID := ""
 		if classBaseDescr != nil {
 			shardBaseDescr = classBaseDescr.GetShardDescriptor(name)
+			baseBackupID = classBaseDescr.BackupId
 		}
 		// prevent writing into the index during collection of metadata
 		i.backupLock.Lock(name)
@@ -211,7 +213,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc, classBase
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
 		}
 
-		if err := sd.FillFileInfo(files, shardBaseDescr, classBaseDescr.BackupId, i.Config.RootPath); err != nil {
+		if err := sd.FillFileInfo(files, shardBaseDescr, baseBackupID, i.Config.RootPath); err != nil {
 			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
 		}
 
