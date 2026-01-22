@@ -58,6 +58,7 @@ type Telemeter struct {
 	failedToStart     bool
 	consumer          string
 	pushInterval      time.Duration
+	cloudInfoHelper   *cloudInfoHelper
 }
 
 // New creates a new Telemeter instance
@@ -72,6 +73,7 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		shutdown:          make(chan struct{}),
 		consumer:          defaultConsumer,
 		pushInterval:      defaultPushInterval,
+		cloudInfoHelper:   newCloudInfoHelper(logger),
 	}
 	return tel
 }
@@ -193,6 +195,8 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		return nil, fmt.Errorf("get collections count: %w", err)
 	}
 
+	cloudProvider, uniqueID := tel.getCloudInfo()
+
 	return &Payload{
 		MachineID:        tel.machineID,
 		Type:             payloadType,
@@ -202,6 +206,8 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		Arch:             runtime.GOARCH,
 		UsedModules:      usedMods,
 		CollectionsCount: cols,
+		CloudProvider:    cloudProvider,
+		UniqueID:         uniqueID,
 	}, nil
 }
 
@@ -262,4 +268,16 @@ func (tel *Telemeter) getCollectionsCount(context.Context) (int, error) {
 		return 0, nil
 	}
 	return len(sch.Objects.Classes), nil
+}
+
+func (tel *Telemeter) getCloudInfo() (cloudProvider, uniqueID *string) {
+	if ci := tel.cloudInfoHelper.getCloudInfo(); ci != nil {
+		if ci.cloudProvider != "" {
+			cloudProvider = &ci.cloudProvider
+		}
+		if ci.uniqueID != "" {
+			uniqueID = &ci.uniqueID
+		}
+	}
+	return
 }
