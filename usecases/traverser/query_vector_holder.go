@@ -50,6 +50,26 @@ func GetQueryVectorHolder(ctx context.Context) (*QueryVectorHolder, bool) {
 	return holder, true
 }
 
+func (h *QueryVectorHolder) Snapshot() map[string][]float32 {
+	if h == nil {
+		return nil
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if len(h.QueryVectors) == 0 {
+		return nil
+	}
+
+	out := make(map[string][]float32, len(h.QueryVectors))
+	for key, vector := range h.QueryVectors {
+		out[key] = vector
+	}
+
+	return out
+}
+
 func storeQueryVector(ctx context.Context, vec []float32) {
 	holder, ok := GetQueryVectorHolder(ctx)
 	if !ok {
