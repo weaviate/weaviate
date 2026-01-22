@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"testing"
 	"time"
 
@@ -299,7 +301,7 @@ func (b *book) toObject(class string) *models.Object {
 	}
 }
 
-func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, backend string, overrideBucket, overridePath string) {
+func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, debugEndpoint, backend string, overrideBucket, overridePath string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -352,6 +354,21 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 
 		require.True(t1, *resp.Payload.Status == "SUCCESS")
 	}, 120*time.Second, 1000*time.Millisecond)
+
+	// Download and print goroutine debug info
+	t.Log("Fetching goroutine debug info...")
+	resp2, err := http.Get(fmt.Sprintf("%s/debug/pprof/goroutine?debug=2", debugEndpoint))
+	if err != nil {
+		t.Logf("Failed to fetch goroutine debug info: %v", err)
+	} else {
+		defer resp2.Body.Close()
+		body, err := io.ReadAll(resp2.Body)
+		if err != nil {
+			t.Logf("Failed to read goroutine debug info: %v", err)
+		} else {
+			t.Logf("Goroutine debug info:\n%s", string(body))
+		}
+	}
 
 	helper.DeleteClass(t, booksClass.Class)
 

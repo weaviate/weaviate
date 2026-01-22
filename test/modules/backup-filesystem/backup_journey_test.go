@@ -38,6 +38,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
+			WithWeaviateWithDebugPort().
 			WithWeaviate().
 			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
 			Start(ctx)
@@ -51,7 +52,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-filesystem", func(t *testing.T) {
 			defer printLogsOnError(t, compose)
-			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(), compose.GetWeaviate().DebugURI(),
 				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, false, "", "")
 		})
 	})
@@ -61,6 +62,7 @@ func Test_BackupJourney(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
+			WithWeaviateWithDebugPort().
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -72,7 +74,7 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(), compose.GetWeaviate().DebugURI(),
 				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, true, "testbucketoverride", "testBucketPathOverride")
 		})
 

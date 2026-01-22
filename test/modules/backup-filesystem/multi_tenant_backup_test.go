@@ -33,6 +33,7 @@ func Test_MultiTenantBackup(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviate().
+			WithWeaviateWithDebugPort().
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -49,7 +50,7 @@ func Test_MultiTenantBackup(t *testing.T) {
 			}
 
 			journey.BackupJourneyTests_SingleNode(t,
-				compose.GetWeaviate().URI(), "filesystem", fsBackupJourneyClassName,
+				compose.GetWeaviate().URI(), compose.GetWeaviate().DebugURI(), "filesystem", fsBackupJourneyClassName,
 				fsBackupJourneyBackupIDSingleNode, tenantNames, false, "", "")
 		})
 	})
@@ -59,6 +60,7 @@ func Test_MultiTenantBackup(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviate().
+			WithWeaviateWithDebugPort().
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -75,7 +77,7 @@ func Test_MultiTenantBackup(t *testing.T) {
 			}
 
 			journey.BackupJourneyTests_SingleNode(t,
-				compose.GetWeaviate().URI(), "filesystem", fsBackupJourneyClassName,
+				compose.GetWeaviate().URI(), compose.GetWeaviate().DebugURI(), "filesystem", fsBackupJourneyClassName,
 				fsBackupJourneyBackupIDSingleNode, tenantNames, true, "testbucketoverride", "testBucketPathOverride")
 		})
 	})
