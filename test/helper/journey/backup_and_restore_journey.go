@@ -357,7 +357,7 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 
 	// Download and print goroutine debug info
 	t.Log("Fetching goroutine debug info...")
-	resp2, err := http.Get(fmt.Sprintf("%s/debug/pprof/goroutine?debug=2", debugEndpoint))
+	resp2, err := http.Get(fmt.Sprintf("http://%s/debug/pprof/goroutine?debug=2", debugEndpoint))
 	if err != nil {
 		t.Logf("Failed to fetch goroutine debug info: %v", err)
 	} else {
