@@ -137,7 +137,6 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 		)
 		require.NoError(t, err)
 		defer resp.Body.Close()
-		t.Logf("second /v1/cluster/remove for %q returned status %d", nodeToRemove, resp.StatusCode)
 	})
 
 	t.Run("sharding state no longer references removed node and RF is preserved", func(t *testing.T) {
@@ -152,14 +151,26 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 			state := resp.Payload.ShardingState
 			require.NotNil(ct, state)
 
+			// After removing 1 node from a 3-node cluster, we have 2 nodes remaining.
+			// With RF=2 and 2 nodes available, we expect exactly 2 replicas per shard.
+			initialClusterSize := 3
+			remainingNodes := initialClusterSize - 1
+			desiredRF := int(paragraphClass.ReplicationConfig.Factor)
+			expectedReplicas := desiredRF
+			if remainingNodes < desiredRF {
+				// If we don't have enough nodes, we can only have as many replicas as nodes available
+				expectedReplicas = remainingNodes
+			}
+
 			for _, shard := range state.Shards {
 				for _, replica := range shard.Replicas {
 					require.NotEqual(ct, nodeToRemove, replica, "shard still references removed node")
 				}
-				// Best-effort: expect we still have at least one replica per shard
-				// and at most the desired replication factor.
-				require.GreaterOrEqual(ct, len(shard.Replicas), 1)
-				require.LessOrEqual(ct, len(shard.Replicas), int(paragraphClass.ReplicationConfig.Factor))
+				// Verify we have exactly the expected number of replicas when enough nodes are available.
+				// This ensures rebalancing worked correctly after node removal.
+				require.Equal(ct, expectedReplicas, len(shard.Replicas),
+					"shard should have exactly %d replicas (RF=%d, remaining nodes=%d)",
+					expectedReplicas, desiredRF, remainingNodes)
 			}
 		}, 60*time.Second, 2*time.Second)
 	})
@@ -171,18 +182,23 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 	require.GreaterOrEqual(t, nodeNum, 1)
 	require.LessOrEqual(t, nodeNum, 3)
 
-	// Map node number to container name (node1 -> "weaviate", node2 -> "weaviate2", node3 -> "weaviate3")
-	var removedContainerName string
-	switch nodeNum {
-	case 1:
-		removedContainerName = "weaviate"
-	case 2:
-		removedContainerName = "weaviate2"
-	case 3:
-		removedContainerName = "weaviate3"
-	default:
-		t.Fatalf("unexpected node number: %d", nodeNum)
+	// Helper function to map node number to container name
+	// node1 -> "weaviate", node2 -> "weaviate2", node3 -> "weaviate3"
+	nodeToContainerName := func(nodeNum int) string {
+		switch nodeNum {
+		case 1:
+			return "weaviate"
+		case 2:
+			return "weaviate2"
+		case 3:
+			return "weaviate3"
+		default:
+			t.Fatalf("unexpected node number: %d", nodeNum)
+			return "" // unreachable, but satisfies compiler
+		}
 	}
+
+	removedContainerName := nodeToContainerName(nodeNum)
 
 	t.Run("restart remaining cluster nodes", func(t *testing.T) {
 		// Restart all nodes except the removed one to ensure cluster stability
@@ -190,15 +206,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 			if i == nodeNum {
 				continue // Skip the removed node
 			}
-			var containerName string
-			switch i {
-			case 1:
-				containerName = "weaviate"
-			case 2:
-				containerName = "weaviate2"
-			case 3:
-				containerName = "weaviate3"
-			}
+			containerName := nodeToContainerName(i)
 			// Stop and start the container to simulate a restart
 			timeout := 30 * time.Second
 			require.NoError(t, compose.Stop(ctx, containerName, &timeout), "failed to stop %s", containerName)
