@@ -183,8 +183,9 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 
 			// If we're at or below the desired RF, we need to add replacement replicas first
 			// before we can delete the removed node (DeleteReplicaFromShard enforces RF minimum).
-			// This may temporarily increase the replica count above RF, but it does NOT
-			// trigger any data replication as we only adjust the sharding metadata.
+			// This may temporarily increase the replica count above RF. Adding a replica updates
+			// the sharding/cluster metadata here and triggers data replication to the new replica
+			// asynchronously in the background; this operation does not wait for replication to complete.
 			if currentCount <= desiredRF {
 				availableNodes := s.StorageCandidates()
 				availableSet := make(map[string]bool)
@@ -197,10 +198,9 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 					delete(availableSet, replica)
 				}
 
-				targetCount := desiredRF
-				if currentCount == desiredRF {
-					targetCount = desiredRF + 1
-				}
+				// Always ensure we have at least desiredRF + 1 replicas before deletion
+				// because DeleteReplicaFromShard requires numberOfReplicas > ReplicationFactor
+				targetCount := desiredRF + 1
 
 				for currentCount < targetCount && len(availableSet) > 0 {
 					var newNode string
@@ -216,6 +216,20 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 					delete(availableSet, newNode)
 					currentCount++
 				}
+			}
+
+			// After attempting to add replacement replicas, ensure that removing the
+			// replica on the removed node will not violate the desired replication
+			// factor. If it would, skip the deletion for now and log a warning.
+			if currentCount-1 < desiredRF {
+				s.log.WithFields(logrus.Fields{
+					"collection":         className,
+					"shard":              shardName,
+					"removed_node":       removedNode,
+					"replication_factor": desiredRF,
+					"current_replicas":   currentCount,
+				}).Warn("skipping replica removal after node departure: insufficient nodes to maintain replication factor")
+				continue
 			}
 
 			if _, err := s.DeleteReplicaFromShard(ctx, className, shardName, removedNode); err != nil {
