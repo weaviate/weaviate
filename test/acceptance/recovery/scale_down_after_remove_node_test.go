@@ -187,11 +187,11 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 	nodeToContainerName := func(nodeNum int) string {
 		switch nodeNum {
 		case 1:
-			return "weaviate"
+			return docker.Weaviate1
 		case 2:
-			return "weaviate2"
+			return docker.Weaviate2
 		case 3:
-			return "weaviate3"
+			return docker.Weaviate3
 		default:
 			t.Fatalf("unexpected node number: %d", nodeNum)
 			return "" // unreachable, but satisfies compiler
