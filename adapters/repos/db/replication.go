@@ -401,7 +401,8 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		return nil, fmt.Errorf("flush memtables: %w", err)
 	}
 
-	if err := shard.ListBackupFiles(ctx, &sd); err != nil {
+	sdFiles, err := shard.ListBackupFiles(ctx, &sd)
+	if err != nil {
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
 
@@ -420,7 +421,7 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		sd.PropLengthTrackerPath,
 		sd.ShardVersionPath,
 	}
-	files = append(files, sd.Files...)
+	files = append(files, sdFiles...)
 
 	return files, nil
 }

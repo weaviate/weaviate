@@ -47,6 +47,7 @@ type DistributedBackupDescriptor struct {
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
+	BaseBackupID            string                     `json:"baseBackupId"`
 }
 
 // Len returns how many nodes exist in d
@@ -225,10 +226,11 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
-	Name          string              `json:"name"`
-	Node          string              `json:"node"`
-	Files         []string            `json:"files,omitempty"`
-	BigFilesChunk map[string]BigFiles `json:"big_files_chunk,omitempty"`
+	Name                  string                             `json:"name"`
+	Node                  string                             `json:"node"`
+	Files                 []string                           `json:"files,omitempty"`
+	BigFilesChunk         map[string]BigFiles                `json:"big_files_chunk,omitempty"`
+	IncrementalBackupInfo map[string][]IncrementalBackupInfo `json:"incremental_backup_info,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -236,7 +238,6 @@ type ShardDescriptor struct {
 	PropLengthTracker     []byte `json:"propLengthTracker,omitempty"`
 	ShardVersionPath      string `json:"shardVersionPath,omitempty"`
 	Version               []byte `json:"version,omitempty"`
-	Chunk                 int32  `json:"chunk"`
 }
 
 // ClearTemporary clears fields that are no longer needed once compression is done.
@@ -298,8 +299,13 @@ func (f *FileList) Peek() string {
 	return f.Files[f.start]
 }
 
+type IncrementalBackupInfo struct {
+	File      string   `json:"file"`
+	ChunkKeys []string `json:"chunk_key"`
+}
+
 type BigFiles struct {
-	ChunkKey   string    `json:"chunk_key"`
+	ChunkKeys  []string  `json:"chunk_key"`
 	Size       int64     `json:"size"`
 	ModifiedAt time.Time `json:"modified_at"`
 }
@@ -307,6 +313,7 @@ type BigFiles struct {
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
 	Name          string             `json:"name"` // DB class name, also selected by user
+	BackupId      string             `json:"backup_id"`
 	Shards        []*ShardDescriptor `json:"shards"`
 	ShardingState []byte             `json:"shardingState"`
 	Schema        []byte             `json:"schema"`
@@ -319,6 +326,15 @@ type ClassDescriptor struct {
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
+}
+
+func (c *ClassDescriptor) GetShardDescriptor(shardName string) *ShardDescriptor {
+	for _, shard := range c.Shards {
+		if shard.Name == shardName {
+			return shard
+		}
+	}
+	return nil
 }
 
 type CompressionType string
@@ -343,6 +359,7 @@ type BackupDescriptor struct {
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
+	BaseBackupIds           []string          `json:"baseBackupId,omitempty"` // IDs of base backups for incremental backups
 }
 
 // List all existing classes in d
@@ -425,6 +442,16 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 		}
 	}
 	d.Classes = cs
+}
+
+// Filter classes based on predicate
+func (d *BackupDescriptor) GetClassDescriptor(className string) *ClassDescriptor {
+	for _, dest := range d.Classes {
+		if dest.Name == className {
+			return &dest
+		}
+	}
+	return nil
 }
 
 // ValidateV1 validates d

@@ -461,14 +461,12 @@ func TestShardDescriptorClear(t *testing.T) {
 		ShardVersionPath:      "a/d",
 		Version:               []byte{3},
 		Files:                 []string{"file"},
-		Chunk:                 1,
 	}
 
 	want := ShardDescriptor{
 		Name:  "name",
 		Node:  "node",
 		Files: []string{"file"},
-		Chunk: 1,
 	}
 	s.ClearTemporary()
 	assert.Equal(t, want, s)

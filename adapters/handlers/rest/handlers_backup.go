@@ -102,14 +102,20 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		overrideBucket = params.Body.Config.Bucket
 		overridePath = params.Body.Config.Path
 	}
+	baseBackupId := ""
+	if params.Body.Config != nil && params.Body.IncrementalBackupBaseID != nil {
+		baseBackupId = *params.Body.IncrementalBackupBaseID
+	}
+
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:          params.Body.ID,
-		Backend:     params.Backend,
-		Bucket:      overrideBucket,
-		Path:        overridePath,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
-		Compression: compressionFromBCfg(params.Body.Config),
+		ID:           params.Body.ID,
+		Backend:      params.Backend,
+		Bucket:       overrideBucket,
+		Path:         overridePath,
+		Include:      params.Body.Include,
+		Exclude:      params.Body.Exclude,
+		Compression:  compressionFromBCfg(params.Body.Config),
+		BaseBackupId: baseBackupId,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

@@ -51,28 +51,6 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 	}
 }
 
-// Backup is called by the User
-func (b *backupper) Backup(ctx context.Context,
-	store nodeStore, id string, classes []string, overrideBucket, overridePath string,
-) (*backup.CreateMeta, error) {
-	// make sure there is no active backup
-	req := Request{
-		Method:  OpCreate,
-		ID:      id,
-		Classes: classes,
-		Bucket:  overrideBucket,
-		Path:    overridePath,
-	}
-	if _, err := b.backup(store, &req); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	return &backup.CreateMeta{
-		Path:   store.HomeDir(overrideBucket, overridePath),
-		Status: backup.Started,
-	}, nil
-}
-
 func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState, error) {
 	// check if backup is still active
 	st := b.lastOp.get()
@@ -124,6 +102,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
+
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
@@ -134,6 +113,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
+
 		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
@@ -143,6 +123,26 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
+
+		// the coordinator might want to abort the backup
+		done := make(chan struct{})
+		ctx := b.withCancellation(context.Background(), id, done, b.logger)
+		defer close(done)
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
+
+		var baseDescr *backup.BackupDescriptor
+		var baseBackupIds []string
+		if req.BaseBackupID != "" {
+			var err error
+			baseDescr, err = store.MetaForBackupID(ctx, req.BaseBackupID, store.bucket, store.path)
+			if err != nil {
+				b.logger.WithFields(logFields).Error(fmt.Errorf("fetching base backup: %w", err))
+				b.lastAsyncError = err
+				return
+			}
+			baseBackupIds = []string{req.BaseBackupID}
+		}
+
 		result := backup.BackupDescriptor{
 			StartedAt:       time.Now().UTC(),
 			ID:              id,
@@ -150,18 +150,12 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			Version:         Version,
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
+			BaseBackupIds:   baseBackupIds,
 		}
 
-		// the coordinator might want to abort the backup
-		done := make(chan struct{})
-		ctx := b.withCancellation(context.Background(), id, done, b.logger)
-		defer close(done)
-
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, baseDescr, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
-
 		} else {
 			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}

@@ -64,6 +64,7 @@ type objectStore struct {
 	backupId string // use supplied backup id
 	bucket   string // Override bucket for one call
 	path     string // Override path for one call
+	node     string
 }
 
 func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
@@ -121,10 +122,6 @@ type nodeStore struct {
 	objectStore
 }
 
-func NewNodeStore(backend modulecapabilities.BackupBackend, backupId, bucket, path string) *nodeStore {
-	return &nodeStore{objectStore: objectStore{backend, backupId, bucket, path}}
-}
-
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
@@ -132,7 +129,7 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath} // for backward compatibility
+		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
 			if adjustBasePath {
 				s.objectStore.backupId = backupID
@@ -142,6 +139,16 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	}
 
 	return &result, err
+}
+
+func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
+	var result backup.BackupDescriptor
+
+	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
+	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // meta marshals and uploads metadata
@@ -205,10 +212,10 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc, baseDescr *backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions
@@ -473,7 +480,6 @@ func (u *uploader) compress(ctx context.Context,
 		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize, chunkKey); err != nil {
 			return err
 		}
-		shard.Chunk = chunk
 		shards = append(shards, shard.Name)
 		shard.ClearTemporary()
 

@@ -52,12 +52,12 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescr *backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
 		for _, c := range classes {
-			desc := backup.ClassDescriptor{Name: c}
+			desc := backup.ClassDescriptor{Name: c, BackupId: bakid}
 			func() {
 				idx := db.GetIndex(schema.ClassName(c))
 				if idx == nil {
@@ -70,7 +70,11 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
-				if err := idx.descriptor(ctx, bakid, &desc); err != nil {
+				var classBaseDescr *backup.ClassDescriptor
+				if baseDescr != nil {
+					classBaseDescr = baseDescr.GetClassDescriptor(c)
+				}
+				if err := idx.descriptor(ctx, bakid, &desc, classBaseDescr); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
 			}()
@@ -177,7 +181,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc, classBaseDescr *backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -192,13 +196,49 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
+
+		var shardBaseDescr *backup.ShardDescriptor
+		if classBaseDescr != nil {
+			shardBaseDescr = classBaseDescr.GetShardDescriptor(name)
+		}
 		// prevent writing into the index during collection of metadata
 		i.backupLock.Lock(name)
 		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
 
-		if err := s.ListBackupFiles(ctx, &sd); err != nil {
+		files, err := s.ListBackupFiles(ctx, &sd)
+		if err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
+		}
+
+		sd.Files = make([]string, 0, len(files))
+		for _, file := range files {
+			if shardBaseDescr != nil {
+				if info, ok := shardBaseDescr.BigFilesChunk[file]; ok {
+					absPath, err := diskio.SanitizeFilePathJoin(i.Config.RootPath, file)
+					if err != nil {
+						return fmt.Errorf("sanitize file path %v: %w", file, err)
+					}
+					infoNew, err := os.Stat(absPath)
+					if err != nil {
+						return fmt.Errorf("stat big file %v: %w", file, err)
+					}
+					if info.Size == infoNew.Size() || info.ModifiedAt.Equal(infoNew.ModTime()) || info.Size == infoNew.Size() {
+						if sd.IncrementalBackupInfo == nil {
+							sd.IncrementalBackupInfo = make(map[string][]backup.IncrementalBackupInfo)
+						}
+						// files that are skipped due to being unchanged from base backup
+						sd.IncrementalBackupInfo[classBaseDescr.BackupId] = append(
+							sd.IncrementalBackupInfo[file],
+							backup.IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
+						)
+						continue
+					}
+				}
+			}
+
+			// files to backup
+			sd.Files = append(sd.Files, file)
 		}
 
 		desc.Shards = append(desc.Shards, &sd)

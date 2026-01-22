@@ -207,7 +207,10 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	}
 
 	if info.Size() > z.maxChunkSizeInBytes {
-		sd.BigFilesChunk[relPath] = entBackup.BigFiles{ChunkKey: chunkKey, Size: info.Size(), ModifiedAt: info.ModTime()}
+		if sd.BigFilesChunk == nil {
+			sd.BigFilesChunk = make(map[string]entBackup.BigFiles)
+		}
+		sd.BigFilesChunk[relPath] = entBackup.BigFiles{ChunkKeys: []string{chunkKey}, Size: info.Size(), ModifiedAt: info.ModTime()}
 	}
 
 	f, err := os.Open(absPath)

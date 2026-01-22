@@ -426,9 +426,9 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
-func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	return l.shard.ListBackupFiles(ctx, ret)
 }
