@@ -393,6 +393,7 @@ func testHNSWWithAllocChecker(t *testing.T, allocChecker memwatch.AllocChecker) 
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 		AllocChecker:          allocChecker,
+		GetViewThunk:          GetViewThunk,
 	}
 
 	index, err := New(cfg, ent.UserConfig{
