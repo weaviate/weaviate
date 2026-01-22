@@ -22,25 +22,20 @@ type Classification struct {
 }
 
 type Properties struct {
-	Classification bool     `json:"classification"`
-	RefMeta        bool     `json:"refMeta"`
-	Vector         bool     `json:"vector"`
-	Vectors        []string `json:"vectors"`
-	// IncludeAllTargetVectors indicates that ALL target vectors should be included,
-	// regardless of the Vectors field. This is used internally by MarshalBinary
-	// to include all vectors for persistence. When false (default), the Vectors
-	// field determines which specific vectors to include (empty means none).
-	IncludeAllTargetVectors bool                   `json:"-"`
-	Certainty               bool                   `json:"certainty"`
-	ID                      bool                   `json:"id"`
-	CreationTimeUnix        bool                   `json:"creationTimeUnix"`
-	LastUpdateTimeUnix      bool                   `json:"lastUpdateTimeUnix"`
-	ModuleParams            map[string]interface{} `json:"moduleParams"`
-	Distance                bool                   `json:"distance"`
-	Score                   bool                   `json:"score"`
-	ExplainScore            bool                   `json:"explainScore"`
-	IsConsistent            bool                   `json:"isConsistent"`
-	Group                   bool                   `json:"group"`
+	Classification     bool                   `json:"classification"`
+	RefMeta            bool                   `json:"refMeta"`
+	Vector             bool                   `json:"vector"`
+	Vectors            []string               `json:"vectors"`
+	Certainty          bool                   `json:"certainty"`
+	ID                 bool                   `json:"id"`
+	CreationTimeUnix   bool                   `json:"creationTimeUnix"`
+	LastUpdateTimeUnix bool                   `json:"lastUpdateTimeUnix"`
+	ModuleParams       map[string]interface{} `json:"moduleParams"`
+	Distance           bool                   `json:"distance"`
+	Score              bool                   `json:"score"`
+	ExplainScore       bool                   `json:"explainScore"`
+	IsConsistent       bool                   `json:"isConsistent"`
+	Group              bool                   `json:"group"`
 
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.

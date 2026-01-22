@@ -766,12 +766,10 @@ const (
 // conditionally includes vectors and properties based on the additional.Properties
 // parameter. This is useful for network transmission where vectors may not be needed.
 //
-// If addProps.Vector is false, the main vector will be serialized with length 0.
+// If addProps.Vector is false, the vector will be serialized with length 0.
 // If addProps.NoProps is true, the properties will be serialized with length 0.
-// For target vectors (Vectors and MultiVectors):
-//   - If addProps.IncludeAllTargetVectors is true, ALL target vectors are included
-//   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors is empty, NO target vectors are included
-//   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors has specific names, only those are included
+// If len(addProps.Vectors) == 0 and addProps.Vector is false, target vectors and
+// multi-vectors will also be serialized with length 0.
 func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
@@ -837,35 +835,26 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	// Determine which target vectors to include:
-	// - IncludeAllTargetVectors: true means include ALL vectors (used by MarshalBinary)
-	// - IncludeAllTargetVectors: false (default) + empty Vectors means include NO vectors
-	// - IncludeAllTargetVectors: false + non-empty Vectors means include only specified vectors
-	includeAllTargetVectors := addProps.IncludeAllTargetVectors
-	includeSpecificTargetVectors := len(addProps.Vectors) > 0
-
-	// Build a set of requested vectors for quick lookup (only if filtering)
-	var requestedVectors map[string]struct{}
-	if includeSpecificTargetVectors {
-		requestedVectors = make(map[string]struct{}, len(addProps.Vectors))
-		for _, v := range addProps.Vectors {
-			requestedVectors[v] = struct{}{}
-		}
-	}
+	// Determine if we should include target vectors
+	includeTargetVectors := len(addProps.Vectors) > 0
 
 	var targetVectorsOffsets []byte
 	var targetVectorsOffsetsLength uint32
 	var targetVectorsSegmentLength int
 
 	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
-	if (includeAllTargetVectors || includeSpecificTargetVectors) && len(ko.Vectors) > 0 {
+	if includeTargetVectors && len(ko.Vectors) > 0 {
+		// Build a set of requested vectors for quick lookup
+		requestedVectors := make(map[string]struct{}, len(addProps.Vectors))
+		for _, v := range addProps.Vectors {
+			requestedVectors[v] = struct{}{}
+		}
+
 		offsetsMap := map[string]uint32{}
 		for name, vec := range ko.Vectors {
-			// Skip if we're filtering and this vector wasn't requested
-			if includeSpecificTargetVectors {
-				if _, ok := requestedVectors[name]; !ok {
-					continue
-				}
+			// Only include if requested
+			if _, ok := requestedVectors[name]; !ok {
+				continue
 			}
 			if len(vec) > maxVectorLength {
 				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
@@ -900,14 +889,18 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	var multiVectorsSegmentLength int
 
 	multiVectorsOffsetOrder := make([]string, 0, len(ko.MultiVectors))
-	if (includeAllTargetVectors || includeSpecificTargetVectors) && len(ko.MultiVectors) > 0 {
+	if includeTargetVectors && len(ko.MultiVectors) > 0 {
+		// Build a set of requested vectors for quick lookup
+		requestedVectors := make(map[string]struct{}, len(addProps.Vectors))
+		for _, v := range addProps.Vectors {
+			requestedVectors[v] = struct{}{}
+		}
+
 		offsetsMap := map[string]uint32{}
 		for name, vecs := range ko.MultiVectors {
-			// Skip if we're filtering and this vector wasn't requested
-			if includeSpecificTargetVectors {
-				if _, ok := requestedVectors[name]; !ok {
-					continue
-				}
+			// Only include if requested
+			if _, ok := requestedVectors[name]; !ok {
+				continue
 			}
 			offsetsMap[name] = uint32(multiVectorsSegmentLength)
 			// 4 bytes for number of vectors
@@ -1039,12 +1032,224 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 }
 
 func (ko *Object) MarshalBinary() ([]byte, error) {
-	// Delegate to MarshalBinaryOptional with "include everything" config:
-	// Vector: true, NoProps: false (default), IncludeAllTargetVectors: true
-	return ko.MarshalBinaryOptional(additional.Properties{
-		Vector:                  true,
-		IncludeAllTargetVectors: true,
-	})
+	if ko.MarshallerVersion != 1 {
+		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
+	}
+
+	kindByte := uint8(0)
+	// Deprecated Kind field
+	kindByte = 1
+
+	idParsed, err := uuid.Parse(ko.ID().String())
+	if err != nil {
+		return nil, err
+	}
+	idBytes, err := idParsed.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(ko.Vector) > maxVectorLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), maxVectorLength)
+	}
+	vectorLength := uint32(len(ko.Vector))
+
+	className := []byte(ko.Class())
+	if len(className) > maxClassNameLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
+	}
+	classNameLength := uint32(len(className))
+
+	schema, err := json.Marshal(ko.Properties())
+	if err != nil {
+		return nil, err
+	}
+	if len(schema) > maxSchemaLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
+	}
+	schemaLength := uint32(len(schema))
+
+	meta, err := json.Marshal(ko.AdditionalProperties())
+	if err != nil {
+		return nil, err
+	}
+	if len(meta) > maxMetaLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "meta", len(meta), maxMetaLength)
+	}
+	metaLength := uint32(len(meta))
+
+	vectorWeights, err := json.Marshal(ko.VectorWeights())
+	if err != nil {
+		return nil, err
+	}
+	if len(vectorWeights) > maxVectorWeightsLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vectorWeights", len(vectorWeights), maxVectorWeightsLength)
+	}
+	vectorWeightsLength := uint32(len(vectorWeights))
+
+	var targetVectorsOffsets []byte
+	var targetVectorsOffsetsLength uint32
+	var targetVectorsSegmentLength int
+
+	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
+	if len(ko.Vectors) > 0 {
+		offsetsMap := map[string]uint32{}
+		for name, vec := range ko.Vectors {
+			if len(vec) > maxVectorLength {
+				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
+			}
+
+			offsetsMap[name] = uint32(targetVectorsSegmentLength)
+			targetVectorsSegmentLength += 2 + 4*len(vec) // 2 for vec length + vec bytes
+
+			if targetVectorsSegmentLength > maxTargetVectorsSegmentLength {
+				return nil,
+					fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)",
+						"targetVectorsSegmentLength", targetVectorsSegmentLength, maxTargetVectorsSegmentLength)
+			}
+
+			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
+		}
+
+		targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
+		if err != nil {
+			return nil, fmt.Errorf("could not marshal target vectors offsets: %w", err)
+		}
+		if len(targetVectorsOffsets) > maxTargetVectorsOffsetsLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(targetVectorsOffsets), maxTargetVectorsOffsetsLength)
+		}
+		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
+	}
+
+	var multiVectorsOffsets []byte
+	var multiVectorsOffsetsLength uint32
+	var multiVectorsSegmentLength int
+
+	multiVectorsOffsetOrder := make([]string, 0, len(ko.MultiVectors))
+	if len(ko.MultiVectors) > 0 {
+		offsetsMap := map[string]uint32{}
+		for name, vecs := range ko.MultiVectors {
+			offsetsMap[name] = uint32(multiVectorsSegmentLength)
+			// 4 bytes for number of vectors
+			multiVectorsSegmentLength += 4
+			for _, vec := range vecs {
+				if len(vec) > maxVectorLength {
+					return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
+				}
+				// 2 bytes for vec length and 4 bytes per float32
+				multiVectorsSegmentLength += 2 + 4*len(vec)
+
+				if multiVectorsSegmentLength > maxMultiVectorsSegmentLength {
+					return nil,
+						fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)",
+							"multiVectorsSegmentLength", multiVectorsSegmentLength, maxMultiVectorsSegmentLength)
+				}
+			}
+			multiVectorsOffsetOrder = append(multiVectorsOffsetOrder, name)
+		}
+
+		multiVectorsOffsets, err = msgpack.Marshal(offsetsMap)
+		if err != nil {
+			return nil, fmt.Errorf("could not marshal multi vectors offsets: %w", err)
+		}
+		if len(multiVectorsOffsets) > maxMultiVectorsOffsetsLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multiVectorsOffsets", len(multiVectorsOffsets), maxMultiVectorsOffsetsLength)
+		}
+		multiVectorsOffsetsLength = uint32(len(multiVectorsOffsets))
+	}
+
+	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
+		2 + vectorLength*4 +
+		2 + classNameLength +
+		4 + schemaLength +
+		4 + metaLength +
+		4 + vectorWeightsLength +
+		4 + targetVectorsOffsetsLength +
+		4 + uint32(targetVectorsSegmentLength) +
+		4 + multiVectorsOffsetsLength +
+		4 + uint32(multiVectorsSegmentLength)
+
+	byteBuffer := make([]byte, totalBufferLength)
+	rw := byteops.NewReadWriter(byteBuffer)
+	rw.WriteByte(ko.MarshallerVersion)
+	rw.WriteUint64(ko.DocID)
+	rw.WriteByte(kindByte)
+
+	rw.CopyBytesToBuffer(idBytes)
+
+	rw.WriteUint64(uint64(ko.CreationTimeUnix()))
+	rw.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
+	rw.WriteUint16(uint16(vectorLength))
+
+	for j := uint32(0); j < vectorLength; j++ {
+		rw.WriteUint32(math.Float32bits(ko.Vector[j]))
+	}
+
+	rw.WriteUint16(uint16(classNameLength))
+	err = rw.CopyBytesToBuffer(className)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy className")
+	}
+
+	rw.WriteUint32(schemaLength)
+	err = rw.CopyBytesToBuffer(schema)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy schema")
+	}
+
+	rw.WriteUint32(metaLength)
+	err = rw.CopyBytesToBuffer(meta)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy meta")
+	}
+
+	rw.WriteUint32(vectorWeightsLength)
+	err = rw.CopyBytesToBuffer(vectorWeights)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	rw.WriteUint32(targetVectorsOffsetsLength)
+	if targetVectorsOffsetsLength > 0 {
+		err = rw.CopyBytesToBuffer(targetVectorsOffsets)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy targetVectorsOffsets")
+		}
+	}
+
+	rw.WriteUint32(uint32(targetVectorsSegmentLength))
+	for _, name := range targetVectorsOffsetOrder {
+		vec := ko.Vectors[name]
+		vecLen := len(vec)
+
+		rw.WriteUint16(uint16(vecLen))
+		for j := 0; j < vecLen; j++ {
+			rw.WriteUint32(math.Float32bits(vec[j]))
+		}
+	}
+
+	rw.WriteUint32(multiVectorsOffsetsLength)
+	if multiVectorsOffsetsLength > 0 {
+		err = rw.CopyBytesToBuffer(multiVectorsOffsets)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy multiVectorsOffsets")
+		}
+	}
+
+	rw.WriteUint32(uint32(multiVectorsSegmentLength))
+	for _, name := range multiVectorsOffsetOrder {
+		vecs := ko.MultiVectors[name]
+		rw.WriteUint32(uint32(len(vecs)))
+		for _, vec := range vecs {
+			vecLen := len(vec)
+			rw.WriteUint16(uint16(vecLen))
+			for j := 0; j < vecLen; j++ {
+				rw.WriteUint32(math.Float32bits(vec[j]))
+			}
+		}
+	}
+
+	return byteBuffer, nil
 }
 
 // UnmarshalPropertiesFromObject accepts marshaled object as data and populates resultProperties map with the properties specified by propertyPaths.
