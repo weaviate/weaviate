@@ -7149,6 +7149,11 @@ func init() {
             "$ref": "#/definitions/GraphQLError"
           },
           "x-omitempty": true
+        },
+        "extensions": {
+          "description": "GraphQL extensions object.",
+          "type": "object",
+          "additionalProperties": true
         }
       }
     },
@@ -16703,6 +16708,11 @@ func init() {
             "$ref": "#/definitions/GraphQLError"
           },
           "x-omitempty": true
+        },
+        "extensions": {
+          "description": "GraphQL extensions object.",
+          "type": "object",
+          "additionalProperties": true
         }
       }
     },
