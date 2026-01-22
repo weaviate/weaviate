@@ -121,17 +121,29 @@ func (s *Raft) Remove(ctx context.Context, id string) error {
 func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNode string) error {
 	schemaReader := s.SchemaReader()
 	states := schemaReader.States()
-	for className, classState := range states {
-		// Collect shard names first to avoid concurrent map iteration
-		shardNames := make([]string, 0, len(classState.Shards.Physical))
-		for shardName := range classState.Shards.Physical {
+
+	// Collect class names first to avoid concurrent map iteration
+	classNames := make([]string, 0, len(states))
+	for className := range states {
+		classNames = append(classNames, className)
+	}
+
+	for _, className := range classNames {
+		shardingStateCopy := schemaReader.CopyShardingState(className)
+		if shardingStateCopy == nil {
+			continue
+		}
+
+		// Collect shard names from the snapshot to avoid concurrent map iteration
+		shardNames := make([]string, 0, len(shardingStateCopy.Physical))
+		for shardName := range shardingStateCopy.Physical {
 			shardNames = append(shardNames, shardName)
 		}
 
 		// Check if any shard has the removed node
 		hasRemovedNode := false
 		for _, shardName := range shardNames {
-			shard, exists := classState.Shards.Physical[shardName]
+			shard, exists := shardingStateCopy.Physical[shardName]
 			if !exists {
 				continue
 			}
@@ -157,7 +169,7 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 
 		// Process each shard that contains the removed node
 		for _, shardName := range shardNames {
-			shard, exists := classState.Shards.Physical[shardName]
+			shard, exists := shardingStateCopy.Physical[shardName]
 			if !exists {
 				continue
 			}
@@ -216,18 +228,51 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 					delete(availableSet, newNode)
 					currentCount++
 				}
+
+				// Re-read the actual replica count after adding replicas to ensure we have
+				// the current state before attempting deletion
+				if currentCount <= desiredRF {
+					// We couldn't add enough replicas, re-read to get the actual count
+					updatedReplicas, err := schemaReader.ShardReplicas(className, shardName)
+					if err != nil {
+						return fmt.Errorf("get replicas for shard %q in collection %q after adding: %w", shardName, className, err)
+					}
+					currentCount = len(updatedReplicas)
+				}
 			}
+
+			// Re-read replicas to get the current state and verify the removed node is still present
+			finalReplicas, err := schemaReader.ShardReplicas(className, shardName)
+			if err != nil {
+				return fmt.Errorf("get replicas for shard %q in collection %q before deletion: %w", shardName, className, err)
+			}
+
+			// Check if the removed node is still in the replica list
+			removedNodeStillPresent := false
+			for _, replica := range finalReplicas {
+				if replica == removedNode {
+					removedNodeStillPresent = true
+					break
+				}
+			}
+
+			if !removedNodeStillPresent {
+				// Removed node is no longer in the replica list, skip deletion
+				continue
+			}
+
+			finalCount := len(finalReplicas)
 
 			// After attempting to add replacement replicas, ensure that removing the
 			// replica on the removed node will not violate the desired replication
 			// factor. If it would, skip the deletion for now and log a warning.
-			if currentCount-1 < desiredRF {
+			if finalCount <= desiredRF {
 				s.log.WithFields(logrus.Fields{
 					"collection":         className,
 					"shard":              shardName,
 					"removed_node":       removedNode,
 					"replication_factor": desiredRF,
-					"current_replicas":   currentCount,
+					"current_replicas":   finalCount,
 				}).Warn("skipping replica removal after node departure: insufficient nodes to maintain replication factor")
 				continue
 			}
