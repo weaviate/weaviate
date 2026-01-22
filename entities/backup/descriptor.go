@@ -278,7 +278,7 @@ func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescr *ShardDesc
 			if err != nil {
 				return fmt.Errorf("stat big file %v: %w", file, err)
 			}
-			if info.Size == infoNew.Size() || info.ModifiedAt.Equal(infoNew.ModTime()) || info.Size == infoNew.Size() {
+			if info.Size == infoNew.Size() || info.ModifiedAt.Equal(infoNew.ModTime()) {
 				if s.IncrementalBackupInfo == nil {
 					s.IncrementalBackupInfo = make(map[string][]IncrementalBackupInfo)
 				}
@@ -482,7 +482,6 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 	d.Classes = cs
 }
 
-// Filter classes based on predicate
 func (d *BackupDescriptor) GetClassDescriptor(className string) *ClassDescriptor {
 	for _, dest := range d.Classes {
 		if dest.Name == className {

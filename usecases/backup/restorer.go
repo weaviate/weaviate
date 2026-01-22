@@ -267,7 +267,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		var err error
 		baseDescr, err = store.MetaForBackupID(ctx, req.BaseBackupID, store.bucket, store.path)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("could not download incremental base backup descriptor from backup id %v: ", req.BaseBackupID)
+			return nil, nil, nil, fmt.Errorf("could not download incremental base backup descriptor from backup id %v: %w", req.BaseBackupID, err)
 		}
 	}
 
