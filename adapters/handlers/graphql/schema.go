@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type Traverser interface {
@@ -70,6 +71,8 @@ func Build(schema *schema.SchemaWithAliases, traverser Traverser,
 
 // Resolve at query time
 func (g *graphQL) Resolve(context context.Context, query string, operationName string, variables map[string]interface{}) *graphql.Result {
+	ctx, _ := traverser.EnsureQueryVectorHolder(context)
+
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
@@ -79,7 +82,7 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 		RequestString:  query,
 		OperationName:  operationName,
 		VariableValues: variables,
-		Context:        context,
+		Context:        ctx,
 	})
 }
 
