@@ -211,34 +211,8 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc, classBase
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
 		}
 
-		sd.Files = make([]string, 0, len(files))
-		for _, file := range files {
-			if shardBaseDescr != nil {
-				if info, ok := shardBaseDescr.BigFilesChunk[file]; ok {
-					absPath, err := diskio.SanitizeFilePathJoin(i.Config.RootPath, file)
-					if err != nil {
-						return fmt.Errorf("sanitize file path %v: %w", file, err)
-					}
-					infoNew, err := os.Stat(absPath)
-					if err != nil {
-						return fmt.Errorf("stat big file %v: %w", file, err)
-					}
-					if info.Size == infoNew.Size() || info.ModifiedAt.Equal(infoNew.ModTime()) || info.Size == infoNew.Size() {
-						if sd.IncrementalBackupInfo == nil {
-							sd.IncrementalBackupInfo = make(map[string][]backup.IncrementalBackupInfo)
-						}
-						// files that are skipped due to being unchanged from base backup
-						sd.IncrementalBackupInfo[classBaseDescr.BackupId] = append(
-							sd.IncrementalBackupInfo[classBaseDescr.BackupId],
-							backup.IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
-						)
-						continue
-					}
-				}
-			}
-
-			// files to backup
-			sd.Files = append(sd.Files, file)
+		if err := sd.FillFileInfo(files, shardBaseDescr, classBaseDescr.BackupId, i.Config.RootPath); err != nil {
+			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
 		}
 
 		desc.Shards = append(desc.Shards, &sd)

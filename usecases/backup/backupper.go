@@ -141,6 +141,12 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 				return
 			}
 			baseBackupIds = []string{req.BaseBackupID}
+			if *baseDescr.CompressionType != compressionType {
+				err := fmt.Errorf("base backup %q has different compression type %v than the requested one %v", req.BaseBackupID, baseDescr.CompressionType, compressionType)
+				b.logger.WithFields(logFields).Error(err)
+				b.lastAsyncError = err
+				return
+			}
 		}
 
 		result := backup.BackupDescriptor{

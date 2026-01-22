@@ -13,7 +13,10 @@ package backup
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // DeleteMarkerAdd marks folders of indices that have been deleted during an ongoing backup and are already removed from
@@ -257,6 +260,41 @@ func (s *ShardDescriptor) CopyFilesInShard() *FileList {
 	filesInShard := &FileList{Files: make([]string, len(s.Files))}
 	copy(filesInShard.Files, s.Files)
 	return filesInShard
+}
+
+func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescr *ShardDescriptor, backupID, rootPath string) error {
+	if shardBaseDescr == nil {
+		s.Files = files
+		return nil
+	}
+
+	for _, file := range files {
+		if info, ok := shardBaseDescr.BigFilesChunk[file]; ok {
+			absPath, err := diskio.SanitizeFilePathJoin(rootPath, file)
+			if err != nil {
+				return fmt.Errorf("sanitize file path %v: %w", file, err)
+			}
+			infoNew, err := os.Stat(absPath)
+			if err != nil {
+				return fmt.Errorf("stat big file %v: %w", file, err)
+			}
+			if info.Size == infoNew.Size() || info.ModifiedAt.Equal(infoNew.ModTime()) || info.Size == infoNew.Size() {
+				if s.IncrementalBackupInfo == nil {
+					s.IncrementalBackupInfo = make(map[string][]IncrementalBackupInfo)
+				}
+				// files that are skipped due to being unchanged from base backup
+				s.IncrementalBackupInfo[backupID] = append(
+					s.IncrementalBackupInfo[backupID],
+					IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
+				)
+				continue
+			}
+		}
+
+		// files to backup
+		s.Files = append(s.Files, file)
+	}
+	return nil
 }
 
 // FileList holds a list of file paths and allows modification of the underlying slice

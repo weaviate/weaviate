@@ -632,6 +632,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		})
 	}
 
+	// fetch files from base backup(s)
 	for _, shard := range desc.Shards {
 		for backupId, incrementalBackupInfos := range shard.IncrementalBackupInfo { // can be multiple incremental backups
 			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
