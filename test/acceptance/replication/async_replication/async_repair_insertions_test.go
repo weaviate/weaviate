@@ -53,8 +53,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       int64(clusterSize),
-			AsyncEnabled: true,
+			Factor: int64(clusterSize),
+			// AsyncDisabled not set - testing default behavior (enabled by default)
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 

@@ -749,9 +749,15 @@
           "type": "integer"
         },
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: `false`).",
+          "description": "DEPRECATED. Enable asynchronous replication (default: `false`). Use `asyncDisabled` instead.",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "asyncDisabled": {
+          "description": "Disable asynchronous replication (default: `false`).",
+          "type": "boolean",
+          "x-omitempty": true,
+          "x-nullable": true
         },
         "asyncConfig": {
           "description": "Configuration parameters for asynchronous replication.",

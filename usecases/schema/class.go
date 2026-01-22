@@ -429,16 +429,27 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 	}
 
 	if class.ReplicationConfig == nil {
+		asyncDisabled := false
+
 		class.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(m.config.Replication.MinimumFactor),
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+			AsyncDisabled:    &asyncDisabled,
 		}
 		return nil
+	}
+
+	if class.ReplicationConfig.AsyncDisabled == nil {
+		// AsyncDisabled is a newer flag. When absent, treat it as "not disabled"
+		// to match the behavior of older collections that relied on legacy defaults.
+		asyncDisabled := false
+		class.ReplicationConfig.AsyncDisabled = &asyncDisabled
 	}
 
 	if class.ReplicationConfig.DeletionStrategy == "" {
 		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
+
 	return nil
 }
 

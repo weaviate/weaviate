@@ -34,7 +34,10 @@ type ReplicationConfig struct {
 	// Configuration parameters for asynchronous replication.
 	AsyncConfig *ReplicationAsyncConfig `json:"asyncConfig,omitempty"`
 
-	// Enable asynchronous replication (default: `false`).
+	// Disable asynchronous replication (default: `false`).
+	AsyncDisabled *bool `json:"asyncDisabled,omitempty"`
+
+	// DEPRECATED. Enable asynchronous replication (default: `false`). Use `asyncDisabled` instead.
 	AsyncEnabled bool `json:"asyncEnabled"`
 
 	// Conflict resolution strategy for deleted objects.
