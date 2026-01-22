@@ -79,7 +79,8 @@ func (r *restorer) restore(
 
 	destPath := store.HomeDir(req.Bucket, req.Path)
 
-	if r.lastOp.get().Status == backup.Cancelling {
+	if lastOp := r.lastOp.get(); lastOp.ID == req.ID &&
+		(lastOp.Status == backup.Cancelling || lastOp.Status == backup.Cancelled) {
 		err := fmt.Errorf("restore %s cancellation in progress, please wait for it to complete", req.ID)
 		return ret, err
 	}

@@ -241,6 +241,16 @@ func (c *coordinator) Restore(
 	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
+
+	// Check if a cancellation is already in progress before asking nodes to commit.
+	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
+		if existingMeta.Status == backup.Cancelling {
+			c.lastOp.reset()
+			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
+			return nil
+		}
+	}
+
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
