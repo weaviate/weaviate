@@ -14,6 +14,9 @@ package test
 import (
 	"bufio"
 	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"testing"
 	"time"
 
@@ -88,6 +91,20 @@ func Test_BackupJourney(t *testing.T) {
 func printLogsOnError(t *testing.T, compose *docker.DockerCompose) {
 	if !t.Failed() {
 		return
+	}
+
+	t.Log("Fetching goroutine debug info...")
+	resp2, err := http.Get(fmt.Sprintf("http://%s/debug/pprof/goroutine?debug=2", compose.GetWeaviate().DebugURI()))
+	if err != nil {
+		t.Logf("Failed to fetch goroutine debug info: %v", err)
+	} else {
+		defer resp2.Body.Close()
+		body, err := io.ReadAll(resp2.Body)
+		if err != nil {
+			t.Logf("Failed to read goroutine debug info: %v", err)
+		} else {
+			t.Logf("Goroutine debug info:\n%s", string(body))
+		}
 	}
 
 	// When a test fails, dump logs of all compose containers.
