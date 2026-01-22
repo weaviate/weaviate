@@ -122,8 +122,19 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 	schemaReader := s.SchemaReader()
 	states := schemaReader.States()
 	for className, classState := range states {
+		// Collect shard names first to avoid concurrent map iteration
+		shardNames := make([]string, 0, len(classState.Shards.Physical))
+		for shardName := range classState.Shards.Physical {
+			shardNames = append(shardNames, shardName)
+		}
+
+		// Check if any shard has the removed node
 		hasRemovedNode := false
-		for _, shard := range classState.Shards.Physical {
+		for _, shardName := range shardNames {
+			shard, exists := classState.Shards.Physical[shardName]
+			if !exists {
+				continue
+			}
 			for _, node := range shard.BelongsToNodes {
 				if node == removedNode {
 					hasRemovedNode = true
@@ -144,7 +155,12 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 			continue
 		}
 
-		for shardName, shard := range classState.Shards.Physical {
+		// Process each shard that contains the removed node
+		for _, shardName := range shardNames {
+			shard, exists := classState.Shards.Physical[shardName]
+			if !exists {
+				continue
+			}
 			hasNode := false
 			for _, node := range shard.BelongsToNodes {
 				if node == removedNode {
