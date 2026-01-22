@@ -72,11 +72,6 @@ func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, class
 	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 
-func (s *fakeSourcer) ClassExists(name string) bool {
-	args := s.Called(name)
-	return args.Bool(0)
-}
-
 type fakeBackend struct {
 	mock.Mock
 	sync.RWMutex

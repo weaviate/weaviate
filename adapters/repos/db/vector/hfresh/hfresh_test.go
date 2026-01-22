@@ -31,6 +31,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -74,6 +75,14 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
+type noopBucketView struct{}
+
+func (n *noopBucketView) Release() {}
+
+func getViewThunk() common.BucketView {
+	return &noopBucketView{}
+}
+
 func TestHFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	tmpDir := t.TempDir()
@@ -87,6 +96,7 @@ func TestHFreshRecall(t *testing.T) {
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          getViewThunk,
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	l := logrus.New()
