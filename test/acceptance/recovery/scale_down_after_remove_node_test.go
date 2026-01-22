@@ -116,6 +116,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 			bytes.NewReader(data),
 		)
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 
@@ -130,11 +131,12 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 		clusterAPIURL := compose.GetWeaviate().ClusterURI()
 
 		resp, err := http.Post(
-			fmt.Sprintf("http://%s/v1/cluster/remove", clusterAPIURL),
+			fmt.Sprintf("%s/v1/cluster/remove", clusterAPIURL),
 			"application/json",
 			bytes.NewReader(data),
 		)
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		t.Logf("second /v1/cluster/remove for %q returned status %d", nodeToRemove, resp.StatusCode)
 	})
 
