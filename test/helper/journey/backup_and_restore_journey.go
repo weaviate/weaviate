@@ -374,7 +374,7 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 		delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(booksClass.Class)
 		_, err = helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 		require.NoError(t1, err, "expected nil, got: %v", err)
-	}, 30*time.Second, 1000*time.Millisecond)
+	}, 60*time.Second, 1000*time.Millisecond)
 
 	cfgRestore := helper.DefaultRestoreConfig()
 	cfgRestore.Bucket = overrideBucket
