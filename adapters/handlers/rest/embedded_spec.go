@@ -8250,8 +8250,14 @@ func init() {
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
         },
+        "asyncDisabled": {
+          "description": "Disable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
+          "description": "DEPRECATED. Enable asynchronous replication (default: ` + "`" + `false` + "`" + `). Use ` + "`" + `asyncDisabled` + "`" + ` instead.",
           "type": "boolean",
           "x-omitempty": false
         },
@@ -18058,8 +18064,14 @@ func init() {
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
         },
+        "asyncDisabled": {
+          "description": "Disable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
+          "description": "DEPRECATED. Enable asynchronous replication (default: ` + "`" + `false` + "`" + `). Use ` + "`" + `asyncDisabled` + "`" + ` instead.",
           "type": "boolean",
           "x-omitempty": false
         },
