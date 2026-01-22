@@ -374,6 +374,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			// Another coordinator already completed cancellation
 			return nil
 		}
+		s.restorer.lastOp.set(backup.Cancelling)
 	} else {
 		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
 		backupMeta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
