@@ -246,6 +246,7 @@ func TestAddBatch_LargeBatch(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForIDFn,
+		GetViewThunk:          GetViewThunk,
 		AllocChecker:          memwatch.NewDummyMonitor(),
 	}
 
@@ -422,6 +423,7 @@ func testHNSWWithCustomVectorFuncAndAllocChecker(
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vectorForID,
 		AllocChecker:          allocChecker,
+		GetViewThunk:          GetViewThunk,
 	}
 
 	index, err := New(cfg, ent.UserConfig{

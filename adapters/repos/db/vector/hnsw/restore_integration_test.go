@@ -231,6 +231,7 @@ func TestRestoreQuantization_Integration(t *testing.T) {
 					return &noopBucketView{}
 				},
 				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				AllocChecker:                 memwatch.NewDummyMonitor(),
 			}
 
 			idx, err := hnsw.New(config, uc, cyclemanager.NewCallbackGroupNoop(), store)
