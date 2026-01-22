@@ -65,7 +65,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 
 func (r *restorer) restore(
 	req *Request,
-	desc *backup.BackupDescriptor,
+	desc, baseBackup *backup.BackupDescriptor,
 	store nodeStore,
 ) (CanCommitResponse, error) {
 	expiration := req.Duration
@@ -116,7 +116,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		err = r.restoreAll(context.Background(), desc, baseBackup, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -132,7 +132,7 @@ func (r *restorer) restore(
 // restoreAll restores classes in temporary directories on the filesystem.
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
-	desc *backup.BackupDescriptor, cpuPercentage int,
+	desc, baseBackup *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
 	compressionType := desc.GetCompressionType()
@@ -152,7 +152,16 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		var classBaseBackup *backup.ClassDescriptor
+		if baseBackup != nil {
+			for _, bclass := range baseBackup.Classes {
+				if bclass.Name == cdesc.Name {
+					classBaseBackup = &bclass
+					break
+				}
+			}
+		}
+		if err := r.restoreOne(ctx, &cdesc, classBaseBackup, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -171,7 +180,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
+	desc, baseBackupDescr *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
 	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
@@ -197,7 +206,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, overrideBucket, overridePath, compressionType); err != nil {
+	if err := fw.Write(ctx, desc, baseBackupDescr, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 
@@ -221,38 +230,48 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 	return istatus.(Status), nil
 }
 
-func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
+func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, *backup.BackupDescriptor, []string, error) {
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path, true)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {
-			return nil, nil, fmt.Errorf("restorer cannot validate: %w: %q (%w)", errMetaNotFound, destPath, err)
+			return nil, nil, nil, fmt.Errorf("restorer cannot validate: %w: %q (%w)", errMetaNotFound, destPath, err)
 		}
-		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
+		return nil, nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
 	}
 	if meta.Status != string(backup.Success) {
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := meta.Validate(meta.Version > version1); err != nil {
-		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
+		return nil, nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
 	if v := meta.Version; v[0] > Version[0] {
-		return nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+		return nil, nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.List()
 	if len(req.Classes) > 0 {
 		if first := meta.AllExist(req.Classes); first != "" {
 			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
-			return nil, cs, err
+			return nil, nil, cs, err
 		}
 		meta.Include(req.Classes)
 	}
-	return meta, cs, nil
+
+	var baseDescr *backup.BackupDescriptor
+	if req.BaseBackupID != "" {
+		var err error
+		baseDescr, err = store.MetaForBackupID(ctx, req.BaseBackupID, store.bucket, store.path)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("could not download incremental base backup descriptor from backup id %v: ", req.BaseBackupID)
+		}
+	}
+
+	return meta, baseDescr, cs, nil
 }
 
 // oneClassSchema allows for creating schema with one class

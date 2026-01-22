@@ -229,7 +229,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc, classBase
 						}
 						// files that are skipped due to being unchanged from base backup
 						sd.IncrementalBackupInfo[classBaseDescr.BackupId] = append(
-							sd.IncrementalBackupInfo[file],
+							sd.IncrementalBackupInfo[classBaseDescr.BackupId],
 							backup.IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
 						)
 						continue

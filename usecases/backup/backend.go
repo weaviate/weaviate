@@ -88,6 +88,10 @@ func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePat
 	return s.backend.Read(ctx, s.backupId, key, overrideBucket, overridePath, w)
 }
 
+func (s *objectStore) ReadFromOtherBackup(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
+	return s.backend.Read(ctx, fmt.Sprintf("%s/%s", backupID, s.node), key, overrideBucket, overridePath, w)
+}
+
 func (s *objectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
 	return s.backend.Initialize(ctx, s.backupId, overrideBucket, overridePath)
 }
@@ -570,13 +574,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
+func (fw *fileWriter) Write(ctx context.Context, desc, baseBackupDescr *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
+	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, baseBackupDescr, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -592,7 +596,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc, baseBackupDescr *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -626,6 +630,27 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			_, err := uz.ReadChunk()
 			return err
 		})
+	}
+
+	for _, shard := range desc.Shards {
+		for backupId, incrementalBackupInfos := range shard.IncrementalBackupInfo { // can be multiple incremental backups
+			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
+				for _, chunkId := range incrementalBackupInfo.ChunkKeys { // chunks for file
+					eg.Go(func() error {
+						uz, w := NewUnzip(classTempDir, compressionType)
+
+						enterrors.GoWrapper(func() {
+							_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+							if err != nil {
+								fw.logger.WithError(err).WithField("backup_id", backupId).Warn("failed to read chunk")
+							}
+						}, fw.logger)
+						_, err := uz.ReadChunk()
+						return err
+					})
+				}
+			}
+		}
 	}
 	return eg.Wait()
 }
