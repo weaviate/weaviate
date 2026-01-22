@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -88,7 +87,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("create a corrupt commit log file without deleting the original",
 		func(t *testing.T) {
 			input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath,
-				"corrupt_test"), common.NewOSFS())
+				"corrupt_test"))
 			require.Nil(t, err)
 			require.True(t, ok)
 

@@ -90,7 +90,6 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(tmpDir, "centroids",
 				l, cyclemanager.NewCallbackGroupNoop(),
-				hnsw.WithAllocChecker(memwatch.NewDummyMonitor()),
 			)
 		},
 		DistanceProvider:  distancer.NewCosineDistanceProvider(),

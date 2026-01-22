@@ -241,10 +241,6 @@ type CommitLogger interface {
 	AddRQCompression(compression.RQData) error
 	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
-
-	CreateSnapshot() (bool, int64, error)
-	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)
-	LoadSnapshot() (*DeserializationResult, int64, error)
 }
 
 type BufferedLinksLogger interface {

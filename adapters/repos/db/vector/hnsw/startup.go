@@ -20,10 +20,11 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compactv2"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -49,8 +50,7 @@ func (h *hnsw) init(cfg Config) error {
 	return nil
 }
 
-// if a commit log is already present it will be read into memory, if not we
-// start with an empty model
+// restoreFromDisk loads the HNSW state from commit log files using compactv2.Loader.
 func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
@@ -60,49 +60,16 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			Info("restored data from disk")
 	}()
 
-	var state *DeserializationResult
-	var stateTimestamp int64
-	var err error
+	dir := commitLogDirectory(h.rootPath, h.id)
 
-	if !h.disableSnapshots {
-		if h.snapshotOnStartup {
-			// This will opportunistically create a snapshot if it does not exist yet,
-			// as we are loading state from disk. Otherwise, it simply loads
-			// the last snapshot.
-			state, stateTimestamp, err = cl.CreateAndLoadSnapshot()
-		} else {
-			state, stateTimestamp, err = cl.LoadSnapshot()
-		}
+	loader := compactv2.NewLoader(compactv2.LoaderConfig{
+		Dir:    dir,
+		Logger: h.logger,
+	})
 
-		if err != nil {
-			// errors reading snapshots are not fatal
-			// we can still read the commit log from the beginning
-			h.logger.
-				WithError(err).
-				WithField("action", "restore_from_disk").
-				Error("failed to read last snapshot, loading from commit log")
-
-			state = nil
-			stateTimestamp = 0
-		} else if state == nil {
-			h.logger.
-				WithField("action", "restore_from_disk").
-				Info("no snapshot found, loading from commit log")
-		}
-	} else {
-		h.logger.
-			WithField("action", "restore_from_disk").
-			Info("snapshots disabled, loading from commit log")
-	}
-
-	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp, h.fs)
+	state, err := loader.Load()
 	if err != nil {
-		return err
-	}
-
-	state, err = loadCommitLoggerState(h.fs, h.logger, fileNames, state, h.metrics)
-	if err != nil {
-		return errors.Wrap(err, "load commit logger state")
+		return errors.Wrap(err, "load commit logs with compactv2")
 	}
 
 	h.cachePrefilled.Store(state == nil)
@@ -112,52 +79,60 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		return nil
 	}
 
+	// Apply loaded state to index
+	return h.applyLoadedState(state)
+}
+
+// applyLoadedState applies the deserialization result to the HNSW index.
+func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 	h.Lock()
 	h.shardedNodeLocks.LockAll()
-	h.nodes = state.Nodes
+	h.nodes = convertEntityNodes(state.Nodes())
 	h.shardedNodeLocks.UnlockAll()
 
-	h.currentMaximumLayer = int(state.Level)
-	h.entryPointID = state.Entrypoint
+	h.currentMaximumLayer = int(state.Level())
+	h.entryPointID = state.Entrypoint()
 	h.Unlock()
 
 	h.tombstoneLock.Lock()
-	h.tombstones = state.Tombstones
+	h.tombstones = state.Tombstones()
 	h.tombstoneLock.Unlock()
 
+	var err error
 	if h.multivector.Load() {
 		if !h.muvera.Load() {
 			if err := h.restoreDocMappings(); err != nil {
 				return errors.Wrapf(err, "restore doc mappings %q", h.id)
 			}
-		} else if state.MuveraEnabled {
+		} else if state.MuveraEnabled() {
 			h.trackMuveraOnce.Do(func() {
-				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
+				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera())
 			})
 			h.muvera.Store(true)
 		}
 	}
-	if state.Compressed {
-		h.compressed.Store(state.Compressed)
-		h.cache.Drop()
-		if state.CompressionPQData != nil {
-			data := state.CompressionPQData
-			h.dims = int32(data.Dimensions)
 
-			if len(data.Encoders) > 0 {
+	if state.Compressed() {
+		h.compressed.Store(true)
+		h.cache.Drop()
+
+		if pqData := state.CompressionPQData(); pqData != nil {
+			h.dims = int32(pqData.Dimensions)
+
+			if len(pqData.Encoders) > 0 {
 				// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
 				if h.pqConfig.Segments == 0 {
-					h.pqConfig.Segments = int(data.Dimensions)
+					h.pqConfig.Segments = int(pqData.Dimensions)
 				}
 				if !h.multivector.Load() || h.muvera.Load() {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
 						h.pqConfig,
 						h.distancerProvider,
-						int(data.Dimensions),
+						int(pqData.Dimensions),
 						// ToDo: we need to read this value from somewhere
 						1e12,
 						h.logger,
-						data.Encoders,
+						pqData.Encoders,
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
@@ -167,10 +142,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
 						h.pqConfig,
 						h.distancerProvider,
-						int(data.Dimensions),
+						int(pqData.Dimensions),
 						1e12,
 						h.logger,
-						data.Encoders,
+						pqData.Encoders,
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
@@ -181,17 +156,16 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
 			}
-		} else if state.CompressionSQData != nil {
-			data := state.CompressionSQData
-			h.dims = int32(data.Dimensions)
+		} else if sqData := state.CompressionSQData(); sqData != nil {
+			h.dims = int32(sqData.Dimensions)
 			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
 					1e12,
 					h.logger,
-					data.A,
-					data.B,
-					data.Dimensions,
+					sqData.A,
+					sqData.B,
+					sqData.Dimensions,
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
@@ -202,9 +176,9 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.distancerProvider,
 					1e12,
 					h.logger,
-					data.A,
-					data.B,
-					data.Dimensions,
+					sqData.A,
+					sqData.B,
+					sqData.Dimensions,
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
@@ -214,12 +188,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
-		} else if state.CompressionRQData != nil {
-			if err := h.restoreRotationalQuantization(state.CompressionRQData); err != nil {
+		} else if rqData := state.CompressionRQData(); rqData != nil {
+			if err := h.restoreRotationalQuantization(rqData); err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
-		} else if state.CompressionBRQData != nil {
-			if err := h.restoreBinaryRotationalQuantization(state.CompressionBRQData); err != nil {
+		} else if brqData := state.CompressionBRQData(); brqData != nil {
+			if err := h.restoreBinaryRotationalQuantization(brqData); err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
 		} else {
@@ -258,7 +232,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	return nil
 }
 
-func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
+func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -303,7 +277,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
 	return err
 }
 
-func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) error {
+func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {

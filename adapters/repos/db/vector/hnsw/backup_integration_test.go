@@ -94,13 +94,6 @@ func TestBackup_Integration(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	// after switch commit logs, to have source log(s)
-	t.Run("create snapshot", func(t *testing.T) {
-		created, _, err := idx.commitLog.CreateSnapshot()
-		require.Nil(t, err)
-		require.True(t, created)
-	})
-
 	t.Run("list files", func(t *testing.T) {
 		files, err := idx.ListFiles(ctx, dirName)
 		require.Nil(t, err)
@@ -115,10 +108,7 @@ func TestBackup_Integration(t *testing.T) {
 		// it excludes any currently active log files, which are not part
 		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
-		//
-		// additionally snapshot was created which consist of 1 file,
-		// so total of 2 files are expected
-		assert.Len(t, files, 2)
+		assert.Len(t, files, 1)
 
 		filesUnique := make(map[string]struct{}, len(files))
 		for i := range files {
@@ -143,19 +133,6 @@ func TestBackup_Integration(t *testing.T) {
 				assert.Empty(t, path.Ext(info.Name()))
 			}
 			assert.True(t, prevLogFound, "previous commitlog not found in commitlog root dir")
-		})
-
-		t.Run("verify snapshot dir contents", func(t *testing.T) {
-			snapshotDir := snapshotDirectory(idx.commitLog.RootPath(), idx.commitLog.ID())
-			relSnapshotDir := snapshotDirectory("", idx.commitLog.ID())
-
-			ls, err := os.ReadDir(snapshotDir)
-			require.Nil(t, err)
-
-			for i := range ls {
-				snapshotFilePath := path.Join(relSnapshotDir, ls[i].Name())
-				assert.Contains(t, filesUnique, snapshotFilePath)
-			}
 		})
 	})
 
