@@ -70,7 +70,10 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -130,7 +133,10 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},

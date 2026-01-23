@@ -32,6 +32,7 @@ import (
 
 const (
 	reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
+	DefaultRNGFactor  = 10.0
 )
 
 var (
@@ -135,9 +136,9 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		visitedPool:      visited.NewPool(1, 512, -1),
 		maxPostingSizeKB: uc.MaxPostingSizeKB,
 		replicas:         uc.Replicas,
-		rngFactor:        uc.RNGFactor,
+		rngFactor:        DefaultRNGFactor,
 		searchProbe:      uc.SearchProbe,
-		rescoreLimit:     uc.RescoreLimit,
+		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -193,7 +194,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	}
 
 	atomic.StoreUint32(&h.searchProbe, parsed.SearchProbe)
-	atomic.StoreUint32(&h.rescoreLimit, parsed.RescoreLimit)
+	atomic.StoreUint32(&h.rescoreLimit, uint32(parsed.RQ.RescoreLimit))
 
 	callback()
 	return nil

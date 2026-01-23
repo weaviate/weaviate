@@ -88,7 +88,11 @@ func TestBackup_DBLevel(t *testing.T) {
 			Objects.Classes[0].MarshalBinary()
 		require.Nil(t, err)
 
-		classes := db.ListBackupable()
+		classes := make([]string, 0, len(db.indices))
+		for _, idx := range db.indices {
+			cls := string(idx.Config.ClassName)
+			classes = append(classes, cls)
+		}
 
 		t.Run("doesn't fail on casing permutation of existing class", func(t *testing.T) {
 			err := db.Backupable(ctx, []string{"DBLeVELBackupClass"})
@@ -169,7 +173,11 @@ func TestBackup_DBLevel(t *testing.T) {
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {
-			classes := db.ListBackupable()
+			classes := make([]string, 0, len(db.indices))
+			for _, idx := range db.indices {
+				cls := string(idx.Config.ClassName)
+				classes = append(classes, cls)
+			}
 
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)

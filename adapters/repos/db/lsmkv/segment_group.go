@@ -605,6 +605,40 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 	return nil, lsmkv.NotFound
 }
 
+// existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
+// This is more efficient than getWithSegmentList() when only existence check is needed.
+func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) error {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return fmt.Errorf("SegmentGroup::existsWithSegmentList(): %w", err)
+	}
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	for i := len(segments) - 1; i >= 0; i-- {
+		beforeSegment := time.Now()
+		err := segments[i].exists(key)
+		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
+			sg.logger.WithError(err).
+				WithFields(logrus.Fields{
+					"duration":    duration,
+					"action":      "lsm_segment_group_exists_individual_segment",
+					"segment_pos": i,
+				}).Debug("waited over 100ms to check existence in individual segment")
+		}
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			return err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return fmt.Errorf("SegmentGroup::existsWithSegmentList() %q: %w", segments[i].getPath(), err)
+		}
+	}
+
+	return lsmkv.NotFound
+}
+
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
 ) ([]byte, []byte, []byte, error) {
