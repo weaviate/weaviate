@@ -101,7 +101,7 @@ func TestStreamHandler(t *testing.T) {
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -114,7 +114,7 @@ func TestStreamHandler(t *testing.T) {
 			Return(&pb.BatchObjectsReply{Errors: []*pb.BatchObjectsReply_BatchError{{Error: "batcher error"}}}, nil).
 			Once()
 		mockSchemaManager.EXPECT().
-			GetCachedClass(mock.Anything, mock.Anything, collection).
+			GetCachedClassNoAuth(mock.Anything, collection).
 			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 			Once()
 
@@ -155,12 +155,12 @@ func TestStreamHandler(t *testing.T) {
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().
-			GetCachedClass(mock.Anything, mock.Anything, collection).
+			GetCachedClassNoAuth(mock.Anything, collection).
 			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 			Once()
 
 		mockStream := newMockStream(t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
@@ -228,7 +228,7 @@ func TestStreamHandler(t *testing.T) {
 		}).Maybe()
 		collection := "TestClass"
 		mockSchemaManager.EXPECT().
-			GetCachedClass(mock.Anything, mock.Anything, collection).
+			GetCachedClassNoAuth(mock.Anything, collection).
 			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 			Maybe()
 

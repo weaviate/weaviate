@@ -66,7 +66,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 
 	collection := "TestClass"
 	mockSchemaManager.EXPECT().
-		GetCachedClass(mock.Anything, mock.Anything, collection).
+		GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 		Once()
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
@@ -151,7 +151,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 	collection := "TestClass"
 	mockSchemaManager := mocks.NewMockschemaManager(t)
 	mockSchemaManager.EXPECT().
-		GetCachedClass(mock.Anything, mock.Anything, collection).
+		GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 		Once()
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
@@ -232,7 +232,7 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 	collection := "TestClass"
 	mockSchemaManager := mocks.NewMockschemaManager(t)
 	mockSchemaManager.EXPECT().
-		GetCachedClass(mock.Anything, mock.Anything, collection).
+		GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 		Once()
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
@@ -306,7 +306,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 
 	collection := "TestClass"
 	mockSchemaManager.EXPECT().
-		GetCachedClass(mock.Anything, mock.Anything, collection).
+		GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 		Once()
 
@@ -393,7 +393,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	}).Maybe()
 	collection := "TestClass"
 	mockSchemaManager.EXPECT().
-		GetCachedClass(mock.Anything, mock.Anything, collection).
+		GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 		Maybe()
 	objs := make([]*pb.BatchObject, 0, howManyObjs)

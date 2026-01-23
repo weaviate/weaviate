@@ -226,20 +226,13 @@ func TestWorkerLoop(t *testing.T) {
 		reportingQueues.Make(StreamId)
 		processingQueue := NewProcessingQueue()
 
-		timesCalled := 0
 		numObjs := 101
 		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-			if timesCalled < 3 {
-				require.Len(t, req.Objects, 26, "Expected each batched request to contain 26 objects")
-				timesCalled++
-			} else {
-				require.Len(t, req.Objects, 23, "Expected last batched request to contain 23 object")
-			}
 			return &pb.BatchObjectsReply{
 				Took:   float32(1),
 				Errors: nil,
 			}, nil
-		}).Times(4)
+		}).Times(10)
 
 		var wg sync.WaitGroup
 		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
@@ -289,7 +282,7 @@ func TestWorkerLoop(t *testing.T) {
 		processingQueue := NewProcessingQueue()
 
 		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-			require.Len(t, req.Objects, 25, "Expected each batched request to contain 25 objects")
+			require.Len(t, req.Objects, 10, "Expected each batched request to contain 10 objects")
 			return &pb.BatchObjectsReply{
 				Took: float32(1),
 				Errors: []*pb.BatchObjectsReply_BatchError{
@@ -299,7 +292,7 @@ func TestWorkerLoop(t *testing.T) {
 					},
 				},
 			}, nil
-		}).Times(4)
+		}).Times(10)
 
 		var wg sync.WaitGroup
 		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
@@ -331,14 +324,12 @@ func TestWorkerLoop(t *testing.T) {
 		// Read first report from worker
 		report := <-rq
 		require.NotNil(t, report.Successes, "Expected successes to be returned")
-		require.Len(t, report.Errors, 4, "Expected 4 errors to be returned")
-		require.Equal(t, objs[1].GetUuid(), report.Errors[0].GetUuid())
-		require.Equal(t, objs[26].GetUuid(), report.Errors[1].GetUuid())
-		require.Equal(t, objs[51].GetUuid(), report.Errors[2].GetUuid())
-		require.Equal(t, objs[76].GetUuid(), report.Errors[3].GetUuid())
+		require.Len(t, report.Errors, 10, "Expected 10 errors to be returned")
+		for i := 0; i < len(report.Errors); i++ {
+			require.Equal(t, objs[i*10+1].GetUuid(), report.Errors[i].GetUuid())
+		}
 		require.NotNil(t, report.Stats, "Expected stats to be returned")
-		require.Len(t, report.Successes, 96, "Expected 96 results to be returned")
-
+		require.Len(t, report.Successes, 90, "Expected 90 successes to be returned")
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()

@@ -46,7 +46,7 @@ type authenticator interface {
 }
 
 type schemaManager interface {
-	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string) (map[string]versioned.Class, error)
+	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
 }
 
 type StreamHandler struct {
@@ -118,7 +118,7 @@ func NewStreamHandler(
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	streamCtx := stream.Context()
 	// Authenticate at the highest level
-	principal, err := h.authenticator.PrincipalFromContext(streamCtx)
+	_, err := h.authenticator.PrincipalFromContext(streamCtx)
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
@@ -171,7 +171,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 		// In either case, we need to inform the send loop so that it can exit cleanly
 		// We do this by sending the error (or nil if the client closed the stream) to the recvErrCh channel
 		// and then closing the channel to signal that no more errors will be sent
-		if err := h.receiver(ctx, principal, streamId, startReq.ConsistencyLevel, stream); err != nil {
+		if err := h.receiver(ctx, streamId, startReq.ConsistencyLevel, stream); err != nil {
 			recvErrCh <- err
 		}
 		close(recvErrCh)
@@ -375,7 +375,7 @@ func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.Bat
 	return reqCh, errCh
 }
 
-func (h *StreamHandler) receiver(ctx context.Context, principal *models.Principal, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
+func (h *StreamHandler) receiver(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
 	log := h.logger.WithField("streamId", streamId)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -475,7 +475,7 @@ func (h *StreamHandler) receiver(ctx context.Context, principal *models.Principa
 				collections = append(collections, obj.Collection)
 			}
 
-			classes, err := h.schemaManager.GetCachedClass(ctx, principal, collections...)
+			classes, err := h.schemaManager.GetCachedClassNoAuth(ctx, collections...)
 			if err != nil {
 				log.Errorf("failed to get classes for vectorisation check: %v", err)
 				return fmt.Errorf("get classes for vectorisation check: %w", err)

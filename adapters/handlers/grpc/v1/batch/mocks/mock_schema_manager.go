@@ -17,8 +17,6 @@ import (
 	context "context"
 
 	mock "github.com/stretchr/testify/mock"
-	models "github.com/weaviate/weaviate/entities/models"
-
 	versioned "github.com/weaviate/weaviate/entities/versioned"
 )
 
@@ -35,36 +33,36 @@ func (_m *MockschemaManager) EXPECT() *MockschemaManager_Expecter {
 	return &MockschemaManager_Expecter{mock: &_m.Mock}
 }
 
-// GetCachedClass provides a mock function with given fields: ctx, principal, names
-func (_m *MockschemaManager) GetCachedClass(ctx context.Context, principal *models.Principal, names ...string) (map[string]versioned.Class, error) {
+// GetCachedClassNoAuth provides a mock function with given fields: ctx, names
+func (_m *MockschemaManager) GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error) {
 	_va := make([]interface{}, len(names))
 	for _i := range names {
 		_va[_i] = names[_i]
 	}
 	var _ca []interface{}
-	_ca = append(_ca, ctx, principal)
+	_ca = append(_ca, ctx)
 	_ca = append(_ca, _va...)
 	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetCachedClass")
+		panic("no return value specified for GetCachedClassNoAuth")
 	}
 
 	var r0 map[string]versioned.Class
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *models.Principal, ...string) (map[string]versioned.Class, error)); ok {
-		return rf(ctx, principal, names...)
+	if rf, ok := ret.Get(0).(func(context.Context, ...string) (map[string]versioned.Class, error)); ok {
+		return rf(ctx, names...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *models.Principal, ...string) map[string]versioned.Class); ok {
-		r0 = rf(ctx, principal, names...)
+	if rf, ok := ret.Get(0).(func(context.Context, ...string) map[string]versioned.Class); ok {
+		r0 = rf(ctx, names...)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(map[string]versioned.Class)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *models.Principal, ...string) error); ok {
-		r1 = rf(ctx, principal, names...)
+	if rf, ok := ret.Get(1).(func(context.Context, ...string) error); ok {
+		r1 = rf(ctx, names...)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -72,39 +70,38 @@ func (_m *MockschemaManager) GetCachedClass(ctx context.Context, principal *mode
 	return r0, r1
 }
 
-// MockschemaManager_GetCachedClass_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCachedClass'
-type MockschemaManager_GetCachedClass_Call struct {
+// MockschemaManager_GetCachedClassNoAuth_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCachedClassNoAuth'
+type MockschemaManager_GetCachedClassNoAuth_Call struct {
 	*mock.Call
 }
 
-// GetCachedClass is a helper method to define mock.On call
+// GetCachedClassNoAuth is a helper method to define mock.On call
 //   - ctx context.Context
-//   - principal *models.Principal
 //   - names ...string
-func (_e *MockschemaManager_Expecter) GetCachedClass(ctx interface{}, principal interface{}, names ...interface{}) *MockschemaManager_GetCachedClass_Call {
-	return &MockschemaManager_GetCachedClass_Call{Call: _e.mock.On("GetCachedClass",
-		append([]interface{}{ctx, principal}, names...)...)}
+func (_e *MockschemaManager_Expecter) GetCachedClassNoAuth(ctx interface{}, names ...interface{}) *MockschemaManager_GetCachedClassNoAuth_Call {
+	return &MockschemaManager_GetCachedClassNoAuth_Call{Call: _e.mock.On("GetCachedClassNoAuth",
+		append([]interface{}{ctx}, names...)...)}
 }
 
-func (_c *MockschemaManager_GetCachedClass_Call) Run(run func(ctx context.Context, principal *models.Principal, names ...string)) *MockschemaManager_GetCachedClass_Call {
+func (_c *MockschemaManager_GetCachedClassNoAuth_Call) Run(run func(ctx context.Context, names ...string)) *MockschemaManager_GetCachedClassNoAuth_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]string, len(args)-2)
-		for i, a := range args[2:] {
+		variadicArgs := make([]string, len(args)-1)
+		for i, a := range args[1:] {
 			if a != nil {
 				variadicArgs[i] = a.(string)
 			}
 		}
-		run(args[0].(context.Context), args[1].(*models.Principal), variadicArgs...)
+		run(args[0].(context.Context), variadicArgs...)
 	})
 	return _c
 }
 
-func (_c *MockschemaManager_GetCachedClass_Call) Return(_a0 map[string]versioned.Class, _a1 error) *MockschemaManager_GetCachedClass_Call {
+func (_c *MockschemaManager_GetCachedClassNoAuth_Call) Return(_a0 map[string]versioned.Class, _a1 error) *MockschemaManager_GetCachedClassNoAuth_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockschemaManager_GetCachedClass_Call) RunAndReturn(run func(context.Context, *models.Principal, ...string) (map[string]versioned.Class, error)) *MockschemaManager_GetCachedClass_Call {
+func (_c *MockschemaManager_GetCachedClassNoAuth_Call) RunAndReturn(run func(context.Context, ...string) (map[string]versioned.Class, error)) *MockschemaManager_GetCachedClassNoAuth_Call {
 	_c.Call.Return(run)
 	return _c
 }
