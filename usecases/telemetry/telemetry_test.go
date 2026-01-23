@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ import (
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -120,6 +121,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						},
 					}},
 				})
+			ci.On("getCloudInfo").Return(nil)
+
 			// Track some clients before building INIT payload
 			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
 			trackClientRequest(t, tel, "java", "weaviate-client-java/1.0.0")
@@ -143,10 +146,12 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Contains(t, payload.UsedModules, "generative-openai")
 			// INIT payloads should not include client usage data
 			assert.Nil(t, payload.ClientUsage)
+			assert.Nil(t, payload.CloudProvider)
+			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -184,6 +189,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						},
 					}},
 				})
+			ci.On("getCloudInfo").Return(nil)
+
 			// Track multiple client types
 			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
 			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
@@ -220,16 +227,20 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			// Verify tracker was reset after GetAndReset
 			currentCounts := tel.clientTracker.Get()
 			assert.Empty(t, currentCounts)
+			assert.Nil(t, payload.CloudProvider)
+			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
+			tel, sg, _, ci := newTestTelemeterWithCloudInfo()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 300_000_000_000,
 					},
 				})
+			ci.On("getCloudInfo").Return(nil)
+
 			// Track some clients before terminate
 			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
 			trackClientRequest(t, tel, "java", "weaviate-client-java/1.0.0")
@@ -252,6 +263,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
+			assert.Nil(t, payload.CloudProvider)
+			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on update with no client usage", func(t *testing.T) {
@@ -409,6 +422,151 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
 }
 
+func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
+	t.Run("on init with cloud info present", func(t *testing.T) {
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+			&models.NodeStatus{
+				Stats: &models.NodeStats{
+					ObjectCount: 100,
+				},
+			})
+		sm.On("GetSchemaSkipAuth").Return(
+			schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{
+					{
+						Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
+						ModuleConfig: map[string]interface{}{
+							"text2vec-google": nil,
+						},
+					},
+				}},
+			})
+		ci.On("getCloudInfo").Return(
+			&cloudInfo{cloudProvider: "GCP", uniqueID: "id"},
+		)
+		payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
+		assert.Nil(t, err)
+		assert.Equal(t, tel.machineID, payload.MachineID)
+		assert.Equal(t, PayloadType.Init, payload.Type)
+		assert.Equal(t, config.ServerVersion, payload.Version)
+		assert.Equal(t, int64(0), payload.ObjectsCount)
+		assert.Equal(t, 1, payload.CollectionsCount)
+		assert.Equal(t, runtime.GOOS, payload.OS)
+		assert.Equal(t, runtime.GOARCH, payload.Arch)
+		assert.NotEmpty(t, payload.UsedModules)
+		assert.Len(t, payload.UsedModules, 1)
+		assert.Contains(t, payload.UsedModules, "text2vec-google-vertex-ai")
+		require.NotNil(t, payload.CloudProvider)
+		assert.Equal(t, "GCP", *payload.CloudProvider)
+		require.NotNil(t, payload.UniqueID)
+		assert.Equal(t, "id", *payload.UniqueID)
+	})
+
+	t.Run("on update with only cloud provider present", func(t *testing.T) {
+		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+			&models.NodeStatus{
+				Stats: &models.NodeStats{
+					ObjectCount: 1000,
+				},
+			})
+		ci.On("getCloudInfo").Return(
+			&cloudInfo{cloudProvider: "GCP"},
+		)
+		payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
+		assert.Nil(t, err)
+		assert.Equal(t, tel.machineID, payload.MachineID)
+		assert.Equal(t, PayloadType.Update, payload.Type)
+		assert.Equal(t, config.ServerVersion, payload.Version)
+		assert.Equal(t, int64(1000), payload.ObjectsCount)
+		assert.Equal(t, 0, payload.CollectionsCount)
+		assert.Equal(t, runtime.GOOS, payload.OS)
+		assert.Equal(t, runtime.GOARCH, payload.Arch)
+		assert.Empty(t, payload.UsedModules)
+		require.NotNil(t, payload.CloudProvider)
+		require.Nil(t, payload.UniqueID)
+	})
+
+	t.Run("on terminate with empty cloud info", func(t *testing.T) {
+		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+			&models.NodeStatus{
+				Stats: &models.NodeStats{
+					ObjectCount: 300_000_000_000,
+				},
+			})
+		ci.On("getCloudInfo").Return(
+			&cloudInfo{},
+		)
+		payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
+		assert.Nil(t, err)
+		assert.Equal(t, tel.machineID, payload.MachineID)
+		assert.Equal(t, PayloadType.Terminate, payload.Type)
+		assert.Equal(t, config.ServerVersion, payload.Version)
+		assert.Equal(t, int64(300_000_000_000), payload.ObjectsCount)
+		assert.Equal(t, runtime.GOOS, payload.OS)
+		assert.Equal(t, runtime.GOARCH, payload.Arch)
+		assert.Empty(t, payload.UsedModules)
+		require.Nil(t, payload.CloudProvider)
+		require.Nil(t, payload.UniqueID)
+	})
+}
+
+func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
+	server := httptest.NewServer(&gcpTestConsumer{t})
+	defer server.Close()
+	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newGCPCloudInfo(server.URL))
+
+	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+		&models.NodeStatus{
+			Stats: &models.NodeStats{
+				ObjectCount: 100,
+			},
+		})
+
+	payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
+	assert.Nil(t, err)
+	assert.Equal(t, tel.machineID, payload.MachineID)
+	assert.Equal(t, PayloadType.Init, payload.Type)
+	assert.Equal(t, config.ServerVersion, payload.Version)
+	assert.Equal(t, int64(0), payload.ObjectsCount)
+	assert.Equal(t, 0, payload.CollectionsCount)
+	assert.Equal(t, runtime.GOOS, payload.OS)
+	assert.Equal(t, runtime.GOARCH, payload.Arch)
+	require.NotNil(t, payload.CloudProvider)
+	assert.Equal(t, "GCP", *payload.CloudProvider)
+	require.NotNil(t, payload.UniqueID)
+	assert.Equal(t, "some-id", *payload.UniqueID)
+}
+
+func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
+	server := httptest.NewServer(&awsTestConsumer{t})
+	defer server.Close()
+	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newAWSCloudInfo(server.URL))
+
+	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+		&models.NodeStatus{
+			Stats: &models.NodeStats{
+				ObjectCount: 100,
+			},
+		})
+
+	payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
+	assert.Nil(t, err)
+	assert.Equal(t, tel.machineID, payload.MachineID)
+	assert.Equal(t, PayloadType.Init, payload.Type)
+	assert.Equal(t, config.ServerVersion, payload.Version)
+	assert.Equal(t, int64(0), payload.ObjectsCount)
+	assert.Equal(t, 0, payload.CollectionsCount)
+	assert.Equal(t, runtime.GOOS, payload.OS)
+	assert.Equal(t, runtime.GOARCH, payload.Arch)
+	require.NotNil(t, payload.CloudProvider)
+	assert.Equal(t, "AWS", *payload.CloudProvider)
+	require.NotNil(t, payload.UniqueID)
+	assert.Equal(t, "101", *payload.UniqueID)
+}
+
 type telemetryOpt func(*Telemeter)
 
 func withConsumerURL(url string) telemetryOpt {
@@ -435,6 +593,23 @@ func newTestTelemeter(opts ...telemetryOpt,
 	for _, opt := range opts {
 		opt(tel)
 	}
+	return tel, sg, sm
+}
+
+func newTestTelemeterWithCloudInfo(opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager, *fakeCloudInfoProvider,
+) {
+	tel, sg, sm := newTestTelemeter(opts...)
+	ci := &fakeCloudInfoProvider{}
+	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
+	return tel, sg, sm, ci
+}
+
+func newTestTelemeterWithCustomCloudInfo(ci cloudInfoProvider, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+) {
+	tel, sg, sm := newTestTelemeter(opts...)
+	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
 	return tel, sg, sm
 }
 
@@ -764,4 +939,43 @@ func TestClientTracker(t *testing.T) {
 			tracker.Stop()
 		})
 	})
+}
+
+type gcpTestConsumer struct {
+	t *testing.T
+}
+
+func (h *gcpTestConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.String(), "/instance") {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if strings.Contains(r.URL.String(), "/project/project-id") {
+		w.Write([]byte("some-id"))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusBadRequest)
+}
+
+type awsTestConsumer struct {
+	t *testing.T
+}
+
+func (h *awsTestConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.String(), "/latest/meta-data/") {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if strings.Contains(r.URL.String(), "/latest/api/token") {
+		w.Write([]byte("some-token"))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if strings.Contains(r.URL.String(), "/latest/dynamic/instance-identity/document") {
+		w.Write([]byte(`{"accountId":"101"}`))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusBadRequest)
 }

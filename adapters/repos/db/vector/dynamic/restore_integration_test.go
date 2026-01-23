@@ -86,11 +86,11 @@ func TestBackup_Integration(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
-		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled: true,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}
 
 	uc := ent.UserConfig{
