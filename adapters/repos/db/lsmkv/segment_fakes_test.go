@@ -344,15 +344,6 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	return nil
 }
 
-func (s *fakeSegment) hasKey(key []byte) bool {
-	if s.strategy != segmentindex.StrategyInverted {
-		return false
-	}
-
-	_, ok := s.collectionStore[string(key)]
-	return ok
-}
-
 func (s *fakeSegment) getDocCount(key []byte) uint64 {
 	if s.strategy != segmentindex.StrategyInverted {
 		return 0
@@ -382,6 +373,22 @@ func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable
 }
 
 func (s *fakeSegment) existsKey(key []byte) (bool, error) {
+	ok := false
+	switch s.strategy {
+	case segmentindex.StrategyMapCollection, segmentindex.StrategyInverted, segmentindex.StrategySetCollection:
+		_, ok = s.collectionStore[string(key)]
+	case segmentindex.StrategyReplace:
+		_, ok = s.replaceStore[string(key)]
+	case segmentindex.StrategyRoaringSet:
+		_, ok = s.roaringStore[string(key)]
+	default:
+		return false, fmt.Errorf("existsKey only supported for map collection, inverted, replace, set collection and roaring set strategies")
+	}
+
+	return ok, nil
+}
+
+func (s *fakeSegment) existsKeySecondary(key []byte, pos int) (bool, error) {
 	panic("not implemented")
 }
 
