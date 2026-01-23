@@ -194,7 +194,6 @@ func (w *worker) sendObjects(
 					lastIndex += int32(resp.howManyObjs)
 				}()
 				if resp.err != nil {
-					errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
 					w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", resp.err)
 					for _, obj := range objs {
 						errors = append(errors, &pb.BatchStreamReply_Results_Error{

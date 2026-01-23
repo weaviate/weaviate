@@ -49,8 +49,6 @@ type schemaManager interface {
 	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string) (map[string]versioned.Class, error)
 }
 
-type classGetterWithAuthzFunc func(string) (*models.Class, error)
-
 type StreamHandler struct {
 	authenticator          authenticator
 	authorizer             authorization.Authorizer
