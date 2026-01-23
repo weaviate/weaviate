@@ -47,20 +47,19 @@ func Test_BackupJourney(t *testing.T) {
 }
 
 func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	s3BackupJourneyBucketName := containerName
-
 	t.Run("multiple node", func(t *testing.T) {
 		ctx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
-		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
+		t.Setenv(envS3Bucket, journey.S3BucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
+			WithBackendS3(journey.S3BucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
+			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -74,8 +73,9 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		})
 
 		t.Run("backup-s3", func(t *testing.T) {
+			minioURL := compose.GetMinIO().URI()
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
-				s3BackupJourneyBackupIDCluster, nil, override, overrideBucket, overridePath,
+				s3BackupJourneyBackupIDCluster, minioURL, nil, override, overrideBucket, overridePath,
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})

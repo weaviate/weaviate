@@ -113,7 +113,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster+overrideBucket, tenantNames, override, overrideBucket, overridePath,
+				gcsBackupJourneyBackupIDCluster+overrideBucket, "", tenantNames, override, overrideBucket, overridePath,
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})

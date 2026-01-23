@@ -332,7 +332,7 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 
 func backupAndRestoreWithIncremental(t *testing.T, weaviateEndpoint, backend string, overrideBucket, overridePath string) {
 	booksClass := books.ClassMixedContextionaryVectorizerFlat()
-	booksClass.Class = "BookLargeCollection"
+	booksClass.Class = "BookLargeCollectionIncremental"
 	helper.DeleteClass(t, booksClass.Class)
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)

@@ -90,27 +90,20 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
-			if err != nil {
-				// If backup is still in progress from a previous operation, fail this iteration
-				// so EventuallyWithT will retry until the slot is released
-				if assert.Contains(t1, err.Error(), "already in progress") {
-					assert.Fail(t1, "backup still in progress, retrying", err.Error())
-				}
-				return
-			}
+			require.NoError(t1, err)
 			require.NotNil(t1, resp)
 			require.NotNil(t1, resp.Payload)
-			assert.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
+			require.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
 			if cfg.Bucket != "" {
-				assert.Contains(t1, resp.Payload.Path, cfg.Bucket)
+				require.Contains(t1, resp.Payload.Path, cfg.Bucket)
 			}
 			if cfg.Path != "" {
-				assert.Contains(t1, resp.Payload.Path, cfg.Path)
+				require.Contains(t1, resp.Payload.Path, cfg.Path)
 			}
-			assert.Equal(t1, backupID, resp.Payload.ID)
-			assert.Equal(t1, className, resp.Payload.Classes[0])
-			assert.Equal(t1, "", resp.Payload.Error)
-			assert.Equal(t1, string(backup.Started), *resp.Payload.Status)
+			require.Equal(t1, backupID, resp.Payload.ID)
+			require.Equal(t1, className, resp.Payload.Classes[0])
+			require.Equal(t1, "", resp.Payload.Error)
+			require.Equal(t1, string(backup.Started), *resp.Payload.Status)
 		}, 240*time.Second, 500*time.Millisecond)
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {

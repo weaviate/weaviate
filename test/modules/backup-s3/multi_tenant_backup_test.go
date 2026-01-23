@@ -56,6 +56,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
+			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -69,8 +70,10 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		})
 
 		t.Run("backup-s3", func(t *testing.T) {
+			minioURL := compose.GetMinIO().URI()
+
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
-				s3BackupJourneyBackupIDCluster, tenantNames, override, overrideBucket, overridePath,
+				s3BackupJourneyBackupIDCluster, minioURL, tenantNames, override, overrideBucket, overridePath,
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})

@@ -60,7 +60,7 @@ func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, clas
 }
 
 // BackupJourneyTests_Cluster this method gathers all backup related e2e tests to be run on a cluster
-func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID string,
+func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID, minioURL string,
 	tenantNames []string, override bool, overrideBucket, overrideLocation string, weaviateEndpoints ...string,
 ) {
 	if len(weaviateEndpoints) <= 1 {
@@ -85,5 +85,9 @@ func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID strin
 
 	t.Run("node mapping cluster backup", func(t *testing.T) {
 		clusterNodeMappingBackupJourneyTest(t, backend, className, backupID+"_with_node_mapping", coordinator, override, overrideBucket, overrideLocation, weaviateEndpoints[1:]...) // FIXME
+	})
+
+	t.Run("node mapping cluster backup", func(t *testing.T) {
+		clusterIncrementalBackupJourneyTest(t, backend, overrideBucket, overrideLocation, minioURL, weaviateEndpoints...)
 	})
 }
