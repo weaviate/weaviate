@@ -130,22 +130,29 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
 
-		var baseDescr *backup.BackupDescriptor
-		var baseBackupIds []string
+		var baseDescrs []*backup.BackupDescriptor
+		baseBackupID := req.BaseBackupID
 		if req.BaseBackupID != "" {
-			var err error
-			baseDescr, err = store.MetaForBackupID(ctx, req.BaseBackupID, store.bucket, store.path)
-			if err != nil {
-				b.logger.WithFields(logFields).Error(fmt.Errorf("fetching base backup: %w", err))
-				b.lastAsyncError = err
-				return
-			}
-			baseBackupIds = []string{req.BaseBackupID}
-			if *baseDescr.CompressionType != compressionType {
-				err := fmt.Errorf("base backup %q has different compression type %v than the requested one %v", req.BaseBackupID, baseDescr.CompressionType, compressionType)
-				b.logger.WithFields(logFields).Error(err)
-				b.lastAsyncError = err
-				return
+			nextId := baseBackupID
+			for {
+				var err error
+				baseDescr, err := store.MetaForBackupID(ctx, nextId, store.bucket, store.path)
+				if err != nil {
+					b.logger.WithFields(logFields).Error(fmt.Errorf("fetching base backup: %w", err))
+					b.lastAsyncError = err
+					return
+				}
+				baseDescrs = append(baseDescrs, baseDescr)
+				if *baseDescr.CompressionType != compressionType {
+					err := fmt.Errorf("base backup %q has different compression type %v than the requested one %v", req.BaseBackupID, baseDescr.CompressionType, compressionType)
+					b.logger.WithFields(logFields).Error(err)
+					b.lastAsyncError = err
+					return
+				}
+				if baseDescr.BaseBackupId == "" {
+					break
+				}
+				nextId = baseDescr.BaseBackupId
 			}
 		}
 
@@ -156,10 +163,10 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			Version:         Version,
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
-			BaseBackupIds:   baseBackupIds,
+			BaseBackupId:    baseBackupID,
 		}
 
-		if err := provider.all(ctx, req.Classes, &result, baseDescr, req.Bucket, req.Path); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, baseDescrs, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 		} else {

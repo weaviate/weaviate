@@ -262,33 +262,36 @@ func (s *ShardDescriptor) CopyFilesInShard() *FileList {
 	return filesInShard
 }
 
-func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescr *ShardDescriptor, backupID, rootPath string) error {
-	if shardBaseDescr == nil {
+func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndId, rootPath string) error {
+	if len(shardBaseDescrs) == 0 {
 		s.Files = files
 		return nil
 	}
 
+FilesLoop:
 	for _, file := range files {
-		if info, ok := shardBaseDescr.BigFilesChunk[file]; ok {
-			absPath, err := diskio.SanitizeFilePathJoin(rootPath, file)
-			if err != nil {
-				return fmt.Errorf("sanitize file path %v: %w", file, err)
-			}
-			infoNew, err := os.Stat(absPath)
-			if err != nil {
-				return fmt.Errorf("stat big file %v: %w", file, err)
-			}
-			// unchanged files. These can be skipped in incremental backup and restored form the previous backup
-			if info.Size == infoNew.Size() && info.ModifiedAt.Equal(infoNew.ModTime()) {
-				if s.IncrementalBackupInfo == nil {
-					s.IncrementalBackupInfo = make(map[string][]IncrementalBackupInfo)
+		for _, shardBaseDescr := range shardBaseDescrs {
+			if info, ok := shardBaseDescr.ShardDesc.BigFilesChunk[file]; ok {
+				absPath, err := diskio.SanitizeFilePathJoin(rootPath, file)
+				if err != nil {
+					return fmt.Errorf("sanitize file path %v: %w", file, err)
 				}
-				// files that are skipped due to being unchanged from base backup
-				s.IncrementalBackupInfo[backupID] = append(
-					s.IncrementalBackupInfo[backupID],
-					IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
-				)
-				continue
+				infoNew, err := os.Stat(absPath)
+				if err != nil {
+					return fmt.Errorf("stat big file %v: %w", file, err)
+				}
+				// unchanged files. These can be skipped in incremental backup and restored form the previous backup
+				if info.Size == infoNew.Size() && info.ModifiedAt.Equal(infoNew.ModTime()) {
+					if s.IncrementalBackupInfo == nil {
+						s.IncrementalBackupInfo = make(map[string][]IncrementalBackupInfo)
+					}
+					// files that are skipped due to being unchanged from base backup
+					s.IncrementalBackupInfo[shardBaseDescr.BackupId] = append(
+						s.IncrementalBackupInfo[shardBaseDescr.BackupId],
+						IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
+					)
+					continue FilesLoop
+				}
 			}
 		}
 
@@ -296,6 +299,11 @@ func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescr *ShardDesc
 		s.Files = append(s.Files, file)
 	}
 	return nil
+}
+
+type ShardAndId struct {
+	ShardDesc *ShardDescriptor
+	BackupId  string
 }
 
 // FileList holds a list of file paths and allows modification of the underlying slice
@@ -398,7 +406,7 @@ type BackupDescriptor struct {
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
-	BaseBackupIds           []string          `json:"baseBackupId,omitempty"` // IDs of base backups for incremental backups
+	BaseBackupId            string            `json:"baseBackupId,omitempty"`
 }
 
 // List all existing classes in d

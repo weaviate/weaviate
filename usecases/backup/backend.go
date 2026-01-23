@@ -216,7 +216,7 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc, baseDescr *backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
