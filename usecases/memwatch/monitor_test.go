@@ -12,7 +12,9 @@
 package memwatch
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"runtime"
@@ -147,6 +149,15 @@ func TestMappings(t *testing.T) {
 		case "darwin":
 			assert.Equal(t, getCurrentMappings(), int64(0))
 		}
+	})
+
+	t.Run("test currentMappingsLinux with simulation file", func(t *testing.T) {
+		file := createTestMappingsFile(t, 5001)
+		defer os.Remove(file.Name())
+		defer file.Close()
+
+		result := currentMappingsLinux(file.Name())
+		assert.Equal(t, int64(5001), result, "Should count exactly 5001 mappings")
 	})
 
 	t.Run("check mappings, by open many file mappings and close them only after the test is done", func(t *testing.T) {
@@ -303,4 +314,81 @@ func (f *fakeLimitSetter) SetMemoryLimit(newLimit int64) int64 {
 	}
 
 	return f.limit
+}
+
+func createTestMappingsFile(t testing.TB, numMappings int) *os.File {
+	file, err := os.CreateTemp("", "test_maps_*")
+	require.NoError(t, err)
+
+	for i := 0; i < numMappings; i++ {
+		startAddr := fmt.Sprintf("%08x", i*0x1000)
+		endAddr := fmt.Sprintf("%08x", (i+1)*0x1000)
+		perms := "r-xp"
+		offset := fmt.Sprintf("%08x", i*0x1000)
+		dev := "00:00"
+		inode := fmt.Sprintf("%d", 1000+i)
+		pathname := "/lib/x86_64-linux-gnu/libc.so.6"
+
+		line := fmt.Sprintf("%s-%s %s %s %s %s %s\n",
+			startAddr, endAddr, perms, offset, dev, inode, pathname)
+		_, err := file.WriteString(line)
+		require.NoError(t, err)
+	}
+
+	_, err = file.Seek(0, 0)
+	require.NoError(t, err)
+
+	return file
+}
+
+func BenchmarkCurrentMappingsLinuxComparison(b *testing.B) {
+	// Create a large simulation file with 100k mappings
+	file := createTestMappingsFile(b, 100000)
+	defer os.Remove(file.Name())
+	defer file.Close()
+
+	filePath := file.Name()
+
+	// Original implementation
+	originalCurrentMappingsLinux := func(filePath string) int64 {
+		file, err := os.Open(filePath)
+		if err != nil {
+			return 0
+		}
+		defer file.Close()
+
+		var mappings int64
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			mappings++
+		}
+
+		if err := scanner.Err(); err != nil {
+			return 0
+		}
+
+		return mappings
+	}
+
+	b.Run("Original", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			result := originalCurrentMappingsLinux(filePath)
+			if result != 100000 {
+				b.Fatalf("Expected 100000 mappings, got %d", result)
+			}
+		}
+	})
+
+	b.Run("New", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			result := currentMappingsLinux(filePath)
+			if result != 100000 {
+				b.Fatalf("Expected 100000 mappings, got %d", result)
+			}
+		}
+	})
 }

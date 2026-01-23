@@ -13,7 +13,9 @@ package memwatch
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"runtime"
@@ -188,32 +190,38 @@ func (m *Monitor) obtainCurrentMappings() {
 func getCurrentMappings() int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsLinux()
+		filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
+		return currentMappingsLinux(filePath)
 	default:
 		return 0
 	}
 }
 
 // Counts the number of mappings by counting the number of lines within the maps file
-func currentMappingsLinux() int64 {
-	filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
+// Optimized version that counts newlines in chunks without string allocation
+func currentMappingsLinux(filePath string) int64 {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return 0
 	}
 	defer file.Close()
 
-	var mappings int64
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		mappings++
+	var count int64
+	buf := make([]byte, 32*1024) // Larger buffer
+
+	for {
+		n, err := file.Read(buf[:])
+		count += int64(bytes.Count(buf[:n], []byte{'\n'}))
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return 0
-	}
-
-	return mappings
+	return count
 }
 
 func getMaxMemoryMappings() int64 {
