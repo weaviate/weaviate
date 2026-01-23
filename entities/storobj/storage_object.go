@@ -1519,15 +1519,17 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
 	var returnProps map[string]interface{}
-	if (properties == nil || propLength == 0) && len(propsB) > 0 {
-		if err := json.Unmarshal(propsB, &returnProps); err != nil {
-			return errors.Wrapf(err, "unmarshal properties propB %d", len(propsB))
-		}
-	} else if len(propsB) >= int(propLength) && len(propsB) >= 0 && properties != nil {
-		// the properties are not read in all cases, skip if not needed
-		returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
-		if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
-			return errors.Wrapf(err, "unmarshal properties with propB %d and prop length %d", len(propsB), int(propLength))
+	if len(propsB) > 0 {
+		if properties == nil || propLength == 0 {
+			if err := json.Unmarshal(propsB, &returnProps); err != nil {
+				return errors.Wrapf(err, "unmarshal properties propB %d", len(propsB))
+			}
+		} else if len(propsB) >= int(propLength) {
+			// the properties are not read in all cases, skip if not needed
+			returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
+			if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
+				return errors.Wrapf(err, "unmarshal properties with propB %d and prop length %d", len(propsB), int(propLength))
+			}
 		}
 	}
 
