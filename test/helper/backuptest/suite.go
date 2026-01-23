@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
 
@@ -400,6 +401,56 @@ func (s *BackupTestSuite) VerifyObjectsDoNotExist(t *testing.T) {
 	require.Error(t, err, "class %s should not exist after deletion", s.config.ClassName)
 }
 
+// VerifyCompressedVectorsRestored samples random objects and verifies their vectors are present.
+// This is used to validate that compressed vectors are correctly restored after backup/restore.
+func (s *BackupTestSuite) VerifyCompressedVectorsRestored(t *testing.T, sampleSize int) {
+	t.Helper()
+
+	if sampleSize > len(s.objectIDs) {
+		sampleSize = len(s.objectIDs)
+	}
+	if sampleSize == 0 {
+		t.Skip("no objects to sample")
+		return
+	}
+
+	// Sample random object IDs
+	sampled := make([]string, sampleSize)
+	copy(sampled, s.objectIDs[:sampleSize])
+
+	for _, id := range sampled {
+		tenant := s.objectTenants[id]
+
+		// Build GraphQL query to get object with vector
+		var query string
+		if tenant != "" {
+			query = fmt.Sprintf(`{Get{%s(where:{path:["id"],operator:Equal,valueText:"%s"},tenant:%q){_additional{id vector}}}}`,
+				s.config.ClassName, id, tenant)
+		} else {
+			query = fmt.Sprintf(`{Get{%s(where:{path:["id"],operator:Equal,valueText:"%s"}){_additional{id vector}}}}`,
+				s.config.ClassName, id)
+		}
+
+		resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		result := resp.Get("Get", s.config.ClassName).Result.([]interface{})
+		require.Len(t, result, 1, "expected 1 object for id %s", id)
+
+		obj := result[0].(map[string]interface{})
+		additional := obj["_additional"].(map[string]interface{})
+
+		// Verify vector is present and non-empty
+		vector, ok := additional["vector"]
+		require.True(t, ok, "object %s should have vector in _additional", id)
+		require.NotNil(t, vector, "vector should not be nil for object %s", id)
+
+		vectorSlice, ok := vector.([]interface{})
+		require.True(t, ok, "vector should be a slice for object %s", id)
+		require.Greater(t, len(vectorSlice), 0, "vector should not be empty for object %s", id)
+
+		t.Logf("Verified object %s has vector with %d dimensions", id, len(vectorSlice))
+	}
+}
+
 // CreateBackup creates a backup and waits for it to complete.
 func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID string) {
 	t.Helper()
@@ -531,6 +582,13 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	t.Run("verify objects restored", func(t *testing.T) {
 		s.VerifyObjectsExist(t)
 	})
+
+	// For compressed backups, verify vectors are restored correctly
+	if s.config.WithCompression != CompressionNone {
+		t.Run("verify compressed vectors restored", func(t *testing.T) {
+			s.VerifyCompressedVectorsRestored(t, 3) // Sample 3 random objects
+		})
+	}
 
 	t.Run("cleanup", func(t *testing.T) {
 		s.DeleteTestClass(t)
