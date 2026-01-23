@@ -12,7 +12,6 @@
 package test
 
 import (
-	"bufio"
 	"context"
 	"testing"
 	"time"
@@ -80,31 +79,4 @@ func Test_BackupJourney(t *testing.T) {
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgfilesystem.Name)
 		})
 	})
-}
-
-func printLogsOnError(t *testing.T, compose *docker.DockerCompose) {
-	if !t.Failed() {
-		return
-	}
-
-	// When a test fails, dump logs of all compose containers.
-	for _, container := range compose.Containers() {
-		logs, err := container.Container().Logs(context.Background())
-		if err != nil {
-			t.Logf("failed to get logs for container %s: %v", container.Name(), err)
-			continue
-		}
-		func() {
-			defer logs.Close()
-			t.Logf("=== start for container %s ===\n=== start logs ===", container.Name())
-
-			scanner := bufio.NewScanner(logs)
-
-			for scanner.Scan() {
-				line := scanner.Text()
-				t.Log(line)
-			}
-			t.Logf("=== logs for container %s ===\n=== end logs ===", container.Name())
-		}()
-	}
 }
