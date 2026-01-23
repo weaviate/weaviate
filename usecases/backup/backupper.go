@@ -130,44 +130,12 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
 
-		var baseDescrs []*backup.BackupDescriptor
 		baseBackupID := req.BaseBackupID
-		if req.BaseBackupID != "" {
-			visitedIds := make(map[string]struct{})
-			nextId := baseBackupID
-			for {
-				if _, ok := visitedIds[nextId]; ok {
-					err := fmt.Errorf("circular references in backup ids detected, all visited IDs: %v, circular ID %v", visitedIds, nextId)
-					b.logger.WithFields(logFields).Error()
-					b.lastAsyncError = err
-					return
-				}
-				visitedIds[nextId] = struct{}{}
-
-				baseDescr, err := store.MetaForBackupID(ctx, nextId, store.bucket, store.path)
-				if err != nil {
-					b.logger.WithFields(logFields).Error(fmt.Errorf("fetching base backup: %w", err))
-					b.lastAsyncError = err
-					return
-				}
-				if baseDescr == nil {
-					err := fmt.Errorf("base backup %q not found", req.BaseBackupID)
-					b.logger.WithFields(logFields).Error(err)
-					b.lastAsyncError = err
-					return
-				}
-				baseDescrs = append(baseDescrs, baseDescr)
-				if *baseDescr.CompressionType != compressionType {
-					err := fmt.Errorf("base backup %q has different compression type %v than the requested one %v", req.BaseBackupID, baseDescr.CompressionType, compressionType)
-					b.logger.WithFields(logFields).Error(err)
-					b.lastAsyncError = err
-					return
-				}
-				if baseDescr.BaseBackupId == "" {
-					break
-				}
-				nextId = baseDescr.BaseBackupId
-			}
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, compressionType, store.bucket, store.path, store.MetaForBackupID)
+		if err != nil {
+			b.logger.WithFields(logFields).Error(err)
+			b.lastAsyncError = err
+			return
 		}
 
 		result := backup.BackupDescriptor{
@@ -191,4 +159,68 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	enterrors.GoWrapper(f, b.logger)
 
 	return ret, nil
+}
+
+// metadataFetcher is a function type that fetches backup metadata
+type metadataFetcher func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error)
+
+// resolveBaseBackupChain follows the chain of base backups and validates them.
+// It returns all base backup descriptors in the chain, ordered from the most recent
+// (the requested baseBackupID) to the oldest (the full backup).
+// It validates:
+// - No circular references in the backup chain
+// - All backups in the chain exist
+// - All backups have compression type set
+// - All backups have the same compression type as requested
+func resolveBaseBackupChain(
+	ctx context.Context,
+	baseBackupID string,
+	compressionType backup.CompressionType,
+	bucket, path string,
+	fetchMeta metadataFetcher,
+) ([]*backup.BackupDescriptor, error) {
+	if baseBackupID == "" {
+		return nil, nil
+	}
+
+	var baseDescrs []*backup.BackupDescriptor
+	visitedIds := make(map[string]struct{})
+	nextId := baseBackupID
+
+	for {
+		// Check for circular references
+		if _, ok := visitedIds[nextId]; ok {
+			return nil, fmt.Errorf("circular references in backup ids detected, all visited IDs: %v, circular ID %v", visitedIds, nextId)
+		}
+		visitedIds[nextId] = struct{}{}
+
+		// Fetch the backup descriptor
+		baseDescr, err := fetchMeta(ctx, nextId, bucket, path)
+		if err != nil {
+			return nil, fmt.Errorf("fetching base backup: %w", err)
+		}
+		if baseDescr == nil {
+			return nil, fmt.Errorf("base backup %q not found", baseBackupID)
+		}
+
+		// Validate compression type is set
+		if baseDescr.CompressionType == nil {
+			return nil, fmt.Errorf("base backup %q has no compression type set", nextId)
+		}
+
+		// Validate compression type matches
+		if *baseDescr.CompressionType != compressionType {
+			return nil, fmt.Errorf("base backup %q has different compression type %v than the requested one %v", nextId, *baseDescr.CompressionType, compressionType)
+		}
+
+		baseDescrs = append(baseDescrs, baseDescr)
+
+		// Check if we've reached the end of the chain
+		if baseDescr.BaseBackupId == "" {
+			break
+		}
+		nextId = baseDescr.BaseBackupId
+	}
+
+	return baseDescrs, nil
 }

@@ -413,3 +413,215 @@ func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
 func (r fakeRbacBackupWrapper) Restore([]byte) error {
 	return nil
 }
+
+func TestResolveBaseBackupChain(t *testing.T) {
+	ctx := context.Background()
+	gzipCompression := backup.CompressionGZIP
+	noneCompression := backup.CompressionNone
+	bucket := "test-bucket"
+	path := "test-path"
+
+	tests := []struct {
+		name              string
+		baseBackupID      string
+		compressionType   backup.CompressionType
+		setupFetchMeta    func() metadataFetcher
+		errorContains     []string
+		expectedResultIDs []string
+	}{
+		{
+			name:            "EmptyBaseBackupID",
+			baseBackupID:    "",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					t.Fatal("fetchMeta should not be called for empty base backup ID")
+					return nil, nil
+				}
+			},
+			expectedResultIDs: nil,
+		},
+		{
+			name:            "SingleBaseBackup",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "",
+					}, nil
+				}
+			},
+			expectedResultIDs: []string{"backup-1"},
+		},
+		{
+			name:            "ChainOfMultipleBackups",
+			baseBackupID:    "backup-3",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "",
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "backup-1",
+					},
+					"backup-3": {
+						ID:              "backup-3",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "backup-2",
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			expectedResultIDs: []string{"backup-3", "backup-2", "backup-1"},
+		},
+		{
+			name:            "CircularReferenceDetection",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "backup-2",
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "backup-1",
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			errorContains: []string{"circular references in backup ids detected", "backup-1"},
+		},
+		{
+			name:            "BaseBackupNotFound",
+			baseBackupID:    "backup-missing",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return nil, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-missing\" not found"},
+		},
+		{
+			name:            "ErrorFetchingBackup",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return nil, errors.New("network error")
+				}
+			},
+			errorContains: []string{"fetching base backup", "network error"},
+		},
+		{
+			name:            "NilCompressionType",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: nil,
+						BaseBackupId:    "",
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\" has no compression type set"},
+		},
+		{
+			name:            "MismatchedCompressionType",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &noneCompression,
+						BaseBackupId:    "",
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\" has different compression type", "none", "gzip"},
+		},
+		{
+			name:            "MismatchedCompressionInChain",
+			baseBackupID:    "backup-2",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &noneCompression,
+						BaseBackupId:    "",
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "backup-1",
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\" has different compression type"},
+		},
+		{
+			name:            "SelfReferentialBackup",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() metadataFetcher {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupId:    "backup-1",
+					}, nil
+				}
+			},
+			errorContains: []string{"circular references in backup ids detected"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetchMeta := tt.setupFetchMeta()
+
+			result, err := resolveBaseBackupChain(ctx, tt.baseBackupID, tt.compressionType, bucket, path, fetchMeta)
+
+			if len(tt.errorContains) > 0 {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+				for _, errMsg := range tt.errorContains {
+					assert.Contains(t, err.Error(), errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				if tt.expectedResultIDs == nil {
+					assert.Nil(t, result)
+				} else {
+					assert.Len(t, result, len(tt.expectedResultIDs))
+					for i, expectedID := range tt.expectedResultIDs {
+						assert.Equal(t, expectedID, result[i].ID)
+					}
+				}
+			}
+		})
+	}
+}
