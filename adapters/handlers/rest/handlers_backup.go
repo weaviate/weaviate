@@ -13,6 +13,7 @@ package rest
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -105,6 +106,10 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	baseBackupId := ""
 	if params.Body.IncrementalBackupBaseID != nil {
 		baseBackupId = *params.Body.IncrementalBackupBaseID
+	}
+	if params.Body.ID == baseBackupId {
+		return backups.NewBackupsCreateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupId)))
 	}
 
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{

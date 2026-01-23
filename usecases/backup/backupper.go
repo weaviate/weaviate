@@ -200,7 +200,7 @@ func resolveBaseBackupChain(
 			return nil, fmt.Errorf("fetching base backup: %w", err)
 		}
 		if baseDescr == nil {
-			return nil, fmt.Errorf("base backup %q not found", baseBackupID)
+			return nil, fmt.Errorf("base backup %q not found", nextId)
 		}
 
 		// Validate compression type is set

@@ -210,6 +210,8 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		if sd.BigFilesChunk == nil {
 			sd.BigFilesChunk = make(map[string]entBackup.BigFiles)
 		}
+		// ChunkKeys already supports that single files might need to be split across multiple chunks. However currently
+		// we only support one chunk per big file.
 		sd.BigFilesChunk[relPath] = entBackup.BigFiles{ChunkKeys: []string{chunkKey}, Size: info.Size(), ModifiedAt: info.ModTime()}
 	}
 
