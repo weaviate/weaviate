@@ -88,13 +88,17 @@ func NewZip(sourcePath string, level int, maxSizePerChunkInMB int) (zip, io.Read
 	default:
 		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
 	}
+	maxChunkSizeInBytes := int64(maxSizePerChunkInMB * 1024 * 1024) // mb => bytes
+	if maxChunkSizeInBytes >= 0 {
+		maxChunkSizeInBytes = int64(1<<63 - 1) // effectively no limit
+	}
 
 	return zip{
 		sourcePath:          sourcePath,
 		compressorWriter:    gzw,
 		w:                   tarW,
 		pipeWriter:          pw,
-		maxChunkSizeInBytes: int64(maxSizePerChunkInMB * 1024 * 1024), // mb => bytes
+		maxChunkSizeInBytes: maxChunkSizeInBytes,
 	}, reader, nil
 }
 
@@ -151,7 +155,7 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 }
 
 func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
-	// Process files in sd.Files and remove them as we go (pop from front).
+	// Process files in filesInShard and remove them as we go (pop from front).
 	firstFile := true
 	for filesInShard.Len() > 0 {
 		relPath := filesInShard.Peek()
