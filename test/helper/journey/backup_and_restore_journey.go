@@ -12,16 +12,23 @@
 package journey
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gql "github.com/weaviate/weaviate/client/graphql"
+	"github.com/weaviate/weaviate/entities/backup"
 
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+
+	gofakeit "github.com/brianvoe/gofakeit/v6"
 )
 
 type vectorsConfigType string
@@ -273,4 +280,121 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		restoredVectors := vectorsForDune()
 		require.Equal(t, initialVectors, restoredVectors)
 	})
+}
+
+type book struct {
+	Title       string   `fake:"{sentence:10}"`
+	Description string   `fake:"{paragraph:10}"`
+	Tags        []string `fake:"{words:3}"`
+}
+
+func (b *book) toObject(class string) *models.Object {
+	return &models.Object{
+		Class: class,
+		Properties: map[string]interface{}{
+			"title":       b.Title,
+			"description": b.Description,
+			"tags":        b.Tags,
+		},
+	}
+}
+
+func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, backend string, overrideBucket, overridePath string) {
+	if weaviateEndpoint != "" {
+		helper.SetupClient(weaviateEndpoint)
+	}
+
+	booksClass := books.ClassMixedContextionaryVectorizer()
+	booksClass.Class = "BookLargeCollection"
+	helper.DeleteClass(t, booksClass.Class)
+	helper.CreateClass(t, booksClass)
+	defer helper.DeleteClass(t, booksClass.Class)
+
+	// add lots of data
+	numObjects := 10000
+	for i := 0; i < numObjects; i++ {
+		var b book
+		gofakeit.Struct(&b)
+		helper.CreateObject(t, b.toObject(booksClass.Class))
+	}
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects)
+
+	backupID := "backup-large-collection"
+
+	cfg := helper.DefaultBackupConfig()
+	cfg.Bucket = overrideBucket
+	cfg.Path = overridePath
+
+	resp, err := helper.CreateBackup(t, cfg, booksClass.Class, backend, backupID)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	assert.Equal(t, backupID, resp.Payload.ID)
+	require.Equal(t, resp.Payload.Bucket, overrideBucket)
+	require.Contains(t, resp.Payload.Path, overridePath)
+
+	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
+		resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+		var errorMessage string
+		if err != nil {
+			if b, err2 := json.Marshal(err); err2 == nil {
+				errorMessage = string(b)
+			}
+		}
+		t.Logf("backup status response: %+v, err: %v", resp, errorMessage)
+		require.NoError(t1, err, "expected nil, got: %v", err)
+
+		require.NotNil(t1, resp)
+		require.NotNil(t1, resp.Payload)
+		require.NotNil(t1, resp.Payload.Status)
+		require.Equal(t1, backupID, resp.Payload.ID)
+		require.Equal(t1, backend, resp.Payload.Backend)
+
+		require.True(t1, *resp.Payload.Status == "SUCCESS")
+	}, 120*time.Second, 1000*time.Millisecond)
+
+	helper.DeleteClass(t, booksClass.Class)
+
+	cfgRestore := helper.DefaultRestoreConfig()
+	cfgRestore.Bucket = overrideBucket
+	cfgRestore.Path = overridePath
+
+	respRest, err := helper.RestoreBackup(t, cfgRestore, booksClass.Class, backend, backupID, nil, false)
+	require.NoError(t, err, "expected nil, got: %v", err)
+	assert.Equal(t, backupID, respRest.Payload.ID)
+	assert.Equal(t, backend, respRest.Payload.Backend)
+
+	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
+		resp, err := helper.RestoreBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+		assert.Nil(t1, err, "expected nil, got: %v", err)
+
+		assert.NotNil(t1, resp)
+		assert.NotNil(t1, resp.Payload)
+		assert.NotNil(t1, resp.Payload.Status)
+
+		assert.True(t1, *resp.Payload.Status == string(backup.Success))
+	}, 120*time.Second, 1000*time.Millisecond)
+
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects)
+}
+
+func checkCount(t *testing.T, nodeEndpoints []string, classname string, numObjects int) {
+	t.Helper()
+	for i := range nodeEndpoints {
+		helper.SetupClient(nodeEndpoints[i])
+		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
+		require.NoError(t, err)
+		require.Nil(t, resp.Payload.Errors)
+		require.NotNil(t, resp.Payload.Data)
+
+		countJson := resp.Payload.Data["Aggregate"].(map[string]interface{})[classname].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"].(json.Number)
+		count, err := countJson.Int64()
+		require.NoError(t, err)
+		require.Equal(t, int64(numObjects), count, "expected all objects to be present on node %d", i+1)
+	}
+}
+
+func queryGQL(t *testing.T, query string) (*gql.GraphqlPostOK, error) {
+	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
+	return helper.Client(t).Graphql.GraphqlPost(params, nil)
 }

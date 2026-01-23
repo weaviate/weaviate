@@ -23,11 +23,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type graphIntegrityNoopBucketView struct{}
+
+func (n *graphIntegrityNoopBucketView) Release() {}
 
 func TestGraphIntegrity(t *testing.T) {
 	ctx := context.Background()
@@ -59,6 +64,9 @@ func TestGraphIntegrity(t *testing.T) {
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
+			},
+			GetViewThunk: func() common.BucketView {
+				return &graphIntegrityNoopBucketView{}
 			},
 			DistanceProvider: distancer.NewDotProductProvider(),
 		}, ent.UserConfig{

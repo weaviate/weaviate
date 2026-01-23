@@ -50,13 +50,14 @@ type compressor interface {
 }
 
 type zip struct {
-	sourcePath       string
-	w                *tar.Writer
-	compressorWriter compressor
-	pipeWriter       *io.PipeWriter
+	sourcePath          string
+	w                   *tar.Writer
+	compressorWriter    compressor
+	pipeWriter          *io.PipeWriter
+	maxChunkSizeInBytes int64
 }
 
-func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
+func NewZip(sourcePath string, level int, maxSizePerChunkInMB int) (zip, io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -89,10 +90,11 @@ func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
 	}
 
 	return zip{
-		sourcePath:       sourcePath,
-		compressorWriter: gzw,
-		w:                tarW,
-		pipeWriter:       pw,
+		sourcePath:          sourcePath,
+		compressorWriter:    gzw,
+		w:                   tarW,
+		pipeWriter:          pw,
+		maxChunkSizeInBytes: int64(maxSizePerChunkInMB * 1024 * 1024), // mb => bytes
 	}, reader, nil
 }
 
@@ -112,57 +114,74 @@ func (z *zip) Close() error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor) (written int64, err error) {
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64) (written int64, err error) {
 	var n int64 // temporary written bytes
-	for _, x := range [3]struct {
-		relPath string
-		data    []byte
-		modTime time.Time
-	}{
-		{relPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
-		{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
-		{relPath: sd.ShardVersionPath, data: sd.Version},
-	} {
-		if err := ctx.Err(); err != nil {
-			return written, err
-		}
-		info := vFileInfo{
-			name: filepath.Base(x.relPath),
-			size: len(x.data),
-		}
-		if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
-			return written, err
-		}
-		written += n
 
+	// write in-memory files only for the first chunk of the shard, these files are small and we can assume that they will
+	// always fit into the first chunk
+	if firstChunkForShard {
+		for _, x := range [3]struct {
+			absPath string
+			data    []byte
+			modTime time.Time
+		}{
+			{absPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
+			{absPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
+			{absPath: sd.ShardVersionPath, data: sd.Version},
+		} {
+			if err := ctx.Err(); err != nil {
+				return written, err
+			}
+			info := vFileInfo{
+				name: filepath.Base(x.absPath),
+				size: len(x.data),
+			}
+			preCompressionSize.Add(int64(len(x.data)))
+			if n, err = z.writeOne(ctx, info, x.absPath, bytes.NewReader(x.data)); err != nil {
+				return written, err
+			}
+			written += n
+		}
 	}
 
-	n, err = z.WriteRegulars(ctx, sd.Files)
+	n, err = z.WriteRegulars(ctx, filesInShard, preCompressionSize)
 	written += n
 
 	return written, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int64, err error) {
-	for _, relPath := range relPaths {
+func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
+	// Process files in sd.Files and remove them as we go (pop from front).
+	firstFile := true
+	for filesInShard.Len() > 0 {
+		relPath := filesInShard.Peek()
 		if filepath.Base(relPath) == ".DS_Store" {
+			filesInShard.PopFront()
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, err := z.WriteRegular(ctx, relPath)
+		n, sizeExceeded, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
 		if err != nil {
 			return written, err
 		}
+		if sizeExceeded {
+			// The file was not written because the current chunk is full.
+			// It will be processed on the next chunk.
+			return written, nil
+		}
+		// remove processed element from slice
+		filesInShard.PopFront()
 		written += n
+		firstFile = false
 	}
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64, firstFile bool) (written int64, sizeExceeded bool, err error) {
 	if err := ctx.Err(); err != nil {
-		return written, err
+		return written, false, err
 	}
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
@@ -173,22 +192,30 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, 
 			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath))
 			info, err = os.Stat(absPath)
 			if err != nil {
-				return written, fmt.Errorf("stat for deleted files: %w", err)
+				return written, false, fmt.Errorf("stat for deleted files: %w", err)
 			}
 		} else {
-			return written, fmt.Errorf("stat: %w", err)
+			return written, false, fmt.Errorf("stat: %w", err)
 		}
 	}
 	if !info.Mode().IsRegular() {
-		return 0, nil // ignore directories
+		return 0, false, nil // ignore directories
 	}
+	// always write at least one file per chunk
+	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
+		return 0, true, nil
+	}
+
 	f, err := os.Open(absPath)
 	if err != nil {
-		return written, fmt.Errorf("open: %w", err)
+		return written, false, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
 
-	return z.writeOne(ctx, info, relPath, f)
+	preCompressionSize.Add(info.Size())
+
+	written, err = z.writeOne(ctx, info, relPath, f)
+	return written, false, err
 }
 
 func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
