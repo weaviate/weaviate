@@ -877,10 +877,16 @@ func CancellationTestCase() BackupTestCase {
 type SharedComposeConfig struct {
 	// Compose is the shared Docker compose instance
 	Compose *docker.DockerCompose
+	// BackendType is the backup backend type ("s3", "gcs", "azure")
+	BackendType string
 	// MinioEndpoint is the MinIO endpoint (for S3 tests)
 	MinioEndpoint string
-	// Region is the S3 region
+	// Region is the S3 region (for S3 tests)
 	Region string
+	// GCSEndpoint is the GCS emulator endpoint (for GCS tests)
+	GCSEndpoint string
+	// GCSProjectID is the GCS project ID (for GCS tests)
+	GCSProjectID string
 }
 
 // NewSuiteConfigFromTestCase creates a BackupTestSuiteConfig from a test case and shared compose.
@@ -900,8 +906,14 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 		objectsPerTenant = 10
 	}
 
+	// Default to s3 if not specified
+	backendType := sharedConfig.BackendType
+	if backendType == "" {
+		backendType = "s3"
+	}
+
 	return &BackupTestSuiteConfig{
-		BackendType:      "s3",
+		BackendType:      backendType,
 		BucketName:       "backups", // Use the default bucket created by shared cluster
 		Region:           sharedConfig.Region,
 		ClassName:        fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
@@ -925,8 +937,33 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 func RunS3BackupTests(t *testing.T, compose *docker.DockerCompose, minioEndpoint, region string, testCase BackupTestCase) {
 	sharedConfig := SharedComposeConfig{
 		Compose:       compose,
+		BackendType:   "s3",
 		MinioEndpoint: minioEndpoint,
 		Region:        region,
+	}
+
+	config := NewSuiteConfigFromTestCase(sharedConfig, testCase)
+	suite := NewBackupTestSuite(config)
+	suite.RunTestsWithSharedCompose(t, compose)
+}
+
+// RunGCSBackupTests runs GCS backup tests using a shared compose and test case configuration.
+func RunGCSBackupTests(t *testing.T, compose *docker.DockerCompose, testCase BackupTestCase) {
+	sharedConfig := SharedComposeConfig{
+		Compose:     compose,
+		BackendType: "gcs",
+	}
+
+	config := NewSuiteConfigFromTestCase(sharedConfig, testCase)
+	suite := NewBackupTestSuite(config)
+	suite.RunTestsWithSharedCompose(t, compose)
+}
+
+// RunAzureBackupTests runs Azure backup tests using a shared compose and test case configuration.
+func RunAzureBackupTests(t *testing.T, compose *docker.DockerCompose, testCase BackupTestCase) {
+	sharedConfig := SharedComposeConfig{
+		Compose:     compose,
+		BackendType: "azure",
 	}
 
 	config := NewSuiteConfigFromTestCase(sharedConfig, testCase)
