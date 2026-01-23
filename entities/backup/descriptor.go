@@ -229,11 +229,11 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
-	Name                  string                             `json:"name"`
-	Node                  string                             `json:"node"`
-	Files                 []string                           `json:"files,omitempty"`
-	BigFilesChunk         map[string]BigFiles                `json:"big_files_chunk,omitempty"`
-	IncrementalBackupInfo map[string][]IncrementalBackupInfo `json:"incremental_backup_info,omitempty"`
+	Name                  string                 `json:"name"`
+	Node                  string                 `json:"node"`
+	Files                 []string               `json:"files,omitempty"`
+	BigFilesChunk         map[string]BigFiles    `json:"big_files_chunk,omitempty"`
+	IncrementalBackupInfo IncrementalBackupInfos `json:"incremental_backup_info,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -282,14 +282,15 @@ FilesLoop:
 				}
 				// unchanged files. These can be skipped in incremental backup and restored form the previous backup
 				if info.Size == infoNew.Size() && info.ModifiedAt.Equal(infoNew.ModTime()) {
-					if s.IncrementalBackupInfo == nil {
-						s.IncrementalBackupInfo = make(map[string][]IncrementalBackupInfo)
+					if s.IncrementalBackupInfo.FilesPerBackup == nil {
+						s.IncrementalBackupInfo.FilesPerBackup = make(map[string][]IncrementalBackupInfo)
 					}
 					// files that are skipped due to being unchanged from base backup
-					s.IncrementalBackupInfo[shardBaseDescr.BackupId] = append(
-						s.IncrementalBackupInfo[shardBaseDescr.BackupId],
+					s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupId] = append(
+						s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupId],
 						IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
 					)
+					s.IncrementalBackupInfo.TotalSize += info.Size
 					continue FilesLoop
 				}
 			}
@@ -344,6 +345,11 @@ func (f *FileList) Peek() string {
 		return ""
 	}
 	return f.Files[f.start]
+}
+
+type IncrementalBackupInfos struct {
+	FilesPerBackup map[string][]IncrementalBackupInfo
+	TotalSize      int64
 }
 
 type IncrementalBackupInfo struct {

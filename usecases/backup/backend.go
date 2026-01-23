@@ -402,6 +402,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		return sendCh
 	}
 
+	incrementalBackupSize := atomic.Int64{}
+
 	// processor
 	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
@@ -418,6 +420,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					for shard := range sender {
 						firstChunk := true
 						filesInShard := shard.CopyFilesInShard()
+						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
 						for {
 							chunk := atomic.AddInt32(&lastChunk, 1)
 							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, overrideBucket, overridePath)
@@ -446,6 +449,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		desc.Chunks[x.chunk] = x.shards
 		desc.PreCompressionSizeBytes += x.preCompressionSize
 	}
+	desc.PreCompressionSizeBytes += incrementalBackupSize.Load()
 	return desc.PreCompressionSizeBytes, err
 }
 
@@ -634,7 +638,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 
 	// fetch files from base backup(s)
 	for _, shard := range desc.Shards {
-		for backupId, incrementalBackupInfos := range shard.IncrementalBackupInfo { // can be multiple incremental backups
+		for backupId, incrementalBackupInfos := range shard.IncrementalBackupInfo.FilesPerBackup { // can be multiple incremental backups
 			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
 				for _, chunkId := range incrementalBackupInfo.ChunkKeys { // chunks for file
 					eg.Go(func() error {
