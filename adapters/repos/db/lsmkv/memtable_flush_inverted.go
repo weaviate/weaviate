@@ -24,8 +24,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -135,8 +135,8 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 				ValueStart: totalWritten,
 			}
 
-			b := config.DefaultBM25b
-			k1 := config.DefaultBM25k1
+			b := entcfg.DefaultBM25b
+			k1 := entcfg.DefaultBM25k1
 			if m.bm25config != nil {
 				b = m.bm25config.B
 				k1 = m.bm25config.K1

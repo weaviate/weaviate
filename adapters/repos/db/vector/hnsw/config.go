@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -97,14 +98,6 @@ func NewVectorForIDThunk[T float32 | []float32](targetVector string, fn func(ctx
 	return t.VectorForID
 }
 
-func NewMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, id uint64, targetVector string) ([][]float32, error)) common.VectorForID[[]float32] {
-	t := common.TargetVectorForID[[]float32]{
-		TargetVector:     targetVector,
-		VectorForIDThunk: fn,
-	}
-	return t.VectorForID
-}
-
 func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error)) common.TempVectorForID[[]float32] {
 	t := common.TargetTempVectorForID[[]float32]{
 		TargetVector:         targetVector,
@@ -113,10 +106,13 @@ func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Conte
 	return t.TempVectorForID
 }
 
-func NewTempVectorForIDWithViewThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]T, error)) common.TempVectorForIDWithView[T] {
+func NewTempVectorForIDWithViewThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, bucket *lsmkv.Bucket, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]T, error)) common.TempVectorForIDWithView[T] {
 	t := common.TargetTempVectorForIDWithView[T]{
-		TargetVector:                 targetVector,
-		TempVectorForIDWithViewThunk: fn,
+		TargetVector: targetVector,
+		TempVectorForIDWithViewThunk: func(ctx context.Context, bucket common.Bucket, id uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]T, error) {
+			lsmkvBucket, _ := bucket.(*lsmkv.Bucket)
+			return fn(ctx, lsmkvBucket, id, container, targetVector, view)
+		},
 	}
-	return t.TempVectorForIDWithView
+	return t.TempVectorForIDWithView(nil)
 }

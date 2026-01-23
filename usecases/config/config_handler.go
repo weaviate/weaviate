@@ -51,10 +51,11 @@ const DefaultConfigFile string = "./weaviate.conf.json"
 // DefaultCleanupIntervalSeconds can be overwritten on a per-class basis
 const DefaultCleanupIntervalSeconds = int64(60)
 
+// BM25 tuning params are now defined in entities/config
+// These can be overwritten on a per-class basis
 const (
-	// These BM25 tuning params can be overwritten on a per-class basis
-	DefaultBM25k1 = float32(1.2)
-	DefaultBM25b  = float32(0.75)
+	DefaultBM25k1 = entcfg.DefaultBM25k1
+	DefaultBM25b  = entcfg.DefaultBM25b
 )
 
 var DefaultUsingBlockMaxWAND = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || entcfg.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE"))
@@ -468,8 +469,8 @@ const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibilit
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
 const (
-	DefaultPersistenceMinMMapSize     = 8192 // 8kb by default
-	DefaultPersistenceMaxReuseWalSize = 4096 // 4kb by default
+	DefaultPersistenceMinMMapSize     = 8192                                     // 8kb by default
+	DefaultPersistenceMaxReuseWalSize = entcfg.DefaultPersistenceMaxReuseWalSize // defined in entities/config
 )
 
 func (p Persistence) Validate() error {

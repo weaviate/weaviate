@@ -218,17 +218,19 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 }
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	keyBuf := make([]byte, 8)
 	view := s.GetObjectsBucketView()
 	defer view.Release()
-	return s.readVectorByIndexIDIntoSliceWithView(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector, view)
+	return s.readVectorByIndexIDIntoSliceWithView(ctx, bucket, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector, view)
 }
 
 func (s *Shard) multiVectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([][]float32, error) {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	keyBuf := make([]byte, 8)
 	view := s.GetObjectsBucketView()
 	defer view.Release()
-	return s.readMultiVectorByIndexIDIntoSliceWithView(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector, view)
+	return s.readMultiVectorByIndexIDIntoSliceWithView(ctx, bucket, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector, view)
 }
 
 func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error) {
@@ -255,7 +257,7 @@ func (s *Shard) GetObjectsBucketView() common.BucketView {
 	return s.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
 }
 
-func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]float32, error) {
+func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, bucket *lsmkv.Bucket, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bucketView, ok := view.(lsmkv.BucketConsistentView)
@@ -263,7 +265,7 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
 	}
 
-	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+	bytes, newBuff, err := bucket.
 		GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, bucketView)
 	if err != nil {
 		return nil, err
@@ -278,7 +280,7 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
 }
 
-func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
+func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, bucket *lsmkv.Bucket, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bucketView, ok := view.(lsmkv.BucketConsistentView)
@@ -286,7 +288,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
 	}
 
-	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+	bytes, newBuff, err := bucket.
 		GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, bucketView)
 	if err != nil {
 		return nil, err

@@ -28,7 +28,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/usecases/config"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 
@@ -225,7 +224,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		calcCountNetAdditions:        false,
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
-		minWalThreshold:              config.DefaultPersistenceMaxReuseWalSize,
+		minWalThreshold:              entcfg.DefaultPersistenceMaxReuseWalSize,
 	}
 
 	for _, opt := range opts {

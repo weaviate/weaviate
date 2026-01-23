@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/usecases/config"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -397,8 +397,8 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
-		b := float64(config.DefaultBM25b)
-		k1 := float64(config.DefaultBM25k1)
+		b := float64(entcfg.DefaultBM25b)
+		k1 := float64(entcfg.DefaultBM25k1)
 		if sg.bm25config != nil {
 			b = sg.bm25config.B
 			k1 = sg.bm25config.K1
