@@ -19,11 +19,6 @@ func (h *HFresh) wrapAllowList(ctx context.Context, allowList helpers.AllowList)
 	}
 }
 
-func (al *hfAllowList) UnWrap() {
-	defer al.h.visitedPool.Return(al.wrappedIdVisited)
-	defer al.h.visitedPool.Return(al.idVisited)
-}
-
 func (h *HFresh) NewHFALIterator(allowList helpers.AllowList) helpers.AllowListIterator {
 	return &HFALIterator{
 		len:       int(h.Centroids.GetMaxID()),
@@ -154,4 +149,7 @@ func (a *hfAllowList) WrapOnWrite() helpers.AllowList {
 	panic("unimplemented")
 }
 
-func (a *hfAllowList) Close() {}
+func (a *hfAllowList) Close() {
+	defer a.h.visitedPool.Return(a.wrappedIdVisited)
+	defer a.h.visitedPool.Return(a.idVisited)
+}
