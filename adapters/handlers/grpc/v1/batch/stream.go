@@ -160,6 +160,8 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	// Ensure that internal goroutines are cancelled when the stream exits for any reason
 	ctx, cancel := context.WithCancel(streamCtx)
 	defer cancel()
+	// Add class cache to context for schema retrievals during this stream's lifetime
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	// Channel to communicate receive errors from recv to the send loop
 	recvErrCh := make(chan error, 1)
@@ -466,28 +468,28 @@ func (h *StreamHandler) receiver(ctx context.Context, principal *models.Principa
 			}
 
 			collectionSet := make(map[string]struct{})
-			for _, obj := range objs {
-				collectionSet[obj.Collection] = struct{}{}
-			}
 			collections := []string{}
-			for collection := range collectionSet {
-				collections = append(collections, collection)
+			for _, obj := range objs {
+				if _, ok := collectionSet[obj.Collection]; ok {
+					continue
+				}
+				collectionSet[obj.Collection] = struct{}{}
+				collections = append(collections, obj.Collection)
 			}
 
-			ctx = classcache.ContextWithClassCache(ctx)
 			classes, err := h.schemaManager.GetCachedClass(ctx, principal, collections...)
 			if err != nil {
 				log.Errorf("failed to get classes for vectorisation check: %v", err)
 				return fmt.Errorf("get classes for vectorisation check: %w", err)
 			}
 			usesVectorisationByCollection := map[string]bool{}
-			for collection := range collectionSet {
+			for _, collection := range collections {
 				if class, ok := classes[collection]; ok {
 					usesVectorisationByCollection[collection] = modelsext.ClassUsesVectorisation(class.Class)
 				}
 			}
 
-			h.push(stream.Context(), streamId, consistencyLevel, wg, objs, refs, usesVectorisationByCollection)
+			h.push(ctx, streamId, consistencyLevel, wg, objs, refs, usesVectorisationByCollection)
 
 			uuids := make([]string, 0, len(objs))
 			beacons := make([]string, 0, len(refs))
