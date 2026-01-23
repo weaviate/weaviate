@@ -43,8 +43,7 @@ type SegmentGroup struct {
 	// when they are released and number of refs is 0.
 	// It may contains segments that are no longer present in sg.segments, but still being read from
 	// (segments that were cleaned or compacted and replaced by new ones)
-	segmentsWithRefs      map[string]Segment // segment.path => segment
-	segmentRefCounterLock sync.Mutex
+	segmentRefCounterLock sync.RWMutex
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -121,7 +120,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	now := time.Now()
 	sg := &SegmentGroup{
 		segments:                     make([]Segment, len(files)),
-		segmentsWithRefs:             map[string]Segment{},
 		dir:                          cfg.dir,
 		logger:                       logger,
 		metrics:                      metrics,
@@ -530,23 +528,19 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
-	sg.segmentRefCounterLock.Lock()
+	sg.segmentRefCounterLock.RLock()
 	for _, seg := range segments {
 		seg.incRef()
-		sg.segmentsWithRefs[seg.getPath()] = seg
 	}
-	sg.segmentRefCounterLock.Unlock()
+	sg.segmentRefCounterLock.RUnlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.segmentRefCounterLock.Lock()
+		sg.segmentRefCounterLock.RLock()
 		for _, seg := range segments {
 			seg.decRef()
-			if seg.getRefs() == 0 {
-				delete(sg.segmentsWithRefs, seg.getPath())
-			}
 		}
-		sg.segmentRefCounterLock.Unlock()
+		sg.segmentRefCounterLock.RUnlock()
 	}
 }
 
@@ -752,11 +746,12 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
 	sg.segmentRefCounterLock.Lock()
-	segmentsWithRefs := make([]Segment, len(sg.segmentsWithRefs))
-	i := 0
-	for _, seg := range sg.segmentsWithRefs {
-		segmentsWithRefs[i] = seg
-		i++
+	segmentsWithRefs := make([]Segment, 0, len(sg.segments))
+	for _, seg := range sg.segments {
+		if seg.getRefs() == 0 {
+			continue
+		}
+		segmentsWithRefs = append(segmentsWithRefs, seg)
 	}
 	sg.segmentRefCounterLock.Unlock()
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
