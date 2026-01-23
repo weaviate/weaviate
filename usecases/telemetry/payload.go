@@ -37,4 +37,6 @@ type Payload struct {
 	UsedModules      []string                        `json:"usedModules,omitempty"`
 	CollectionsCount int                             `json:"collectionsCount"`
 	ClientUsage      map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
+	CloudProvider    *string                         `json:"cloudProvider,omitempty"`
+	UniqueID         *string                         `json:"uniqueID,omitempty"`
 }
