@@ -89,13 +89,25 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 	if ok {
 		queryVectors := holder.Snapshot()
 		if len(queryVectors) > 0 {
-			result.Extensions = map[string]interface{}{
-				"metadata": map[string]interface{}{
-					"vectorizer": map[string]interface{}{
-						"queryVectors": queryVectors,
-					},
-				},
+			ext, _ := result.Extensions.(map[string]interface{})
+			if ext == nil {
+				ext = map[string]interface{}{}
 			}
+
+			md, _ := ext["metadata"].(map[string]interface{})
+			if md == nil {
+				md = map[string]interface{}{}
+				ext["metadata"] = md
+			}
+
+			vz, _ := md["vectorizer"].(map[string]interface{})
+			if vz == nil {
+				vz = map[string]interface{}{}
+				md["vectorizer"] = vz
+			}
+
+			vz["queryVectors"] = queryVectors
+			result.Extensions = ext
 		}
 	}
 
