@@ -67,6 +67,13 @@ func (suite *AsyncReplicationTestSuite) SetupTest() {
 	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 }
 
+// AsyncDisabledFalse returns a pointer to false for use in ReplicationConfig.AsyncDisabled.
+// This explicitly enables async replication (since AsyncDisabled=false means async is enabled).
+func AsyncDisabledFalse() *bool {
+	b := false
+	return &b
+}
+
 func TestAsyncReplicationTestSuite(t *testing.T) {
 	suite.Run(t, new(AsyncReplicationTestSuite))
 }
@@ -95,14 +102,14 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor:        3,
+			AsyncDisabled: AsyncDisabledFalse(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
+			// AsyncDisabled not set - testing default behavior (enabled by default)
 		}
 		helper.CreateClass(t, articleClass)
 	})
