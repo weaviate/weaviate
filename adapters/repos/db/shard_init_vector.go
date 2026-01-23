@@ -266,7 +266,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					ShardName:         s.name,
 					ClassName:         s.index.Config.ClassName.String(),
 					PrometheusMetrics: s.promMetrics,
-					// TempVectorForIDThunk:      hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice), // doesnt exist AAA
 					TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 					GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
 					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
