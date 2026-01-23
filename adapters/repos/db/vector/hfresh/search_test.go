@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -42,6 +43,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 
