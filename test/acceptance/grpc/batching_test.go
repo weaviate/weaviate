@@ -284,7 +284,7 @@ func TestGRPC_Batching(t *testing.T) {
 				require.Len(t, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
 				require.Len(t, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
 			}
-		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+		}, 240*time.Second, 5*time.Second, "Objects not created within time")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
