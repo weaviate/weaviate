@@ -23,10 +23,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+type backupNoopBucketView struct{}
+
+func (n *backupNoopBucketView) Release() {}
 
 func TestBackup_SwitchCommitLogs(t *testing.T) {
 	ctx := context.Background()
@@ -40,6 +45,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
@@ -69,6 +75,7 @@ func TestBackup_ListFiles(t *testing.T) {
 		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},

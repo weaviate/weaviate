@@ -120,6 +120,7 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 		RootPath:              t.TempDir(),
 		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		GetViewThunk:          getViewThunk,
 		DistanceProvider:      distanceProvider,
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
