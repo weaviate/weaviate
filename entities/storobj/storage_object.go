@@ -1523,7 +1523,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		if err := json.Unmarshal(propsB, &returnProps); err != nil {
 			return errors.Wrapf(err, "unmarshal properties propB %d", len(propsB))
 		}
-	} else if len(propsB) >= int(propLength) && int(propLength) >= 0 && properties != nil {
+	} else if len(propsB) >= int(propLength) && len(propsB) >= 0 && properties != nil {
 		// the properties are not read in all cases, skip if not needed
 		returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
 		if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
