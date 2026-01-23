@@ -1252,7 +1252,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	)
 
 	if err != nil {
-		return errors.Wrapf(err, "parse object: uuid: %s data length: %v vectors length: %v multiVectors length: %v, createTime: %v, updateTime: %v, meta: %s", uuidParsed.String(), len(data), len(vectors), len(multiVectors), createTime, updateTime, string(meta))
+		return errors.Wrapf(err, "parse object: uuid: %s data length: %v vectors length: %v multiVectors length: %v, meta length: %d, createTime: %d, updateTime: %d", uuidParsed.String(), len(data), len(vectors), len(multiVectors), len(meta), createTime, updateTime)
 	}
 
 	return err
