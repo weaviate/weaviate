@@ -23,8 +23,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -42,6 +45,12 @@ type authenticator interface {
 	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
 }
 
+type schemaManager interface {
+	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string) (map[string]versioned.Class, error)
+}
+
+type classGetterWithAuthzFunc func(string) (*models.Class, error)
+
 type StreamHandler struct {
 	authenticator          authenticator
 	authorizer             authorization.Authorizer
@@ -58,6 +67,7 @@ type StreamHandler struct {
 	stoppingPerStream      *sync.Map // map[string]struct{}
 	allocChecker           memwatch.AllocChecker
 	memInFlight            atomic.Int64
+	schemaManager          schemaManager
 }
 
 func NewStreamHandler(
@@ -69,6 +79,7 @@ func NewStreamHandler(
 	processingQueue processingQueue,
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
+	schemaManager schemaManager,
 ) *StreamHandler {
 	h := &StreamHandler{
 		authenticator:          authenticator,
@@ -85,7 +96,8 @@ func NewStreamHandler(
 		stoppingPerStream:      &sync.Map{},
 		// set a batch-unique live heap checker with a lower threshold to catch OOMs earlier than the global one
 		// this ensures that vectors can be stored in-memory before being processed downstream
-		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
+		allocChecker:  memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
+		schemaManager: schemaManager,
 	}
 	return h
 }
@@ -108,7 +120,7 @@ func NewStreamHandler(
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	streamCtx := stream.Context()
 	// Authenticate at the highest level
-	_, err := h.authenticator.PrincipalFromContext(streamCtx)
+	principal, err := h.authenticator.PrincipalFromContext(streamCtx)
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
@@ -159,7 +171,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 		// In either case, we need to inform the send loop so that it can exit cleanly
 		// We do this by sending the error (or nil if the client closed the stream) to the recvErrCh channel
 		// and then closing the channel to signal that no more errors will be sent
-		if err := h.receiver(ctx, streamId, startReq.ConsistencyLevel, stream); err != nil {
+		if err := h.receiver(ctx, principal, streamId, startReq.ConsistencyLevel, stream); err != nil {
 			recvErrCh <- err
 		}
 		close(recvErrCh)
@@ -363,7 +375,7 @@ func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.Bat
 	return reqCh, errCh
 }
 
-func (h *StreamHandler) receiver(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
+func (h *StreamHandler) receiver(ctx context.Context, principal *models.Principal, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
 	log := h.logger.WithField("streamId", streamId)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -436,42 +448,46 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			return err
 		}
 		if request.GetData() != nil {
-			// Estimate memory for the incoming batch so we can do an allocation check
 			objs := request.GetData().GetObjects().GetValues()
+			refs := request.GetData().GetReferences().GetValues()
+			if len(objs) == 0 && len(refs) == 0 {
+				log.Warn("received batch send request with no objects or references")
+				continue
+			}
+
+			// Estimate memory for the incoming batch so we can do an allocation check
 			size := estimateBatchMemory(objs)
 			// Refresh the alloc checker before each check to get the latest memory stats
 			h.allocChecker.Refresh(false)
 			// Check if we can allocate memory for this batch plus any other in-flight memory currently in the processing queue
 			if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
 				h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
-				return oomErr(objs, request.GetData().References.GetValues(), err)
+				return oomErr(objs, refs, err)
 			}
 
-			// Split the client-sent objects into batches according to the current batch size
-			// This allows clients to send however many objects they want (if misbehaving) without
-			// overwhelming the downstream workers
-			batchSize := h.workerStats(streamId).getBatchSize()
-			var batch []*pb.BatchObject
-			if len(objs) > batchSize {
-				batch = make([]*pb.BatchObject, 0, batchSize)
-				for _, obj := range request.GetData().GetObjects().GetValues() {
-					batch = append(batch, obj)
-					if len(batch) == batchSize {
-						h.push(stream.Context(), streamId, consistencyLevel, wg, batch, nil)
-						batch = make([]*pb.BatchObject, 0, batchSize)
-					}
+			collectionSet := make(map[string]struct{})
+			for _, obj := range objs {
+				collectionSet[obj.Collection] = struct{}{}
+			}
+			collections := []string{}
+			for collection := range collectionSet {
+				collections = append(collections, collection)
+			}
+
+			ctx = classcache.ContextWithClassCache(ctx)
+			classes, err := h.schemaManager.GetCachedClass(ctx, principal, collections...)
+			if err != nil {
+				log.Errorf("failed to get classes for vectorisation check: %v", err)
+				return fmt.Errorf("get classes for vectorisation check: %w", err)
+			}
+			usesVectorisationByCollection := map[string]bool{}
+			for collection := range collectionSet {
+				if class, ok := classes[collection]; ok {
+					usesVectorisationByCollection[collection] = modelsext.ClassUsesVectorisation(class.Class)
 				}
-			} else {
-				// all objects fit into one downstream batch
-				batch = objs
 			}
 
-			refs := request.GetData().GetReferences().GetValues()
-			if len(batch) > 0 || len(refs) > 0 {
-				// refs are fast so don't need to be efficiently batched
-				// we just accept however many the client sends assuming it'll be fine
-				h.push(stream.Context(), streamId, consistencyLevel, wg, batch, refs)
-			}
+			h.push(stream.Context(), streamId, consistencyLevel, wg, objs, refs, usesVectorisationByCollection)
 
 			uuids := make([]string, 0, len(objs))
 			beacons := make([]string, 0, len(refs))
@@ -495,7 +511,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 	}
 }
 
-func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference) {
+func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool) {
 	// Increment the wait group for each batch pushed to the processing queue
 	wg.Add(1)
 
@@ -529,6 +545,7 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 				h.metrics.OnProcessingQueuePull(howMany)
 			}
 		},
+		usesVectorisationByCollection: usesVectorisationByCollection,
 	}
 }
 

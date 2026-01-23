@@ -44,6 +44,10 @@ type processRequest struct {
 	consistencyLevel *pb.ConsistencyLevel
 	objects          []*pb.BatchObject
 	references       []*pb.BatchReference
+	// If the collections of the objects within this request use vectorisation or not;
+	// this should be accounted for by fanning out the objects to better improve I/O concurrency
+	// to the third-party vectoriser for the specific classes that use it.
+	usesVectorisationByCollection map[string]bool
 	// This context contains metadata relevant to the stream as a whole, e.g. auth info,
 	// that is required for downstream authZ checks by the workers, e.g. data-specific RBAC.
 	streamCtx context.Context
@@ -99,7 +103,59 @@ func (w *worker) isTransientReplicationError(err string) bool {
 		strings.Contains(err, "Node not ready") // rest: node is not ready to accept requests (still starting up or shutting down)
 }
 
-func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.BatchObject, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+type fanoutReply struct {
+	reply       *pb.BatchObjectsReply
+	err         error
+	howManyObjs int
+}
+
+func (w *worker) fanoutObjects(
+	ctx context.Context,
+	objs []*pb.BatchObject,
+	cl *pb.ConsistencyLevel,
+	fanoutAmount int,
+) chan fanoutReply {
+	ch := make(chan fanoutReply, fanoutAmount)
+	var wg sync.WaitGroup
+
+	subBatchLen := int(math.Ceil(float64(len(objs)) / float64(fanoutAmount)))
+	for i := 0; i < fanoutAmount; i++ {
+		start := i * subBatchLen
+		if start >= len(objs) {
+			break
+		}
+		end := (i + 1) * subBatchLen
+		if end > len(objs) {
+			end = len(objs)
+		}
+		subBatch := objs[start:end]
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
+				Objects:          subBatch,
+				ConsistencyLevel: cl,
+			})
+			ch <- fanoutReply{reply: reply, err: err, howManyObjs: len(subBatch)}
+		}, w.logger)
+	}
+
+	enterrors.GoWrapper(func() {
+		wg.Wait()
+		close(ch)
+	}, w.logger)
+
+	return ch
+}
+
+func (w *worker) sendObjects(
+	ctx context.Context,
+	streamId string,
+	objs []*pb.BatchObject,
+	cl *pb.ConsistencyLevel,
+	usesVectorisationByCollection map[string]bool,
+	retries int,
+) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
 	if ctx.Err() != nil {
 		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
@@ -111,50 +167,72 @@ func (w *worker) sendObjects(ctx context.Context, streamId string, objs []*pb.Ba
 		}
 		return nil, errors
 	}
-	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
-		Objects:          objs,
-		ConsistencyLevel: cl,
-	})
-	if err != nil {
-		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
-		w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", err)
-		for _, obj := range objs {
-			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  err.Error(),
-				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
-			})
-		}
-		return nil, errors
-	}
+
 	// Assumption is no errors, so don't preallocate error slice
 	errors := make([]*pb.BatchStreamReply_Results_Error, 0)
 	// Assumption is all successes, so preallocate success slice
 	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(objs))
 	// Handle errors
 	errored := make(map[int32]struct{})
-	if len(reply.GetErrors()) > 0 {
-		retriable := make([]*pb.BatchObject, 0)
-		for _, err := range reply.GetErrors() {
-			if err == nil {
-				continue
-			}
-			errored[err.Index] = struct{}{}
-			if w.isTransientReplicationError(err.Error) && retries < 3 {
-				retriable = append(retriable, objs[err.Index])
-				continue
-			}
-			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  err.Error,
-				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[err.Index].Uuid},
-			})
+	// Keep track of retriable errors to send again
+	retriable := make([]*pb.BatchObject, 0)
+
+	objsByCollection := make(map[string][]*pb.BatchObject)
+	for _, obj := range objs {
+		objsByCollection[obj.Collection] = append(objsByCollection[obj.Collection], obj)
+	}
+
+	for collection, objs := range objsByCollection {
+		fanoutAmount := 1
+		if usesVectorisationByCollection[collection] {
+			fanoutAmount = 10
 		}
-		if len(retriable) > 0 {
-			// exponential backoff with 2 ** n and 100ms base
+		lastIndex := int32(0)
+		for resp := range w.fanoutObjects(ctx, objs, cl, fanoutAmount) {
+			func() {
+				defer func() {
+					lastIndex += int32(resp.howManyObjs)
+				}()
+				if resp.err != nil {
+					errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
+					w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", resp.err)
+					for _, obj := range objs {
+						errors = append(errors, &pb.BatchStreamReply_Results_Error{
+							Error:  resp.err.Error(),
+							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
+						})
+					}
+					return
+				}
+				if len(resp.reply.GetErrors()) > 0 {
+					for _, err := range resp.reply.GetErrors() {
+						index := err.Index + lastIndex
+						if err == nil {
+							continue
+						}
+						errored[index] = struct{}{}
+						if w.isTransientReplicationError(err.Error) && retries < 3 {
+							retriable = append(retriable, objs[index])
+							continue
+						}
+						errors = append(errors, &pb.BatchStreamReply_Results_Error{
+							Error:  err.Error,
+							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[index].Uuid},
+						})
+					}
+				}
+			}()
+		}
+	}
+	if len(retriable) > 0 {
+		// exponential backoff with 2 ** n and 100ms base
+		if retries > 0 {
+			// retry immediately on first retry
 			<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
-			successesInner, errorsInner := w.sendObjects(ctx, streamId, retriable, cl, retries+1)
-			successes = append(successes, successesInner...)
-			errors = append(errors, errorsInner...)
 		}
+		successesInner, errorsInner := w.sendObjects(ctx, streamId, retriable, cl, usesVectorisationByCollection, retries+1)
+		successes = append(successes, successesInner...)
+		errors = append(errors, errorsInner...)
 	}
 	// Handle successes
 	for i, obj := range objs {
@@ -223,7 +301,10 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		}
 		if len(retriable) > 0 {
 			// exponential backoff with 2 ** n and 100ms base
-			<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
+			if retries > 0 {
+				// retry immediately on first retry
+				<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
+			}
 			successesInner, errorsInner := w.sendReferences(ctx, streamId, retriable, cl, retries+1)
 			successes = append(successes, successesInner...)
 			errors = append(errors, errorsInner...)
@@ -272,7 +353,7 @@ func (w *worker) process(req *processRequest) {
 	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(req.objects)+len(req.references))
 	errors := make([]*pb.BatchStreamReply_Results_Error, 0)
 	if len(req.objects) > 0 {
-		successesInner, errorsInner := w.sendObjects(ctx, req.streamId, req.objects, req.consistencyLevel, 0)
+		successesInner, errorsInner := w.sendObjects(ctx, req.streamId, req.objects, req.consistencyLevel, req.usesVectorisationByCollection, 0)
 		successes = append(successes, successesInner...)
 		errors = append(errors, errorsInner...)
 	}
