@@ -199,7 +199,6 @@ func TestUpdateDocBMWIndex(t *testing.T) {
 	err = store.ShutdownBucket(ctx, "property_name_searchable")
 	require.NoError(t, err)
 
-	thresh = 4096
 	err = store.CreateOrLoadBucket(ctx, "property_name_searchable", opts...)
 	require.NoError(t, err)
 
