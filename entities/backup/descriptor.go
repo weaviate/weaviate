@@ -50,7 +50,7 @@ type DistributedBackupDescriptor struct {
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
-	BaseBackupID            string                     `json:"baseBackupId"`
+	BaseBackupId            string                     `json:"baseBackupId"`
 }
 
 // Len returns how many nodes exist in d
@@ -280,7 +280,7 @@ FilesLoop:
 				if err != nil {
 					return fmt.Errorf("stat big file %v: %w", file, err)
 				}
-				// unchanged files. These can be skipped in incremental backup and restored form the previous backup
+				// unchanged files. These can be skipped in incremental backup and restored from the previous backup
 				if info.Size == infoNew.Size() && info.ModifiedAt.Equal(infoNew.ModTime()) {
 					if s.IncrementalBackupInfo.FilesPerBackup == nil {
 						s.IncrementalBackupInfo.FilesPerBackup = make(map[string][]IncrementalBackupInfo)
@@ -354,11 +354,11 @@ type IncrementalBackupInfos struct {
 
 type IncrementalBackupInfo struct {
 	File      string   `json:"file"`
-	ChunkKeys []string `json:"chunk_key"`
+	ChunkKeys []string `json:"chunk_keys"`
 }
 
 type BigFiles struct {
-	ChunkKeys  []string  `json:"chunk_key"`
+	ChunkKeys  []string  `json:"chunk_keys"`
 	Size       int64     `json:"size"`
 	ModifiedAt time.Time `json:"modified_at"`
 }
@@ -498,9 +498,9 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 }
 
 func (d *BackupDescriptor) GetClassDescriptor(className string) *ClassDescriptor {
-	for _, dest := range d.Classes {
-		if dest.Name == className {
-			return &dest
+	for i := range d.Classes {
+		if d.Classes[i].Name == className {
+			return &d.Classes[i]
 		}
 	}
 	return nil

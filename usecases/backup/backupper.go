@@ -133,12 +133,26 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		var baseDescrs []*backup.BackupDescriptor
 		baseBackupID := req.BaseBackupID
 		if req.BaseBackupID != "" {
+			visitedIds := make(map[string]struct{})
 			nextId := baseBackupID
 			for {
-				var err error
+				if _, ok := visitedIds[nextId]; ok {
+					err := fmt.Errorf("circular references in backup ids detected, all visited IDs: %v, circular ID %v", visitedIds, nextId)
+					b.logger.WithFields(logFields).Error()
+					b.lastAsyncError = err
+					return
+				}
+				visitedIds[nextId] = struct{}{}
+
 				baseDescr, err := store.MetaForBackupID(ctx, nextId, store.bucket, store.path)
 				if err != nil {
 					b.logger.WithFields(logFields).Error(fmt.Errorf("fetching base backup: %w", err))
+					b.lastAsyncError = err
+					return
+				}
+				if baseDescr == nil {
+					err := fmt.Errorf("base backup %q not found", req.BaseBackupID)
+					b.logger.WithFields(logFields).Error(err)
 					b.lastAsyncError = err
 					return
 				}

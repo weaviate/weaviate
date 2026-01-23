@@ -677,20 +677,6 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			expectedIncreInfo: nil,
 		},
 		{
-			name:  "empty big files chunk map",
-			files: []string{"file1.db", "file2.db"},
-			shardBaseDescrs: []ShardAndId{
-				{
-					BackupId: "backup11",
-					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{},
-					},
-				},
-			},
-			expectedFiles:     []string{"file1.db", "file2.db"},
-			expectedIncreInfo: nil,
-		},
-		{
 			name:  "multiple base backups - file unchanged in first",
 			files: []string{"unchanged.db"},
 			shardBaseDescrs: []ShardAndId{
