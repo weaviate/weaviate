@@ -1252,7 +1252,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	)
 
 	if err != nil {
-		return errors.Wrapf(err, "parse object: vectors length: %v multiVectors length: %v", len(vectors), len(multiVectors))
+		return errors.Wrapf(err, "parse object: uuid: %s data length: %v vectors length: %v multiVectors length: %v, createTime: %v, updateTime: %v, meta: %s", uuidParsed.String(), len(data), len(vectors), len(multiVectors), createTime, updateTime, string(meta))
 	}
 
 	return err
@@ -1527,14 +1527,12 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	var returnProps map[string]interface{}
 	if properties == nil || propLength == 0 {
 		if err := json.Unmarshal(propsB, &returnProps); err != nil {
-			fmt.Printf("propsB: %v properties: %v\n", string(propsB), properties)
-			return errors.Wrap(err, "unmarshal properties with prop length 0")
+			return errors.Wrap(err, fmt.Sprintf("unmarshal properties with prop length 0, len propsB: %d, propsB: %s, properties: %v", len(propsB), string(propsB), properties))
 		}
 	} else if len(propsB) >= int(propLength) {
 		// the properties are not read in all cases, skip if not needed
 		returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
 		if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
-			fmt.Printf("propsB: %v\n", string(propsB[:propLength]))
 			return errors.Wrapf(err, "unmarshal properties with prop length %v", int(propLength))
 		}
 	}
