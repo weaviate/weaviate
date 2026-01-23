@@ -26,8 +26,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+type segmentToDelete struct {
+	time    time.Time
+	segment Segment
+}
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
 // into single segment.
@@ -372,20 +378,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
-	// NOTE: The delete logic will wait for the ref count to reach zero, to
-	// ensure we are not deleting any segments that are still being referenced,
-	// e.g. from cursor or other "slow" readers.
-	//
-	// The whole compaction cycle is single-threaded, so waiting for a delete,
-	// also means we are essentially delaying the next compaction. That is not
-	// ideal and also not strictly necessary. We could extract the delete logic
-	// into a simple job queue that runs in a separate goroutine.
-	//
-	// However, https://github.com/weaviate/weaviate/pull/9104, where
-	// ref-counting is introduced, is already a significant change at the point
-	// of writing this comment. Thus, to minimize further risks, we keep the
-	// existing logic for now.
-	if err := sg.deleteOldSegmentsFromDisk(oldLeft, oldRight); err != nil {
+	if err := sg.tryCloseAndDeleteSegmentsFromDisk(oldLeft, oldRight); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
 		// compaction itself was successful.
@@ -496,24 +489,106 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 	}
 }
 
-func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...Segment) error {
-	// wait for ref count to reach zero, close and delete files
-	// At this point those segments are no longer used, so we can drop them
-	// without holding the maintenance lock and therefore not block readers.
-	sg.waitForReferenceCountToReachZero(segments...)
+// tryCloseAndDeleteSegmentsFromDisk attempts to close and delete given segments.
+// If segment has no active refs it is deleted immediately, otherwise it is added
+// to the list to be deleted later
+func (sg *SegmentGroup) tryCloseAndDeleteSegmentsFromDisk(segments ...Segment) error {
+	var segmentsNoRefs []Segment
 
-	// it is now safe to close and drop them
-	for pos, seg := range segments {
-		if err := seg.close(); err != nil {
-			return fmt.Errorf("close segment at pos %d: %w", pos, err)
+	now := time.Now()
+	sg.segmentRefCounterLock.Lock()
+	for _, seg := range segments {
+		if seg.getRefs() == 0 {
+			segmentsNoRefs = append(segmentsNoRefs, seg)
+			continue
+		}
+		sg.segmentsToDeleteFromDisk = append(sg.segmentsToDeleteFromDisk, segmentToDelete{time: now, segment: seg})
+	}
+	sg.segmentRefCounterLock.Unlock()
+
+	return closeAndDeleteSegmentsFromDisk(segmentsNoRefs)
+}
+
+// closeAndDeleteUnusedSegmentsFromDisk deletes those segments from segmentsToDeleteFromDisk list
+// that have no active refs. Segments with active refs are skipped to be deleted in the following
+// method calls.
+// Method is supposed to be called periodically by the same process that handles segments'
+// compactions and cleanups.
+func (sg *SegmentGroup) closeAndDeleteUnusedSegmentsFromDisk() error {
+	var segmentsNoRefs []Segment
+
+	now := time.Now()
+	sec, nsec := now.Unix(), int64(now.Nanosecond())
+	var segmentsWaitingLong []segmentToDelete
+	var waitingRefCounts []int
+	warnInterval := 10 * time.Second
+	warnCheckTime := time.Unix(sec, nsec).Add(-warnInterval)
+	doWarn := now.Sub(sg.segmentsToDeleteLastWarn) >= warnInterval
+
+	sg.segmentRefCounterLock.Lock()
+	i := 0
+	for _, entry := range sg.segmentsToDeleteFromDisk {
+		refs := entry.segment.getRefs()
+		if refs == 0 {
+			segmentsNoRefs = append(segmentsNoRefs, entry.segment)
+			continue
 		}
 
-		if err := seg.dropMarked(); err != nil {
-			return fmt.Errorf("drop segment at pos %d: %w", pos, err)
+		// leave only segments with refs > 0 on [segmentsToDeleteFromDisk] list
+		sg.segmentsToDeleteFromDisk[i] = entry
+		i++
+
+		// now - entry.time >= warnInterval
+		if doWarn && !warnCheckTime.Before(entry.time) {
+			segmentsWaitingLong = append(segmentsWaitingLong, entry)
+			waitingRefCounts = append(waitingRefCounts, refs)
 		}
 	}
+	sg.segmentsToDeleteFromDisk = sg.segmentsToDeleteFromDisk[:i]
+	sg.segmentRefCounterLock.Unlock()
 
-	return nil
+	if ln := len(segmentsWaitingLong); ln > 0 {
+		sg.segmentsToDeleteLastWarn = now
+
+		segments := make([]string, ln)
+		refcounts := make([]string, ln)
+		waits := make([]string, ln)
+		for i := range segmentsWaitingLong {
+			segments[i] = filepath.Base(segmentsWaitingLong[i].segment.getPath())
+			refcounts[i] = fmt.Sprintf("%d", waitingRefCounts[i])
+			waits[i] = now.Sub(segmentsWaitingLong[i].time).String()
+		}
+
+		sg.logger.WithFields(logrus.Fields{
+			"action":         "lsm_compaction_delete_segments",
+			"path":           sg.dir,
+			"segments":       strings.Join(segments, ","),
+			"refcounts":      strings.Join(refcounts, ","),
+			"waits":          strings.Join(waits, ","),
+			"segments_count": ln,
+		}).Warnf("waiting for segments to reach refcount=0 (longest wait is %s)", waits[0])
+	}
+
+	return closeAndDeleteSegmentsFromDisk(segmentsNoRefs)
+}
+
+func closeAndDeleteSegmentsFromDisk(segments []Segment) error {
+	if len(segments) == 0 {
+		return nil
+	}
+
+	ec := errorcompounder.New()
+	for _, seg := range segments {
+		if err := seg.close(); err != nil {
+			ec.Add(fmt.Errorf("close segment %q: %w", seg.getPath(), err))
+			continue
+		}
+		if err := seg.dropMarked(); err != nil {
+			ec.Add(fmt.Errorf("drop segment %q: %w", seg.getPath(), err))
+			continue
+		}
+	}
+	return ec.ToError()
 }
 
 func (sg *SegmentGroup) monitorSegments() {
