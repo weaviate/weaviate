@@ -35,5 +35,4 @@ func TestMergePostingThatDoesNotExist(t *testing.T) {
 		entry.Message,
 	)
 	require.Equal(t, uint64(0), entry.Data["postingID"])
-
 }
