@@ -52,6 +52,10 @@ func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, clas
 		t.Run("larger backup", func(t *testing.T) {
 			backupAndRestoreLargeCollectionJourneyTest(t, weaviateEndpoint, backend, overrideBucket, overrideLocation)
 		})
+
+		t.Run("incremental backups", func(t *testing.T) {
+			backupAndRestoreWithIncremental(t, weaviateEndpoint, backend, overrideBucket, overrideLocation)
+		})
 	}
 }
 

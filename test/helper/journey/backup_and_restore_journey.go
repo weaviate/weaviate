@@ -304,7 +304,7 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 		helper.SetupClient(weaviateEndpoint)
 	}
 
-	booksClass := books.ClassMixedContextionaryVectorizer()
+	booksClass := books.ClassMixedContextionaryVectorizerFlat()
 	booksClass.Class = "BookLargeCollection"
 	helper.DeleteClass(t, booksClass.Class)
 	helper.CreateClass(t, booksClass)
@@ -321,11 +321,96 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 
 	backupID := "backup-large-collection"
 
+	createBackupAndWait(t, backend, overrideBucket, overridePath, backupID, "", booksClass)
+
+	helper.DeleteClass(t, booksClass.Class)
+
+	restoreBackup(t, backend, overrideBucket, overridePath, backupID, booksClass)
+
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects)
+}
+
+func backupAndRestoreWithIncremental(t *testing.T, weaviateEndpoint, backend string, overrideBucket, overridePath string) {
+	booksClass := books.ClassMixedContextionaryVectorizerFlat()
+	booksClass.Class = "BookLargeCollection"
+	helper.DeleteClass(t, booksClass.Class)
+	helper.CreateClass(t, booksClass)
+	defer helper.DeleteClass(t, booksClass.Class)
+
+	// add lots of data
+	numObjects := 10000
+	for i := 0; i < numObjects; i++ {
+		var b book
+		gofakeit.Struct(&b)
+		helper.CreateObject(t, b.toObject(booksClass.Class))
+	}
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects)
+
+	backupID := "backup-large-collection-base"
+	createBackupAndWait(t, backend, overrideBucket, overridePath, backupID, "", booksClass)
+
+	// add more data after backup completed and do incremental backup
+	numObjects2 := 100
+	for i := 0; i < numObjects2; i++ {
+		var b book
+		gofakeit.Struct(&b)
+		helper.CreateObject(t, b.toObject(booksClass.Class))
+	}
+
+	backupIDIncremental1 := "backup-large-collection-incremental1"
+	createBackupAndWait(t, backend, overrideBucket, overridePath, backupIDIncremental1, backupID, booksClass)
+
+	// add more data after backup completed and do a second incremental backup
+	for i := 0; i < numObjects2; i++ {
+		var b book
+		gofakeit.Struct(&b)
+		helper.CreateObject(t, b.toObject(booksClass.Class))
+	}
+
+	backupIDIncremental2 := "backup-large-collection-incremental2"
+	createBackupAndWait(t, backend, overrideBucket, overridePath, backupIDIncremental2, backupIDIncremental1, booksClass)
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects+2*numObjects2)
+
+	helper.DeleteClass(t, booksClass.Class)
+	restoreBackup(t, backend, overrideBucket, overridePath, backupID, booksClass)
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects)
+
+	helper.DeleteClass(t, booksClass.Class)
+	restoreBackup(t, backend, overrideBucket, overridePath, backupIDIncremental1, booksClass)
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects+numObjects2)
+
+	helper.DeleteClass(t, booksClass.Class)
+	restoreBackup(t, backend, overrideBucket, overridePath, backupIDIncremental2, booksClass)
+	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects+2*numObjects2)
+}
+
+func checkCount(t *testing.T, nodeEndpoints []string, classname string, numObjects int) {
+	t.Helper()
+	for i := range nodeEndpoints {
+		helper.SetupClient(nodeEndpoints[i])
+		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
+		require.NoError(t, err)
+		require.Nil(t, resp.Payload.Errors)
+		require.NotNil(t, resp.Payload.Data)
+
+		countJson := resp.Payload.Data["Aggregate"].(map[string]interface{})[classname].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"].(json.Number)
+		count, err := countJson.Int64()
+		require.NoError(t, err)
+		require.Equal(t, int64(numObjects), count, "expected all objects to be present on node %d", i+1)
+	}
+}
+
+func queryGQL(t *testing.T, query string) (*gql.GraphqlPostOK, error) {
+	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
+	return helper.Client(t).Graphql.GraphqlPost(params, nil)
+}
+
+func createBackupAndWait(t *testing.T, backend, overrideBucket, overridePath, backupID, baseBackupId string, booksClass *models.Class) {
 	cfg := helper.DefaultBackupConfig()
 	cfg.Bucket = overrideBucket
 	cfg.Path = overridePath
 
-	resp, err := helper.CreateBackup(t, cfg, booksClass.Class, backend, backupID)
+	resp, err := helper.CreateBackupWithBase(t, cfg, booksClass.Class, backend, backupID, baseBackupId)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)
@@ -352,9 +437,9 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 
 		require.True(t1, *resp.Payload.Status == "SUCCESS")
 	}, 120*time.Second, 1000*time.Millisecond)
+}
 
-	helper.DeleteClass(t, booksClass.Class)
-
+func restoreBackup(t *testing.T, backend, overrideBucket, overridePath, backupID string, booksClass *models.Class) {
 	cfgRestore := helper.DefaultRestoreConfig()
 	cfgRestore.Bucket = overrideBucket
 	cfgRestore.Path = overridePath
@@ -374,27 +459,4 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 
 		assert.True(t1, *resp.Payload.Status == string(backup.Success))
 	}, 120*time.Second, 1000*time.Millisecond)
-
-	checkCount(t, []string{weaviateEndpoint}, booksClass.Class, numObjects)
-}
-
-func checkCount(t *testing.T, nodeEndpoints []string, classname string, numObjects int) {
-	t.Helper()
-	for i := range nodeEndpoints {
-		helper.SetupClient(nodeEndpoints[i])
-		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
-		require.NoError(t, err)
-		require.Nil(t, resp.Payload.Errors)
-		require.NotNil(t, resp.Payload.Data)
-
-		countJson := resp.Payload.Data["Aggregate"].(map[string]interface{})[classname].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"].(json.Number)
-		count, err := countJson.Int64()
-		require.NoError(t, err)
-		require.Equal(t, int64(numObjects), count, "expected all objects to be present on node %d", i+1)
-	}
-}
-
-func queryGQL(t *testing.T, query string) (*gql.GraphqlPostOK, error) {
-	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-	return helper.Client(t).Graphql.GraphqlPost(params, nil)
 }
