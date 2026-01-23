@@ -501,7 +501,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		files             []string
 		shardBaseDescrs   []ShardAndId
 		expectedFiles     []string
-		expectedIncreInfo map[string][]IncrementalBackupInfo
+		expectedIncreInfo IncrementalBackupInfos
 		errorContains     string
 	}{
 		{
@@ -509,7 +509,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			files:             []string{"file1.db", "file2.db", "file3.db"},
 			shardBaseDescrs:   nil,
 			expectedFiles:     []string{"file1.db", "file2.db", "file3.db"},
-			expectedIncreInfo: nil,
+			expectedIncreInfo: IncrementalBackupInfos{},
 		},
 		{
 			name:            "empty files list with nil base",
@@ -535,7 +535,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles:     []string{"file1.db", "file2.db"},
-			expectedIncreInfo: nil,
+			expectedIncreInfo: IncrementalBackupInfos{},
 		},
 		{
 			name:  "file different time - newly backed up",
@@ -555,7 +555,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles:     []string{"unchanged.db"},
-			expectedIncreInfo: nil,
+			expectedIncreInfo: IncrementalBackupInfos{},
 		},
 		{
 			name:  "file different size - newly backed up",
@@ -575,7 +575,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles:     []string{"unchanged.db"},
-			expectedIncreInfo: nil,
+			expectedIncreInfo: IncrementalBackupInfos{},
 		},
 		{
 			name:  "both changed - newly backed up",
@@ -595,7 +595,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles:     []string{"modified.db"},
-			expectedIncreInfo: nil,
+			expectedIncreInfo: IncrementalBackupInfos{},
 		},
 		{
 			name:  "multiple backups in incremental info",
@@ -615,13 +615,16 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles: nil,
-			expectedIncreInfo: map[string][]IncrementalBackupInfo{
-				"backup7": {
-					{
-						File:      "unchanged.db",
-						ChunkKeys: []string{"chunk8"},
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup7": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk8"},
+						},
 					},
 				},
+				TotalSize: unchangedInfo.Size(),
 			},
 		},
 		{
@@ -674,7 +677,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles:     []string{"file1.db", "file2.db"},
-			expectedIncreInfo: nil,
+			expectedIncreInfo: IncrementalBackupInfos{},
 		},
 		{
 			name:  "multiple base backups - file unchanged in first",
@@ -706,13 +709,16 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles: nil,
-			expectedIncreInfo: map[string][]IncrementalBackupInfo{
-				"backup_base1": {
-					{
-						File:      "unchanged.db",
-						ChunkKeys: []string{"chunk1", "chunk2"},
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
 					},
 				},
+				TotalSize: unchangedInfo.Size(),
 			},
 		},
 		{
@@ -745,13 +751,16 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles: nil,
-			expectedIncreInfo: map[string][]IncrementalBackupInfo{
-				"backup_base2": {
-					{
-						File:      "unchanged.db",
-						ChunkKeys: []string{"chunk2", "chunk3"},
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base2": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk2", "chunk3"},
+						},
 					},
 				},
+				TotalSize: unchangedInfo.Size(),
 			},
 		},
 		{
@@ -787,19 +796,22 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles: nil,
-			expectedIncreInfo: map[string][]IncrementalBackupInfo{
-				"backup_base1": {
-					{
-						File:      "unchanged.db",
-						ChunkKeys: []string{"chunk1", "chunk2"},
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
+					},
+					"backup_base2": {
+						{
+							File:      "modified.db",
+							ChunkKeys: []string{"chunk3", "chunk4"},
+						},
 					},
 				},
-				"backup_base2": {
-					{
-						File:      "modified.db",
-						ChunkKeys: []string{"chunk3", "chunk4"},
-					},
-				},
+				TotalSize: unchangedInfo.Size() + int64(len("modified content")),
 			},
 		},
 		{
@@ -837,13 +849,16 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles: []string{"file1.db", "file2.db"},
-			expectedIncreInfo: map[string][]IncrementalBackupInfo{
-				"backup_base1": {
-					{
-						File:      "unchanged.db",
-						ChunkKeys: []string{"chunk1", "chunk2"},
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
 					},
 				},
+				TotalSize: unchangedInfo.Size(),
 			},
 		},
 		{
@@ -876,13 +891,16 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 			},
 			expectedFiles: nil,
-			expectedIncreInfo: map[string][]IncrementalBackupInfo{
-				"backup_base1": {
-					{
-						File:      "unchanged.db",
-						ChunkKeys: []string{"chunk1", "chunk2"},
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
 					},
 				},
+				TotalSize: unchangedInfo.Size(),
 			},
 		},
 	}
@@ -902,7 +920,8 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tc.expectedFiles, s.Files, "Files list should match expected")
-				assert.Equal(t, tc.expectedIncreInfo, s.IncrementalBackupInfo, "IncrementalBackupInfo should match expected")
+				assert.Equal(t, tc.expectedIncreInfo.FilesPerBackup, s.IncrementalBackupInfo.FilesPerBackup, "IncrementalBackupInfo.FilesPerBackup should match expected")
+				assert.Equal(t, tc.expectedIncreInfo.TotalSize, s.IncrementalBackupInfo.TotalSize, "IncrementalBackupInfo.TotalSize should match expected")
 			}
 		})
 	}
