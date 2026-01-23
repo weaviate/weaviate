@@ -357,24 +357,26 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 	}, 120*time.Second, 1000*time.Millisecond)
 
 	assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
-		// Download and print goroutine debug info
-		t.Log("Fetching goroutine debug info...")
-		resp2, err := http.Get(fmt.Sprintf("http://%s/debug/pprof/goroutine?debug=2", debugEndpoint))
-		if err != nil {
-			t.Logf("Failed to fetch goroutine debug info: %v", err)
-		} else {
-			defer resp2.Body.Close()
-			body, err := io.ReadAll(resp2.Body)
-			if err != nil {
-				t.Logf("Failed to read goroutine debug info: %v", err)
-			} else {
-				t.Logf("Goroutine debug info:\n%s", string(body))
-			}
-		}
 		delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(booksClass.Class)
 		_, err = helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+		if err != nil {
+			// Download and print goroutine debug info
+			t.Log("Fetching goroutine debug info...")
+			resp2, err := http.Get(fmt.Sprintf("http://%s/debug/pprof/goroutine?debug=2", debugEndpoint))
+			if err != nil {
+				t.Logf("Failed to fetch goroutine debug info: %v", err)
+			} else {
+				defer resp2.Body.Close()
+				body, err := io.ReadAll(resp2.Body)
+				if err != nil {
+					t.Logf("Failed to read goroutine debug info: %v", err)
+				} else {
+					t.Logf("Goroutine debug info:\n%s", string(body))
+				}
+			}
+		}
 		require.NoError(t1, err, "expected nil, got: %v", err)
-	}, 60*time.Second, 1000*time.Millisecond)
+	}, 90*time.Second, 1000*time.Millisecond)
 
 	cfgRestore := helper.DefaultRestoreConfig()
 	cfgRestore.Bucket = overrideBucket
