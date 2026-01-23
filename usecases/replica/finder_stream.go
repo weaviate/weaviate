@@ -16,12 +16,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -62,6 +62,14 @@ func (f *finderStream) readOne(ctx context.Context,
 		)
 
 		for r := range ch { // len(ch) == level
+			// Check for context cancellation to exit early
+			select {
+			case <-ctx.Done():
+				resultCh <- ObjResult{nil, ctx.Err()}
+				return
+			default:
+			}
+
 			resp := r.Value
 			if r.Err != nil { // a least one node is not responding
 				f.log.WithField("op", "get").WithField("replica", resp.sender).
@@ -148,6 +156,14 @@ func (f *finderStream) readExistence(ctx context.Context,
 		votes := make([]BoolTuple, 0, level) // number of votes per replica
 
 		for r := range ch { // len(ch) == st.Level
+			// Check for context cancellation to exit early
+			select {
+			case <-ctx.Done():
+				resultCh <- _Result[bool]{false, ctx.Err()}
+				return
+			default:
+			}
+
 			resp := r.Value
 			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
@@ -220,6 +236,14 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		)
 
 		for r := range ch { // len(ch) == level
+			// Check for context cancellation to exit early
+			select {
+			case <-ctx.Done():
+				resultCh <- batchResult{nil, ctx.Err()}
+				return
+			default:
+			}
+
 			resp := r.Value
 			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
