@@ -380,7 +380,6 @@ func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Objec
 			return nil, fmt.Errorf("unsupported operation type: %s", method)
 		}
 		if err != nil {
-			fmt.Printf("payloadBytes: %v\n", string(payloadBytes))
 			return nil, fmt.Errorf("method %v: %w", method, err)
 		}
 
