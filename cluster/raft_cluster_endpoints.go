@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -228,17 +229,6 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 					delete(availableSet, newNode)
 					currentCount++
 				}
-
-				// Re-read the actual replica count after adding replicas to ensure we have
-				// the current state before attempting deletion
-				if currentCount <= desiredRF {
-					// We couldn't add enough replicas, re-read to get the actual count
-					updatedReplicas, err := schemaReader.ShardReplicas(className, shardName)
-					if err != nil {
-						return fmt.Errorf("get replicas for shard %q in collection %q after adding: %w", shardName, className, err)
-					}
-					currentCount = len(updatedReplicas)
-				}
 			}
 
 			// Re-read replicas to get the current state and verify the removed node is still present
@@ -263,9 +253,10 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 
 			finalCount := len(finalReplicas)
 
-			// After attempting to add replacement replicas, ensure that removing the
-			// replica on the removed node will not violate the desired replication
-			// factor. If it would, skip the deletion for now and log a warning.
+			// After attempting to add replacement replicas, try to delete the removed node.
+			// We allow deletion when finalCount >= desiredRF because we've added replacement replicas.
+			// DeleteReplicaFromShard requires numberOfReplicas > ReplicationFactor, so if
+			// finalCount == desiredRF, deletion will fail, but we handle that gracefully.
 			if finalCount < desiredRF {
 				s.log.WithFields(logrus.Fields{
 					"collection":         className,
@@ -278,6 +269,19 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 			}
 
 			if _, err := s.DeleteReplicaFromShard(ctx, className, shardName, removedNode); err != nil {
+				// If deletion fails due to replication factor constraint (finalCount == desiredRF),
+				// this means we couldn't add enough replacement replicas. Log and continue
+				// rather than failing the entire rebalancing operation.
+				if finalCount == desiredRF && strings.Contains(err.Error(), "minimum replication factor") {
+					s.log.WithFields(logrus.Fields{
+						"collection":         className,
+						"shard":              shardName,
+						"removed_node":       removedNode,
+						"replication_factor": desiredRF,
+						"current_replicas":   finalCount,
+					}).Warn("skipping replica removal: cannot delete when replica count equals replication factor (insufficient replacement replicas added)")
+					continue
+				}
 				return fmt.Errorf("delete replica %q from shard %q in collection %q: %w", removedNode, shardName, className, err)
 			}
 
