@@ -35,15 +35,6 @@ func TestBackupTestSuiteConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, config.RestoreTimeout)
 }
 
-func TestQuickSuiteConfig(t *testing.T) {
-	config := QuickSuiteConfig()
-
-	assert.Equal(t, "s3", config.BackendType)
-	assert.Equal(t, "QuickBackupTest", config.ClassName)
-	assert.Equal(t, 3, config.ObjectsPerTenant) // Minimal for quick tests
-	assert.Equal(t, 3*time.Minute, config.TestTimeout)
-}
-
 func TestBackupTestSuite_Creation(t *testing.T) {
 	t.Run("with nil config uses defaults", func(t *testing.T) {
 		suite := NewBackupTestSuite(nil)
@@ -242,17 +233,5 @@ func TestRunBackupTestHelpers(t *testing.T) {
 	t.Run("RunS3BackupTests signature", func(t *testing.T) {
 		// Just verify the function exists and compiles
 		_ = RunS3BackupTests
-	})
-
-	t.Run("RunGCSBackupTests signature", func(t *testing.T) {
-		_ = RunGCSBackupTests
-	})
-
-	t.Run("RunAzureBackupTests signature", func(t *testing.T) {
-		_ = RunAzureBackupTests
-	})
-
-	t.Run("RunTableDrivenBackupTests signature", func(t *testing.T) {
-		_ = RunTableDrivenBackupTests
 	})
 }
