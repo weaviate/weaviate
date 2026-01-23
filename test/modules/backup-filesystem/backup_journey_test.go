@@ -50,7 +50,6 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("backup-filesystem", func(t *testing.T) {
-			defer printLogsOnError(t, compose)
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, false, "", "")
 		})

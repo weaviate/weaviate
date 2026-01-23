@@ -125,23 +125,23 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 	// always fit into the first chunk
 	if firstChunkForShard {
 		for _, x := range [3]struct {
-			absPath string
+			relPath string
 			data    []byte
 			modTime time.Time
 		}{
-			{absPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
-			{absPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
-			{absPath: sd.ShardVersionPath, data: sd.Version},
+			{relPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
+			{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
+			{relPath: sd.ShardVersionPath, data: sd.Version},
 		} {
 			if err := ctx.Err(); err != nil {
 				return written, err
 			}
 			info := vFileInfo{
-				name: filepath.Base(x.absPath),
+				name: filepath.Base(x.relPath),
 				size: len(x.data),
 			}
 			preCompressionSize.Add(int64(len(x.data)))
-			if n, err = z.writeOne(ctx, info, x.absPath, bytes.NewReader(x.data)); err != nil {
+			if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
 				return written, err
 			}
 			written += n
