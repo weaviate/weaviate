@@ -47,30 +47,6 @@ func (t *binarySearchTreeMap) get(key []byte) ([]MapPair, error) {
 	return t.root.get(key)
 }
 
-func (t *binarySearchTreeMap) replace(key []byte, pairs []MapPair) error {
-	if t.root == nil {
-		t.root = &binarySearchNodeMap{
-			key:         key,
-			values:      pairs,
-			colourIsRed: false, // root node is always black
-		}
-		return nil
-	}
-
-	node, err := t.root.find(key)
-	if err == lsmkv.NotFound {
-		for _, pair := range pairs {
-			t.root.insert(key, pair)
-		}
-	}
-	if err != nil {
-		return err
-	}
-
-	node.values = pairs
-	return nil
-}
-
 func (t *binarySearchTreeMap) flattenInOrder() []*binarySearchNodeMap {
 	if t.root == nil {
 		return nil
@@ -200,9 +176,9 @@ func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) *binarySearchNode
 	}
 }
 
-func (n *binarySearchNodeMap) find(key []byte) (*binarySearchNodeMap, error) {
+func (n *binarySearchNodeMap) get(key []byte) ([]MapPair, error) {
 	if bytes.Equal(n.key, key) {
-		return n, nil
+		return sortAndDedupValues(n.values), nil
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
@@ -210,22 +186,14 @@ func (n *binarySearchNodeMap) find(key []byte) (*binarySearchNodeMap, error) {
 			return nil, lsmkv.NotFound
 		}
 
-		return n.left.find(key)
+		return n.left.get(key)
 	} else {
 		if n.right == nil {
 			return nil, lsmkv.NotFound
 		}
 
-		return n.right.find(key)
+		return n.right.get(key)
 	}
-}
-
-func (n *binarySearchNodeMap) get(key []byte) ([]MapPair, error) {
-	node, err := n.find(key)
-	if err != nil {
-		return nil, err
-	}
-	return sortAndDedupValues(node.values), nil
 }
 
 func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
