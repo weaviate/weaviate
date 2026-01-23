@@ -74,7 +74,6 @@ func (b *AzureBackend) Start(ctx context.Context) error {
 	// Create network if not provided
 	if b.Config().networkName == "" {
 		net, err := network.New(ctx,
-			network.WithCheckDuplicate(),
 			network.WithDriver("bridge"),
 		)
 		if err != nil {

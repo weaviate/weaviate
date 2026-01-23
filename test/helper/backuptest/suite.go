@@ -25,9 +25,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+)
+
+// CompressionType specifies the vector compression algorithm to use.
+type CompressionType string
+
+const (
+	// CompressionNone indicates no compression
+	CompressionNone CompressionType = ""
+	// CompressionPQ indicates Product Quantization compression
+	CompressionPQ CompressionType = "pq"
+	// CompressionRQ indicates Rotational Quantization compression
+	CompressionRQ CompressionType = "rq"
 )
 
 // BackupTestSuiteConfig configures the backup test suite.
@@ -77,6 +90,13 @@ type BackupTestSuiteConfig struct {
 
 	// MinioEndpoint is the endpoint for the MinIO server (required when using ExternalCompose with S3).
 	MinioEndpoint string
+
+	// WithCompression specifies the compression algorithm to enable after class creation.
+	// Use CompressionPQ for Product Quantization or CompressionRQ for Rotational Quantization.
+	WithCompression CompressionType
+
+	// TestCancellation runs backup cancellation test instead of full backup/restore
+	TestCancellation bool
 }
 
 // DefaultSuiteConfig returns a default configuration for the backup test suite.
@@ -428,6 +448,32 @@ func (s *BackupTestSuite) RestoreBackup(t *testing.T, backupID string) {
 		helper.WithDeadline(s.config.RestoreTimeout))
 }
 
+// EnablePQ enables Product Quantization compression on the class.
+func (s *BackupTestSuite) EnablePQ(t *testing.T) {
+	t.Helper()
+	pq := map[string]interface{}{
+		"enabled":       true,
+		"trainingLimit": 10,
+		"segments":      0, // Auto-calculate
+	}
+	helper.EnablePQ(t, s.config.ClassName, pq)
+}
+
+// EnableRQ enables Rotational Quantization compression on the class.
+func (s *BackupTestSuite) EnableRQ(t *testing.T) {
+	t.Helper()
+	class := helper.GetClass(t, s.config.ClassName)
+	cfg := class.VectorIndexConfig.(map[string]interface{})
+	cfg["rq"] = map[string]interface{}{
+		"enabled":       true,
+		"trainingLimit": 10,
+	}
+	class.VectorIndexConfig = cfg
+	helper.UpdateClass(t, class)
+	// Time for compression to complete
+	time.Sleep(2 * time.Second)
+}
+
 // RunBasicBackupRestoreTest runs a complete backup and restore test cycle.
 func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	backupID := fmt.Sprintf("%s-%d", s.config.BackupID, time.Now().UnixNano())
@@ -445,6 +491,21 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	t.Run("create objects", func(t *testing.T) {
 		s.CreateTestObjects(t)
 	})
+
+	// Enable compression if configured (must be after objects exist)
+	switch s.config.WithCompression {
+	case CompressionPQ:
+		t.Run("enable PQ compression", func(t *testing.T) {
+			s.EnablePQ(t)
+		})
+	case CompressionRQ:
+		t.Run("enable RQ compression", func(t *testing.T) {
+			s.EnableRQ(t)
+		})
+	case CompressionNone:
+	default:
+		t.Fatalf("unsupported compression type: %s", s.config.WithCompression)
+	}
 
 	t.Run("verify objects exist", func(t *testing.T) {
 		s.VerifyObjectsExist(t)
@@ -476,23 +537,73 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	})
 }
 
-// RunAllTests runs all backup test scenarios.
-// This method manages its own compose lifecycle unless ExternalCompose is set.
-func (s *BackupTestSuite) RunAllTests(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.TestTimeout)
-	defer cancel()
+// RunCancellationTest tests that backups can be cancelled.
+func (s *BackupTestSuite) RunCancellationTest(t *testing.T) {
+	backupID := fmt.Sprintf("%s-cancel-%d", s.config.BackupID, time.Now().UnixNano())
 
-	// Setup
-	require.NoError(t, s.SetupCompose(ctx), "setup compose")
-	defer func() {
-		if err := s.TeardownCompose(ctx); err != nil {
-			t.Logf("Warning: teardown failed: %v", err)
+	t.Run("create class", func(t *testing.T) {
+		s.CreateTestClass(t)
+	})
+
+	if s.config.MultiTenant {
+		t.Run("create tenants", func(t *testing.T) {
+			s.CreateTestTenants(t)
+		})
+	}
+
+	t.Run("create objects", func(t *testing.T) {
+		s.CreateTestObjects(t)
+	})
+
+	t.Run("create and cancel backup", func(t *testing.T) {
+		cfg := helper.DefaultBackupConfig()
+
+		// Start backup
+		resp, err := helper.CreateBackup(t, cfg, s.config.ClassName, s.config.BackendType, backupID)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		// Cancel immediately
+		t.Run("cancel backup", func(t *testing.T) {
+			require.Nil(t, helper.CancelBackup(t, s.config.BackendType, backupID))
+		})
+
+		// Wait for cancellation (up to 20 seconds)
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+
+	wait:
+		for {
+			select {
+			case <-ticker.C:
+				break wait
+			default:
+				statusResp, err := helper.CreateBackupStatus(t, s.config.BackendType, backupID, "", "")
+				if err == nil && statusResp != nil && statusResp.Payload != nil && statusResp.Payload.Status != nil {
+					status := *statusResp.Payload.Status
+					if status == string(backup.Cancelled) || status == string(backup.Success) {
+						break wait
+					}
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
 		}
-	}()
 
-	// Run tests
-	t.Run("basic_backup_restore", func(t *testing.T) {
-		s.RunBasicBackupRestoreTest(t)
+		// Verify final status is cancelled (or succeeded if backup was too fast)
+		statusResp, err := helper.CreateBackupStatus(t, s.config.BackendType, backupID, "", "")
+		require.NoError(t, err)
+		require.NotNil(t, statusResp)
+		require.NotNil(t, statusResp.Payload)
+		require.NotNil(t, statusResp.Payload.Status)
+
+		status := *statusResp.Payload.Status
+		// Accept either Cancelled or Success (backup might complete before cancel)
+		assert.True(t, status == string(backup.Cancelled) || status == string(backup.Success),
+			"backup status should be Cancelled or Success, got: %s", status)
+	})
+
+	t.Run("cleanup", func(t *testing.T) {
+		s.DeleteTestClass(t)
 	})
 }
 
@@ -511,10 +622,16 @@ func (s *BackupTestSuite) RunTestsWithSharedCompose(t *testing.T, compose *docke
 		require.NoError(t, s.ensureS3BucketExists(ctx), "ensure S3 bucket exists")
 	}
 
-	// Run tests
-	t.Run("basic_backup_restore", func(t *testing.T) {
-		s.RunBasicBackupRestoreTest(t)
-	})
+	// Run appropriate test based on configuration
+	if s.config.TestCancellation {
+		t.Run("backup_cancellation", func(t *testing.T) {
+			s.RunCancellationTest(t)
+		})
+	} else {
+		t.Run("basic_backup_restore", func(t *testing.T) {
+			s.RunBasicBackupRestoreTest(t)
+		})
+	}
 }
 
 // BackendTestCase defines a test case for a specific backend.
@@ -610,8 +727,11 @@ type BackupTestCase struct {
 	// ObjectsPerTenant overrides the default objects per tenant (default: 10)
 	ObjectsPerTenant int
 
-	// Future extensibility: add new test case options here without breaking existing code
-	// Examples: compression settings, async backup, node failure scenarios, etc.
+	// WithCompression specifies the compression algorithm to enable (CompressionPQ or CompressionRQ)
+	WithCompression CompressionType
+
+	// TestCancellation tests backup cancellation instead of full backup/restore
+	TestCancellation bool
 }
 
 // DefaultTestCase returns a test case with default settings (single-tenant).
@@ -640,6 +760,58 @@ func MultiTenantTestCase() BackupTestCase {
 		MultiTenant:      true,
 		NumTenants:       50,
 		ObjectsPerTenant: 10,
+	}
+}
+
+// SingleTenantWithPQTestCase returns a test case for single-tenant backup with PQ compression.
+func SingleTenantWithPQTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:             "single_tenant_pq",
+		MultiTenant:      false,
+		ObjectsPerTenant: 10,
+		WithCompression:  CompressionPQ,
+	}
+}
+
+// MultiTenantWithPQTestCase returns a test case for multi-tenant backup with PQ compression.
+func MultiTenantWithPQTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:             "multi_tenant_pq",
+		MultiTenant:      true,
+		NumTenants:       50,
+		ObjectsPerTenant: 10,
+		WithCompression:  CompressionPQ,
+	}
+}
+
+// SingleTenantWithRQTestCase returns a test case for single-tenant backup with RQ compression.
+func SingleTenantWithRQTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:             "single_tenant_rq",
+		MultiTenant:      false,
+		ObjectsPerTenant: 10,
+		WithCompression:  CompressionRQ,
+	}
+}
+
+// MultiTenantWithRQTestCase returns a test case for multi-tenant backup with RQ compression.
+func MultiTenantWithRQTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:             "multi_tenant_rq",
+		MultiTenant:      true,
+		NumTenants:       50,
+		ObjectsPerTenant: 10,
+		WithCompression:  CompressionRQ,
+	}
+}
+
+// CancellationTestCase returns a test case for testing backup cancellation.
+func CancellationTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:             "cancellation",
+		MultiTenant:      false,
+		ObjectsPerTenant: 100, // More objects to give time for cancellation
+		TestCancellation: true,
 	}
 }
 
@@ -686,6 +858,8 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 		RestoreTimeout:   2 * time.Minute,
 		ExternalCompose:  sharedConfig.Compose,
 		MinioEndpoint:    sharedConfig.MinioEndpoint,
+		WithCompression:  testCase.WithCompression,
+		TestCancellation: testCase.TestCancellation,
 	}
 }
 

@@ -91,7 +91,6 @@ func (b *S3Backend) Start(ctx context.Context) error {
 	// Create network if not provided
 	if b.Config().networkName == "" {
 		net, err := network.New(ctx,
-			network.WithCheckDuplicate(),
 			network.WithDriver("bridge"),
 		)
 		if err != nil {
@@ -195,13 +194,13 @@ func (b *S3Backend) GetWeaviateEnv() map[string]string {
 		return nil
 	}
 	return map[string]string{
-		"AWS_ACCESS_KEY_ID":    s3AccessKey,
-		"AWS_SECRET_KEY":       s3SecretKey,
-		"AWS_REGION":           b.region,
-		"BACKUP_S3_BUCKET":     b.BucketName(),
-		"BACKUP_S3_ENDPOINT":   fmt.Sprintf("%s:%s", s3ContainerName, "9000"),
-		"BACKUP_S3_USE_SSL":    "false",
-		"OFFLOAD_S3_ENDPOINT":  fmt.Sprintf("http://%s:%s", s3ContainerName, "9000"),
+		"AWS_ACCESS_KEY_ID":   s3AccessKey,
+		"AWS_SECRET_KEY":      s3SecretKey,
+		"AWS_REGION":          b.region,
+		"BACKUP_S3_BUCKET":    b.BucketName(),
+		"BACKUP_S3_ENDPOINT":  fmt.Sprintf("%s:%s", s3ContainerName, "9000"),
+		"BACKUP_S3_USE_SSL":   "false",
+		"OFFLOAD_S3_ENDPOINT": fmt.Sprintf("http://%s:%s", s3ContainerName, "9000"),
 	}
 }
 

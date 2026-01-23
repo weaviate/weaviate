@@ -92,7 +92,6 @@ func (b *GCSBackend) Start(ctx context.Context) error {
 	// Create network if not provided
 	if b.Config().networkName == "" {
 		net, err := network.New(ctx,
-			network.WithCheckDuplicate(),
 			network.WithDriver("bridge"),
 		)
 		if err != nil {
@@ -198,10 +197,10 @@ func (b *GCSBackend) GetWeaviateEnv() map[string]string {
 		return nil
 	}
 	return map[string]string{
-		"GOOGLE_CLOUD_PROJECT":          b.projectID,
-		"STORAGE_EMULATOR_HOST":         fmt.Sprintf("http://%s:%s", gcsContainerName, "9090"),
-		"BACKUP_GCS_BUCKET":             b.BucketName(),
-		"BACKUP_GCS_USE_AUTH":           "false",
+		"GOOGLE_CLOUD_PROJECT":           b.projectID,
+		"STORAGE_EMULATOR_HOST":          fmt.Sprintf("http://%s:%s", gcsContainerName, "9090"),
+		"BACKUP_GCS_BUCKET":              b.BucketName(),
+		"BACKUP_GCS_USE_AUTH":            "false",
 		"GOOGLE_APPLICATION_CREDENTIALS": "", // Empty for emulator
 	}
 }
@@ -262,7 +261,7 @@ func (b *GCSBackend) createGCSClient(ctx context.Context) error {
 	// The GCS emulator is accessed via the STORAGE_EMULATOR_HOST env var.
 	// We set it temporarily for client creation, then the client will use it.
 	os.Setenv("STORAGE_EMULATOR_HOST", b.endpoint)
-	
+
 	client, err := storage.NewClient(ctx,
 		option.WithoutAuthentication(),
 	)
