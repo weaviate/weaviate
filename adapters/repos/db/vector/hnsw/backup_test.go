@@ -31,7 +31,7 @@ import (
 
 type backupNoopBucketView struct{}
 
-func (n *backupNoopBucketView) Release() {}
+func (n *backupNoopBucketView) ReleaseView() {}
 
 func TestBackup_SwitchCommitLogs(t *testing.T) {
 	ctx := context.Background()

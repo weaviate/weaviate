@@ -35,7 +35,7 @@ import (
 
 type persistenceIntegrationNoopBucketView struct{}
 
-func (n *persistenceIntegrationNoopBucketView) Release() {}
+func (n *persistenceIntegrationNoopBucketView) ReleaseView() {}
 
 func TestHnswPersistence(t *testing.T) {
 	dirName := t.TempDir()

@@ -364,7 +364,7 @@ func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Objec
 		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
 		_, err = r.Read(payloadBytes)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("payload read: %w", err)
 		}
 
 		var obj *storobj.Object
@@ -379,7 +379,7 @@ func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Objec
 			return nil, fmt.Errorf("unsupported operation type: %s", method)
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("method %v: %w", method, err)
 		}
 
 		out = append(out, obj)

@@ -32,7 +32,7 @@ import (
 
 type tooManyLinksNoopBucketView struct{}
 
-func (n *tooManyLinksNoopBucketView) Release() {}
+func (n *tooManyLinksNoopBucketView) ReleaseView() {}
 
 // The !race build tag makes sure that this test is EXCLUDED from running with
 // the race detector on, but now we also need to make sure that it runs in the
