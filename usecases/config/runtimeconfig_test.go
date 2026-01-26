@@ -20,12 +20,12 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4/json"
+	"github.com/netresearch/go-cron"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -408,7 +408,7 @@ replica_movement_minimum_async_wait: 10s`)
 
 	t.Run("updating objects ttl", func(t *testing.T) {
 		deleteSchedule, _ := runtime.NewDynamicValueWithValidation("@every 1h", func(val string) error {
-			if _, err := cron.SecondsParser().Parse(val); err != nil {
+			if _, err := cron.FullParser().Parse(val); err != nil {
 				return fmt.Errorf("delete_schedule: %w", err)
 			}
 			return nil
@@ -435,23 +435,23 @@ replica_movement_minimum_async_wait: 10s`)
 			// initial default
 			assert.Equal(t, "@every 1h", deleteSchedule.Get())
 
-			// set to 2h
-			parsed, err := ParseRuntimeConfig(buf("@every 2h"))
+			// set to 2h (without seconds)
+			parsed, err := ParseRuntimeConfig(buf("0 */2 * * *"))
 			require.NoError(t, err)
 			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
-			assert.Equal(t, "@every 2h", deleteSchedule.Get())
+			assert.Equal(t, "0 */2 * * *", deleteSchedule.Get())
 
 			// try set invalid value
-			parsed, err = ParseRuntimeConfig(buf("* * * * *"))
+			parsed, err = ParseRuntimeConfig(buf("* * * *"))
 			require.NoError(t, err)
 			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
-			assert.Equal(t, "@every 2h", deleteSchedule.Get())
+			assert.Equal(t, "0 */2 * * *", deleteSchedule.Get())
 
-			// update to 3h
-			parsed, err = ParseRuntimeConfig(buf("@every 3h"))
+			// update to 3h (with seconds)
+			parsed, err = ParseRuntimeConfig(buf("0 0 */3 * * *"))
 			require.NoError(t, err)
 			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
-			assert.Equal(t, "@every 3h", deleteSchedule.Get())
+			assert.Equal(t, "0 0 */3 * * *", deleteSchedule.Get())
 
 			// remove -> back to default
 			parsed, err = ParseRuntimeConfig(emptyBuf)
