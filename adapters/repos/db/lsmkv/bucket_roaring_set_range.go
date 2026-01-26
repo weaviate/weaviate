@@ -70,7 +70,7 @@ func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
 	}
 	readers = append(readers, view.Active.newRoaringSetRangeReader())
 
-	return roaringsetrange.NewCombinedReader(readers, view.Release, concurrency.SROAR_MERGE, b.logger)
+	return roaringsetrange.NewCombinedReader(readers, view.ReleaseView, concurrency.SROAR_MERGE, b.logger)
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange {

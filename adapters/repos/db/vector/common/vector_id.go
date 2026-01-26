@@ -121,9 +121,9 @@ type (
 
 // BucketView represents a consistent view of an LSM bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
-// call Release() when done to avoid blocking compactions.
+// call ReleaseView() when done to avoid blocking compactions.
 type BucketView interface {
-	Release()
+	ReleaseView()
 }
 
 // GetViewThunk returns a consistent view of the underlying bucket.
