@@ -46,7 +46,7 @@ const (
 
 // BackupTestSuiteConfig configures the backup test suite.
 type BackupTestSuiteConfig struct {
-	// BackendType is the backup backend type: "s3", "gcs", or "azure"
+	// BackendType is the backup backend type: "s3", "gcs", "azure", or "filesystem"
 	BackendType string
 
 	// BucketName is the bucket/container name for backups
@@ -226,6 +226,8 @@ func (s *BackupTestSuite) SetupCompose(ctx context.Context) error {
 		compose = compose.WithBackendGCS(s.config.BucketName)
 	case "azure":
 		compose = compose.WithBackendAzure(s.config.BucketName)
+	case "filesystem":
+		compose = compose.WithBackendFilesystem()
 	default:
 		return fmt.Errorf("unsupported backend type: %s", s.config.BackendType)
 	}
@@ -877,7 +879,7 @@ func CancellationTestCase() BackupTestCase {
 type SharedComposeConfig struct {
 	// Compose is the shared Docker compose instance
 	Compose *docker.DockerCompose
-	// BackendType is the backup backend type ("s3", "gcs", "azure")
+	// BackendType is the backup backend type ("s3", "gcs", "azure", "filesystem")
 	BackendType string
 	// MinioEndpoint is the MinIO endpoint (for S3 tests)
 	MinioEndpoint string
@@ -912,6 +914,12 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 		backendType = "s3"
 	}
 
+	// Filesystem backend requires single-node cluster
+	clusterSize := 3 // Default for shared compose
+	if backendType == "filesystem" {
+		clusterSize = 1
+	}
+
 	return &BackupTestSuiteConfig{
 		BackendType:      backendType,
 		BucketName:       "backups", // Use the default bucket created by shared cluster
@@ -921,7 +929,7 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 		MultiTenant:      testCase.MultiTenant,
 		NumTenants:       numTenants,
 		ObjectsPerTenant: objectsPerTenant,
-		ClusterSize:      3, // Assume cluster for shared compose
+		ClusterSize:      clusterSize,
 		WithVectorizer:   true,
 		TestTimeout:      5 * time.Minute,
 		BackupTimeout:    2 * time.Minute,
@@ -964,6 +972,19 @@ func RunAzureBackupTests(t *testing.T, compose *docker.DockerCompose, testCase B
 	sharedConfig := SharedComposeConfig{
 		Compose:     compose,
 		BackendType: "azure",
+	}
+
+	config := NewSuiteConfigFromTestCase(sharedConfig, testCase)
+	suite := NewBackupTestSuite(config)
+	suite.RunTestsWithSharedCompose(t, compose)
+}
+
+// RunFilesystemBackupTests runs filesystem backup tests using a shared compose and test case configuration.
+// Note: Filesystem backup only works on single-node clusters. The shared compose must be a single-node cluster.
+func RunFilesystemBackupTests(t *testing.T, compose *docker.DockerCompose, testCase BackupTestCase) {
+	sharedConfig := SharedComposeConfig{
+		Compose:     compose,
+		BackendType: "filesystem",
 	}
 
 	config := NewSuiteConfigFromTestCase(sharedConfig, testCase)
