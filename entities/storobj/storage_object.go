@@ -818,12 +818,9 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		}
 		schemaLength = uint32(len(schema))
 	} else {
-		// marshall empty object so that we don't break unmarshalling during upgrades
+		// send empty object so that we don't break unmarshalling during upgrades
 		// where some nodes don't have the empty check on the unmarshal side yet
-		schema, err = json.Marshal(map[string]interface{}{})
-		if err != nil {
-			return nil, err
-		}
+		schema = []byte("{}")
 		schemaLength = uint32(len(schema))
 	}
 
