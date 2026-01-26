@@ -28,7 +28,7 @@ import (
 
 type restoreDocNoopBucketView struct{}
 
-func (n *restoreDocNoopBucketView) Release() {}
+func (n *restoreDocNoopBucketView) ReleaseView() {}
 
 func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 	rootPath := t.TempDir()
