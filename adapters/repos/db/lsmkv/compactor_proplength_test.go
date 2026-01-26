@@ -50,11 +50,12 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	err := bucket.FlushAndSwitch()
 	require.Nil(t, err)
 	avg, sum := bucket.disk.GetAveragePropertyLength()
-	bavg, err := bucket.GetAveragePropertyLength()
+	bavg, bsum, err := bucket.GetAveragePropertyLength()
 	require.Nil(t, err)
 	require.Equal(t, 1.0, avg)
 	require.Equal(t, 1.0, bavg)
 	require.Equal(t, uint64(size), sum)
+	require.Equal(t, uint64(size), bsum)
 
 	for i := 0; i < size/2; i++ {
 		pair := NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)
@@ -65,11 +66,12 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	err = bucket.FlushAndSwitch()
 	require.Nil(t, err)
 	avg, sum = bucket.disk.GetAveragePropertyLength()
-	bavg, err = bucket.GetAveragePropertyLength()
+	bavg, bsum, err = bucket.GetAveragePropertyLength()
 	require.Nil(t, err)
 	require.Equal(t, 1.0, avg)
 	require.Equal(t, 1.0, bavg)
 	require.Equal(t, uint64(size), sum)
+	require.Equal(t, uint64(size), bsum)
 
 	for i := size / 2; i < size; i++ {
 		pair := NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)
@@ -80,11 +82,12 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	err = bucket.FlushAndSwitch()
 	require.Nil(t, err)
 	avg, sum = bucket.disk.GetAveragePropertyLength()
-	bavg, err = bucket.GetAveragePropertyLength()
+	bavg, bsum, err = bucket.GetAveragePropertyLength()
 	require.Nil(t, err)
 	require.Equal(t, 1.0, avg)
 	require.Equal(t, 1.0, bavg)
 	require.Equal(t, uint64(size), sum)
+	require.Equal(t, uint64(size), bsum)
 
 	t.Run("re-init bucket after flush", func(t *testing.T) {
 		bucket.Shutdown(t.Context())
@@ -99,11 +102,12 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	})
 
 	avg, sum = bucket.disk.GetAveragePropertyLength()
-	bavg, err = bucket.GetAveragePropertyLength()
+	bavg, bsum, err = bucket.GetAveragePropertyLength()
 	require.Nil(t, err)
 	require.Equal(t, 1.0, avg)
 	require.Equal(t, 1.0, bavg)
 	require.Equal(t, uint64(size), sum)
+	require.Equal(t, uint64(size), bsum)
 
 	// verify that all prior writes are still correct
 	kvs, err := bucket.MapList(ctx, key)
@@ -117,11 +121,12 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	}
 
 	avg, sum = bucket.disk.GetAveragePropertyLength()
-	bavg, err = bucket.GetAveragePropertyLength()
+	bavg, bsum, err = bucket.GetAveragePropertyLength()
 	require.Nil(t, err)
 	require.Equal(t, 1.0, avg)
 	require.Equal(t, 1.0, bavg)
 	require.Equal(t, uint64(size), sum)
+	require.Equal(t, uint64(size), bsum)
 
 	t.Run("re-init bucket after compact", func(t *testing.T) {
 		bucket.Shutdown(t.Context())
@@ -136,11 +141,12 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	})
 
 	avg, sum = bucket.disk.GetAveragePropertyLength()
-	bavg, err = bucket.GetAveragePropertyLength()
+	bavg, bsum, err = bucket.GetAveragePropertyLength()
 	require.Nil(t, err)
 	require.Equal(t, 1.0, avg)
 	require.Equal(t, 1.0, bavg)
 	require.Equal(t, uint64(size), sum)
+	require.Equal(t, uint64(size), bsum)
 
 	// verify that all prior writes are still correct
 	kvs, err = bucket.MapList(ctx, key)
