@@ -74,7 +74,7 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 
 type noopBucketView struct{}
 
-func (n *noopBucketView) Release() {}
+func (n *noopBucketView) ReleaseView() {}
 
 func getViewThunk() common.BucketView {
 	return &noopBucketView{}

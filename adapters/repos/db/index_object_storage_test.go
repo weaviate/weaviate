@@ -396,7 +396,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	assert.Equal(t, objectCount, activeObjectCount, "Active shard object count should match")
 	assert.Greater(t, activeObjectStorageSize, int64(objectCount*objectSize/2), "Active object storage size should be reasonable")
 
-	// Release the shard (this will flush all data to disk)
+	// ReleaseView the shard (this will flush all data to disk)
 	release()
 
 	// Explicitly shutdown all shards to ensure data is flushed to disk

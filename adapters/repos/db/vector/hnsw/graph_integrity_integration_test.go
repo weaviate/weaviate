@@ -31,7 +31,7 @@ import (
 
 type graphIntegrityNoopBucketView struct{}
 
-func (n *graphIntegrityNoopBucketView) Release() {}
+func (n *graphIntegrityNoopBucketView) ReleaseView() {}
 
 func TestGraphIntegrity(t *testing.T) {
 	ctx := context.Background()

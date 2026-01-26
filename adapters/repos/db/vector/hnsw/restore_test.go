@@ -34,7 +34,7 @@ var logger, _ = test.NewNullLogger()
 
 type restoreNoopBucketView struct{}
 
-func (n *restoreNoopBucketView) Release() {}
+func (n *restoreNoopBucketView) ReleaseView() {}
 
 func Test_RestartFromZeroSegments(t *testing.T) {
 	testPath := t.TempDir()
