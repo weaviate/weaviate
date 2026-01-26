@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	taskAnalyzeOp uint8 = iota + 1
+	taskQueueAnalyzeOp uint8 = iota + 1
 	taskQueueSplitOp
 	taskQueueMergeOp
 	taskQueueReassignOp
@@ -245,7 +245,7 @@ func (tq *TaskQueue) EnqueueAnalyze(postingID uint64) error {
 		return nil
 	}
 
-	if err := tq.analyzeQueue.Push(encodeTask(postingID, taskAnalyzeOp)); err != nil {
+	if err := tq.analyzeQueue.Push(encodeTask(postingID, taskQueueAnalyzeOp)); err != nil {
 		return errors.Wrap(err, "failed to push analyze operation to queue")
 	}
 
@@ -310,7 +310,7 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 	data = data[1:]
 
 	switch op {
-	case taskAnalyzeOp:
+	case taskQueueAnalyzeOp:
 		// decode posting ID
 		postingID := binary.LittleEndian.Uint64(data)
 
@@ -354,7 +354,7 @@ type AnalyzeTask struct {
 }
 
 func (t *AnalyzeTask) Op() uint8 {
-	return taskAnalyzeOp
+	return taskQueueAnalyzeOp
 }
 
 func (t *AnalyzeTask) Key() uint64 {
