@@ -36,6 +36,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/shardlocallimit"
 	ucfg "github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -1055,6 +1056,96 @@ func setupDebugHandlers(appState *state.State) {
 		if anyLocked {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
+		w.Write(jsonBytes)
+	}))
+
+	// Shard-local limit debug endpoint
+	// Shows the calculated local limit for a given collection and limit
+	// e.g. curl -X GET localhost:6060/debug/shard-local-limit?collection=MyCollection&limit=100
+	http.HandleFunc("/debug/shard-local-limit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		colName := r.URL.Query().Get("collection")
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+
+		limitStr := r.URL.Query().Get("limit")
+		if limitStr == "" {
+			http.Error(w, "limit is required", http.StatusBadRequest)
+			return
+		}
+		globalLimit, err := strconv.Atoi(limitStr)
+		if err != nil {
+			http.Error(w, "invalid limit: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		className := schema.ClassName(colName)
+		idx := appState.DB.GetIndex(className)
+		if idx == nil {
+			http.Error(w, "collection not found or not ready", http.StatusNotFound)
+			return
+		}
+
+		// Get shard count for the collection
+		shardCount := idx.GetShardCount()
+
+		// Get safety margin from config
+		safetyMargin := shardlocallimit.DefaultSafetyMargin
+		if appState.ServerConfig.Config.ShardLocalLimitSafetyMargin != nil {
+			safetyMargin = appState.ServerConfig.Config.ShardLocalLimitSafetyMargin.Get()
+		}
+
+		// Calculate local limits
+		localLimitWithMargin, rawLocalLimit := shardlocallimit.CalculateLocalLimit(shardCount, globalLimit, safetyMargin)
+
+		// Calculate traffic savings
+		savings := shardlocallimit.EstimateTrafficSavings(shardCount, globalLimit, localLimitWithMargin)
+
+		// Get config values
+		vectorSearchEnabled := false
+		if appState.ServerConfig.Config.ShardLocalLimitVectorSearchEnabled != nil {
+			vectorSearchEnabled = appState.ServerConfig.Config.ShardLocalLimitVectorSearchEnabled.Get()
+		}
+		objectListEnabled := false
+		if appState.ServerConfig.Config.ShardLocalLimitObjectListEnabled != nil {
+			objectListEnabled = appState.ServerConfig.Config.ShardLocalLimitObjectListEnabled.Get()
+		}
+		hybridBM25Enabled := false
+		if appState.ServerConfig.Config.ShardLocalLimitHybridBM25Enabled != nil {
+			hybridBM25Enabled = appState.ServerConfig.Config.ShardLocalLimitHybridBM25Enabled.Get()
+		}
+
+		response := map[string]interface{}{
+			"collection":              colName,
+			"shard_count":             shardCount,
+			"global_limit":            globalLimit,
+			"local_limit_raw":         rawLocalLimit,
+			"local_limit_with_margin": localLimitWithMargin,
+			"safety_margin_percent":   int(safetyMargin * 100),
+			"traffic_savings_percent": int(savings * 100),
+			"config": map[string]interface{}{
+				"vector_search_enabled": vectorSearchEnabled,
+				"object_list_enabled":   objectListEnabled,
+				"hybrid_bm25_enabled":   hybridBM25Enabled,
+				"safety_margin":         safetyMargin,
+			},
+		}
+
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on shard-local-limit response")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
 	}))
 
