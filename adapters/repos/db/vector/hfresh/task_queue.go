@@ -156,6 +156,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 		return nil, errors.Wrap(err, "failed to initialize hfresh merge queue")
 	}
 
+	index.scheduler.RegisterQueue(tq.analyzeQueue)
 	index.scheduler.RegisterQueue(tq.splitQueue)
 	index.scheduler.RegisterQueue(tq.reassignQueue)
 	index.scheduler.RegisterQueue(tq.mergeQueue)
@@ -167,6 +168,10 @@ func (tq *TaskQueue) Close() error {
 	var errs []error
 	if err := tq.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
+	}
+
+	if err := tq.analyzeQueue.Close(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to close analyze queue"))
 	}
 
 	if err := tq.splitQueue.Close(); err != nil {
@@ -211,7 +216,7 @@ func (tq *TaskQueue) Flush() error {
 }
 
 func (tq *TaskQueue) Size() int64 {
-	return tq.splitQueue.Size() + tq.reassignQueue.Size() + tq.mergeQueue.Size()
+	return tq.analyzeQueue.Size() + tq.splitQueue.Size() + tq.reassignQueue.Size() + tq.mergeQueue.Size()
 }
 
 func (tq *TaskQueue) AnalyzeDone(postingID uint64) {
