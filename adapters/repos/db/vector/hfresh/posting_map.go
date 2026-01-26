@@ -149,7 +149,7 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 	return size, nil
 }
 
-// SetVectorIDs sets the vector IDs for the posting with the given ID.
+// SetVectorIDs sets the vector IDs for the posting with the given ID in-memory and persists them to disk.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
@@ -205,6 +205,19 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 
 	v.metrics.ObservePostingSize(float64(len(m.vectors)))
 	return uint32(len(m.vectors)), nil
+}
+
+// Persist the vector IDs for the posting with the given ID to disk.
+func (v *PostingMap) Persist(ctx context.Context, postingID uint64) error {
+	m, err := v.Get(ctx, postingID)
+	if err != nil {
+		return err
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	return v.bucket.Set(ctx, postingID, m.vectors, m.version)
 }
 
 // PostingMapStore is a persistent store for vector IDs.
