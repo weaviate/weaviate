@@ -210,6 +210,12 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 	h.postingLocks.Unlock(centroidID)
 
+	// enqueue an analyze operation to persist the changes and update the posting map on disk
+	err = h.taskQueue.EnqueueAnalyze(centroidID)
+	if err != nil {
+		return false, err
+	}
+
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
 	// however during a reassign, we want to split immediately.
