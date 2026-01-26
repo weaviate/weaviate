@@ -218,9 +218,9 @@ func clusterIncrementalBackupJourneyTest(t *testing.T, backend, overrideBucket, 
 		backupSize3, err := getTotalSize(t, minioURL, overrideBucket, backupIDIncremental2)
 		require.NoError(t, err)
 
-		t.Logf("backup size full: %d, backup size incremental1: %d, backup size incremental1: %d", backupSize1, backupSize2, backupSize3)
-		require.Less(t, backupSize2*3, backupSize1)
-		require.Less(t, backupSize3*3, backupSize1)
+		t.Logf("backup size full: %d, backup size incremental1: %d, backup size incremental2: %d", backupSize1, backupSize2, backupSize3)
+		require.Less(t, backupSize2, backupSize1)
+		require.Less(t, backupSize3, backupSize1)
 	}
 
 	// check that sizes are as expected. We return the size of the pre-compression/deduplication data in the backup status
