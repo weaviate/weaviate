@@ -32,7 +32,7 @@ import (
 
 type unreachabilityNoopBucketView struct{}
 
-func (n *unreachabilityNoopBucketView) Release() {}
+func (n *unreachabilityNoopBucketView) ReleaseView() {}
 
 func TestUnreachablePoints(t *testing.T) {
 	ctx := context.Background()

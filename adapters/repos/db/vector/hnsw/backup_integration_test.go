@@ -32,7 +32,7 @@ import (
 
 type backupIntegrationNoopBucketView struct{}
 
-func (n *backupIntegrationNoopBucketView) Release() {}
+func (n *backupIntegrationNoopBucketView) ReleaseView() {}
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()

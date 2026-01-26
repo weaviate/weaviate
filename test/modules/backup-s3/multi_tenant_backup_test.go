@@ -59,7 +59,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 			WithBackendS3(bucket, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
-			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
+			WithWeaviateEnv("BACKUP_CHUNK_TARGET_SIZE", "1024").
 			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
 			Start(ctx)
 		require.Nil(t, err)

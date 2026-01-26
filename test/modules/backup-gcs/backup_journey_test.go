@@ -81,8 +81,8 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
-			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
-			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1").
+			WithWeaviateEnv("BACKUP_CHUNK_TARGET_SIZE", "1024").
+			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
