@@ -374,4 +374,4 @@ func (f *fakeCompressionDistancer) DistanceToFloat(vec []float32) (float32, erro
 // noopBucketView is a no-op implementation of common.BucketView for testing
 type noopBucketView struct{}
 
-func (n *noopBucketView) Release() {}
+func (n *noopBucketView) ReleaseView() {}

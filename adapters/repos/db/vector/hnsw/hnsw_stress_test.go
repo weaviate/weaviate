@@ -39,7 +39,7 @@ import (
 
 type stressTestNoopBucketView struct{}
 
-func (n *stressTestNoopBucketView) Release() {}
+func (n *stressTestNoopBucketView) ReleaseView() {}
 
 const (
 	vectorSize               = 128

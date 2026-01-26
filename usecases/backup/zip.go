@@ -57,7 +57,7 @@ type zip struct {
 	maxChunkSizeInBytes int64
 }
 
-func NewZip(sourcePath string, level int, maxSizePerChunkInMB int) (zip, io.ReadCloser, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -88,13 +88,17 @@ func NewZip(sourcePath string, level int, maxSizePerChunkInMB int) (zip, io.Read
 	default:
 		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
 	}
+	chunkTargetSizeInBytes := chunkTargetSize
+	if chunkTargetSizeInBytes == 0 {
+		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
+	}
 
 	return zip{
 		sourcePath:          sourcePath,
 		compressorWriter:    gzw,
 		w:                   tarW,
 		pipeWriter:          pw,
-		maxChunkSizeInBytes: int64(maxSizePerChunkInMB * 1024 * 1024), // mb => bytes
+		maxChunkSizeInBytes: chunkTargetSizeInBytes,
 	}, reader, nil
 }
 
@@ -121,23 +125,23 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 	// always fit into the first chunk
 	if firstChunkForShard {
 		for _, x := range [3]struct {
-			absPath string
+			relPath string
 			data    []byte
 			modTime time.Time
 		}{
-			{absPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
-			{absPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
-			{absPath: sd.ShardVersionPath, data: sd.Version},
+			{relPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
+			{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
+			{relPath: sd.ShardVersionPath, data: sd.Version},
 		} {
 			if err := ctx.Err(); err != nil {
 				return written, err
 			}
 			info := vFileInfo{
-				name: filepath.Base(x.absPath),
+				name: filepath.Base(x.relPath),
 				size: len(x.data),
 			}
 			preCompressionSize.Add(int64(len(x.data)))
-			if n, err = z.writeOne(ctx, info, x.absPath, bytes.NewReader(x.data)); err != nil {
+			if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
 				return written, err
 			}
 			written += n
@@ -151,7 +155,7 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 }
 
 func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
-	// Process files in sd.Files and remove them as we go (pop from front).
+	// Process files in filesInShard and remove them as we go (pop from front).
 	firstFile := true
 	for filesInShard.Len() > 0 {
 		relPath := filesInShard.Peek()
