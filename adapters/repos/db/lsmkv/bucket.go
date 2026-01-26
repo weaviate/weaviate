@@ -1964,7 +1964,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// happens outside of this function. The lock is no longer necessary now that
 	// we support consistent views. We do still need to guarantee that the
 	// memtables, and segments do not disappear until the caller has completed.
-	// This can be done by passing the view.ReleaseViewView() method tot he caller.
+	// This can be done by passing the view.ReleaseView() method to the caller.
 	//
 	// Panics at this level are caught and the view is released in the defer
 	// function. The lock is released after the blockmax search is done, and
