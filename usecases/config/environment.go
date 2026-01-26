@@ -586,12 +586,15 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if err := parsePositiveInt(
-		"BACKUPS_MAX_SIZE_CHUNK_IN_MB",
-		func(val int) { config.Backup.MaxSizePerChunkInMB = val },
-		DefaultBackupMaxSizePerChunkMB,
-	); err != nil {
-		return err
+	if v := os.Getenv("BACKUPS_MAX_SIZE_CHUNK_IN_MB"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUPS_MAX_SIZE_CHUNK_IN_MB: %w", err)
+		}
+
+		config.Backup.MaxSizePerChunk = parsed
+	} else {
+		config.Backup.MaxSizePerChunk = DefaultBackupMaxSizePerChunk
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {

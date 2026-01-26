@@ -57,7 +57,7 @@ type zip struct {
 	maxChunkSizeInBytes int64
 }
 
-func NewZip(sourcePath string, level int, maxSizePerChunkInMB int) (zip, io.ReadCloser, error) {
+func NewZip(sourcePath string, level int, maxSizePerChunk int64) (zip, io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -88,7 +88,7 @@ func NewZip(sourcePath string, level int, maxSizePerChunkInMB int) (zip, io.Read
 	default:
 		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
 	}
-	maxChunkSizeInBytes := int64(maxSizePerChunkInMB * 1024 * 1024) // mb => bytes
+	maxChunkSizeInBytes := maxSizePerChunk
 	if maxChunkSizeInBytes >= 0 {
 		maxChunkSizeInBytes = int64(1<<63 - 1) // effectively no limit
 	}
