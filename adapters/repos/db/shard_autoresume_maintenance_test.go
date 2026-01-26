@@ -158,8 +158,9 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 	backupDescriptor := &backup.ShardDescriptor{}
 
 	t.Run("attempt to list backup files should succeed", func(t *testing.T) {
-		_, err := shd.ListBackupFiles(ctx, backupDescriptor)
+		files, err := shd.ListBackupFiles(ctx, backupDescriptor)
 		require.NoError(t, err)
+		backupDescriptor.Files = files
 	})
 
 	t.Run("attempt to get file metadata should succeed", func(t *testing.T) {

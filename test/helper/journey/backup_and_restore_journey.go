@@ -390,6 +390,13 @@ func checkCount(t *testing.T, nodeEndpoints []string, classname string, numObjec
 		helper.SetupClient(nodeEndpoints[i])
 		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
 		require.NoError(t, err)
+		if resp.Payload.Errors != nil {
+			for _, err := range resp.Payload.Errors {
+				if err != nil {
+					t.Logf("GraphQL errors on node %d: %+v", i+1, resp.Payload.Errors)
+				}
+			}
+		}
 		require.Nil(t, resp.Payload.Errors, "GraphQL errors: %+v", resp.Payload.Errors)
 		require.NotNil(t, resp.Payload.Data)
 
