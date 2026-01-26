@@ -1128,7 +1128,7 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 
 	// Get a consistent view once for all vector lookups to reduce lock contention
 	view := h.GetViewThunk()
-	defer view.Release()
+	defer view.ReleaseView()
 
 	mu := sync.Mutex{} // protect res
 	addID := func(id uint64, dist float32) {

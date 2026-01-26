@@ -304,7 +304,7 @@ func backupAndRestoreLargeCollectionJourneyTest(t *testing.T, weaviateEndpoint, 
 		helper.SetupClient(weaviateEndpoint)
 	}
 
-	booksClass := books.ClassMixedContextionaryVectorizer()
+	booksClass := books.ClassMixedContextionaryVectorizerFlat()
 	booksClass.Class = "BookLargeCollection"
 	helper.DeleteClass(t, booksClass.Class)
 	helper.CreateClass(t, booksClass)

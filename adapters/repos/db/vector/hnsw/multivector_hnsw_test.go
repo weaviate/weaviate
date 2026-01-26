@@ -33,7 +33,7 @@ import (
 
 type multivectorNoopBucketView struct{}
 
-func (n *multivectorNoopBucketView) Release() {}
+func (n *multivectorNoopBucketView) ReleaseView() {}
 
 var multiVectors = [][][]float32{
 	// Document ID: 0

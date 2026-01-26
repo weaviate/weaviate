@@ -53,7 +53,9 @@ func TestWorkerLoop(t *testing.T) {
 		var wg sync.WaitGroup
 		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
+		collection := "TestCollection"
 		UUID0 := uuid.New().String()
+		obj := &pb.BatchObject{Collection: collection, Uuid: UUID0}
 		ref1 := &pb.BatchReference{
 			FromUuid:       UUID0,
 			ToUuid:         uuid.New().String(),
@@ -65,13 +67,14 @@ func TestWorkerLoop(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			processingQueue <- &processRequest{
-				objects:          []*pb.BatchObject{{Uuid: UUID0}},
-				references:       nil,
-				streamId:         StreamId,
-				consistencyLevel: nil,
-				streamCtx:        ctx,
-				onComplete:       func() { wg.Done() },
-				onStart:          func() {},
+				objects:                       []*pb.BatchObject{obj},
+				references:                    nil,
+				streamId:                      StreamId,
+				consistencyLevel:              nil,
+				streamCtx:                     ctx,
+				usesVectorisationByCollection: map[string]bool{collection: false},
+				onComplete:                    func() { wg.Done() },
+				onStart:                       func() {},
 			}
 			processingQueue <- &processRequest{
 				objects:          nil,
@@ -155,9 +158,13 @@ func TestWorkerLoop(t *testing.T) {
 		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
+		collection := "TestCollection"
 		UUID0 := uuid.New().String()
 		UUID1 := uuid.New().String()
 		UUID2 := uuid.New().String()
+		obj1 := &pb.BatchObject{Collection: collection, Uuid: UUID0}
+		obj2 := &pb.BatchObject{Collection: collection, Uuid: UUID1}
+		obj3 := &pb.BatchObject{Collection: collection, Uuid: UUID2}
 		ref1 := &pb.BatchReference{
 			FromUuid:       UUID0,
 			ToUuid:         UUID1,
@@ -175,13 +182,14 @@ func TestWorkerLoop(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			processingQueue <- &processRequest{
-				objects:          []*pb.BatchObject{{Uuid: UUID0}, {Uuid: UUID1}, {Uuid: UUID2}},
-				references:       []*pb.BatchReference{ref1, ref2},
-				streamId:         StreamId,
-				consistencyLevel: nil,
-				streamCtx:        ctx,
-				onComplete:       func() { wg.Done() },
-				onStart:          func() {},
+				objects:                       []*pb.BatchObject{obj1, obj2, obj3},
+				references:                    []*pb.BatchReference{ref1, ref2},
+				streamId:                      StreamId,
+				consistencyLevel:              nil,
+				streamCtx:                     ctx,
+				usesVectorisationByCollection: map[string]bool{collection: false},
+				onComplete:                    func() { wg.Done() },
+				onStart:                       func() {},
 			}
 		}()
 
@@ -205,6 +213,123 @@ func TestWorkerLoop(t *testing.T) {
 		require.Equal(t, "refs error", report.Errors[1].GetError(), "Expected second error to be first non-retriable reference error")
 		require.Equal(t, toBeacon(ref1), report.Errors[1].GetBeacon(), "Expected second error's beacon to match")
 
+		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
+		close(processingQueue) // Allow the draining logic to exit naturally
+		wg.Wait()
+		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
+	})
+
+	t.Run("should fanout if request uses vectorisation", func(t *testing.T) {
+		mockBatcher := mocks.NewMockbatcher(t)
+
+		reportingQueues := NewReportingQueues()
+		reportingQueues.Make(StreamId)
+		processingQueue := NewProcessingQueue()
+
+		numObjs := 101
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			return &pb.BatchObjectsReply{
+				Took:   float32(1),
+				Errors: nil,
+			}, nil
+		}).Times(10)
+
+		var wg sync.WaitGroup
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+
+		collection := "TestCollection"
+		objs := []*pb.BatchObject{}
+		for i := 0; i < numObjs; i++ {
+			objs = append(objs, &pb.BatchObject{Collection: collection, Uuid: uuid.New().String()})
+		}
+
+		// Send data
+		wg.Add(1)
+		go func() {
+			processingQueue <- &processRequest{
+				objects:                       objs,
+				references:                    nil,
+				streamId:                      StreamId,
+				consistencyLevel:              nil,
+				streamCtx:                     ctx,
+				usesVectorisationByCollection: map[string]bool{collection: true},
+				onComplete:                    func() { wg.Done() },
+				onStart:                       func() {},
+			}
+		}()
+
+		rq, ok := reportingQueues.Get(StreamId)
+		require.True(t, ok, "Expected reporting queue to exist and to contain message")
+
+		// Read first report from worker
+		report := <-rq
+		require.NotNil(t, report.Successes, "Expected successes to be returned")
+		require.Equal(t, 0, len(report.Errors), "Expected no errors to be returned")
+		require.NotNil(t, report.Stats, "Expected stats to be returned")
+		require.Len(t, report.Successes, numObjs, "Expected 101 results to be returned")
+
+		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
+		close(processingQueue) // Allow the draining logic to exit naturally
+		wg.Wait()
+		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
+	})
+
+	t.Run("should fanout if request uses vectorisation returning errors correctly", func(t *testing.T) {
+		mockBatcher := mocks.NewMockbatcher(t)
+
+		reportingQueues := NewReportingQueues()
+		reportingQueues.Make(StreamId)
+		processingQueue := NewProcessingQueue()
+
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			require.Len(t, req.Objects, 10, "Expected each batched request to contain 10 objects")
+			return &pb.BatchObjectsReply{
+				Took: float32(1),
+				Errors: []*pb.BatchObjectsReply_BatchError{
+					{
+						Error: "objs error",
+						Index: 1,
+					},
+				},
+			}, nil
+		}).Times(10)
+
+		var wg sync.WaitGroup
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+
+		collection := "TestCollection"
+		objs := []*pb.BatchObject{}
+		for i := 0; i < 100; i++ {
+			objs = append(objs, &pb.BatchObject{Collection: collection, Uuid: uuid.New().String()})
+		}
+
+		// Send data
+		wg.Add(1)
+		go func() {
+			processingQueue <- &processRequest{
+				objects:                       objs,
+				references:                    nil,
+				streamId:                      StreamId,
+				consistencyLevel:              nil,
+				streamCtx:                     ctx,
+				usesVectorisationByCollection: map[string]bool{collection: true},
+				onComplete:                    func() { wg.Done() },
+				onStart:                       func() {},
+			}
+		}()
+
+		rq, ok := reportingQueues.Get(StreamId)
+		require.True(t, ok, "Expected reporting queue to exist and to contain message")
+
+		// Read first report from worker
+		report := <-rq
+		require.NotNil(t, report.Successes, "Expected successes to be returned")
+		require.Len(t, report.Errors, 10, "Expected 10 errors to be returned")
+		for i := 0; i < len(report.Errors); i++ {
+			require.Equal(t, objs[i*10+1].GetUuid(), report.Errors[i].GetUuid())
+		}
+		require.NotNil(t, report.Stats, "Expected stats to be returned")
+		require.Len(t, report.Successes, 90, "Expected 90 successes to be returned")
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()

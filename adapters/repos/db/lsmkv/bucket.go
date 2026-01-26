@@ -510,15 +510,16 @@ type BucketConsistentView struct {
 	Flushing memtable
 	Disk     []Segment
 	release  func()
+	Bucket   *Bucket
 }
 
-func (cv BucketConsistentView) Release() {
+func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
 }
 
 // GetConsistentView returns a consistent view of the bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
-// call Release() on the returned view when done to avoid blocking compactions.
+// call ReleaseView() on the returned view when done to avoid blocking compactions.
 func (b *Bucket) GetConsistentView() BucketConsistentView {
 	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
@@ -537,6 +538,7 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 		Flushing: b.flushing,
 		Disk:     diskSegments,
 		release:  releaseDiskSegments,
+		Bucket:   b,
 	}
 }
 
@@ -571,7 +573,7 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
 	view := b.GetConsistentView()
-	defer view.release()
+	defer view.ReleaseView()
 
 	return b.getWithConsistentView(key, view)
 }
@@ -673,7 +675,7 @@ func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, s
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	beforeAll := time.Now()
 	view := b.GetConsistentView()
-	defer view.release()
+	defer view.ReleaseView()
 	tookView := time.Since(beforeAll)
 
 	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, tookView, "lsm_get_by_secondary")
@@ -837,7 +839,7 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 // for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	view := b.GetConsistentView()
-	defer view.Release()
+	defer view.ReleaseView()
 
 	return b.setListFromConsistentView(view, key)
 }
@@ -1030,7 +1032,7 @@ func MapListLegacySortingRequired() MapListOption {
 // Replace use [Bucket.Get].
 func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	view := b.GetConsistentView()
-	defer view.Release()
+	defer view.ReleaseView()
 
 	return b.mapListFromConsistentView(ctx, view, key, cfgs...)
 }
@@ -1318,7 +1320,7 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
 	view := b.GetConsistentView()
-	defer view.Release()
+	defer view.ReleaseView()
 
 	return b.countFromCV(ctx, view)
 }
@@ -1836,7 +1838,7 @@ func (b *Bucket) WriteWAL() error {
 
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
 	view := b.GetConsistentView()
-	defer view.Release()
+	defer view.ReleaseView()
 
 	return b.docPointerWithScoreListFromConsistentView(ctx, view, key, propBoost, cfgs...)
 }
@@ -1948,14 +1950,14 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			if r := recover(); r != nil {
 				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
 				debug.PrintStack()
-				view.Release()
+				view.ReleaseView()
 			}
 		}
 	}()
 
 	averagePropLength, err := b.GetAveragePropertyLength()
 	if err != nil {
-		view.Release()
+		view.ReleaseView()
 		return nil, nil, func() {}, err
 	}
 
@@ -1967,7 +1969,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// happens outside of this function. The lock is no longer necessary now that
 	// we support consistent views. We do still need to guarantee that the
 	// memtables, and segments do not disappear until the caller has completed.
-	// This can be done by passing the view.Release() method tot he caller.
+	// This can be done by passing the view.ReleaseView() method to the caller.
 	//
 	// Panics at this level are caught and the view is released in the defer
 	// function. The lock is released after the blockmax search is done, and
@@ -2002,7 +2004,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			var err error
 			activeTombstones, err = view.Active.ReadOnlyTombstones()
 			if err != nil {
-				view.Release()
+				view.ReleaseView()
 				return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
 			}
 			memTombstones.Or(activeTombstones)
@@ -2021,7 +2023,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 
 			tombstones, err := view.Flushing.ReadOnlyTombstones()
 			if err != nil {
-				view.Release()
+				view.ReleaseView()
 				return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
 			}
 			memTombstones.Or(tombstones)
@@ -2052,7 +2054,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	}
 
 	if ctx.Err() != nil {
-		view.Release()
+		view.ReleaseView()
 		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
@@ -2064,7 +2066,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		if j != len(view.Disk)-1 {
 			segTombstones, err := view.Disk[j+1].ReadOnlyTombstones()
 			if err != nil {
-				view.Release()
+				view.ReleaseView()
 				return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", err)
 			}
 			allTombstones.Or(segTombstones)
@@ -2077,7 +2079,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 		}
 	}
-	return output, idfCounts, view.Release, nil
+	return output, idfCounts, view.ReleaseView, nil
 }
 
 func fillTerm(memtable memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {

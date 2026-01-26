@@ -33,7 +33,7 @@ import (
 
 type corruptCommitlogsNoopBucketView struct{}
 
-func (n *corruptCommitlogsNoopBucketView) Release() {}
+func (n *corruptCommitlogsNoopBucketView) ReleaseView() {}
 
 func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	ctx := context.Background()

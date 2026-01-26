@@ -23,7 +23,7 @@ import (
 
 type configTestBucketView struct{}
 
-func (configTestBucketView) Release() {}
+func (configTestBucketView) ReleaseView() {}
 
 func Test_ValidConfig(t *testing.T) {
 	err := validConfig().Validate()
