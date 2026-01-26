@@ -34,7 +34,7 @@ import (
 
 type recallGeoNoopBucketView struct{}
 
-func (n *recallGeoNoopBucketView) Release() {}
+func (n *recallGeoNoopBucketView) ReleaseView() {}
 
 func TestRecallGeo(t *testing.T) {
 	ctx := context.Background()

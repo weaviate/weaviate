@@ -38,7 +38,7 @@ import (
 
 type compressRecallNoopBucketView struct{}
 
-func (n *compressRecallNoopBucketView) Release() {}
+func (n *compressRecallNoopBucketView) ReleaseView() {}
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
