@@ -87,7 +87,7 @@ func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID, mini
 		clusterNodeMappingBackupJourneyTest(t, backend, className, backupID+"_with_node_mapping", coordinator, override, overrideBucket, overrideLocation, weaviateEndpoints[1:]...) // FIXME
 	})
 
-	t.Run("node mapping cluster backup", func(t *testing.T) {
+	t.Run("incremental backups", func(t *testing.T) {
 		clusterIncrementalBackupJourneyTest(t, backend, overrideBucket, overrideLocation, minioURL, weaviateEndpoints...)
 	})
 }

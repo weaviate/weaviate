@@ -57,6 +57,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
 			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
+			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {

@@ -411,7 +411,7 @@ func createBackupAndWait(t *testing.T, backend, overrideBucket, overridePath, ba
 	cfg.Path = overridePath
 
 	resp, err := helper.CreateBackupWithBase(t, cfg, booksClass.Class, backend, backupID, baseBackupId)
-	require.NoError(t, err)
+	require.NoError(t, err, err.Error())
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)
 	assert.Equal(t, backupID, resp.Payload.ID)
