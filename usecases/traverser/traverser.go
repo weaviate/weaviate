@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -48,6 +49,7 @@ type VectorSearcher interface {
 		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties, tenant string) (search.Results, error)
+	FilterSampling(ctx context.Context, params filtersampling.Params) (*filtersampling.Result, error)
 }
 
 type explorer interface {

@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -498,6 +499,13 @@ func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params
 		return nil, err
 	}
 	return l.shard.Aggregate(ctx, params, modules)
+}
+
+func (l *LazyLoadShard) FilterSampling(ctx context.Context, params filtersampling.Params) (*filtersampling.Result, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.FilterSampling(ctx, params)
 }
 
 func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDocument) error {

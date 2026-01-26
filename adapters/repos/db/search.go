@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -59,6 +60,25 @@ func (db *DB) Aggregate(ctx context.Context,
 	}
 
 	return idx.aggregate(ctx, nil, params, modules, params.Tenant)
+}
+
+func (db *DB) FilterSampling(ctx context.Context, params filtersampling.Params) (*filtersampling.Result, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action": "filter_sampling_completed",
+			"took":   took,
+			"params": params,
+		}).Debugf("filter sampling completed in %s", took)
+	}()
+
+	idx := db.GetIndex(params.ClassName)
+	if idx == nil {
+		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+	}
+
+	return idx.filterSampling(ctx, params)
 }
 
 func (db *DB) GetQueryMaximumResults() int {

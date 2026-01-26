@@ -221,6 +221,19 @@ func deleteReferencePermissions(from, to, tenant string) []*models.Permission {
 	}
 }
 
+func filterSamplingGRPC(t *testing.T, ctx context.Context, collection, property, key string, tenant string) (*protocol.FilterSamplingReply, error) {
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", key))
+	req := &protocol.FilterSamplingRequest{
+		Collection:  collection,
+		Property:    property,
+		SampleCount: 10,
+	}
+	if tenant != "" {
+		req.Tenant = &tenant
+	}
+	return helper.ClientGRPC(t).FilterSampling(ctx, req)
+}
+
 type logScanner struct {
 	container testcontainers.Container
 	pos       int

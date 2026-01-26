@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -56,6 +57,8 @@ type indicesPayloads struct {
 	ReferenceList              referenceListPayload
 	AggregationParams          aggregationParamsPayload
 	AggregationResult          aggregationResultPayload
+	FilterSamplingParams       filterSamplingParamsPayload
+	FilterSamplingResult       filterSamplingResultPayload
 	FindUUIDsParams            findUUIDsParamsPayload
 	FindUUIDsResults           findUUIDsResultsPayload
 	BatchDeleteParams          batchDeleteParamsPayload
@@ -877,6 +880,56 @@ func (p aggregationResultPayload) Marshal(in *aggregation.Result) ([]byte, error
 
 func (p aggregationResultPayload) Unmarshal(in []byte) (*aggregation.Result, error) {
 	var out aggregation.Result
+	err := json.Unmarshal(in, &out)
+	return &out, err
+}
+
+type filterSamplingParamsPayload struct{}
+
+func (p filterSamplingParamsPayload) Marshal(params filtersampling.Params) ([]byte, error) {
+	return json.Marshal(params)
+}
+
+func (p filterSamplingParamsPayload) Unmarshal(in []byte) (filtersampling.Params, error) {
+	var out filtersampling.Params
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p filterSamplingParamsPayload) MIME() string {
+	return "application/vnd.weaviate.filtersampling.params+json"
+}
+
+func (p filterSamplingParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p filterSamplingParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type filterSamplingResultPayload struct{}
+
+func (p filterSamplingResultPayload) MIME() string {
+	return "application/vnd.weaviate.filtersampling.result+json"
+}
+
+func (p filterSamplingResultPayload) CheckContentTypeHeader(res *http.Response) (string, bool) {
+	ct := res.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p filterSamplingResultPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p filterSamplingResultPayload) Marshal(in *filtersampling.Result) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p filterSamplingResultPayload) Unmarshal(in []byte) (*filtersampling.Result, error) {
+	var out filtersampling.Result
 	err := json.Unmarshal(in, &out)
 	return &out, err
 }

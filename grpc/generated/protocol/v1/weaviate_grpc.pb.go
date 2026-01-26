@@ -23,6 +23,7 @@ const (
 	Weaviate_TenantsGet_FullMethodName      = "/weaviate.v1.Weaviate/TenantsGet"
 	Weaviate_Aggregate_FullMethodName       = "/weaviate.v1.Weaviate/Aggregate"
 	Weaviate_BatchStream_FullMethodName     = "/weaviate.v1.Weaviate/BatchStream"
+	Weaviate_FilterSampling_FullMethodName  = "/weaviate.v1.Weaviate/FilterSampling"
 )
 
 // WeaviateClient is the client API for Weaviate service.
@@ -36,6 +37,7 @@ type WeaviateClient interface {
 	TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error)
 	Aggregate(ctx context.Context, in *AggregateRequest, opts ...grpc.CallOption) (*AggregateReply, error)
 	BatchStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply], error)
+	FilterSampling(ctx context.Context, in *FilterSamplingRequest, opts ...grpc.CallOption) (*FilterSamplingReply, error)
 }
 
 type weaviateClient struct {
@@ -119,6 +121,16 @@ func (c *weaviateClient) BatchStream(ctx context.Context, opts ...grpc.CallOptio
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Weaviate_BatchStreamClient = grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply]
 
+func (c *weaviateClient) FilterSampling(ctx context.Context, in *FilterSamplingRequest, opts ...grpc.CallOption) (*FilterSamplingReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FilterSamplingReply)
+	err := c.cc.Invoke(ctx, Weaviate_FilterSampling_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
 // for forward compatibility.
@@ -130,6 +142,7 @@ type WeaviateServer interface {
 	TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error)
 	Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error)
 	BatchStream(grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]) error
+	FilterSampling(context.Context, *FilterSamplingRequest) (*FilterSamplingReply, error)
 	mustEmbedUnimplementedWeaviateServer()
 }
 
@@ -160,6 +173,9 @@ func (UnimplementedWeaviateServer) Aggregate(context.Context, *AggregateRequest)
 }
 func (UnimplementedWeaviateServer) BatchStream(grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]) error {
 	return status.Error(codes.Unimplemented, "method BatchStream not implemented")
+}
+func (UnimplementedWeaviateServer) FilterSampling(context.Context, *FilterSamplingRequest) (*FilterSamplingReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method FilterSampling not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 func (UnimplementedWeaviateServer) testEmbeddedByValue()                  {}
@@ -297,6 +313,24 @@ func _Weaviate_BatchStream_Handler(srv interface{}, stream grpc.ServerStream) er
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Weaviate_BatchStreamServer = grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]
 
+func _Weaviate_FilterSampling_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FilterSamplingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeaviateServer).FilterSampling(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Weaviate_FilterSampling_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeaviateServer).FilterSampling(ctx, req.(*FilterSamplingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -327,6 +361,10 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Aggregate",
 			Handler:    _Weaviate_Aggregate_Handler,
+		},
+		{
+			MethodName: "FilterSampling",
+			Handler:    _Weaviate_FilterSampling_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

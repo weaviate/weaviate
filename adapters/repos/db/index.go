@@ -52,6 +52,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filtersampling"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -2554,6 +2555,58 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	}
 
 	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
+}
+
+func (i *Index) filterSampling(ctx context.Context, params filtersampling.Params) (*filtersampling.Result, error) {
+	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelAll, params.Tenant)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]*filtersampling.Result, len(readPlan.Shards()))
+	for j, shardName := range readPlan.Shards() {
+		var err error
+		var res *filtersampling.Result
+
+		var shard ShardLike
+		var release func()
+		// anonymous func is here to ensure release is executed after each loop iteration
+		func() {
+			shard, release, err = i.getShardForDirectLocalOperation(ctx, params.Tenant, shardName, localShardOperationRead)
+			defer release()
+			if err == nil {
+				if shard != nil {
+					res, err = shard.FilterSampling(ctx, params)
+				} else {
+					res, err = i.remote.FilterSampling(ctx, shardName, params)
+				}
+			}
+		}()
+
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+
+		results[j] = res
+	}
+
+	return filtersampling.NewShardCombiner().Do(results, params.SampleCount), nil
+}
+
+func (i *Index) IncomingFilterSampling(ctx context.Context, shardName string,
+	params filtersampling.Params,
+) (*filtersampling.Result, error) {
+	shard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
+	return shard.FilterSampling(ctx, params)
 }
 
 func (i *Index) drop() error {
