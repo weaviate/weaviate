@@ -165,7 +165,6 @@ type SegmentBlockMax struct {
 	sectionReader *io.SectionReader
 }
 
-
 func generateFilters(tombstones *sroar.Bitmap, filterDocIds helpers.AllowList) (*sroar.Bitmap, *sroar.Bitmap) {
 	var filterSroar *sroar.Bitmap
 	if filterDocIds != nil {
@@ -188,7 +187,6 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	if err != nil {
 		return nil
 	}
-
 
 	tombstones, filterSroar := generateFilters(tombstones, filterDocIds)
 
@@ -245,7 +243,6 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 	for i, codec := range codecs {
 		decoders[i] = varenc.GetVarEncEncoder64(codec)
 	}
-
 
 	tombstones, filterSroar := generateFilters(tombstones, filterDocIds)
 
