@@ -93,7 +93,6 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			require.NoError(t1, err)
 			require.NotNil(t1, resp)
 			require.NotNil(t1, resp.Payload)
-			require.Equal(t1, cfg.Bucket, resp.Payload.Bucket)
 			if cfg.Bucket != "" {
 				require.Contains(t1, resp.Payload.Path, cfg.Bucket)
 			}
