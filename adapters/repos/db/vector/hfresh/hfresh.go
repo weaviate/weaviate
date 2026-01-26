@@ -14,6 +14,11 @@ package hfresh
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -89,6 +94,8 @@ type HFresh struct {
 	initialPostingLock sync.Mutex
 
 	vectorForId common.VectorForID[float32]
+
+	rootPath string
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -139,6 +146,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rngFactor:        DefaultRNGFactor,
 		searchProbe:      uc.SearchProbe,
 		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
+		rootPath:         cfg.RootPath,
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -266,7 +274,51 @@ func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	return nil, nil
+	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	queueFiles, err := h.ListQueues(ctx, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// combine both slices
+	var allFiles []string
+	allFiles = append(allFiles, hnswFiles...)
+	allFiles = append(allFiles, queueFiles...)
+
+	return allFiles, nil
+}
+
+func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, error) {
+	files := make([]string, 0)
+	err := filepath.WalkDir(h.rootPath, func(pth string, d fs.DirEntry, err error) error {
+		if !d.IsDir() || !strings.HasSuffix(d.Name(), ".queue.d") {
+			return nil
+		}
+
+		st, statErr := os.Stat(pth)
+		if statErr != nil {
+			return statErr
+		}
+
+		// only list non-empty files
+		if st.Size() > 0 {
+			rel, relErr := filepath.Rel(basePath, pth)
+			if relErr != nil {
+				return relErr
+			}
+			files = append(files, rel)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files for hfresh queues: %w", err)
+	}
+	return files, nil
 }
 
 func (h *HFresh) PostStartup(ctx context.Context) {
