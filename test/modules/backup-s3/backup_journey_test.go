@@ -40,16 +40,16 @@ const (
 func Test_BackupJourney(t *testing.T) {
 	ctx := context.Background()
 
-	runBackupJourney(t, ctx, false, "backups", "", "")
+	runBackupJourney(t, ctx, false, "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
-		runBackupJourney(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+		runBackupJourney(t, ctx, true, "testbucketoverride", "testBucketPathOverride")
 	})
 }
 
-func runBackupJourney(t *testing.T, ctx context.Context, override bool, customBucket, overrideBucket, overridePath string) {
+func runBackupJourney(t *testing.T, ctx context.Context, override bool, overrideBucket, overridePath string) {
 	t.Run("multiple node", func(t *testing.T) {
 		ctx := context.Background()
-		bucket := customBucket
+		bucket := overrideBucket
 		if !override {
 			bucket = journey.S3BucketName
 		}
@@ -64,7 +64,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, customBu
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
 			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
-			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1").
+			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {

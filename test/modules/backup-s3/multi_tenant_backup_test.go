@@ -29,14 +29,17 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
-	multiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
+	multiTenantBackupJourneyStart(t, ctx, false, "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
-		multiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+		multiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testBucketPathOverride")
 	})
 }
 
-func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	s3BackupJourneyBucketName := containerName
+func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, overrideBucket, overridePath string) {
+	bucket := overrideBucket
+	if !override {
+		bucket = journey.S3BucketName
+	}
 
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
@@ -50,14 +53,14 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
-		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
+		t.Setenv(envS3Bucket, bucket)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
+			WithBackendS3(bucket, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
 			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
-			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1").
+			WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
