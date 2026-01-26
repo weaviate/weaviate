@@ -592,9 +592,9 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("parse BACKUP_CHUNK_TARGET_SIZE: %w", err)
 		}
 
-		config.Backup.MaxSizePerChunk = parsed
+		config.Backup.ChunkTargetSize = parsed
 	} else {
-		config.Backup.MaxSizePerChunk = DefaultBackupMaxSizePerChunk
+		config.Backup.ChunkTargetSize = DefaultBackupChunkTargetSize
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
