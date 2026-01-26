@@ -101,6 +101,8 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 
 	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
 	v = NewVector(id, version, compressed)
+	vectorID := v.ID()
+	vectorVersion := v.Version()
 
 	targets, _, err := h.RNGSelect(vector, 0)
 	if err != nil {
@@ -116,6 +118,10 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	}
 
 	for id := range targets.Iter() {
+		uncompressedCentroid, _ := h.getUncompressedCentroid(id)
+		rq := h.residualVector(vector, uncompressedCentroid)
+		compressedRQ := h.quantizer.CompressedBytes(h.quantizer.Encode(rq))
+		v = NewVector(vectorID, vectorVersion, compressedRQ)
 		_, err = h.append(ctx, v, id, false)
 		if err != nil {
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, id)
@@ -159,6 +165,10 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+		}
+		err = h.setUncompressedCentroid(postingID, v)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to set uncompressed centroid for posting %d", postingID)
 		}
 		// return the new posting ID
 		targets = NewResultSet(1)

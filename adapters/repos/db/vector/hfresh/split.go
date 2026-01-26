@@ -81,7 +81,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}
 
 	// split the vectors into two clusters
-	result, err := h.splitPosting(filtered)
+	result, err := h.splitPosting(filtered, postingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
 	}
@@ -117,6 +117,10 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		})
 		if err != nil {
 			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
+		}
+		err = h.setUncompressedCentroid(newPostingID, result[i].Uncompressed)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set uncompressed centroid for posting %d after split operation", newPostingID)
 		}
 	}
 
@@ -155,10 +159,11 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 }
 
 // splitPosting takes a posting and returns two groups.
-func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
+func (h *HFresh) splitPosting(posting Posting, postingID uint64) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(h.dims), 0)
 
-	data := posting.Uncompress(h.quantizer)
+	uncompressedCentroid, _ := h.getUncompressedCentroid(postingID)
+	data := posting.Uncompress(h.quantizer, uncompressedCentroid)
 
 	idsAssignments, err := enc.FitBalanced(data)
 	if err != nil {
@@ -174,8 +179,14 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 		results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(enc.Centroid(byte(i))))
 	}
 
+	oldCentroid, _ := h.getUncompressedCentroid(postingID)
 	for i, v := range idsAssignments {
-		results[v].Posting = results[v].Posting.AddVector(posting[i])
+		compressedRQ := h.quantizer.FromCompressedBytes(posting[i].Data())
+		fqResidual := h.quantizer.Decode(compressedRQ)
+		fq := undoResidualVector(fqResidual, oldCentroid)
+		normalizedCentroid := h.normalizeVec(results[v].Uncompressed)
+		rq := h.residualVector(fq, normalizedCentroid)
+		results[v].Posting = results[v].Posting.AddVector(NewVector(posting[i].ID(), posting[i].Version(), h.quantizer.CompressedBytes(h.quantizer.Encode(rq))))
 	}
 
 	return results, nil
@@ -205,13 +216,18 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 			}
 			if !exists && !v.Version().Deleted() && version == v.Version() {
 				// compute distance from v to its new centroid
-				newDist, err := h.Centroids.Get(newPostingIDs[i]).Distance(h.distancer, v)
+				uncompressedCentroid, _ := h.getUncompressedCentroid(newPostingIDs[i])
+				compressedRQ := h.quantizer.FromCompressedBytes(v.Data())
+				rq := h.quantizer.Decode(compressedRQ)
+				vector := undoResidualVector(rq, uncompressedCentroid)
+				v2 := NewVector(vid, version, h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+				newDist, err := h.Centroids.Get(newPostingIDs[i]).Distance(h.distancer, v2)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[i])
 				}
 
 				// compute distance from v to the old centroid
-				oldDist, err := oldCentroid.Distance(h.distancer, v)
+				oldDist, err := oldCentroid.Distance(h.distancer, v2) // todo-rob: update this distance
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 				}
@@ -275,22 +291,27 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 				continue
 			}
 
-			distNeighbor, err := h.Centroids.Get(neighborID).Distance(h.distancer, v)
+			uncompressedCentroid, _ := h.getUncompressedCentroid(neighborID)
+			compressedRQ := h.quantizer.FromCompressedBytes(v.Data())
+			rq := h.quantizer.Decode(compressedRQ)
+			vector := undoResidualVector(rq, uncompressedCentroid)
+			v2 := NewVector(vid, version, h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+			distNeighbor, err := h.Centroids.Get(neighborID).Distance(h.distancer, v2)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighborID)
 			}
 
-			distOld, err := oldCentroid.Distance(h.distancer, v)
+			distOld, err := oldCentroid.Distance(h.distancer, v2)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 			}
 
-			distA0, err := h.Centroids.Get(newPostingIDs[0]).Distance(h.distancer, v)
+			distA0, err := h.Centroids.Get(newPostingIDs[0]).Distance(h.distancer, v2)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[0])
 			}
 
-			distA1, err := h.Centroids.Get(newPostingIDs[1]).Distance(h.distancer, v)
+			distA1, err := h.Centroids.Get(newPostingIDs[1]).Distance(h.distancer, v2)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[1])
 			}
