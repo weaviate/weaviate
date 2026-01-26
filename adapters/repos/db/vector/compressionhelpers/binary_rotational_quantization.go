@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 const (
@@ -30,15 +31,15 @@ const (
 type BinaryRotationalQuantizer struct {
 	inputDim    uint32
 	originalDim uint32
-	rotation    *FastRotation
+	rotation    *compression.FastRotation
 	distancer   distancer.Provider
 	rounding    []float32
 	l2          float32
 	cos         float32
 }
 
-func (rq *BinaryRotationalQuantizer) Data() RQData {
-	return RQData{
+func (rq *BinaryRotationalQuantizer) Data() compression.RQData {
+	return compression.RQData{
 		InputDim: rq.originalDim,
 		Bits:     1,
 		Rotation: *rq.rotation,
@@ -84,7 +85,7 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 	return rq
 }
 
-func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, rounding []float32, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {
+func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, rounding []float32, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	if err != nil {
 		return nil, err
@@ -497,14 +498,8 @@ func (brq *BinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quant
 func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {
 }
 
-type BRQData struct {
-	InputDim uint32
-	Rotation FastRotation
-	Rounding []float32
-}
-
 func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddBRQCompression(BRQData{
+	logger.AddBRQCompression(compression.BRQData{
 		InputDim: brq.inputDim,
 		Rotation: *brq.rotation,
 		Rounding: brq.rounding,

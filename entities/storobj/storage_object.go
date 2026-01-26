@@ -762,7 +762,17 @@ const (
 	maxMultiVectorsOffsetsLength  int = math.MaxUint32
 )
 
-func (ko *Object) MarshalBinary() ([]byte, error) {
+// MarshalBinaryOptional creates the binary representation of a kind object, but
+// conditionally includes vectors and properties based on the additional.Properties
+// parameter. This is useful for network transmission where vectors may not be needed.
+//
+// If addProps.Vector is false, the main vector will be serialized with length 0.
+// If addProps.NoProps is true, the properties will be serialized with length 0.
+// For target vectors (Vectors and MultiVectors):
+//   - If addProps.IncludeAllTargetVectors is true, ALL target vectors are included
+//   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors is empty, NO target vectors are included
+//   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors has specific names, only those are included
+func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
 	}
@@ -780,10 +790,14 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 
-	if len(ko.Vector) > maxVectorLength {
-		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), maxVectorLength)
+	// Conditionally include vector based on addProps.Vector
+	var vectorLength uint32
+	if addProps.Vector {
+		if len(ko.Vector) > maxVectorLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), maxVectorLength)
+		}
+		vectorLength = uint32(len(ko.Vector))
 	}
-	vectorLength := uint32(len(ko.Vector))
 
 	className := []byte(ko.Class())
 	if len(className) > maxClassNameLength {
@@ -791,14 +805,19 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	classNameLength := uint32(len(className))
 
-	schema, err := json.Marshal(ko.Properties())
-	if err != nil {
-		return nil, err
+	// Conditionally include properties based on addProps.NoProps
+	var schema []byte
+	var schemaLength uint32
+	if !addProps.NoProps {
+		schema, err = json.Marshal(ko.Properties())
+		if err != nil {
+			return nil, err
+		}
+		if len(schema) > maxSchemaLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
+		}
+		schemaLength = uint32(len(schema))
 	}
-	if len(schema) > maxSchemaLength {
-		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
-	}
-	schemaLength := uint32(len(schema))
 
 	meta, err := json.Marshal(ko.AdditionalProperties())
 	if err != nil {
@@ -818,14 +837,36 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
+	// Determine which target vectors to include:
+	// - IncludeAllTargetVectors: true means include ALL vectors (used by MarshalBinary)
+	// - IncludeAllTargetVectors: false (default) + empty Vectors means include NO vectors
+	// - IncludeAllTargetVectors: false + non-empty Vectors means include only specified vectors
+	includeAllTargetVectors := addProps.IncludeAllTargetVectors
+	includeSpecificTargetVectors := len(addProps.Vectors) > 0
+
+	// Build a set of requested vectors for quick lookup (only if filtering)
+	var requestedVectors map[string]struct{}
+	if includeSpecificTargetVectors {
+		requestedVectors = make(map[string]struct{}, len(addProps.Vectors))
+		for _, v := range addProps.Vectors {
+			requestedVectors[v] = struct{}{}
+		}
+	}
+
 	var targetVectorsOffsets []byte
 	var targetVectorsOffsetsLength uint32
 	var targetVectorsSegmentLength int
 
 	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
-	if len(ko.Vectors) > 0 {
+	if (includeAllTargetVectors || includeSpecificTargetVectors) && len(ko.Vectors) > 0 {
 		offsetsMap := map[string]uint32{}
 		for name, vec := range ko.Vectors {
+			// Skip if we're filtering and this vector wasn't requested
+			if includeSpecificTargetVectors {
+				if _, ok := requestedVectors[name]; !ok {
+					continue
+				}
+			}
 			if len(vec) > maxVectorLength {
 				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
 			}
@@ -842,14 +883,16 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
 		}
 
-		targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
-		if err != nil {
-			return nil, fmt.Errorf("could not marshal target vectors offsets: %w", err)
+		if len(offsetsMap) > 0 {
+			targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
+			if err != nil {
+				return nil, fmt.Errorf("could not marshal target vectors offsets: %w", err)
+			}
+			if len(targetVectorsOffsets) > maxTargetVectorsOffsetsLength {
+				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(targetVectorsOffsets), maxTargetVectorsOffsetsLength)
+			}
+			targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 		}
-		if len(targetVectorsOffsets) > maxTargetVectorsOffsetsLength {
-			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(targetVectorsOffsets), maxTargetVectorsOffsetsLength)
-		}
-		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
 
 	var multiVectorsOffsets []byte
@@ -857,9 +900,15 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	var multiVectorsSegmentLength int
 
 	multiVectorsOffsetOrder := make([]string, 0, len(ko.MultiVectors))
-	if len(ko.MultiVectors) > 0 {
+	if (includeAllTargetVectors || includeSpecificTargetVectors) && len(ko.MultiVectors) > 0 {
 		offsetsMap := map[string]uint32{}
 		for name, vecs := range ko.MultiVectors {
+			// Skip if we're filtering and this vector wasn't requested
+			if includeSpecificTargetVectors {
+				if _, ok := requestedVectors[name]; !ok {
+					continue
+				}
+			}
 			offsetsMap[name] = uint32(multiVectorsSegmentLength)
 			// 4 bytes for number of vectors
 			multiVectorsSegmentLength += 4
@@ -879,14 +928,16 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 			multiVectorsOffsetOrder = append(multiVectorsOffsetOrder, name)
 		}
 
-		multiVectorsOffsets, err = msgpack.Marshal(offsetsMap)
-		if err != nil {
-			return nil, fmt.Errorf("could not marshal multi vectors offsets: %w", err)
+		if len(offsetsMap) > 0 {
+			multiVectorsOffsets, err = msgpack.Marshal(offsetsMap)
+			if err != nil {
+				return nil, fmt.Errorf("could not marshal multi vectors offsets: %w", err)
+			}
+			if len(multiVectorsOffsets) > maxMultiVectorsOffsetsLength {
+				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multiVectorsOffsets", len(multiVectorsOffsets), maxMultiVectorsOffsetsLength)
+			}
+			multiVectorsOffsetsLength = uint32(len(multiVectorsOffsets))
 		}
-		if len(multiVectorsOffsets) > maxMultiVectorsOffsetsLength {
-			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multiVectorsOffsets", len(multiVectorsOffsets), maxMultiVectorsOffsetsLength)
-		}
-		multiVectorsOffsetsLength = uint32(len(multiVectorsOffsets))
 	}
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
@@ -912,8 +963,10 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	rw.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
 	rw.WriteUint16(uint16(vectorLength))
 
-	for j := uint32(0); j < vectorLength; j++ {
-		rw.WriteUint32(math.Float32bits(ko.Vector[j]))
+	if addProps.Vector {
+		for j := uint32(0); j < vectorLength; j++ {
+			rw.WriteUint32(math.Float32bits(ko.Vector[j]))
+		}
 	}
 
 	rw.WriteUint16(uint16(classNameLength))
@@ -923,9 +976,11 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 
 	rw.WriteUint32(schemaLength)
-	err = rw.CopyBytesToBuffer(schema)
-	if err != nil {
-		return byteBuffer, errors.Wrap(err, "Could not copy schema")
+	if !addProps.NoProps && schemaLength > 0 {
+		err = rw.CopyBytesToBuffer(schema)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy schema")
+		}
 	}
 
 	rw.WriteUint32(metaLength)
@@ -981,6 +1036,15 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 
 	return byteBuffer, nil
+}
+
+func (ko *Object) MarshalBinary() ([]byte, error) {
+	// Delegate to MarshalBinaryOptional with "include everything" config:
+	// Vector: true, NoProps: false (default), IncludeAllTargetVectors: true
+	return ko.MarshalBinaryOptional(additional.Properties{
+		Vector:                  true,
+		IncludeAllTargetVectors: true,
+	})
 }
 
 // UnmarshalPropertiesFromObject accepts marshaled object as data and populates resultProperties map with the properties specified by propertyPaths.
@@ -1167,13 +1231,13 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 
 	vectors, err := unmarshalTargetVectors(&rw)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "unmarshal target vectors")
 	}
 	ko.Vectors = vectors
 
 	multiVectors, err := unmarshalMultiVectors(&rw, nil)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "unmarshal multi vectors")
 	}
 	ko.MultiVectors = multiVectors
 
@@ -1219,6 +1283,51 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 		}
 	}
 	return nil, nil
+}
+
+// unmarshalSingleTargetVector unmarshals only the requested target vector, reusing the
+// provided buffer if it has sufficient capacity. This avoids allocating memory for all
+// target vectors when only one is needed (e.g., during HNSW rescoring).
+func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, buffer []float32) ([]float32, error) {
+	if rw.Position >= uint64(len(rw.Buffer)) {
+		return nil, nil
+	}
+
+	targetVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	targetVectorsSegmentLength := rw.ReadUint32()
+	pos := rw.Position
+
+	if len(targetVectorsOffsets) == 0 {
+		return nil, nil
+	}
+
+	var tvOffsets map[string]uint32
+	if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
+		return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
+	}
+
+	offset, ok := tvOffsets[targetVector]
+	if !ok {
+		rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+		return nil, fmt.Errorf("target vector %q not found", targetVector)
+	}
+
+	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+	vecLen := rw.ReadUint16()
+
+	var out []float32
+	if cap(buffer) >= int(vecLen) {
+		out = buffer[:vecLen]
+	} else {
+		out = make([]float32, vecLen)
+	}
+
+	for j := uint16(0); j < vecLen; j++ {
+		out[j] = math.Float32frombits(rw.ReadUint32())
+	}
+
+	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+	return out, nil
 }
 
 // unmarshalMultiVectors unmarshals the multi vectors from the buffer. If onlyUnmarshalNames is set and non-empty,
@@ -1302,15 +1411,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		vectorWeightsLength := uint64(rw.ReadUint32())
 		rw.MoveBufferPositionForward(vectorWeightsLength)
 
-		targetVectors, err := unmarshalTargetVectors(&rw)
-		if err != nil {
-			return nil, errors.Errorf("unable to unmarshal vector for target vector: %s", targetVector)
-		}
-		vector, ok := targetVectors[targetVector]
-		if !ok {
-			return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
-		}
-		return vector, nil
+		return unmarshalSingleTargetVector(&rw, targetVector, buffer)
 	}
 
 	// since we know the version and know that the blob is not len(0), we can
@@ -1418,15 +1519,17 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
 	var returnProps map[string]interface{}
-	if properties == nil || propLength == 0 {
-		if err := json.Unmarshal(propsB, &returnProps); err != nil {
-			return err
-		}
-	} else if len(propsB) >= int(propLength) {
-		// the properties are not read in all cases, skip if not needed
-		returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
-		if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
-			return err
+	if len(propsB) > 0 {
+		if properties == nil || propLength == 0 {
+			if err := json.Unmarshal(propsB, &returnProps); err != nil {
+				return errors.Wrapf(err, "unmarshal property bytes: size %d", len(propsB))
+			}
+		} else if len(propsB) >= int(propLength) {
+			// the properties are not read in all cases, skip if not needed
+			returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
+			if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
+				return errors.Wrapf(err, "unmarshal property bytes: size %d and property length %d", len(propsB), int(propLength))
+			}
 		}
 	}
 

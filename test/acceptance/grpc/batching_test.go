@@ -194,7 +194,7 @@ func TestGRPC_Batching(t *testing.T) {
 		require.Equal(t, 1, len(obj.Properties.(map[string]any)["hasParagraphs"].([]any)), "Article should have 1 paragraph")
 	})
 
-	t.Run("send 50000 objects as fast as possible", func(t *testing.T) {
+	t.Run("send objects and references as fast as possible", func(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
@@ -223,16 +223,30 @@ func TestGRPC_Batching(t *testing.T) {
 			}
 		}()
 
-		// Send 50000 articles
-		objects := make([]*pb.BatchObject, 0, 1000)
-		for i := 0; i < 50000; i++ {
-			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
-			if len(objects) == 1000 {
-				err := send(stream, objects, nil)
-				require.NoError(t, err, "sending Objects over the stream should not return an error")
-				objects = objects[:0] // reset slice but keep capacity
-				t.Logf("Sent %d objects", i+1)
+		// Send 5000 articles with 10 paragraphs per article
+		objects := make([]*pb.BatchObject, 0, 1100)
+		references := make([]*pb.BatchReference, 0, 1000)
+		numArticles := 5000
+		numParasPerArticle := 10
+		for i := 0; i < numArticles; i++ {
+			aUuid := uuid.NewString()
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: aUuid})
+			for j := 0; j < numParasPerArticle; j++ {
+				pUuid := uuid.NewString()
+				objects = append(objects, &pb.BatchObject{Collection: clsP.Class, Uuid: pUuid})
+				references = append(references, &pb.BatchReference{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: aUuid, ToUuid: pUuid})
 			}
+			if (i+1)%100 == 0 {
+				err := send(stream, objects, references)
+				require.NoError(t, err, "sending data over the stream should not return an error")
+				objects = objects[:0] // reset slice but keep capacity
+				references = references[:0]
+				t.Logf("Sent %d articles", i+1)
+			}
+		}
+		if len(objects) > 0 || len(references) > 0 {
+			err := send(stream, objects, references)
+			require.NoError(t, err, "sending data over the stream should not return an error")
 		}
 		t.Log("Done adding objects to stream")
 		stop(stream)
@@ -240,13 +254,37 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Verify that all objects are present after shutdown and restart
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			res, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+			resA, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
 			require.NoError(t, err, "Aggregate should not return an error")
-			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
-		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+			require.Equal(ct, int64(numArticles), *resA.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+
+			resA, err = grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+				Collection:   clsP.Class,
+				ObjectsCount: true,
+			})
+			require.NoError(t, err, "Aggregate should not return an error")
+			require.Equal(ct, int64(numArticles*numParasPerArticle), *resA.GetSingleResult().ObjectsCount, "Number of paragraphs created should match the number sent")
+
+			resS, err := grpcClient.Search(ctx, &pb.SearchRequest{
+				Collection:  clsA.Class,
+				Limit:       uint32(numArticles),
+				Uses_127Api: true,
+				Properties: &pb.PropertiesRequest{
+					RefProperties: []*pb.RefPropertiesRequest{{
+						ReferenceProperty: "hasParagraphs",
+					}},
+				},
+			})
+			require.NoError(t, err, "Search should not return an error")
+			require.Equal(ct, numArticles, len(resS.GetResults()), "Number of articles returned by search should match the number sent")
+			for _, res := range resS.GetResults() {
+				require.Len(t, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
+				require.Len(t, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
+			}
+		}, 240*time.Second, 5*time.Second, "Objects not created within time")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
@@ -316,6 +354,71 @@ func TestGRPC_Batching(t *testing.T) {
 			require.NoError(t, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+	})
+}
+
+func TestGRPC_OutOfMemoryBatching(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("GOMEMLIMIT", "268435456").
+		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
+
+	clsA := articles.ArticlesClass()
+	clsP := articles.ParagraphsClass()
+
+	setupClasses := func() func() {
+		helper.DeleteClass(t, clsA.Class)
+		helper.DeleteClass(t, clsP.Class)
+		// Create the schema
+		helper.CreateClass(t, clsP)
+		helper.CreateClass(t, clsA)
+		return func() {
+			helper.DeleteClass(t, clsA.Class)
+			helper.DeleteClass(t, clsP.Class)
+		}
+	}
+
+	t.Run("send more than GOMEMLIMIT allows and verify that correct error is sent back", func(t *testing.T) {
+		defer setupClasses()()
+
+		stream := start(ctx, t, grpcClient, "")
+
+		// Send some articles and paragraphs in send message
+		var objects []*pb.BatchObject
+		var uuids []string
+		for i := 0; i < 1000; i++ {
+			// very large vectors to quickly exceed GOMEMLIMIT
+			uuid := uuid.NewString()
+			uuids = append(uuids, uuid)
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(20480)}}})
+		}
+		err := send(stream, objects, nil)
+		require.NoError(t, err, "sending Objects over the stream should not return an error")
+
+		// no Acks message when an OOM occurred
+
+		// Read the out of memory message
+		msg, err := stream.Recv()
+		for {
+			if msg.GetBackoff() != nil {
+				msg, err = stream.Recv()
+			} else {
+				break
+			}
+		}
+		require.NoError(t, err, "BatchStream should return a response")
+		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
+		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
 	})
 }
 

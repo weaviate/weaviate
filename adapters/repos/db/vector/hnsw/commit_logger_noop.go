@@ -14,8 +14,8 @@ package hnsw
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not
@@ -26,15 +26,15 @@ func (n *NoopCommitLogger) ID() string {
 	return ""
 }
 
-func (n *NoopCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
+func (n *NoopCommitLogger) AddPQCompression(data compression.PQData) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+func (n *NoopCommitLogger) AddSQCompression(data compression.SQData) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+func (n *NoopCommitLogger) AddRQCompression(data compression.RQData) error {
 	return nil
 }
 
@@ -42,7 +42,7 @@ func (n *NoopCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (n *NoopCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	return nil
 }
 

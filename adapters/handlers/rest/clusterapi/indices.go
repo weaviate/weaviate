@@ -821,7 +821,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		resBytes, err := IndicesPayloads.SearchResults.Marshal(results, dists)
+		resBytes, err := IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -601,7 +601,7 @@ func TestExpBackOff(t *testing.T) {
 }
 
 func newReplicationClient(httpClient *http.Client) *replicationClient {
-	c := NewReplicationClient(httpClient).(*replicationClient)
+	c := NewReplicationClient(httpClient)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
 	c.timeoutUnit = time.Millisecond * 20

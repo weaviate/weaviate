@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_UserConfig(t *testing.T) {
@@ -34,43 +35,32 @@ func Test_UserConfig(t *testing.T) {
 			name:  "nothing specified, all defaults",
 			input: nil,
 			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   DefaultRescoreLimit,
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
-			name: "with maxPostingSize",
+			name: "with maxPostingSizeKB",
 			input: map[string]interface{}{
-				"maxPostingSize": json.Number("100"),
+				"maxPostingSizeKB": json.Number("100"),
 			},
 			expected: UserConfig{
-				MaxPostingSize: 100,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   DefaultRescoreLimit,
-			},
-		},
-		{
-			name: "with minPostingSize",
-			input: map[string]interface{}{
-				"minPostingSize": json.Number("20"),
-			},
-			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: 20,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   DefaultRescoreLimit,
+				MaxPostingSizeKB: 100,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -79,28 +69,15 @@ func Test_UserConfig(t *testing.T) {
 				"replicas": json.Number("8"),
 			},
 			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       8,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   DefaultRescoreLimit,
-			},
-		},
-		{
-			name: "with rngFactor",
-			input: map[string]interface{}{
-				"rngFactor": json.Number("15"),
-			},
-			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      15.0,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   DefaultRescoreLimit,
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         8,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -109,28 +86,34 @@ func Test_UserConfig(t *testing.T) {
 				"searchProbe": json.Number("128"),
 			},
 			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    128,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   DefaultRescoreLimit,
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      128,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
 			name: "with rescoreLimit",
 			input: map[string]interface{}{
-				"rescoreLimit": json.Number("500"),
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("500"),
+				},
 			},
 			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   500,
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 500,
+				},
 			},
 		},
 		{
@@ -139,13 +122,15 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "cosine",
 			},
 			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       "cosine",
-				RescoreLimit:   DefaultRescoreLimit,
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         "cosine",
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
@@ -154,69 +139,79 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "l2-squared",
 			},
 			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       "l2-squared",
-				RescoreLimit:   DefaultRescoreLimit,
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         "l2-squared",
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: DefaultHFreshRescoreLimit,
+				},
 			},
 		},
 		{
 			name: "with all optional fields",
 			input: map[string]interface{}{
-				"maxPostingSize": json.Number("100"),
-				"minPostingSize": json.Number("20"),
-				"replicas":       json.Number("8"),
-				"rngFactor":      json.Number("15"),
-				"searchProbe":    json.Number("128"),
-				"rescoreLimit":   json.Number("500"),
-				"distance":       "l2-squared",
+				"maxPostingSizeKB": json.Number("9"),
+				"replicas":         json.Number("8"),
+				"searchProbe":      json.Number("128"),
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("500"),
+				},
+				"distance": "l2-squared",
 			},
 			expected: UserConfig{
-				MaxPostingSize: 100,
-				MinPostingSize: 20,
-				Replicas:       8,
-				RNGFactor:      15.0,
-				SearchProbe:    128,
-				Distance:       "l2-squared",
-				RescoreLimit:   500,
+				MaxPostingSizeKB: 9,
+				Replicas:         8,
+				SearchProbe:      128,
+				Distance:         "l2-squared",
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 500,
+				},
 			},
 		},
 		{
 			name: "with raw data as floats",
 			input: map[string]interface{}{
-				"maxPostingSize": float64(100),
-				"minPostingSize": float64(20),
-				"replicas":       float64(8),
-				"rngFactor":      float64(15),
-				"searchProbe":    float64(128),
-				"rescoreLimit":   float64(500),
+				"maxPostingSizeKB": float64(100),
+				"replicas":         float64(8),
+				"searchProbe":      float64(128),
+				"rq": map[string]interface{}{
+					"rescoreLimit": float64(500),
+				},
 			},
 			expected: UserConfig{
-				MaxPostingSize: 100,
-				MinPostingSize: 20,
-				Replicas:       8,
-				RNGFactor:      15.0,
-				SearchProbe:    128,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   500,
+				MaxPostingSizeKB: 100,
+				Replicas:         8,
+				SearchProbe:      128,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 500,
+				},
 			},
 		},
 		{
 			name: "with rescoreLimit zero",
 			input: map[string]interface{}{
-				"rescoreLimit": json.Number("0"),
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("0"),
+				},
 			},
 			expected: UserConfig{
-				MaxPostingSize: DefaultMaxPostingSize,
-				MinPostingSize: DefaultMinPostingSize,
-				Replicas:       DefaultReplicas,
-				RNGFactor:      DefaultRNGFactor,
-				SearchProbe:    DefaultSearchProbe,
-				Distance:       common.DefaultDistanceMetric,
-				RescoreLimit:   0,
+				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
+				Replicas:         DefaultReplicas,
+				SearchProbe:      DefaultSearchProbe,
+				Distance:         common.DefaultDistanceMetric,
+				RQ: hnsw.RQConfig{
+					Enabled:      true,
+					Bits:         1,
+					RescoreLimit: 0,
+				},
 			},
 		},
 		{
@@ -254,6 +249,65 @@ func Test_UserConfig(t *testing.T) {
 			input:        map[string]interface{}(nil),
 			expectErr:    true,
 			expectErrMsg: "input must be a non-nil map",
+		},
+		{
+			name: "with too small maxPostingSizeKB",
+			input: map[string]interface{}{
+				"maxPostingSizeKB": json.Number("7"),
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hfresh config: maxPostingSizeKB is '7' but must be at least 8",
+		},
+		{
+			name: "with pq",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "pq is not supported for hfresh index (only rq-1 is supported)",
+		},
+		{
+			name: "with sq",
+			input: map[string]interface{}{
+				"sq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "sq is not supported for hfresh index (only rq-1 is supported)",
+		},
+		{
+			name: "with bq",
+			input: map[string]interface{}{
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "bq is not supported for hfresh index (only rq-1 is supported)",
+		},
+		{
+			name: "with rq-8",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled": true,
+					"bits":    json.Number("8"),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "rq only supports 1 bit, got 8",
+		},
+		{
+			name: "with rq disabled",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"enabled": false,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "hfresh only supports rq",
 		},
 	}
 

@@ -1731,6 +1731,11 @@
           "description": "Timestamp when the backup process completed (successfully or with failure)",
           "type": "string",
           "format": "date-time"
+        },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
         }
       }
     },

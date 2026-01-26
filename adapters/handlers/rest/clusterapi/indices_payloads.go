@@ -319,6 +319,33 @@ func (p objectListPayload) Marshal(in []*storobj.Object, method string) ([]byte,
 	return out, nil
 }
 
+// MarshalWithAdditional is like Marshal but uses MarshalBinaryOptional to conditionally
+// include vectors and properties based on the additional.Properties parameter.
+// This reduces network bandwidth by not transmitting vectors when they are not requested.
+func (p objectListPayload) MarshalWithAdditional(in []*storobj.Object, addProps additional.Properties) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		if ind != nil {
+			bytes, err := ind.MarshalBinaryOptional(addProps)
+			if err != nil {
+				return nil, err
+			}
+
+			length := uint64(len(bytes))
+			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+			out = append(out, reusableLengthBuf...)
+			out = append(out, bytes...)
+		}
+	}
+
+	return out, nil
+}
+
 func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Object, error) {
 	var out []*storobj.Object
 
@@ -337,7 +364,7 @@ func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Objec
 		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
 		_, err = r.Read(payloadBytes)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("payload read: %w", err)
 		}
 
 		var obj *storobj.Object
@@ -352,7 +379,7 @@ func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Objec
 			return nil, fmt.Errorf("unsupported operation type: %s", method)
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("method %v: %w", method, err)
 		}
 
 		out = append(out, obj)
@@ -700,6 +727,39 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
 	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs, MethodGet)
+	if err != nil {
+		return nil, err
+	}
+
+	objsLength := uint64(len(objsBytes))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
+
+	out = append(out, reusableLengthBuf...)
+	out = append(out, objsBytes...)
+
+	distsLength := uint64(len(dists))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
+	out = append(out, reusableLengthBuf...)
+
+	distsBuf := make([]byte, distsLength*4)
+	for i, dist := range dists {
+		distUint32 := math.Float32bits(dist)
+		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
+	}
+	out = append(out, distsBuf...)
+
+	return out, nil
+}
+
+// MarshalWithAdditional is like Marshal but uses MarshalWithAdditional to conditionally
+// include vectors and properties based on the additional.Properties parameter.
+// This reduces network bandwidth by not transmitting vectors when they are not requested.
+func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
+	dists []float32, addProps additional.Properties,
+) ([]byte, error) {
+	reusableLengthBuf := make([]byte, 8)
+	var out []byte
+	objsBytes, err := IndicesPayloads.ObjectList.MarshalWithAdditional(objs, addProps)
 	if err != nil {
 		return nil, err
 	}

@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -103,14 +104,16 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID               common.VectorForID[float32]
-	TempVectorForIDThunk      common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	multiVectorForID          common.MultiVectorForID
-	trackDimensionsOnce       sync.Once
-	trackMuveraOnce           sync.Once
-	trackRQOnce               sync.Once
-	dims                      int32
+	vectorForID                       common.VectorForID[float32]
+	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
+	GetViewThunk                      common.GetViewThunk
+	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
+	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	multiVectorForID                  common.MultiVectorForID
+	trackDimensionsOnce               sync.Once
+	trackMuveraOnce                   sync.Once
+	trackRQOnce                       sync.Once
+	dims                              int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -234,11 +237,11 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddPQCompression(compressionhelpers.PQData) error
-	AddSQCompression(compressionhelpers.SQData) error
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
-	AddRQCompression(compressionhelpers.RQData) error
-	AddBRQCompression(compressionhelpers.BRQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -350,19 +353,21 @@ func New(cfg Config, uc ent.UserConfig,
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:                  rand.Float64,
-		compressActionLock:        &sync.RWMutex{},
-		className:                 cfg.ClassName,
-		VectorForIDThunk:          cfg.VectorForIDThunk,
-		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
-		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
-		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
-		pqConfig:                  uc.PQ,
-		bqConfig:                  uc.BQ,
-		sqConfig:                  uc.SQ,
-		rqConfig:                  uc.RQ,
-		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
+		randFunc:                          rand.Float64,
+		compressActionLock:                &sync.RWMutex{},
+		className:                         cfg.ClassName,
+		VectorForIDThunk:                  cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:             cfg.MultiVectorForIDThunk,
+		TempMultiVectorForIDThunk:         cfg.TempMultiVectorForIDThunk,
+		GetViewThunk:                      cfg.GetViewThunk,
+		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
+		TempMultiVectorForIDWithViewThunk: cfg.TempMultiVectorForIDWithViewThunk,
+		pqConfig:                          uc.PQ,
+		bqConfig:                          uc.BQ,
+		sqConfig:                          uc.SQ,
+		rqConfig:                          uc.RQ,
+		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
@@ -558,12 +563,12 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
-			continue
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
+				continue
+			}
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
@@ -911,6 +916,15 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+// normalizeVecInPlace normalizes the vector in-place without allocating.
+// Use this only when the caller owns the vector and doesn't need to preserve
+// the original (e.g., pooled temporary vectors).
+func (h *hnsw) normalizeVecInPlace(vec []float32) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		distancer.NormalizeInPlace(vec)
+	}
 }
 
 func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {

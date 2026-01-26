@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -67,6 +68,7 @@ type Status struct {
 	CompletedAt time.Time
 	Status      backup.Status
 	Err         string
+	Size        float64
 }
 
 type Handler struct {
@@ -81,6 +83,7 @@ type Handler struct {
 
 func NewHandler(
 	logger logrus.FieldLogger,
+	cfg config.Backup,
 	authorizer authorization.Authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
@@ -94,7 +97,7 @@ func NewHandler(
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
-		backupper: newBackupper(node, logger,
+		backupper: newBackupper(node, logger, cfg,
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
