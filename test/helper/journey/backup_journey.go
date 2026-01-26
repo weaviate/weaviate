@@ -88,22 +88,21 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			cfg.Path = overridePath
 		}
 
-		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
-			resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
-			require.NoError(t1, err)
-			require.NotNil(t1, resp)
-			require.NotNil(t1, resp.Payload)
-			if cfg.Bucket != "" {
-				require.Contains(t1, resp.Payload.Path, cfg.Bucket)
-			}
-			if cfg.Path != "" {
-				require.Contains(t1, resp.Payload.Path, cfg.Path)
-			}
-			require.Equal(t1, backupID, resp.Payload.ID)
-			require.Equal(t1, className, resp.Payload.Classes[0])
-			require.Equal(t1, "", resp.Payload.Error)
-			require.Equal(t1, string(backup.Started), *resp.Payload.Status)
-		}, 240*time.Second, 500*time.Millisecond)
+		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
+		require.NoError(t, err)
+		t.Logf("Create backup %v", resp)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Payload)
+		if cfg.Bucket != "" {
+			require.Contains(t, resp.Payload.Path, cfg.Bucket)
+		}
+		if cfg.Path != "" {
+			require.Contains(t, resp.Payload.Path, cfg.Path)
+		}
+		require.Equal(t, backupID, resp.Payload.ID)
+		require.Equal(t, className, resp.Payload.Classes[0])
+		require.Equal(t, "", resp.Payload.Error)
+		require.Equal(t, string(backup.Started), *resp.Payload.Status)
 
 		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
 			resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
