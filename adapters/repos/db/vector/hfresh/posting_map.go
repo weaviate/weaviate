@@ -29,6 +29,9 @@ type PostingMetadata struct {
 	sync.RWMutex
 	vectors []uint64
 	version []VectorVersion
+	// whether this cached entry has been loaded from disk
+	// or has been refreshed by a background operation.
+	fromDisk bool
 }
 
 // Iter returns an iterator over the vector metadata in the posting.
@@ -115,7 +118,7 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadat
 			return nil, err
 		}
 
-		return &PostingMetadata{vectors: vids, version: vvers}, nil
+		return &PostingMetadata{vectors: vids, version: vvers, fromDisk: true}, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
 		return nil, ErrPostingNotFound
@@ -176,16 +179,16 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	return nil
 }
 
-// AddVectorID adds a vector ID to the posting with the given ID.
+// FastAddVectorID adds a vector ID to the posting with the given ID
+// but only updates the in-memory cache.
+// The store is updated asynchronously by an analyze, split, or merge operation.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
-func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID uint64, version VectorVersion) (uint32, error) {
+func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vectorID uint64, version VectorVersion) (uint32, error) {
 	m, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
-
-	var newPosting bool
 
 	if m != nil {
 		m.Lock()
@@ -197,15 +200,6 @@ func (v *PostingMap) AddVectorID(ctx context.Context, postingID uint64, vectorID
 			vectors: []uint64{vectorID},
 			version: []VectorVersion{version},
 		}
-		newPosting = true
-	}
-
-	err = v.bucket.Set(ctx, postingID, m.vectors, m.version)
-	if err != nil {
-		return 0, err
-	}
-
-	if newPosting {
 		v.cache.Set(postingID, m)
 	}
 

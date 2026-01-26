@@ -98,11 +98,13 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
+	// initialize shared bucket used for storing various metadata
 	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
+	// initialize posting store used for storing actual postings and their vectors
 	postingStore, err := NewPostingStore(store, bucket, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
