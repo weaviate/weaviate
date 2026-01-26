@@ -51,7 +51,7 @@ func TestUpdateDocBMWIndex(t *testing.T) {
 	}
 	createShard := func(t *testing.T) (ShardLike, *VectorIndexQueue) {
 		vectorIndexConfig := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, true)
+		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, true, false)
 		queue, ok := shard.GetVectorIndexQueue("")
 		require.True(t, ok)
 		return shard, queue
