@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -34,14 +35,13 @@ func Test_CoordinatedBackup(t *testing.T) {
 		nodes       = []string{"N1", "N2"}
 		classes     = []string{"Class-A", "Class-B"}
 		now         = time.Now().UTC()
-		req         = newReq(classes, backendName, backupID)
 		creq        = &Request{
 			Method:      OpCreate,
 			ID:          backupID,
 			Backend:     backendName,
-			Classes:     req.Classes,
+			Classes:     classes,
 			Duration:    _BookingPeriod,
-			Compression: req.Compression,
+			Compression: Compression{Level: DefaultCompression, ChunkSize: DefaultChunkSize, CPUPercentage: DefaultCPUPercentage},
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
 		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", ""}
@@ -56,8 +56,14 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny).Once()
 
@@ -73,8 +79,14 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
@@ -146,8 +158,14 @@ func Test_CoordinatedBackup(t *testing.T) {
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
-		fc.client.On("CanCommit", any, nodes[0], twoClassesReqcreq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], oneClassReq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == twoClassesReqcreq.Method && r.ID == twoClassesReqcreq.ID && r.Backend == twoClassesReqcreq.Backend &&
+				len(r.Classes) == len(twoClassesReqcreq.Classes) && r.Duration == twoClassesReqcreq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == oneClassReq.Method && r.ID == oneClassReq.ID && r.Backend == oneClassReq.Backend &&
+				len(r.Classes) == len(oneClassReq.Classes) && r.Duration == oneClassReq.Duration
+		})).Return(cresp, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
@@ -194,8 +212,14 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(&CanCommitResponse{}, nil)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(ErrAny)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 
@@ -219,8 +243,14 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
@@ -273,8 +303,14 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(ErrAny)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
@@ -352,16 +388,12 @@ func TestCoordinatedRestore(t *testing.T) {
 			}
 		}
 		creq = &Request{
-			Method:   OpRestore,
-			ID:       backupID,
-			Backend:  backendName,
-			Classes:  classes,
-			Duration: _BookingPeriod,
-			Compression: Compression{
-				Level:         DefaultCompression,
-				ChunkSize:     DefaultChunkSize,
-				CPUPercentage: DefaultCPUPercentage,
-			},
+			Method:      OpRestore,
+			ID:          backupID,
+			Backend:     backendName,
+			Classes:     classes,
+			Duration:    _BookingPeriod,
+			Compression: Compression{Level: DefaultCompression, ChunkSize: DefaultChunkSize, CPUPercentage: DefaultCPUPercentage},
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", ""}
@@ -375,8 +407,14 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
 
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
@@ -397,8 +435,14 @@ func TestCoordinatedRestore(t *testing.T) {
 		t.Parallel()
 
 		fc := newFakeCoordinator(nodeResolver)
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(&CanCommitResponse{}, nil)
 		fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
@@ -414,8 +458,14 @@ func TestCoordinatedRestore(t *testing.T) {
 		t.Parallel()
 
 		fc := newFakeCoordinator(nodeResolver)
-		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
+		})).Return(cresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(ErrAny).Once()
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
@@ -470,11 +520,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			Classes:     classes,
 			NodeMapping: nodeMapping,
 			Duration:    _BookingPeriod,
-			Compression: Compression{
-				Level:         DefaultCompression,
-				ChunkSize:     DefaultChunkSize,
-				CPUPercentage: DefaultCPUPercentage,
-			},
+			Compression: Compression{Level: DefaultCompression, ChunkSize: DefaultChunkSize, CPUPercentage: DefaultCPUPercentage},
 		}
 		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", ""}
@@ -489,8 +535,16 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
 
-		fc.client.On("CanCommit", any, newNodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, newNodes[1], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, newNodes[0], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration &&
+				len(r.NodeMapping) == len(creq.NodeMapping)
+		})).Return(cresp, nil)
+		fc.client.On("CanCommit", any, newNodes[1], mock.MatchedBy(func(r *Request) bool {
+			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
+				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration &&
+				len(r.NodeMapping) == len(creq.NodeMapping)
+		})).Return(cresp, nil)
 
 		fc.client.On("Commit", any, newNodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, newNodes[1], sReq).Return(nil)

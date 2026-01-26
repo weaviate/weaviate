@@ -165,6 +165,20 @@ type SegmentBlockMax struct {
 	sectionReader *io.SectionReader
 }
 
+
+func generateFilters(tombstones *sroar.Bitmap, filterDocIds helpers.AllowList) (*sroar.Bitmap, *sroar.Bitmap) {
+	var filterSroar *sroar.Bitmap
+	if filterDocIds != nil {
+		// the ok check should always succeed, but we keep it for safety
+		bm, ok := filterDocIds.(*helpers.BitmapAllowList)
+		if !ok {
+			return tombstones, nil
+		}
+		filterSroar = bm.Bm
+	}
+	return tombstones, filterSroar
+}
+
 func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	return NewSegmentBlockMax(s, key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
 }
@@ -175,14 +189,8 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		return nil
 	}
 
-	var filterSroar *sroar.Bitmap
-	if filterDocIds != nil {
-		// the ok check should always succeed, but we keep it for safety
-		bm, ok := filterDocIds.(*helpers.BitmapAllowList)
-		if ok {
-			filterSroar = bm.Bm
-		}
-	}
+
+	tombstones, filterSroar := generateFilters(tombstones, filterDocIds)
 
 	// if filter is empty after checking for tombstones,
 	// we can skip it and return nil for the segment
@@ -238,14 +246,8 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 		decoders[i] = varenc.GetVarEncEncoder64(codec)
 	}
 
-	var filterSroar *sroar.Bitmap
-	if filterDocIds != nil {
-		// the ok check should always succeed, but we keep it for safety
-		bm, ok := filterDocIds.(*helpers.BitmapAllowList)
-		if ok {
-			filterSroar = bm.Bm
-		}
-	}
+
+	tombstones, filterSroar := generateFilters(tombstones, filterDocIds)
 
 	// if filter is empty after checking for tombstones,
 	// we can skip it and return nil for the segment
@@ -288,14 +290,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 }
 
 func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost float32, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
-	var filterSroar *sroar.Bitmap
-	if filterDocIds != nil {
-		// the ok check should always succeed, but we keep it for safety
-		bm, ok := filterDocIds.(*helpers.BitmapAllowList)
-		if ok {
-			filterSroar = bm.Bm
-		}
-	}
+	_, filterSroar := generateFilters(nil, filterDocIds)
 
 	output := &SegmentBlockMax{
 		queryTermIndex:    queryTermIndex,

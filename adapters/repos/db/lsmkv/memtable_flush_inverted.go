@@ -191,7 +191,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
 
-	if math.IsNaN(propLengthAvg) {
+	if propLengthCount == 0 || math.IsNaN(propLengthAvg) || math.IsInf(propLengthAvg, 0) {
 		propLengthAvg = 0
 	}
 

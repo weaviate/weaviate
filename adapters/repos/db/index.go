@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -221,7 +222,8 @@ type Index struct {
 
 	replicationConfigLock sync.RWMutex
 
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter  *loadlimiter.LoadLimiter
+	bucketLoadLimiter *loadlimiter.LoadLimiter
 
 	closed bool
 
@@ -299,6 +301,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
+		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,
 		bitmapBufPool:           bitmapBufPool,
 	}
@@ -706,7 +709,8 @@ type IndexConfig struct {
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
-	ShardLoadLimiter                    ShardLoadLimiter
+	ShardLoadLimiter                    *loadlimiter.LoadLimiter
+	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -1622,7 +1626,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		golangSort.Slice(results, func(i, j int) bool {
 			if results[i].score == results[j].score {
-				return results[i].object.Object.ID > results[j].object.Object.ID
+				return results[i].object.Object.ID < results[j].object.Object.ID
 			}
 
 			return results[i].score > results[j].score
@@ -2066,8 +2070,9 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	mustLoad := !implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
+	// TODO: implicitShardLoading needs to be double checked if needed at all
+	// consalidate mustLoad and implicitShardLoading
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
