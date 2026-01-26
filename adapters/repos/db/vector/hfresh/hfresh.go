@@ -30,10 +30,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
 
-const (
-	reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
-)
-
 var (
 	ErrPostingNotFound = errors.New("posting not found")
 	ErrVectorNotFound  = errors.New("vector not found")

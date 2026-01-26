@@ -14,8 +14,13 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	defer h.metrics.AnalyzeDuration(start)
 
 	h.postingLocks.Lock(postingID)
-	defer h.postingLocks.Unlock(postingID)
-	defer h.taskQueue.AnalyzeDone(postingID)
+	var markedAsDone bool
+	defer func() {
+		if !markedAsDone {
+			h.postingLocks.Unlock(postingID)
+			h.taskQueue.AnalyzeDone(postingID)
+		}
+	}()
 
 	if !h.Centroids.Exists(postingID) {
 		return nil
@@ -51,6 +56,23 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 		err = h.PostingMap.Persist(ctx, postingID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to persist posting %d", postingID)
+		}
+	}
+
+	markedAsDone = true
+	h.postingLocks.Unlock(postingID)
+	h.taskQueue.AnalyzeDone(postingID)
+
+	// check if the posting needs to be split
+	size, err := h.PostingMap.CountVectorIDs(ctx, postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get size of posting %d", postingID)
+	}
+
+	if size > h.maxPostingSize {
+		err = h.taskQueue.EnqueueSplit(postingID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to enqueue split for posting %d", postingID)
 		}
 	}
 

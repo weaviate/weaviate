@@ -872,7 +872,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "rate(vector_index_background_operations_durations_ms_sum{operation=\"analyze\"}[$__interval]) / (rate(vector_index_background_operations_durations_ms_count{operation=\"split\"}[$__interval]))",
+          "expr": "rate(vector_index_background_operations_durations_ms_sum{operation=\"analyze\"}[$__interval]) / (rate(vector_index_background_operations_durations_ms_count{operation=\"analyze\"}[$__interval]))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -2127,5 +2127,5 @@
   "timezone": "browser",
   "title": "HFresh",
   "uid": "b6dc6d4a-c957-421f-a250-293da2d0ae1e",
-  "version": 40
+  "version": 41
 }
