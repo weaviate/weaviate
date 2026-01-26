@@ -27,14 +27,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/mock"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -45,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -95,6 +95,14 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
+
+	// Create schema manager first so the mock can reference it
+	n.schemaManager = &fakeSchemaManager{
+		shardState:   shardState,
+		schema:       schema.Schema{Objects: &models.Schema{}},
+		nodeResolver: nodeResolver,
+	}
+
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -102,6 +110,9 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(className string) *models.Class {
+		return n.schemaManager.ReadOnlyClass(className)
+	}).Maybe()
 	mockSchemaReader.EXPECT().
 		ShardReplicas(mock.Anything, mock.Anything).
 		RunAndReturn(func(class string, shard string) ([]string, error) {
@@ -140,11 +151,6 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	if err != nil {
 		panic(err)
-	}
-	n.schemaManager = &fakeSchemaManager{
-		shardState:   shardState,
-		schema:       schema.Schema{Objects: &models.Schema{}},
-		nodeResolver: nodeResolver,
 	}
 
 	n.repo.SetSchemaGetter(n.schemaManager)
