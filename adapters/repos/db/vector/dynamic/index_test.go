@@ -182,7 +182,7 @@ func GetViewThunk() common.BucketView {
 
 type noopBucketView struct{}
 
-func (n *noopBucketView) Release() {}
+func (n *noopBucketView) ReleaseView() {}
 
 func TestDynamicWithTargetVectors(t *testing.T) {
 	ctx := context.Background()

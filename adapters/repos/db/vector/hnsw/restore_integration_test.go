@@ -43,7 +43,7 @@ func TempVectorForIDWithViewThunk(vectors [][]float32) func(context.Context, uin
 
 type noopBucketView struct{}
 
-func (n *noopBucketView) Release() {}
+func (n *noopBucketView) ReleaseView() {}
 
 func TestRestorBQ_Integration(t *testing.T) {
 	ctx := context.Background()

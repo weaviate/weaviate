@@ -30,7 +30,7 @@ import (
 
 type periodicNoopBucketView struct{}
 
-func (n *periodicNoopBucketView) Release() {}
+func (n *periodicNoopBucketView) ReleaseView() {}
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
 	ctx := context.Background()
