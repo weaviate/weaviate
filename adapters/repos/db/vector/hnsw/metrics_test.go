@@ -18,6 +18,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -66,6 +67,9 @@ func TestAddBatchMemoryAllocationMetric(t *testing.T) {
 				return vectors[id], nil
 			}
 			return nil, fmt.Errorf("vector not found")
+		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
 		},
 		AllocChecker:      rejectingAllocChecker{}, // This will reject all allocations
 		PrometheusMetrics: metrics,
@@ -116,6 +120,7 @@ func TestAddBatchMemoryAllocationMultipleRejections(t *testing.T) {
 			}
 			return nil, fmt.Errorf("vector not found")
 		},
+		GetViewThunk:      GetViewThunk,
 		AllocChecker:      rejectingAllocChecker{},
 		PrometheusMetrics: metrics,
 	}, ent.UserConfig{
@@ -159,6 +164,7 @@ func TestAddBatchMemoryAllocationWithoutMetrics(t *testing.T) {
 			}
 			return nil, fmt.Errorf("vector not found")
 		},
+		GetViewThunk:      GetViewThunk,
 		AllocChecker:      rejectingAllocChecker{},
 		PrometheusMetrics: nil, // No metrics enabled
 	}, ent.UserConfig{
@@ -205,6 +211,7 @@ func TestAddBatchWithSuccessfulAllocation(t *testing.T) {
 			}
 			return nil, fmt.Errorf("vector not found")
 		},
+		GetViewThunk:      GetViewThunk,
 		AllocChecker:      memwatch.NewDummyMonitor(), // This allows all allocations
 		PrometheusMetrics: metrics,
 	}, ent.UserConfig{
