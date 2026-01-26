@@ -74,6 +74,13 @@ func AsyncDisabledFalse() *bool {
 	return &b
 }
 
+// AsyncDisabledTrue returns a pointer to true for use in ReplicationConfig.AsyncDisabled.
+// This explicitly disables async replication (since AsyncDisabled=true means async is disabled).
+func AsyncDisabledTrue() *bool {
+	b := true
+	return &b
+}
+
 func TestAsyncReplicationTestSuite(t *testing.T) {
 	suite.Run(t, new(AsyncReplicationTestSuite))
 }
