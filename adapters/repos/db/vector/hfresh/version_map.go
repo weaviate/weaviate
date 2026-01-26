@@ -73,7 +73,7 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 				return 0, otter.ErrNotFound
 			}
 
-			return 0, otter.ErrNotFound
+			return 0, err
 		}
 
 		return version, nil
