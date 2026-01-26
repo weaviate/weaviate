@@ -46,17 +46,21 @@ func Test_BackupJourney(t *testing.T) {
 	})
 }
 
-func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+func runBackupJourney(t *testing.T, ctx context.Context, override bool, customBucket, overrideBucket, overridePath string) {
 	t.Run("multiple node", func(t *testing.T) {
 		ctx := context.Background()
+		bucket := customBucket
+		if !override {
+			bucket = journey.S3BucketName
+		}
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
-		t.Setenv(envS3Bucket, journey.S3BucketName)
+		t.Setenv(envS3Bucket, bucket)
 
 		compose, err := docker.New().
-			WithBackendS3(journey.S3BucketName, s3BackupJourneyRegion).
+			WithBackendS3(bucket, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
 			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
