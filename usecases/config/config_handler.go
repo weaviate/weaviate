@@ -104,6 +104,7 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
+	Backup                              Backup                   `json:"backup" yaml:"backup"`
 	Name                                string                   `json:"name" yaml:"name"`
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -344,6 +345,12 @@ func (a AutoSchema) Validate() error {
 type QueryDefaults struct {
 	Limit        int64 `json:"limit" yaml:"limit"`
 	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
+}
+
+const DefaultBackupChunkTargetSize = 1024 * 1024 * 1024 // 1GB
+
+type Backup struct {
+	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
