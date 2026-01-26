@@ -43,7 +43,8 @@ import (
 )
 
 const (
-	defaultAsyncReplicationMaxWorkers = 3
+	defaultAsyncReplicationMaxWorkersSingleTenant = 3
+	defaultAsyncReplicationMaxWorkersMultiTenant  = 30
 
 	defaultHashtreeHeightSingleTenant  = 16
 	defaultHashtreeHeightMultiTenant   = 10

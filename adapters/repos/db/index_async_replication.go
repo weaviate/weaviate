@@ -26,7 +26,13 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 		cfg = &models.ReplicationAsyncConfig{}
 	}
 
-	maxWorkers := defaultAsyncReplicationMaxWorkers
+	var maxWorkers int
+
+	if multiTenancyEnabled {
+		maxWorkers = defaultAsyncReplicationMaxWorkersMultiTenant
+	} else {
+		maxWorkers = defaultAsyncReplicationMaxWorkersSingleTenant
+	}
 
 	if cfg.MaxWorkers != nil {
 		maxWorkers = int(*cfg.MaxWorkers)
