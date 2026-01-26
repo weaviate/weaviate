@@ -390,7 +390,7 @@ func checkCount(t *testing.T, nodeEndpoints []string, classname string, numObjec
 		helper.SetupClient(nodeEndpoints[i])
 		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
 		require.NoError(t, err)
-		require.Nil(t, resp.Payload.Errors)
+		require.Nil(t, resp.Payload.Errors, "GraphQL errors: %+v", resp.Payload.Errors)
 		require.NotNil(t, resp.Payload.Data)
 
 		countJson := resp.Payload.Data["Aggregate"].(map[string]interface{})[classname].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"].(json.Number)
