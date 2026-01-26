@@ -215,7 +215,6 @@ func (w *worker) sendObjects(
 						}
 						errored[index] = struct{}{}
 						if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
-							w.logger.WithField("streamId", streamId).Warnf("transient replication error for object %s: %s", objs[index-lastIndex].Uuid, err.Error)
 							retriable = append(retriable, objs[index])
 							continue
 						}
@@ -309,7 +308,6 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 				// retry immediately on first retry
 				<-time.After(time.Duration(math.Pow(2, float64(retries))) * BACKOFF_RETRY_TIME)
 			}
-			w.logger.WithField("streamId", streamId).Warnf("retrying %d transient replication errors for references", len(retriable))
 			successesInner, errorsInner := w.sendReferences(ctx, streamId, retriable, cl, retries+1)
 			successes = append(successes, successesInner...)
 			errors = append(errors, errorsInner...)
