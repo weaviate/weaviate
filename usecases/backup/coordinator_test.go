@@ -443,6 +443,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		// PutMeta is called 3 times: initial (TRANSFERRING), Finalizing, and final (SUCCESS)
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Times(3)
 
@@ -467,6 +469,8 @@ func TestCoordinatedRestore(t *testing.T) {
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(&CanCommitResponse{}, nil)
 		fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
@@ -490,6 +494,8 @@ func TestCoordinatedRestore(t *testing.T) {
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(cresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(ErrAny).Once()
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
@@ -578,6 +584,8 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		fc.client.On("Status", any, newNodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, newNodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		// Mock GetObject for cancellation check (no existing restore in progress)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		// PutMeta is called 3 times: initial (TRANSFERRING), Finalizing, and final (SUCCESS)
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Times(3)
 

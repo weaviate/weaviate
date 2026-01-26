@@ -517,6 +517,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		bytes := marshalCoordinatorMeta(meta)
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
 		fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
 		fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
 
@@ -559,6 +560,7 @@ func TestSchedulerRestoration(t *testing.T) {
 			bytes := marshalCoordinatorMeta(meta)
 			fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
 			fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
 			fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -633,6 +635,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		bytes := marshalCoordinatorMeta(metaWithOldNodes)
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
 		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeA, BackupFile).Return(metaBytes1, nil)
 		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeB, BackupFile).Return(metaBytes2, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
