@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,33 +26,37 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-gcs"
-	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
+// Environment variable names for GCS module configuration
+const (
+	envGCSEndpoint            = "GCS_ENDPOINT"
+	envGCSStorageEmulatorHost = "STORAGE_EMULATOR_HOST"
+	envGCSCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
+	envGCSProjectID           = "GOOGLE_CLOUD_PROJECT"
+	envGCSBucket              = "BACKUP_GCS_BUCKET"
+	envGCSUseAuth             = "BACKUP_GCS_USE_AUTH"
+)
+
 func Test_GcsBackend_Start(t *testing.T) {
+	// Uses the shared GCS emulator from TestMain
 	gCSBackend_Backup(t, "", "")
 
-	gCSBackend_Backup(t, "gcsbetestbucketoverride", "gcsbetestBucketPathOverride")
+	gCSBackend_Backup(t, "gcs-backend-test-override", "gcsBackendTestPathOverride")
 }
 
 func gCSBackend_Backup(t *testing.T, overrideBucket, overridePath string) {
-	ctx := context.Background()
-	compose, err := docker.New().WithGCS().Start(ctx)
-	if err != nil {
-		t.Fatal(errors.Wrapf(err, "cannot start"))
-	}
+	// Use the shared GCS endpoint from TestMain
+	endpoint := GetGCSEndpoint()
 
-	t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
+	t.Setenv(envGCSEndpoint, endpoint)
+	t.Setenv(envGCSStorageEmulatorHost, endpoint)
 
 	t.Run("store backup meta", func(t *testing.T) { moduleLevelStoreBackupMeta(t, overrideBucket, overridePath) })
 	t.Run("copy objects", func(t *testing.T) { moduleLevelCopyObjects(t, overrideBucket, overridePath) })
 	t.Run("copy files", func(t *testing.T) { moduleLevelCopyFiles(t, overrideBucket, overridePath) })
-
-	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
-	}
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath string) {
