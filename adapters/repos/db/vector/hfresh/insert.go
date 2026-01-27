@@ -202,7 +202,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// increment the size of the posting
-	count, err := h.PostingMap.AddVectorID(ctx, centroidID, vector.ID(), vector.Version())
+	count, err := h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID(), vector.Version())
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err
@@ -210,24 +210,27 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 	h.postingLocks.Unlock(centroidID)
 
-	// If the posting is too big, we need to split it.
-	// During an insert, we want to split asynchronously
-	// however during a reassign, we want to split immediately.
-	// Also, reassign operations may cause the posting to grow beyond the max size
-	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := h.maxPostingSize
-	if reassigned {
-		max += reassignThreshold
-	}
-	if count > max {
-		if reassigned {
-			err = h.doSplit(ctx, centroidID, false)
-		} else {
-			err = h.taskQueue.EnqueueSplit(centroidID)
-		}
+	if !reassigned {
+		// enqueue an analyze operation to persist the changes and update the posting map on disk
+		err = h.taskQueue.EnqueueAnalyze(centroidID)
 		if err != nil {
 			return false, err
 		}
+		return true, nil
+	}
+
+	// If the posting is too big, we need to split it.
+	// During an insert, we want to split asynchronously
+	// however during a reassign, we want to split immediately.
+	max := h.maxPostingSize
+	if count > max {
+		err = h.doSplit(ctx, centroidID, false)
+	} else {
+		// enqueue an analyze operation to persist the changes and update the posting map on disk
+		err = h.taskQueue.EnqueueAnalyze(centroidID)
+	}
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
