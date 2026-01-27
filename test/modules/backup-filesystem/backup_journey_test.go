@@ -39,7 +39,7 @@ func Test_BackupJourney(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviate().
-			WithWeaviateEnv("BACKUPS_MAX_SIZE_CHUNK_IN_MB", "1").
+			WithWeaviateEnv("BACKUP_CHUNK_TARGET_SIZE", "10").
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -61,6 +61,7 @@ func Test_BackupJourney(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
+			WithWeaviateEnv("BACKUP_CHUNK_TARGET_SIZE", "10").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)

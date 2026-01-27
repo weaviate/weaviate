@@ -27,7 +27,7 @@ import (
 
 type dynamicEFNoopBucketView struct{}
 
-func (n *dynamicEFNoopBucketView) Release() {}
+func (n *dynamicEFNoopBucketView) ReleaseView() {}
 
 // To prevent a regression on
 // https://github.com/weaviate/weaviate/issues/1878

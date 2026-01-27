@@ -25,7 +25,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-const PER_PROCESS_TIMEOUT = 60 * time.Second
+const (
+	PER_PROCESS_TIMEOUT = 60 * time.Second
+	MAX_RETRIES         = 5
+	BACKOFF_RETRY_TIME  = 100 * time.Millisecond
+)
 
 type batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
@@ -210,7 +214,7 @@ func (w *worker) sendObjects(
 							continue
 						}
 						errored[index] = struct{}{}
-						if w.isTransientReplicationError(err.Error) && retries < 3 {
+						if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
 							w.logger.WithField("streamId", streamId).Infof("transient replication error for object %s: %s", objs[index].Uuid, err.Error)
 							retriable = append(retriable, objs[index])
 							continue
@@ -225,10 +229,10 @@ func (w *worker) sendObjects(
 		}
 	}
 	if len(retriable) > 0 {
-		// exponential backoff with 2 ** n and 100ms base
+		// exponential backoff with 2 ** n
 		if retries > 0 {
 			// retry immediately on first retry
-			<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
+			<-time.After(time.Duration(math.Pow(2, float64(retries))) * BACKOFF_RETRY_TIME)
 		}
 		w.logger.WithField("streamId", streamId).Warnf("retrying %d transient replication errors for objects", len(retriable))
 		successesInner, errorsInner := w.sendObjects(ctx, streamId, retriable, cl, usesVectorisationByCollection, retries+1)
@@ -291,7 +295,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 				continue
 			}
 			errored[err.Index] = struct{}{}
-			if w.isTransientReplicationError(err.Error) && retries < 3 {
+			if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
 				w.logger.WithField("streamId", streamId).Infof("transient replication error for reference %s: %s", toBeacon(refs[err.Index]), err.Error)
 				retriable = append(retriable, refs[err.Index])
 				continue
@@ -302,10 +306,10 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 			})
 		}
 		if len(retriable) > 0 {
-			// exponential backoff with 2 ** n and 100ms base
+			// exponential backoff with 2 ** n
 			if retries > 0 {
 				// retry immediately on first retry
-				<-time.After(time.Duration(math.Pow(2, float64(retries))) * 100 * time.Millisecond)
+				<-time.After(time.Duration(math.Pow(2, float64(retries))) * BACKOFF_RETRY_TIME)
 			}
 			w.logger.WithField("streamId", streamId).Warnf("retrying %d transient replication errors for references", len(retriable))
 			successesInner, errorsInner := w.sendReferences(ctx, streamId, retriable, cl, retries+1)

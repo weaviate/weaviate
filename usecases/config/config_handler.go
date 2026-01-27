@@ -71,6 +71,12 @@ const (
 	DefaultMemUseReadonlyPercentage = uint64(0)
 )
 
+const (
+	DefaultObjectsTTLDeleteSchedule    = "" // disabled
+	DefaultObjectsTTLBatchSize         = 10_000
+	DefaultObjectsTTLConcurrencyFactor = 1
+)
+
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
@@ -236,9 +242,10 @@ type Config struct {
 
 	// Time expired objects should be deleted at by background routine
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
-	ObjectsTTLDeleteSchedule string `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLDeleteSchedule    *runtime.DynamicValue[string]  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLBatchSize         *runtime.DynamicValue[int]     `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLConcurrencyFactor *runtime.DynamicValue[float64] `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
-	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 }
@@ -360,10 +367,10 @@ type QueryDefaults struct {
 	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
-const DefaultBackupMaxSizePerChunkMB = 1024 // 1GB
+const DefaultBackupChunkTargetSize = 1024 * 1024 * 1024 // 1GB
 
 type Backup struct {
-	MaxSizePerChunkInMB int `json:"backup_max_size_chunk" yaml:"backup_max_size_chunk"`
+	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

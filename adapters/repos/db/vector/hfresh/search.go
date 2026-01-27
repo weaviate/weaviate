@@ -38,7 +38,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// to enlarge the search space.
 	candidateCentroidNum := max(k, int(h.searchProbe))
 
-	centroids, err := h.Centroids.Search(vector, candidateCentroidNum)
+	nAllowList := allowList
+	if allowList != nil {
+		nAllowList = h.wrapAllowList(ctx, allowList)
+		defer nAllowList.Close()
+	}
+	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -57,7 +62,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
-		count, err := h.PostingMetadata.CountVectorIDs(ctx, centroids.data[i].ID)
+		count, err := h.PostingMap.CountVectorIDs(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -77,7 +82,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
 
-	totalVectors := 0
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -85,7 +89,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		// keep track of the posting size
 		postingSize := len(p)
-		totalVectors += postingSize
 
 		for _, v := range p {
 			id := v.ID()
