@@ -378,7 +378,12 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	})
 	mockSchema.EXPECT().NodeName().Return(nodeName)
 
-	repo := createTestDb(t, mockSchema, nil, nil, nodeName)
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{},
+	}
+	shardingState.SetLocalName(nodeName)
+
+	repo := createTestDb(t, mockSchema, shardingState, nil, nodeName)
 
 	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
 	backups := []*backup.DistributedBackupDescriptor{
