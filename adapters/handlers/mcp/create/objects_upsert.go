@@ -22,13 +22,12 @@ import (
 )
 
 func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequest, args UpsertObjectArgs) (*UpsertObjectResp, error) {
-	// Authorize for CREATE operation (batch operations handle both CREATE and UPDATE)
+	// Authorize for CREATE and UPDATE operations
 	principal, err := c.Authorize(ctx, req, authorization.CREATE)
 	if err != nil {
 		return nil, err
 	}
 
-	// Also authorize for UPDATE since batch operations may update existing objects
 	if _, err := c.Authorize(ctx, req, authorization.UPDATE); err != nil {
 		return nil, err
 	}
@@ -60,6 +59,9 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 
 		// Set UUID if provided
 		if obj.UUID != "" {
+			if !strfmt.IsUUID(obj.UUID) {
+				return nil, fmt.Errorf("invalid UUID for object")
+			}
 			modelObj.ID = strfmt.UUID(obj.UUID)
 		}
 
