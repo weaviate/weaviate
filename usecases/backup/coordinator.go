@@ -42,6 +42,7 @@ var (
 	errCannotCommit = errors.New("cannot commit")
 	errMetaNotFound = errors.New("metadata not found")
 	errUnknownOp    = errors.New("unknown backup operation")
+	errCancelled    = errors.New("operation cancelled by user")
 )
 
 const (
@@ -304,7 +305,7 @@ func (c *coordinator) Restore(
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = storedMeta.Error
 				if c.descriptor.Error == "" {
-					c.descriptor.Error = "restore cancelled by user"
+					c.descriptor.Error = errCancelled.Error()
 				}
 				c.lastOp.set(backup.Cancelled)
 				return true
@@ -332,7 +333,7 @@ func (c *coordinator) Restore(
 			// Check for external cancellation via lastOp (same-node cancellation)
 			if c.lastOp.get().Status == backup.Cancelled {
 				c.descriptor.Status = backup.Cancelled
-				c.descriptor.Error = "restore cancelled by user"
+				c.descriptor.Error = errCancelled.Error()
 			} else {
 				c.descriptor.Status = backup.Finalizing
 				c.lastOp.set(backup.Finalizing)
@@ -560,7 +561,7 @@ func (c *coordinator) commit(ctx context.Context,
 	if c.lastOp.get().Status == backup.Cancelled {
 		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
 		c.descriptor.Status = backup.Cancelled
-		c.descriptor.Error = "restore cancelled by user"
+		c.descriptor.Error = errCancelled.Error()
 		return
 	}
 
@@ -575,11 +576,11 @@ func (c *coordinator) commit(ctx context.Context,
 			for node := range node2Host {
 				st := c.Participants[node]
 				st.Status = backup.Cancelled
-				st.Reason = "operation cancelled by user"
+				st.Reason = errCancelled.Error()
 				c.Participants[node] = st
 			}
 			c.descriptor.Status = backup.Cancelled
-			c.descriptor.Error = "restore cancelled by user"
+			c.descriptor.Error = errCancelled.Error()
 			return
 		}
 
@@ -626,7 +627,7 @@ func (c *coordinator) commit(ctx context.Context,
 				status = backup.Failed
 				reason = p.Reason
 
-				if strings.Contains(p.Reason, context.Canceled.Error()) {
+				if p.Reason == errCancelled.Error() {
 					status = backup.Cancelled
 					st.Status = backup.Cancelled
 				}
