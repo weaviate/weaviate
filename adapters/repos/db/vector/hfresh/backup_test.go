@@ -14,7 +14,6 @@ package hfresh
 import (
 	"context"
 	"fmt"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 	"sync"
