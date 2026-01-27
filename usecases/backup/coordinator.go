@@ -627,7 +627,7 @@ func (c *coordinator) commit(ctx context.Context,
 				status = backup.Failed
 				reason = p.Reason
 
-				if p.Reason == errCancelled.Error() {
+				if p.Reason == errCancelled.Error() || strings.Contains(p.Reason, context.Canceled.Error()) {
 					status = backup.Cancelled
 					st.Status = backup.Cancelled
 				}
