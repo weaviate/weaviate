@@ -294,29 +294,36 @@ func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, erro
 
 func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, error) {
 	files := make([]string, 0)
-	err := filepath.WalkDir(h.rootPath, func(pth string, d fs.DirEntry, err error) error {
-		if !d.IsDir() || !strings.HasSuffix(d.Name(), ".queue.d") {
-			return nil
+	// list all files in paths that end with .queue.d
+	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-
-		st, statErr := os.Stat(pth)
-		if statErr != nil {
-			return statErr
-		}
-
-		// only list non-empty files
-		if st.Size() > 0 {
-			rel, relErr := filepath.Rel(basePath, pth)
-			if relErr != nil {
-				return relErr
+		if d.IsDir() && strings.HasSuffix(d.Name(), ".queue.d") {
+			// list all files in this directory
+			err := filepath.WalkDir(path, func(p string, de fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !de.IsDir() {
+					relPath, err := filepath.Rel(basePath, p)
+					if err != nil {
+						return err
+					}
+					files = append(files, relPath)
+				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
-			files = append(files, rel)
+			// skip walking into subdirectories of this queue directory
+			return filepath.SkipDir
 		}
-
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list files for hfresh queues: %w", err)
+		return nil, fmt.Errorf("failed to list queue files: %w", err)
 	}
 	return files, nil
 }
