@@ -13,9 +13,13 @@ package dynsemaphore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 )
+
+// ErrRequestExceedsLimit is returned when a request exceeds the current limit.
+var ErrRequestExceedsLimit = errors.New("dynsemaphore: request exceeds limit")
 
 // DynamicWeighted matches semaphore.Weighted API exactly,
 // except the maximum size is provided dynamically.
@@ -71,8 +75,8 @@ func (s *DynamicWeighted) acquireLocal(ctx context.Context, n int64) error {
 	if n > limit {
 		s.mu.Unlock()
 		return fmt.Errorf(
-			"dynsemaphore: requested %d exceeds current limit %d",
-			n, limit,
+			"%w: requested %d exceeds current limit %d",
+			ErrRequestExceedsLimit, n, limit,
 		)
 	}
 

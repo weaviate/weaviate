@@ -64,26 +64,19 @@ func TestAcquireFailsWhenRequestExceedsLimit(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		// Request more than the limit → must block until ctx is canceled
 		done <- sem.Acquire(ctx, 2)
 	}()
-
-	// Give goroutine time to reach the blocking path
-	time.Sleep(10 * time.Millisecond)
-
-	// Cancel the context to unblock Acquire
-	cancel()
 
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Fatal("expected context error when n > limit")
+			t.Fatal("expected error when n > limit")
 		}
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("expected context.Canceled, got %v", err)
+		if !errors.Is(err, ErrRequestExceedsLimit) {
+			t.Fatalf("expected ErrRequestExceedsLimit, got %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Acquire did not unblock after context cancellation")
+		t.Fatal("Acquire unexpectedly blocked")
 	}
 
 	// Ensure semaphore is still usable
