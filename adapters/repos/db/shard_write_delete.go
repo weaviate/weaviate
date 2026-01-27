@@ -84,6 +84,12 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
+	// Clean up property-specific indices (e.g., geo indexes)
+	err = s.cleanupPropertyIndicesOnDelete(existing, docID)
+	if err != nil {
+		return fmt.Errorf("cleanup property indices: %w", err)
+	}
+
 	if err = s.store.WriteWALs(); err != nil {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}

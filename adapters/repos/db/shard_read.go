@@ -781,6 +781,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
+	// Clean up property-specific indices (e.g., geo indexes)
+	err = s.cleanupPropertyIndicesOnDelete(existing, docID)
+	if err != nil {
+		return errors.Wrap(err, "cleanup property indices")
+	}
+
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)

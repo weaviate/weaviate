@@ -208,3 +208,48 @@ func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
 
 	return nil
 }
+
+func (s *Shard) cleanupPropertyIndicesOnDelete(previous []byte, docID uint64) error {
+	previousObject, err := storobj.FromBinary(previous)
+	if err != nil {
+		return fmt.Errorf("unmarshal previous object: %w", err)
+	}
+
+	if previousObject.Properties() == nil {
+		return nil
+	}
+
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
+
+	for propName, propIndex := range s.propertyIndices {
+		if err := s.cleanupPropertyIndexOnDelete(propName, propIndex, previousObject, docID); err != nil {
+			return errors.Wrapf(err, "cleanup property index %q", propName)
+		}
+	}
+
+	return nil
+}
+
+func (s *Shard) cleanupPropertyIndexOnDelete(propName string, index propertyspecific.Index,
+	obj *storobj.Object, docID uint64,
+) error {
+	if index.Type != schema.DataTypeGeoCoordinates {
+		return fmt.Errorf("unsupported per-property index type %q", index.Type)
+	}
+
+	// Check if the object has this geo property
+	asMap, ok := obj.Properties().(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	_, hasProp := asMap[propName]
+	if !hasProp {
+		// Object doesn't have this property, nothing to clean up
+		return nil
+	}
+
+	// Delete from geo index
+	return s.deleteFromGeoIndex(index, docID)
+}
