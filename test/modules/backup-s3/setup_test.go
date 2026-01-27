@@ -90,6 +90,8 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 		WithWeaviateEnv("AWS_REGION", defaultS3Region).
 		WithText2VecContextionary().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("BACKUP_CHUNK_TARGET_SIZE", "1024").         // allow incremental backups in tests
+		WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024"). // avoid compactions so incremental backups have unchanged files
 		Start(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to start docker compose")

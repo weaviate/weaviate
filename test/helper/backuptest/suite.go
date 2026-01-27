@@ -1173,7 +1173,6 @@ func getTotalSize(t *testing.T, minioURL, bucketName, backupId string) (int64, e
 		if !strings.Contains(object.Key, backupId) {
 			continue
 		}
-		t.Logf("found chunk: %s with size: %v", object.Key, object.Size)
 		totalSize += object.Size
 	}
 
