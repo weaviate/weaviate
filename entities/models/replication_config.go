@@ -38,7 +38,7 @@ type ReplicationConfig struct {
 	AsyncDisabled *bool `json:"asyncDisabled,omitempty"`
 
 	// DEPRECATED. Enable asynchronous replication (default: `false`). Use `asyncDisabled` instead.
-	AsyncEnabled bool `json:"asyncEnabled"`
+	AsyncEnabled bool `json:"asyncEnabled,omitempty"`
 
 	// Conflict resolution strategy for deleted objects.
 	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]

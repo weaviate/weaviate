@@ -8259,7 +8259,7 @@ func init() {
         "asyncEnabled": {
           "description": "DEPRECATED. Enable asynchronous replication (default: ` + "`" + `false` + "`" + `). Use ` + "`" + `asyncDisabled` + "`" + ` instead.",
           "type": "boolean",
-          "x-omitempty": false
+          "x-omitempty": true
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",
@@ -18073,7 +18073,7 @@ func init() {
         "asyncEnabled": {
           "description": "DEPRECATED. Enable asynchronous replication (default: ` + "`" + `false` + "`" + `). Use ` + "`" + `asyncDisabled` + "`" + ` instead.",
           "type": "boolean",
-          "x-omitempty": false
+          "x-omitempty": true
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",

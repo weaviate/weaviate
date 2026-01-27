@@ -751,7 +751,7 @@
         "asyncEnabled": {
           "description": "DEPRECATED. Enable asynchronous replication (default: `false`). Use `asyncDisabled` instead.",
           "type": "boolean",
-          "x-omitempty": false
+          "x-omitempty": true
         },
         "asyncDisabled": {
           "description": "Disable asynchronous replication (default: `false`).",
