@@ -406,7 +406,7 @@ func NewIndex(
 		func() int64 {
 			index.replicationConfigLock.RLock()
 			defer index.replicationConfigLock.RUnlock()
-			return int64(cfg.AsyncReplicationConfig.maxWorkers)
+			return int64(index.Config.AsyncReplicationConfig.maxWorkers)
 		})
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
