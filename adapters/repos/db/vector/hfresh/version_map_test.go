@@ -26,9 +26,7 @@ func makeVersionMap(t *testing.T) *VersionMap {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	versionMap, err := NewVersionMap(bucket)
-	require.NoError(t, err)
-	return versionMap
+	return NewVersionMap(bucket)
 }
 
 func TestVectorVersion(t *testing.T) {
