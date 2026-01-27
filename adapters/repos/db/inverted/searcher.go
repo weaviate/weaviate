@@ -227,8 +227,15 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
+}
+
+func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
+	additional additional.Properties, className schema.ClassName, limit int,
+) (helpers.AllowList, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,

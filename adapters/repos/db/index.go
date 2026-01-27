@@ -831,6 +831,7 @@ type IndexConfig struct {
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
+	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -2194,15 +2195,22 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
-func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
-	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
-) error {
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
+) {
 	// use closing context to stop long-running TTL deletions in case index is closed
-	return i.incomingDeleteObjectsExpired(i.closingCtx, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+	i.incomingDeleteObjectsExpired(i.closingCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
 }
 
-func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
+	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
+) {
 	class := i.getClass()
+	if err := ctx.Err(); err != nil {
+		ec.AddGroups(err, class.Class)
+		return
+	}
+
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,
 		Value: &filters.Value{
@@ -2220,68 +2228,172 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
+	perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
 
-	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
-			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
+			ec.AddGroups(fmt.Errorf("get tenants: %w", err), class.Class)
+			return
 		}
 
 		for _, tenant := range tenants {
-			tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
-			// skip inactive tenants
-			if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
-				// TODO aliszka:ttl exit or continue with other tenants
-				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
-			}
-
-			if len(tenants2uuids[tenant]) == 0 {
-				continue
-			}
-			eg.Go(
-				func() error {
-					resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
-					if err != nil {
-						// TODO aliszka:ttl exit or continue with other tenants
-						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+			eg.Go(func() error {
+				// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
+				for {
+					if err := ctx.Err(); err != nil {
+						ec.AddGroups(err, class.Class, tenant)
+						return nil
 					}
 
-					i.logger.
-						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
-						Infof("batch delete response: %+v", resp)
-					return nil
-				})
-		}
+					tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps, perShardLimit)
+					if err != nil {
+						// skip inactive tenants
+						if !errors.Is(err, enterrors.ErrTenantNotActive) {
+							ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class, tenant)
+						}
+						return nil
+					}
 
-	} else {
-		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
-		if err != nil {
-			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
-		}
+					if len(tenants2uuids[tenant]) == 0 {
+						return nil
+					}
 
-		for shard := range shards2uuids {
-			if len(shards2uuids[shard]) == 0 {
-				delete(shards2uuids, shard)
+					i.incomingDeleteObjectsExpiredUuids(ctx, ec, deletionTime, "", tenant,
+						tenants2uuids[tenant], countDeleted, replProps, schemaVersion)
+				}
+			})
+			if ctx.Err() != nil {
+				break
 			}
 		}
-		if len(shards2uuids) != 0 {
-			eg.Go(
-				func() error {
-					resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
-					if err != nil {
-						// TODO aliszka:ttl exit or continue with other tenants
-						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
-					}
-					i.logger.
-						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class}).
-						Infof("batch delete response: %+v", resp)
-
-					return nil
-				})
-		}
+		return
 	}
 
-	return nil
+	eg.Go(func() error {
+		// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
+		for {
+			if err := ctx.Err(); err != nil {
+				ec.AddGroups(err, class.Class)
+				return nil
+			}
+
+			shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps, perShardLimit)
+			if err != nil {
+				ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class)
+				return nil
+			}
+
+			shardIdx := len(shards2uuids) - 1
+			anyUuidsFound := false
+			wg := new(sync.WaitGroup)
+			f := func(shard string, uuids []strfmt.UUID) {
+				defer wg.Done()
+				i.incomingDeleteObjectsExpiredUuids(ctx, ec, deletionTime, shard, "",
+					uuids, countDeleted, replProps, schemaVersion)
+			}
+
+			for shard, uuids := range shards2uuids {
+				shardIdx--
+				if len(uuids) == 0 {
+					continue
+				}
+
+				anyUuidsFound = true
+				wg.Add(1)
+				isLast := shardIdx == 0
+				// if possible run in separate routine, if not run in current one
+				// always run last in current one (not to start other routine,
+				// while current one have to wait for the results anyway)
+				if isLast || !eg.TryGo(func() error {
+					f(shard, uuids)
+					return nil
+				}) {
+					f(shard, uuids)
+				}
+				if ctx.Err() != nil {
+					return nil
+				}
+			}
+			wg.Wait()
+
+			if !anyUuidsFound {
+				return nil
+			}
+		}
+	})
+}
+
+func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context, ec errorcompounder.ErrorCompounder,
+	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID, countDeleted func(int32),
+	replProps *additional.ReplicationProperties, schemaVersion uint64,
+) {
+	if len(uuids) == 0 {
+		return
+	}
+
+	inputKey := shard
+	if tenant != "" {
+		inputKey = tenant
+	}
+	collection := i.Config.ClassName.String()
+	maxErrors := 3
+
+	logger := i.logger.WithFields(logrus.Fields{
+		"action":     "objects_ttl_deletion",
+		"collection": collection,
+		"shard":      inputKey,
+	})
+
+	f := func() (err error) {
+		started := time.Now()
+		deleted := int32(0)
+
+		logger.WithFields(logrus.Fields{
+			"size": len(uuids),
+		}).Debug("batch delete started")
+		defer func() {
+			logger := logger.WithFields(logrus.Fields{
+				"took":    time.Since(started),
+				"deleted": deleted,
+				"failed":  int32(len(uuids)) - deleted,
+			})
+			if err != nil {
+				// as debug for each batch, combined error of all batches is logged as error anyway
+				logger.WithError(err).Debug("batch delete failed")
+				return
+			}
+			logger.Debug("batch delete finished")
+		}()
+
+		input := map[string][]strfmt.UUID{inputKey: uuids}
+		resp, err := i.batchDeleteObjects(ctx, input, deletionTime, false, replProps, schemaVersion, tenant)
+		if err != nil {
+			return fmt.Errorf("batch delete: %w", err)
+		}
+
+		errsCount := 0
+		ecBatch := errorcompounder.New()
+		for i := range resp {
+			if err := resp[i].Err; err != nil {
+				// limit number of returned errors to [maxErrors]
+				if errsCount < maxErrors {
+					errsCount++
+					ecBatch.Add(fmt.Errorf("%s: %w", resp[i].UUID, err))
+				}
+			} else {
+				deleted++
+			}
+		}
+		countDeleted(deleted)
+
+		if err := ecBatch.ToError(); err != nil {
+			return fmt.Errorf("batch delete: %w", err)
+		}
+		return nil
+	}
+
+	ec.AddGroups(f(), collection, inputKey)
 }
 
 func (i *Index) getClass() *models.Class {
@@ -2674,7 +2786,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 		return errAlreadyShutdown
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 
@@ -2896,6 +3008,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 
 func (i *Index) findUUIDs(ctx context.Context,
 	filters *filters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
+	perShardLimit int,
 ) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
@@ -2913,7 +3026,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var err error
 
 		if i.shardHasMultipleReplicasRead(tenant, shardName) {
-			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, cl)
+			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, cl, perShardLimit)
 		} else {
 			// anonymous func is here to ensure release is executed after each loop iteration
 			func() {
@@ -2921,9 +3034,9 @@ func (i *Index) findUUIDs(ctx context.Context,
 				defer release()
 				if err == nil {
 					if shard != nil {
-						results[shardName], err = shard.FindUUIDs(ctx, filters)
+						results[shardName], err = shard.FindUUIDs(ctx, filters, perShardLimit)
 					} else {
-						results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
+						results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters, perShardLimit)
 					}
 				}
 			}()
@@ -2953,7 +3066,7 @@ func (i *Index) consistencyLevel(
 }
 
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -2965,7 +3078,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
-	return shard.FindUUIDs(ctx, filters)
+	return shard.FindUUIDs(ctx, filters, limit)
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]strfmt.UUID,

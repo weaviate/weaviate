@@ -27,14 +27,14 @@ const (
 
 type Validator struct {
 	authorizedGetClass func(string) (*models.Class, error)
-	errors             *errorcompounder.SafeErrorCompounder
+	errors             errorcompounder.ErrorCompounder
 	subject            models.Classification
 }
 
 func NewValidator(authorizedGetClass func(string) (*models.Class, error), subject models.Classification) *Validator {
 	return &Validator{
 		authorizedGetClass: authorizedGetClass,
-		errors:             &errorcompounder.SafeErrorCompounder{},
+		errors:             errorcompounder.NewSafe(),
 		subject:            subject,
 	}
 }

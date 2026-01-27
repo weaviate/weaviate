@@ -769,9 +769,9 @@ func (_c *MockShardLike_FillQueue_Call) RunAndReturn(run func(string, uint64) er
 	return _c
 }
 
-// FindUUIDs provides a mock function with given fields: ctx, _a1
-func (_m *MockShardLike) FindUUIDs(ctx context.Context, _a1 *filters.LocalFilter) ([]strfmt.UUID, error) {
-	ret := _m.Called(ctx, _a1)
+// FindUUIDs provides a mock function with given fields: ctx, _a1, limit
+func (_m *MockShardLike) FindUUIDs(ctx context.Context, _a1 *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+	ret := _m.Called(ctx, _a1, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FindUUIDs")
@@ -779,19 +779,19 @@ func (_m *MockShardLike) FindUUIDs(ctx context.Context, _a1 *filters.LocalFilter
 
 	var r0 []strfmt.UUID
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *filters.LocalFilter) ([]strfmt.UUID, error)); ok {
-		return rf(ctx, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, *filters.LocalFilter, int) ([]strfmt.UUID, error)); ok {
+		return rf(ctx, _a1, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *filters.LocalFilter) []strfmt.UUID); ok {
-		r0 = rf(ctx, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, *filters.LocalFilter, int) []strfmt.UUID); ok {
+		r0 = rf(ctx, _a1, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]strfmt.UUID)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *filters.LocalFilter) error); ok {
-		r1 = rf(ctx, _a1)
+	if rf, ok := ret.Get(1).(func(context.Context, *filters.LocalFilter, int) error); ok {
+		r1 = rf(ctx, _a1, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -807,13 +807,14 @@ type MockShardLike_FindUUIDs_Call struct {
 // FindUUIDs is a helper method to define mock.On call
 //   - ctx context.Context
 //   - _a1 *filters.LocalFilter
-func (_e *MockShardLike_Expecter) FindUUIDs(ctx interface{}, _a1 interface{}) *MockShardLike_FindUUIDs_Call {
-	return &MockShardLike_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, _a1)}
+//   - limit int
+func (_e *MockShardLike_Expecter) FindUUIDs(ctx interface{}, _a1 interface{}, limit interface{}) *MockShardLike_FindUUIDs_Call {
+	return &MockShardLike_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, _a1, limit)}
 }
 
-func (_c *MockShardLike_FindUUIDs_Call) Run(run func(ctx context.Context, _a1 *filters.LocalFilter)) *MockShardLike_FindUUIDs_Call {
+func (_c *MockShardLike_FindUUIDs_Call) Run(run func(ctx context.Context, _a1 *filters.LocalFilter, limit int)) *MockShardLike_FindUUIDs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*filters.LocalFilter))
+		run(args[0].(context.Context), args[1].(*filters.LocalFilter), args[2].(int))
 	})
 	return _c
 }
@@ -823,7 +824,7 @@ func (_c *MockShardLike_FindUUIDs_Call) Return(_a0 []strfmt.UUID, _a1 error) *Mo
 	return _c
 }
 
-func (_c *MockShardLike_FindUUIDs_Call) RunAndReturn(run func(context.Context, *filters.LocalFilter) ([]strfmt.UUID, error)) *MockShardLike_FindUUIDs_Call {
+func (_c *MockShardLike_FindUUIDs_Call) RunAndReturn(run func(context.Context, *filters.LocalFilter, int) ([]strfmt.UUID, error)) *MockShardLike_FindUUIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }
