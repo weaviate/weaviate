@@ -627,13 +627,13 @@ func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
 		backupSize3, err := getTotalSize(t, s.config.MinioEndpoint, s.config.BucketName, backupIDIncremental2)
 		require.NoError(t, err)
 
-		t.Logf("backup size full: %d, backup size incremental1: %d, backup size incremental2: %d", backupSize1, backupSize2, backupSize3)
+		t.Logf("actual backup sizes from minio: base: %d, incremental1: %d, incremental2: %d", backupSize1, backupSize2, backupSize3)
 		require.Less(t, backupSize2, backupSize1)
 		require.Less(t, backupSize3, backupSize1)
 	}
 
 	// total sizes should increase with each incremental backup as we add more objects
-	t.Logf("Total sizes: base backup size: %v, incremental1 size: %v, incremental size2: %v", res1.Payload.Size, res2.Payload.Size, res3.Payload.Size)
+	t.Logf("Total precompression sizes: base backup size: %v, incremental1 size: %v, incremental size2: %v", res1.Payload.Size, res2.Payload.Size, res3.Payload.Size)
 	require.Greater(t, res2.Payload.Size, res1.Payload.Size)
 	require.Greater(t, res3.Payload.Size, res2.Payload.Size)
 }
