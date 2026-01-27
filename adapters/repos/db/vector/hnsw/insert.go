@@ -24,8 +24,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 const (

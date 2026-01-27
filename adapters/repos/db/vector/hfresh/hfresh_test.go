@@ -31,6 +31,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -40,6 +41,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
+
+type noopBucketView struct{}
+
+func (n *noopBucketView) ReleaseView() {}
+
+func getViewThunk() common.BucketView {
+	return &noopBucketView{}
+}
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
@@ -96,6 +105,7 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 		DistanceProvider:  distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		AllocChecker:      memwatch.NewDummyMonitor(),
+		GetViewThunk:      getViewThunk,
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 

@@ -21,6 +21,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 const (
@@ -125,7 +126,7 @@ func (i *IndexMetadataStore) GetQuantizationData() (*QuantizationData, error) {
 }
 
 type QuantizationData struct {
-	RQ compressionhelpers.RQData `msgpack:"rq"`
+	RQ compression.RQData `msgpack:"rq"`
 }
 
 func (h *HFresh) restoreMetadata() error {
@@ -182,7 +183,7 @@ func (h *HFresh) restoreBackgroundMetrics() error {
 }
 
 // restoreQuantizationData restores RQ quantizer from msgpack data
-func (h *HFresh) restoreQuantizationData(rqData *compressionhelpers.RQData) error {
+func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 	// Restore the RQ quantizer
 	rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 		int(rqData.InputDim),

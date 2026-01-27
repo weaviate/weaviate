@@ -341,7 +341,7 @@ func (m *Metrics) SetSplitCount(count int64) {
 		return
 	}
 
-	m.splitsPending.Set(float64(count))
+	m.splitsPending.Add(float64(count))
 }
 
 func (m *Metrics) EnqueueMergeTask() {
@@ -381,7 +381,7 @@ func (m *Metrics) SetMergeCount(count int64) {
 		return
 	}
 
-	m.mergesPending.Set(float64(count))
+	m.mergesPending.Add(float64(count))
 }
 
 func (m *Metrics) EnqueueReassignTask() {
@@ -421,7 +421,7 @@ func (m *Metrics) SetReassignCount(count int64) {
 		return
 	}
 
-	m.reassignsPending.Set(float64(count))
+	m.reassignsPending.Add(float64(count))
 }
 
 func (m *Metrics) CentroidSearchDuration(start time.Time) {

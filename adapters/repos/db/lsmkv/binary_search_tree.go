@@ -59,6 +59,16 @@ func (t *binarySearchTree) getNode(key []byte) (*binarySearchNode, error) {
 	return t.root.getNode(key)
 }
 
+// exists checks if a key exists and is not deleted, without returning the value.
+func (t *binarySearchTree) exists(key []byte) error {
+	if t.root == nil {
+		return lsmkv.NotFound
+	}
+
+	_, err := t.root.getNode(key)
+	return err
+}
+
 func (t *binarySearchTree) setTombstone(key, value []byte, secondaryKeys [][]byte) {
 	if t.root == nil {
 		// we need to actively insert a node with a tombstone, even if this node is
@@ -351,19 +361,38 @@ func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byt
 }
 
 func (n *binarySearchNode) flattenInOrder() []*binarySearchNode {
-	var left []*binarySearchNode
-	var right []*binarySearchNode
+	// preallocate capacity to avoid repeated reallocations
+	size := n.subtreeSize()
+	res := make([]*binarySearchNode, 0, size)
+	return n.appendInOrder(res)
+}
 
+func (n *binarySearchNode) appendInOrder(dst []*binarySearchNode) []*binarySearchNode {
+	if n == nil {
+		return dst
+	}
 	if n.left != nil {
-		left = n.left.flattenInOrder()
+		dst = n.left.appendInOrder(dst)
 	}
-
+	dst = append(dst, n.shallowCopy())
 	if n.right != nil {
-		right = n.right.flattenInOrder()
+		dst = n.right.appendInOrder(dst)
 	}
+	return dst
+}
 
-	right = append([]*binarySearchNode{n.shallowCopy()}, right...)
-	return append(left, right...)
+func (n *binarySearchNode) subtreeSize() int {
+	if n == nil {
+		return 0
+	}
+	s := 1
+	if n.left != nil {
+		s += n.left.subtreeSize()
+	}
+	if n.right != nil {
+		s += n.right.subtreeSize()
+	}
+	return s
 }
 
 // This is not very allocation friendly, since we basically need to allocate

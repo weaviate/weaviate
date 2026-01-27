@@ -161,6 +161,6 @@ func (a *hfAllowList) WrapOnWrite() helpers.AllowList {
 }
 
 func (a *hfAllowList) Close() {
-	defer a.h.visitedPool.Return(a.wrappedIdVisited)
-	defer a.h.visitedPool.Return(a.idVisited)
+	a.h.visitedPool.Return(a.wrappedIdVisited)
+	a.h.visitedPool.Return(a.idVisited)
 }

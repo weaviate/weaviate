@@ -35,6 +35,7 @@ func Start(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
 	batchHandler batcher,
+	schemaManager schemaManager,
 	reg prometheus.Registerer,
 	numWorkers int,
 	logger logrus.FieldLogger,
@@ -59,6 +60,7 @@ func Start(
 		processingQueue,
 		metrics,
 		logger,
+		schemaManager,
 	)
 
 	drain := func() {

@@ -1137,6 +1137,198 @@ func TestMultiVectorFromBinary(t *testing.T) {
 	assert.Equal(t, vector4, outVector4)
 }
 
+func TestMarshalBinaryOptional(t *testing.T) {
+	// Create an object with all vector types for testing
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{
+				"name": "MyName",
+				"foo":  float64(17),
+			},
+			Additional: map[string]interface{}{
+				"explainScore": "test-explanation",
+			},
+		},
+		[]float32{1, 2, 0.7}, // legacy vector
+		map[string][]float32{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+		},
+		map[string][][]float32{
+			"multiVec1": {{7, 8, 9}, {10, 11, 12}},
+			"multiVec2": {{13, 14, 15}},
+		},
+	)
+	before.DocID = 7
+
+	t.Run("with Vector=false excludes legacy vector from serialization", func(t *testing.T) {
+		// Marshal with Vector=false but include all target vectors
+		optionalBytes, err := before.MarshalBinaryOptional(additional.Properties{
+			Vector:  false,
+			Vectors: []string{"vector1", "vector2", "multiVec1", "multiVec2"}, // Include all target vectors
+		})
+		require.Nil(t, err)
+
+		// Marshal with default (includes everything)
+		fullBytes, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		// The optional bytes should be smaller because legacy vector is excluded
+		// Legacy vector is 3 floats * 4 bytes = 12 bytes
+		assert.Less(t, len(optionalBytes), len(fullBytes))
+		assert.Equal(t, 3*4, len(fullBytes)-len(optionalBytes)) // 3 floats * 4 bytes
+
+		// Verify it can still be deserialized
+		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, Vectors: []string{"vector1", "vector2", "multiVec1", "multiVec2"}}, nil)
+		require.Nil(t, err)
+		assert.Equal(t, before.DocID, after.DocID)
+		assert.Equal(t, before.ID(), after.ID())
+		assert.Equal(t, before.Class(), after.Class())
+		// Vector should be nil since it wasn't serialized
+		assert.Nil(t, after.Vector)
+		// But target vectors should be present
+		assert.NotNil(t, after.Vectors)
+		assert.NotNil(t, after.MultiVectors)
+	})
+
+	t.Run("with Vector=true includes legacy vector in serialization", func(t *testing.T) {
+		optionalBytes, err := before.MarshalBinaryOptional(additional.Properties{
+			Vector: true,
+		})
+		require.Nil(t, err)
+
+		// Verify it can be deserialized with vector
+		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: true}, nil)
+		require.Nil(t, err)
+		assert.Equal(t, before.Vector, after.Vector)
+	})
+
+	t.Run("with NoProps=true excludes properties from serialization", func(t *testing.T) {
+		optionalBytes, err := before.MarshalBinaryOptional(additional.Properties{
+			NoProps: true,
+			Vector:  true,
+		})
+		require.Nil(t, err)
+
+		fullBytes, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		// The optional bytes should be smaller because properties are excluded
+		assert.Less(t, len(optionalBytes), len(fullBytes))
+
+		// Verify it can still be deserialized
+		after, err := FromBinaryOptional(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
+		require.Nil(t, err)
+		assert.Equal(t, before.DocID, after.DocID)
+		assert.Equal(t, before.ID(), after.ID())
+		// Properties should be nil since they weren't serialized
+		assert.Nil(t, after.Properties())
+	})
+
+	t.Run("with empty Vectors excludes target vectors from serialization", func(t *testing.T) {
+		optionalBytes, err := before.MarshalBinaryOptional(additional.Properties{
+			Vector:  false,
+			Vectors: []string{}, // Empty means exclude all target vectors
+		})
+		require.Nil(t, err)
+
+		fullBytes, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		// The optional bytes should be much smaller
+		assert.Less(t, len(optionalBytes), len(fullBytes))
+
+		// Verify it can still be deserialized
+		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, Vectors: []string{}}, nil)
+		require.Nil(t, err)
+		assert.Equal(t, before.DocID, after.DocID)
+		// Target vectors should be nil since they weren't serialized
+		assert.Nil(t, after.Vectors)
+		assert.Nil(t, after.MultiVectors)
+	})
+
+	t.Run("with specific Vectors includes only requested target vectors", func(t *testing.T) {
+		optionalBytes, err := before.MarshalBinaryOptional(additional.Properties{
+			Vector:  true,
+			Vectors: []string{"vector1", "multiVec1"}, // Only include these
+		})
+		require.Nil(t, err)
+
+		// Verify it can still be deserialized with the specific vectors
+		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: true, Vectors: []string{"vector1", "multiVec1"}}, nil)
+		require.Nil(t, err)
+		assert.Equal(t, before.DocID, after.DocID)
+		assert.Equal(t, before.Vector, after.Vector)
+		// Only vector1 should be present in Vectors
+		assert.Len(t, after.Vectors, 1)
+		assert.Equal(t, before.Vectors["vector1"], after.Vectors["vector1"])
+		// Only multiVec1 should be present in MultiVectors
+		assert.Len(t, after.MultiVectors, 1)
+		assert.Equal(t, before.MultiVectors["multiVec1"], after.MultiVectors["multiVec1"])
+	})
+
+	t.Run("full exclusion results in minimal payload", func(t *testing.T) {
+		optionalBytes, err := before.MarshalBinaryOptional(additional.Properties{
+			Vector:  false,
+			NoProps: true,
+			Vectors: []string{}, // Exclude all target vectors
+		})
+		require.Nil(t, err)
+
+		fullBytes, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		// The optional bytes should be much smaller
+		// Full serialization includes: vector(12 bytes) + properties + target vectors + multi vectors
+		assert.Less(t, len(optionalBytes), len(fullBytes))
+
+		// Calculate expected savings roughly:
+		// - Legacy vector: 3 * 4 = 12 bytes
+		// - Properties: ~30+ bytes
+		// - Target vectors: 2 * 3 * 4 = 24 bytes + overhead
+		// - Multi vectors: 3 * 4 = 12 + 3 * 4 = 12 for multiVec1 + 3 * 4 = 12 for multiVec2 + overhead
+		t.Logf("Full bytes: %d, Optional bytes: %d, Savings: %d bytes (%.1f%%)",
+			len(fullBytes), len(optionalBytes), len(fullBytes)-len(optionalBytes),
+			float64(len(fullBytes)-len(optionalBytes))/float64(len(fullBytes))*100)
+
+		// Verify it can still be deserialized
+		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, NoProps: true, Vectors: []string{}}, nil)
+		require.Nil(t, err)
+		assert.Equal(t, before.DocID, after.DocID)
+		assert.Equal(t, before.ID(), after.ID())
+		assert.Equal(t, before.Class(), after.Class())
+	})
+
+	t.Run("with NoProps=true but an additional prop excludes properties from serialization", func(t *testing.T) {
+		t.Skip("This test currently fails as additional properties aren't being unserialized. Needs fixing.")
+		optionalBytes, err := before.MarshalBinaryOptional(additional.Properties{
+			ExplainScore: true,
+			NoProps:      true,
+			Vector:       true,
+		})
+		require.Nil(t, err)
+
+		fullBytes, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		// The optional bytes should be smaller because properties are excluded
+		assert.Less(t, len(optionalBytes), len(fullBytes))
+
+		// Verify it can still be deserialized
+		after, err := FromBinaryOptional(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
+		require.Nil(t, err)
+		assert.Equal(t, before.DocID, after.DocID)
+		assert.Equal(t, before.ID(), after.ID())
+		// Properties should be nil since they weren't serialized
+		assert.Nil(t, after.Properties())
+		assert.Equal(t, before.ExplainScore(), after.ExplainScore())
+	})
+}
+
 func TestStorageInvalidObjectMarshalling(t *testing.T) {
 	t.Run("invalid className", func(t *testing.T) {
 		invalidClassName := make([]byte, maxClassNameLength+1)

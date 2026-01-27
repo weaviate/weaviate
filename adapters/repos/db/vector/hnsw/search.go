@@ -661,16 +661,16 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
+func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64, view common.BucketView) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
 	var vec []float32
 	var err error
 	if h.muvera.Load() || !h.multivector.Load() {
-		vec, err = h.TempVectorForIDThunk(ctx, nodeID, slice)
+		vec, err = h.TempVectorForIDWithViewThunk(ctx, nodeID, slice, view)
 	} else {
 		docID, relativeID := h.cache.GetKeys(nodeID)
-		vecs, err := h.TempMultiVectorForIDThunk(ctx, docID, slice)
+		vecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
 		if err != nil {
 			return 0, err
 		} else if len(vecs) <= int(relativeID) {
@@ -681,13 +681,16 @@ func (h *hnsw) distanceFromBytesToFloatNode(ctx context.Context, concreteDistanc
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNode")
+			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNodeWithView")
 			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
-	vec = h.normalizeVec(vec)
+	// Normalize in-place since vec points to a pooled slice that will be
+	// returned after this function. This avoids allocating a new slice
+	// for every vector during rescoring.
+	h.normalizeVecInPlace(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 
@@ -746,13 +749,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		defer returnFn()
 	}
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
-	var e storobj.ErrNotFound
-	if err != nil && errors.As(err, &e) {
-		h.handleDeletedNode(e.DocID, "knnSearchByVector")
-		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-	}
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID, "knnSearchByVector")
+			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
@@ -1073,6 +1076,10 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 	}
 	res.Reset()
 
+	// Get a consistent view once for all vector lookups to reduce lock contention
+	view := h.GetViewThunk()
+	defer view.ReleaseView()
+
 	mu := sync.Mutex{} // protect res
 	addID := func(id uint64, dist float32) {
 		mu.Lock()
@@ -1095,7 +1102,7 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 				}
 
 				id := ids[idPos]
-				dist, err := h.distanceFromBytesToFloatNode(ctx, compressorDistancer, id)
+				dist, err := h.distanceFromBytesToFloatNodeWithView(ctx, compressorDistancer, id, view)
 				if err == nil {
 					addID(id, dist)
 				} else {

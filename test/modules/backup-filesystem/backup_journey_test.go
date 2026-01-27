@@ -12,6 +12,7 @@
 package test
 
 import (
+	"bufio"
 	"context"
 	"testing"
 	"time"
@@ -38,6 +39,7 @@ func Test_BackupJourney(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviate().
+			WithWeaviateEnv("BACKUP_CHUNK_TARGET_SIZE", "10").
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -48,6 +50,7 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("backup-filesystem", func(t *testing.T) {
+			defer printLogsOnError(t, compose)
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, false, "", "")
 		})
@@ -58,6 +61,7 @@ func Test_BackupJourney(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
+			WithWeaviateEnv("BACKUP_CHUNK_TARGET_SIZE", "10").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -78,4 +82,31 @@ func Test_BackupJourney(t *testing.T) {
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgfilesystem.Name)
 		})
 	})
+}
+
+func printLogsOnError(t *testing.T, compose *docker.DockerCompose) {
+	if !t.Failed() {
+		return
+	}
+
+	// When a test fails, dump logs of all compose containers.
+	for _, container := range compose.Containers() {
+		logs, err := container.Container().Logs(context.Background())
+		if err != nil {
+			t.Logf("failed to get logs for container %s: %v", container.Name(), err)
+			continue
+		}
+		func() {
+			defer logs.Close()
+			t.Logf("=== start for container %s ===\n=== start logs ===", container.Name())
+
+			scanner := bufio.NewScanner(logs)
+
+			for scanner.Scan() {
+				line := scanner.Text()
+				t.Log(line)
+			}
+			t.Logf("=== logs for container %s ===\n=== end logs ===", container.Name())
+		}()
+	}
 }

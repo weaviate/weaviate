@@ -16,16 +16,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/versioned"
-
-	"github.com/weaviate/weaviate/entities/classcache"
-
 	"github.com/go-openapi/strfmt"
-
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -139,13 +137,30 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
+
+	// Only include vectors in the MergeDocument if they changed.
+	// This  reduces network bandwidth when replicating patches
+	// that don't trigger re-vectorization. The replica-side code in
+	// shard_write_merge.go preserves existing vectors when Vector
+	// is nil and len(Vectors) == 0
+	var mergeVector []float32
+	var mergeVectors models.Vectors
+
+	if !common.VectorsEqual(prevObj.Vector, objWithVec.Vector) {
+		mergeVector = objWithVec.Vector
+	}
+
+	if !namedVectorsEqual(prevObj.Vectors, objWithVec.Vectors) {
+		mergeVectors = objWithVec.Vectors
+	}
+
 	mergeDoc := MergeDocument{
 		Class:              cls,
 		ID:                 id,
 		PrimitiveSchema:    primitive,
 		References:         refs,
-		Vector:             objWithVec.Vector,
-		Vectors:            objWithVec.Vectors,
+		Vector:             mergeVector,
+		Vectors:            mergeVectors,
 		UpdateTime:         m.timeSource.Now(),
 		PropertiesToDelete: propertiesToDelete,
 	}
@@ -282,4 +297,52 @@ func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass s
 	}
 
 	return primitive, outRefs
+}
+
+// namedVectorsEqual compares two models.Vectors maps for equality.
+// It handles both []float32 (single vectors) and [][]float32 (multi-vectors) values.
+// Returns true if all vectors in both maps are equal.
+func namedVectorsEqual(prevVectors, nextVectors models.Vectors) bool {
+	if len(prevVectors) == 0 && len(nextVectors) == 0 {
+		return true
+	}
+
+	if len(prevVectors) != len(nextVectors) {
+		return false
+	}
+
+	for name, prevVec := range prevVectors {
+		nextVec, exists := nextVectors[name]
+		if !exists {
+			return false
+		}
+
+		if !vectorEqual(prevVec, nextVec) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// vectorEqual compares two models.Vector values for equality.
+// models.Vector can be either []float32 or [][]float32.
+func vectorEqual(prev, next models.Vector) bool {
+	switch prevTyped := prev.(type) {
+	case []float32:
+		nextTyped, ok := next.([]float32)
+		if !ok {
+			return false
+		}
+		return common.VectorsEqual(prevTyped, nextTyped)
+	case [][]float32:
+		nextTyped, ok := next.([][]float32)
+		if !ok {
+			return false
+		}
+		return common.MultiVectorsEqual(prevTyped, nextTyped)
+	default:
+		// Unknown type, compare by reference (both nil means equal)
+		return prev == next
+	}
 }
