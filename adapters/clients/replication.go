@@ -116,6 +116,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	// Compress the body
 	var buf bytes.Buffer
+
 	zstdw, err := zstd.NewWriter(&buf, zstd.WithEncoderLevel(zstd.SpeedDefault))
 	if err != nil {
 		return nil, fmt.Errorf("create zstd writer: %w", err)
@@ -126,12 +127,13 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	if err := zstdw.Close(); err != nil {
 		return nil, fmt.Errorf("close zstd writer: %w", err)
 	}
+
 	bodyBytes := buf.Bytes()
 	bodyReader := bytes.NewReader(bodyBytes)
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", fmt.Sprintf("hashtree/%d", level), bodyReader, 0)
+		"", fmt.Sprintf("hashtree/level/%d", level), bodyReader, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}

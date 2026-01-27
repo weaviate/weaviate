@@ -113,7 +113,7 @@ var (
 	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`)
+		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
