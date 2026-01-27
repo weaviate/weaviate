@@ -981,7 +981,7 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	}
 
 	rw.WriteUint32(schemaLength)
-	if !addProps.NoProps && schemaLength > 0 {
+	if schemaLength > 0 {
 		err = rw.CopyBytesToBuffer(schema)
 		if err != nil {
 			return byteBuffer, errors.Wrap(err, "Could not copy schema")
