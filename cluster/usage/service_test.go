@@ -378,7 +378,7 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	})
 	mockSchema.EXPECT().NodeName().Return(nodeName)
 
-	repo := createTestDb(t, mockSchema, nil, nil)
+	repo := createTestDb(t, mockSchema, nil, nil, nodeName)
 
 	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
 	backups := []*backup.DistributedBackupDescriptor{
