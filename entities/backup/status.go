@@ -17,7 +17,9 @@ const (
 	Started      Status = "STARTED"
 	Transferring Status = "TRANSFERRING"
 	Transferred  Status = "TRANSFERRED"
+	Finalizing   Status = "FINALIZING" // Schema apply in progress - cancellation blocked
 	Success      Status = "SUCCESS"
+	Cancelling   Status = "CANCELLING" // Cancellation in progress - claimed by a coordinator
 	Cancelled    Status = "CANCELED"
 	Failed       Status = "FAILED"
 )

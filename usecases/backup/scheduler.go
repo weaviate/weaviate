@@ -321,6 +321,103 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
+func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
+) (err error) {
+	defer func(begin time.Time) {
+		logOperation(s.logger, "cancel_restore", backupID, backend, begin, err)
+	}(time.Now())
+
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return backup.NewErrUnprocessable(err)
+	}
+
+	if err := validateID(backupID); err != nil {
+		return err
+	}
+
+	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+	}
+
+	meta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+	if meta != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
+			return err
+		}
+		switch meta.Status {
+		case backup.Cancelled, backup.Cancelling:
+			// Cancellation already in progress or complete
+			return nil
+		case backup.Success:
+			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
+		case backup.Finalizing:
+			return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
+		default:
+			// Transferring, Started - attempt to claim cancellation
+		}
+
+		// Attempt to claim cancellation by writing CANCELLING status first.
+		// This acts as a distributed lock - the first coordinator to write CANCELLING wins.
+		meta.Status = backup.Cancelling
+		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
+			s.logger.WithField("action", "cancel_restore").
+				WithField("backup_id", backupID).
+				Warnf("failed to write cancelling status, another coordinator may be handling: %v", err)
+			// Another coordinator may have won, let them handle it
+			return nil
+		}
+
+		// Re-read to verify we won the race (another coordinator may have written simultaneously)
+		verifyMeta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+		if verifyMeta != nil && verifyMeta.Status == backup.Cancelled {
+			// Another coordinator already completed cancellation
+			return nil
+		}
+		s.restorer.lastOp.set(backup.Cancelling)
+	} else {
+		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
+		backupMeta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
+		if backupMeta != nil {
+			if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(backupMeta.Classes()...)...); err != nil {
+				return err
+			}
+		}
+	}
+
+	// We've claimed cancellation (or meta was nil) - proceed with abort
+	nodes, err := s.restorer.Nodes(ctx, &Request{
+		Method:  OpRestore,
+		Backend: backend,
+		ID:      backupID,
+		Classes: s.restorer.selector.ListClasses(ctx),
+	})
+	if err != nil {
+		return err
+	}
+	s.restorer.abortAll(ctx,
+		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
+
+	// Update coordinator's lastOp status to prevent stale reads from OnStatus()
+	s.restorer.lastOp.set(backup.Cancelled)
+
+	// Write final CANCELED status to restore_config.json
+	if meta != nil {
+		meta.Status = backup.Cancelled
+		meta.Error = "restore canceled by user"
+		meta.CompletedAt = time.Now().UTC()
+		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
+			s.logger.WithField("action", "cancel_restore").
+				WithField("backup_id", backupID).
+				Errorf("failed to write canceled status to restore_config.json: %v", err)
+			// Don't return error - cancellation signal has been sent to nodes
+		}
+	}
+
+	return nil
+}
+
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {

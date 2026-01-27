@@ -601,6 +601,10 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	if !fw.compressed {
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
+			// Check for cancellation before processing each shard
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			shard := shard
 			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
 		}
@@ -610,6 +614,10 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	// source files are compressed
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
+		// Check for cancellation before processing each chunk
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
 			uz, w := NewUnzip(classTempDir, compressionType)
@@ -626,6 +634,10 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 
 func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
 	for _, key := range sd.Files {
+		// Check for cancellation before processing each file
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		destPath := path.Join(classTempDir, key)
 		destDir := path.Dir(destPath)
 		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
