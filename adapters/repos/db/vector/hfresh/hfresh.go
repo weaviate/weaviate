@@ -16,7 +16,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -271,6 +270,17 @@ func (h *HFresh) Flush() error {
 
 func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {
 	return h.Centroids.hnsw.SwitchCommitLogs(ctx)
+}
+
+func (h *HFresh) PauseQueues(ctx context.Context) error {
+	err := h.Centroids.hnsw.PauseQueues(ctx)
+	if err != nil {
+		return err
+	}
+	h.taskQueue.splitQueue.Pause()
+	h.taskQueue.reassignQueue.Pause()
+	h.taskQueue.mergeQueue.Pause()
+	return nil
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {

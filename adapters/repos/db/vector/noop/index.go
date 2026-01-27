@@ -193,3 +193,8 @@ func (i *Index) CompressionStats() compressionhelpers.CompressionStats {
 	// Noop index doesn't compress vectors
 	return compressionhelpers.UncompressedStats{}
 }
+
+func (i *Index) PauseQueues(ctx context.Context) error {
+	// Noop index has no queues to pause
+	return nil
+}

@@ -718,6 +718,11 @@ func (dynamic *dynamic) IsUpgraded() bool {
 	return dynamic.upgraded.Load()
 }
 
+func (dynamic *dynamic) PauseQueues(ctx context.Context) error {
+	// dynamic index has no queues to pause
+	return nil
+}
+
 type DynamicStats struct{}
 
 func (s *DynamicStats) IndexType() common.IndexType {
