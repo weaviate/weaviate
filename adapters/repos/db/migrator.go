@@ -142,6 +142,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			CycleManagerRoutinesFactor:                   m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
 			ObjectsTTLBatchSize:                          m.db.config.ObjectsTTLBatchSize,
+			ObjectsTTLPauseEveryNoBatches:                m.db.config.ObjectsTTLPauseEveryNoBatches,
+			ObjectsTTLPauseDuration:                      m.db.config.ObjectsTTLPauseDuration,
 			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
 			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,

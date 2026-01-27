@@ -20,12 +20,12 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4/json"
-	"github.com/netresearch/go-cron"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/weaviate/weaviate/usecases/config/parser"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -407,24 +407,19 @@ replica_movement_minimum_async_wait: 10s`)
 	})
 
 	t.Run("updating objects ttl", func(t *testing.T) {
-		deleteSchedule, _ := runtime.NewDynamicValueWithValidation("@every 1h", func(val string) error {
-			if _, err := cron.FullParser().Parse(val); err != nil {
-				return fmt.Errorf("delete_schedule: %w", err)
-			}
-			return nil
-		})
-		batchSize, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLBatchSize, func(val int) error {
-			return validatePositiveInt(val, "find_batch_size")
-		})
-		concurrencyFactor, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLConcurrencyFactor, func(val float64) error {
-			return validatePositiveFloat(val, "concurrency_factor")
-		})
+		deleteSchedule, _ := runtime.NewDynamicValueWithValidation("@every 1h", parser.ValidateGocronSchedule)
+		batchSize, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLBatchSize, parser.ValidateIntGreaterThanEqual0)
+		pauseEveryNoBatches, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLPauseEveryNoBatches, parser.ValidateIntGreaterThanEqual0)
+		pauseDuration, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLPauseDuration, parser.ValidateDurationGreaterThanEqual0)
+		concurrencyFactor, _ := runtime.NewDynamicValueWithValidation(DefaultObjectsTTLConcurrencyFactor, parser.ValidateFloatGreaterThan0)
 
 		emptyBuf := []byte("")
 		reg := &WeaviateRuntimeConfig{
-			ObjectsTTLDeleteSchedule:    deleteSchedule,
-			ObjectsTTLBatchSize:         batchSize,
-			ObjectsTTLConcurrencyFactor: concurrencyFactor,
+			ObjectsTTLDeleteSchedule:      deleteSchedule,
+			ObjectsTTLBatchSize:           batchSize,
+			ObjectsTTLPauseEveryNoBatches: pauseEveryNoBatches,
+			ObjectsTTLPauseDuration:       pauseDuration,
+			ObjectsTTLConcurrencyFactor:   concurrencyFactor,
 		}
 
 		t.Run("delete schedule", func(t *testing.T) {
@@ -491,6 +486,72 @@ replica_movement_minimum_async_wait: 10s`)
 			require.NoError(t, err)
 			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 			assert.Equal(t, DefaultObjectsTTLBatchSize, batchSize.Get())
+		})
+
+		t.Run("pause every number batches", func(t *testing.T) {
+			buf := func(val int) []byte {
+				return fmt.Appendf(nil, "objects_ttl_pause_every_no_batches: %d", val)
+			}
+
+			// initial default
+			assert.Equal(t, DefaultObjectsTTLPauseEveryNoBatches, pauseEveryNoBatches.Get())
+
+			// set to 20
+			parsed, err := ParseRuntimeConfig(buf(20))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 20, pauseEveryNoBatches.Get())
+
+			// try set invalid value
+			parsed, err = ParseRuntimeConfig(buf(-10))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 20, pauseEveryNoBatches.Get())
+
+			// update to 30
+			parsed, err = ParseRuntimeConfig(buf(30))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 30, pauseEveryNoBatches.Get())
+
+			// remove -> back to default
+			parsed, err = ParseRuntimeConfig(emptyBuf)
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, DefaultObjectsTTLPauseEveryNoBatches, pauseEveryNoBatches.Get())
+		})
+
+		t.Run("pause duration", func(t *testing.T) {
+			buf := func(val string) []byte {
+				return fmt.Appendf(nil, "objects_ttl_pause_duration: %s", val)
+			}
+
+			// initial default
+			assert.Equal(t, DefaultObjectsTTLPauseDuration, pauseDuration.Get())
+
+			// set to 2 mins
+			parsed, err := ParseRuntimeConfig(buf("2m"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 2*time.Minute, pauseDuration.Get())
+
+			// try set invalid value
+			parsed, err = ParseRuntimeConfig(buf("-1h"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 2*time.Minute, pauseDuration.Get())
+
+			// update to 3 hours
+			parsed, err = ParseRuntimeConfig(buf("3h"))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, 3*time.Hour, pauseDuration.Get())
+
+			// remove -> back to default
+			parsed, err = ParseRuntimeConfig(emptyBuf)
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+			assert.Equal(t, DefaultObjectsTTLPauseDuration, pauseDuration.Get())
 		})
 
 		t.Run("concurrency factor", func(t *testing.T) {

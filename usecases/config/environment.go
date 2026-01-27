@@ -22,13 +22,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -152,43 +152,40 @@ func FromEnv(config *Config) error {
 	}
 
 	{
-		objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
-		if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
-			func(val float64) {
-				validate := func(val float64) error { return validatePositiveFloat(val, objectsTtlConcurrencyFactorEnv) }
-				config.ObjectsTTLConcurrencyFactor, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-			},
-			DefaultObjectsTTLConcurrencyFactor); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
+		if err := parser.ParseDynamicFloatWithValidation("OBJECTS_TTL_CONCURRENCY_FACTOR",
+			DefaultObjectsTTLConcurrencyFactor,
+			parser.ValidateFloatGreaterThan0,
+			func(val *configRuntime.DynamicValue[float64]) { config.ObjectsTTLConcurrencyFactor = val }); err != nil {
+			return err
 		}
 
-		objectsTtlBatchSizeEnv := "OBJECTS_TTL_BATCH_SIZE"
-		if err := parsePositiveInt(objectsTtlBatchSizeEnv,
-			func(val int) {
-				validate := func(val int) error { return validatePositiveInt(val, objectsTtlBatchSizeEnv) }
-				config.ObjectsTTLBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-			},
-			DefaultObjectsTTLBatchSize); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlBatchSizeEnv, err)
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_BATCH_SIZE",
+			DefaultObjectsTTLBatchSize,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLBatchSize = val }); err != nil {
+			return err
 		}
 
-		objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
-		objectsTtlDeleteSchedule := DefaultObjectsTTLDeleteSchedule
-		if env := os.Getenv(objectsTtlDeleteScheduleEnv); env != "" {
-			objectsTtlDeleteSchedule = env
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_PAUSE_EVERY_NO_BATCHES",
+			DefaultObjectsTTLPauseEveryNoBatches,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLPauseEveryNoBatches = val }); err != nil {
+			return err
 		}
-		dv, err := configRuntime.NewDynamicValueWithValidation(objectsTtlDeleteSchedule, func(val string) error {
-			if val != "" {
-				if _, err := cron.FullParser().Parse(val); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+
+		if err := parser.ParseDynamicDurationWithValidation("OBJECTS_TTL_PAUSE_DURATION",
+			DefaultObjectsTTLPauseDuration,
+			parser.ValidateDurationGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[time.Duration]) { config.ObjectsTTLPauseDuration = val }); err != nil {
+			return err
 		}
-		config.ObjectsTTLDeleteSchedule = dv
+
+		if err := parser.ParseDynamicStringWithValidation("OBJECTS_TTL_DELETE_SCHEDULE",
+			DefaultObjectsTTLDeleteSchedule,
+			parser.ValidateGocronSchedule,
+			func(val *configRuntime.DynamicValue[string]) { config.ObjectsTTLDeleteSchedule = val }); err != nil {
+			return err
+		}
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
