@@ -24,6 +24,16 @@ func int64Ptr(v int64) *int64 {
 	return &v
 }
 
+func truePtr() *bool {
+	b := true
+	return &b
+}
+
+func falsePtr() *bool {
+	b := false
+	return &b
+}
+
 func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 	className := "AsyncReplicationClass"
 
@@ -37,8 +47,7 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			ReplicationConfig: &models.ReplicationConfig{
-				Factor:       3,
-				AsyncEnabled: false,
+				AsyncDisabled: truePtr(),
 			},
 		}
 
@@ -102,7 +111,7 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 			require.Nil(t, err)
 
 			class := res.Payload
-			class.ReplicationConfig.AsyncEnabled = true
+			class.ReplicationConfig.AsyncDisabled = falsePtr()
 			class.ReplicationConfig.AsyncConfig = tc.config
 
 			// update
@@ -119,7 +128,7 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 
 			rc := res.Payload.ReplicationConfig
 			require.NotNil(t, rc)
-			require.True(t, rc.AsyncEnabled)
+			require.False(t, *rc.AsyncDisabled)
 			require.NotNil(t, rc.AsyncConfig)
 
 			requireAsyncConfigEquals(t, tc.config, rc.AsyncConfig)
@@ -163,11 +172,8 @@ func TestUpdateClassAsyncReplicationValidation(t *testing.T) {
 
 	t.Run("create class", func(t *testing.T) {
 		c := &models.Class{
-			Class: className,
-			ReplicationConfig: &models.ReplicationConfig{
-				Factor:       2,
-				AsyncEnabled: true,
-			},
+			Class:             className,
+			ReplicationConfig: &models.ReplicationConfig{},
 		}
 
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
@@ -196,6 +202,6 @@ func TestUpdateClassAsyncReplicationValidation(t *testing.T) {
 
 		var parsed *clschema.SchemaObjectsUpdateUnprocessableEntity
 		require.ErrorAs(t, err, &parsed)
-		require.Contains(t, parsed.Payload.Error[0].Message, "hashtreeHeight")
+		require.Contains(t, parsed.Payload.Error[0].Message, "value 500 out of range")
 	})
 }

@@ -700,6 +700,14 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 		return 0, err
 	}
 
+	// Check if the vector is empty - this can happen if the object exists but has no vector,
+	// or if the object was deleted but the node still exists in the HNSW graph
+	if len(candidateVec) == 0 {
+		// For single-vector HNSW, nodeID is the same as docID
+		// Return ErrNotFound so it can be handled like a deleted node
+		return 0, storobj.NewErrNotFoundf(nodeID, "empty vector at nodeID %d", nodeID)
+	}
+
 	dist, err := distancer.Distance(candidateVec)
 	if err != nil {
 		return 0, errors.Wrap(err, "calculate distance between candidate and query")
