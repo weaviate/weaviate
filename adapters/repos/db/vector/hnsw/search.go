@@ -849,24 +849,33 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	if allowList != nil && useAcorn {
+		seeds := 10
 		it := allowList.Iterator()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
-		if !isMultivec {
-			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-				idx, ok = it.Next()
+		for seeds > 0 {
+			if !isMultivec {
+				for ok && (h.nodes[idx] == nil || h.hasTombstone(idx)) {
+					idx, ok = it.Next()
+				}
+			} else {
+				_, exists := h.docIDVectors[idx]
+				for ok && !exists {
+					idx, ok = it.Next()
+					_, exists = h.docIDVectors[idx]
+				}
 			}
-		} else {
-			_, exists := h.docIDVectors[idx]
-			for ok && !exists {
-				idx, ok = it.Next()
-				_, exists = h.docIDVectors[idx]
+
+			if !ok || !allowList.Contains(idx) {
+				break
 			}
+
+			entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+			eps.Insert(idx, entryPointDistance)
+			idx, ok = it.Next()
+			seeds--
 		}
 		h.shardedNodeLocks.RUnlockAll()
-
-		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-		eps.Insert(idx, entryPointDistance)
 	}
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {

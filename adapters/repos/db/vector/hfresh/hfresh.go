@@ -70,12 +70,12 @@ type HFresh struct {
 	quantizer          *compressionhelpers.BinaryRotationalQuantizer
 
 	// Internal components
-	Centroids       *HNSWIndex            // Provides access to the centroids.
-	PostingStore    *PostingStore         // Used for managing persistence of postings.
-	IDs             *common.Sequence      // Shared monotonic counter for generating unique IDs for new postings.
-	VersionMap      *VersionMap           // Stores vector versions in-memory.
-	IndexMetadata   *IndexMetadataStore   // Stores metadata about the index.
-	PostingMetadata *PostingMetadataStore // Stores metadata about the postings.
+	Centroids     *HNSWIndex          // Provides access to the centroids.
+	PostingStore  *PostingStore       // Used for managing persistence of postings.
+	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
+	VersionMap    *VersionMap         // Stores vector versions in-memory.
+	PostingMap    *PostingMap         // Maps postings to vector IDs.
+	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -104,33 +104,24 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
-	postingMetadata := NewPostingMetadataStore(bucket, metrics)
-
-	postingStore, err := NewPostingStore(store, postingMetadata, bucket, metrics, cfg.ID, cfg.Store)
+	postingStore, err := NewPostingStore(store, bucket, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
-
-	versionMap, err := NewVersionMap(bucket)
-	if err != nil {
-		return nil, err
-	}
-
-	indexMetadata := NewIndexMetadataStore(bucket)
 
 	h := HFresh{
-		id:              cfg.ID,
-		logger:          cfg.Logger.WithField("component", "HFresh"),
-		config:          cfg,
-		scheduler:       cfg.Scheduler,
-		store:           store,
-		metrics:         metrics,
-		PostingStore:    postingStore,
-		vectorForId:     cfg.VectorForIDThunk,
-		VersionMap:      versionMap,
-		PostingMetadata: postingMetadata,
-		IndexMetadata:   indexMetadata,
-		postingLocks:    common.NewDefaultShardedRWLocks(),
+		id:            cfg.ID,
+		logger:        cfg.Logger.WithField("component", "HFresh"),
+		config:        cfg,
+		scheduler:     cfg.Scheduler,
+		store:         store,
+		metrics:       metrics,
+		PostingStore:  postingStore,
+		vectorForId:   cfg.VectorForIDThunk,
+		VersionMap:    NewVersionMap(bucket),
+		PostingMap:    NewPostingMap(bucket, metrics),
+		IndexMetadata: NewIndexMetadataStore(bucket),
+		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:      visited.NewPool(1, 512, -1),

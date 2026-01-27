@@ -23,7 +23,7 @@ import (
 // if one of the selected postings is equal to `reassignedFromID`.
 func (h *HFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
 	replicas := NewResultSet(int(h.replicas))
-	candidates, err := h.Centroids.Search(query, h.config.InternalPostingCandidates)
+	candidates, err := h.Centroids.Search(query, h.config.InternalPostingCandidates, nil)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
