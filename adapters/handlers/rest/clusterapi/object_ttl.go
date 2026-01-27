@@ -20,8 +20,10 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -31,10 +33,17 @@ type ObjectTTL struct {
 	auth           auth
 	requestRunning atomic.Bool
 	logger         logrus.FieldLogger
+	config         config.Config
 }
 
-func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger) *ObjectTTL {
-	return &ObjectTTL{remoteIndex: remoteIndex, auth: auth, requestRunning: atomic.Bool{}, logger: logger}
+func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger, config config.Config) *ObjectTTL {
+	return &ObjectTTL{
+		remoteIndex:    remoteIndex,
+		auth:           auth,
+		requestRunning: atomic.Bool{},
+		logger:         logger,
+		config:         config,
+	}
 }
 
 func (d *ObjectTTL) Expired() http.Handler {
@@ -102,34 +111,61 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			return
 		}
 
-		d.logger.WithFields(logrus.Fields{"action": "incoming_delete_expired_objects", "classes": len(body)}).Info("received request to delete expired objects")
-
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
 			// make sure to unlock the requestRunning flag when all deletions are done
 			defer d.requestRunning.Store(false)
-			eg := enterrors.NewErrorGroupWrapper(d.logger)
 
-			ec := errorcompounder.New()
+			var err error
+			started := time.Now()
+			// count objects deleted per collection
+			objsDeletedCounters := make(objectttl.DeletedCounters, len(body))
+			colNames := make([]string, len(body))
+			for i := range body {
+				colNames[i] = body[i].Class
+			}
+
+			logger := d.logger.WithField("action", "objects_ttl_deletion")
+			logger.WithFields(logrus.Fields{
+				"collections":       colNames,
+				"collections_count": len(colNames),
+			}).Info("incoming ttl deletion on remote node started")
+			defer func() {
+				// add fields c_{collection_name}=>{count_deleted} and total_deleted=>{total_deleted}
+				fields := objsDeletedCounters.ToLogFields(16)
+				fields["took"] = time.Since(started).String()
+				logger = logger.WithFields(fields)
+
+				if err != nil {
+					logger.WithError(err).Error("incoming ttl deletion on remote node failed")
+					return
+				}
+				logger.Info("incoming ttl deletion on remote node finished")
+			}()
+
+			ec := errorcompounder.NewSafe()
+			eg := enterrors.NewErrorGroupWrapper(d.logger)
+			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor.Get()))
+
 			for _, classPayload := range body {
 				className := classPayload.Class
+				objsDeletedCounters[className] = &atomic.Int32{}
+				countDeleted := func(count int32) { objsDeletedCounters[className].Add(count) }
 
+				// TODO aliszka:ttl handle graceful index close / drop
 				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
 				if err != nil {
-					ec.Add(fmt.Errorf("get index for class %q: %w", className, err))
+					ec.AddGroups(fmt.Errorf("get index: %w", err), className)
 					continue
 				}
 
-				err = idx.IncomingDeleteObjectsExpired(eg, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli), time.UnixMilli(classPayload.DelMilli), classPayload.ClassVersion)
-				if err != nil {
-					ec.Add(fmt.Errorf("delete expired for class %q: %w", className, err))
-				}
+				idx.IncomingDeleteObjectsExpired(eg, ec, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli),
+					time.UnixMilli(classPayload.DelMilli), countDeleted, classPayload.ClassVersion)
 			}
 
 			eg.Wait() // ignore errors from goroutines, they are collected in ec
-			if err := ec.ToError(); err != nil {
-				d.logger.WithError(err).Error("incoming delete expired objects failed")
-			}
+
+			err = ec.ToError()
 		}, d.logger)
 
 		w.WriteHeader(http.StatusAccepted)
