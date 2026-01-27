@@ -13,6 +13,7 @@ package dynsemaphore
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -69,8 +70,10 @@ func (s *DynamicWeighted) acquireLocal(ctx context.Context, n int64) error {
 	limit := s.limitFn()
 	if n > limit {
 		s.mu.Unlock()
-		<-ctx.Done()
-		return ctx.Err()
+		return fmt.Errorf(
+			"dynsemaphore: requested %d exceeds current limit %d",
+			n, limit,
+		)
 	}
 
 	// Fast path
@@ -93,6 +96,17 @@ func (s *DynamicWeighted) acquireLocal(ctx context.Context, n int64) error {
 		return nil
 	case <-ctx.Done():
 		s.mu.Lock()
+
+		// Re-check: was the waiter already granted?
+		select {
+		case <-w.ready:
+			// Grant won the race; acquisition succeeded
+			s.mu.Unlock()
+			return nil
+		default:
+		}
+
+		// Still waiting → remove from waiters
 		for i, ww := range s.waiters {
 			if ww.ready == w.ready {
 				copy(s.waiters[i:], s.waiters[i+1:])
@@ -100,6 +114,7 @@ func (s *DynamicWeighted) acquireLocal(ctx context.Context, n int64) error {
 				break
 			}
 		}
+
 		s.mu.Unlock()
 		return ctx.Err()
 	}
