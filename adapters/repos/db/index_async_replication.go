@@ -165,7 +165,7 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	propagationDelay := defaultPropagationDelay
 	if cfg.PropagationDelay != nil {
-		propagationDelay = time.Duration(*cfg.PropagationDelay)
+		propagationDelay = time.Duration(*cfg.PropagationDelay) * time.Millisecond
 	}
 
 	config.propagationDelay, err = optParseDuration(
