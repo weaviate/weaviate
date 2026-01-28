@@ -69,6 +69,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
+	fmt.Sprintf(`^%s$`, authorization.McpDomain),
 	fmt.Sprintf(`^%s/verbosity/minimal$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
@@ -197,6 +198,10 @@ func CasbinData(collection, shard, object string) string {
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	object = strings.ReplaceAll(object, "*", ".*")
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
+}
+
+func CasbinMcp() string {
+	return authorization.McpDomain
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -354,6 +359,8 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinAliases(collection, alias)
+	case authorization.McpDomain:
+		resource = CasbinMcp()
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -471,6 +478,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Group:     &splits[2],
 			GroupType: models.GroupType(splits[1]),
 		}
+	case authorization.McpDomain:
+		permission.Mcp = make(map[string]any)
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
