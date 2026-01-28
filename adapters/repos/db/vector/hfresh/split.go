@@ -160,7 +160,9 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 
 	data := posting.Uncompress(h.quantizer)
 
+	start := time.Now()
 	idsAssignments, err := enc.FitBalanced(data)
+	h.metrics.KMeansDuration(start)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fit KMeans encoder for split operation")
 	}
