@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestHFreshUserConfigUpdates(t *testing.T) {
@@ -54,12 +55,6 @@ func TestHFreshUserConfigUpdates(t *testing.T) {
 				expectedError: nil,
 			},
 			{
-				name:          "changing rngFactor",
-				initial:       ent.UserConfig{RNGFactor: 10.0},
-				update:        ent.UserConfig{RNGFactor: 15.0},
-				expectedError: nil,
-			},
-			{
 				name:          "changing searchProbe",
 				initial:       ent.UserConfig{SearchProbe: 64},
 				update:        ent.UserConfig{SearchProbe: 128},
@@ -67,14 +62,14 @@ func TestHFreshUserConfigUpdates(t *testing.T) {
 			},
 			{
 				name:          "changing rescoreLimit",
-				initial:       ent.UserConfig{RescoreLimit: 350},
-				update:        ent.UserConfig{RescoreLimit: 500},
+				initial:       ent.UserConfig{RQ: hnsw.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 350}},
+				update:        ent.UserConfig{RQ: hnsw.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 500}},
 				expectedError: nil,
 			},
 			{
 				name:          "changing multiple mutable fields",
-				initial:       ent.UserConfig{MaxPostingSizeKB: 50, RescoreLimit: 350},
-				update:        ent.UserConfig{MaxPostingSizeKB: 100, RescoreLimit: 500},
+				initial:       ent.UserConfig{MaxPostingSizeKB: 50, RQ: hnsw.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 350}},
+				update:        ent.UserConfig{MaxPostingSizeKB: 100, RQ: hnsw.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 500}},
 				expectedError: nil,
 			},
 			{

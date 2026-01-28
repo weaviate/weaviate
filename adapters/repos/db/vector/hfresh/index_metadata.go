@@ -21,6 +21,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 const (
@@ -32,10 +33,11 @@ const (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 const (
-	versionMapBucketPrefix      = 'v'
-	metadataBucketPrefix        = 'm'
-	postingMetadataBucketPrefix = 'p'
-	reassignBucketKey           = "pending_reassignments"
+	indexMetadataBucketPrefix  = 'm'
+	versionMapBucketPrefix     = 'v'
+	postingMapBucketPrefix     = 'p'
+	postingVersionBucketPrefix = 'l'
+	reassignBucketKey          = "pending_reassignments"
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
@@ -70,7 +72,7 @@ func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
 
 func (i *IndexMetadataStore) key(suffix string) []byte {
 	buf := make([]byte, 1+len(suffix))
-	buf[0] = metadataBucketPrefix
+	buf[0] = indexMetadataBucketPrefix
 	copy(buf[1:], suffix)
 	return buf
 }
@@ -124,7 +126,7 @@ func (i *IndexMetadataStore) GetQuantizationData() (*QuantizationData, error) {
 }
 
 type QuantizationData struct {
-	RQ compressionhelpers.RQData `msgpack:"rq"`
+	RQ compression.RQData `msgpack:"rq"`
 }
 
 func (h *HFresh) restoreMetadata() error {
@@ -181,7 +183,7 @@ func (h *HFresh) restoreBackgroundMetrics() error {
 }
 
 // restoreQuantizationData restores RQ quantizer from msgpack data
-func (h *HFresh) restoreQuantizationData(rqData *compressionhelpers.RQData) error {
+func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 	// Restore the RQ quantizer
 	rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 		int(rqData.InputDim),

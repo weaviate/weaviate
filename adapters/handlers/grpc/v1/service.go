@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
@@ -34,10 +35,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaEnt "github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -48,7 +48,7 @@ type Service struct {
 	traverser            *traverser.Traverser
 	authComposer         composer.TokenFunc
 	allowAnonymousAccess bool
-	schemaManager        *schemaManager.Manager
+	schemaManager        *schema.Manager
 	batchManager         *objects.BatchManager
 	config               *config.Config
 	authorizer           authorization.Authorizer
@@ -62,7 +62,7 @@ type Service struct {
 func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
 	authenticator := auth.NewHandler(allowAnonymous, authComposer)
 	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager)
-	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, prometheus.DefaultRegisterer, NUMCPU, state.Logger)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, state.SchemaManager, prometheus.DefaultRegisterer, NUMCPU, state.Logger)
 	return &Service{
 		traverser:            state.Traverser,
 		authComposer:         authComposer,
@@ -327,7 +327,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	}
 
 	for _, prop := range searchParams.Properties {
-		_, err := schema.GetPropertyByName(class, prop.Name)
+		_, err := schemaEnt.GetPropertyByName(class, prop.Name)
 		if err != nil {
 			return err
 		}

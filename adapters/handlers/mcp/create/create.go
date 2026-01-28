@@ -17,24 +17,25 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type WeaviateCreator struct {
 	auth.Auth
 
-	objectsManager    objectsManager
+	batchManager      batchManager
 	defaultCollection string
 }
 
-type objectsManager interface {
-	AddObject(context.Context, *models.Principal, *models.Object,
-		*additional.ReplicationProperties) (*models.Object, error)
+type batchManager interface {
+	AddObjects(ctx context.Context, principal *models.Principal,
+		objects []*models.Object, fields []*string, repl *additional.ReplicationProperties) (objects.BatchObjects, error)
 }
 
-func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager) *WeaviateCreator {
+func NewWeaviateCreator(auth *auth.Auth, batchManager batchManager) *WeaviateCreator {
 	return &WeaviateCreator{
 		defaultCollection: "DefaultCollection",
-		objectsManager:    objectsManager,
+		batchManager:      batchManager,
 		Auth:              *auth,
 	}
 }

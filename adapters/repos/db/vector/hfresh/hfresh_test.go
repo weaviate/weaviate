@@ -31,6 +31,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -40,6 +41,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
+
+type noopBucketView struct{}
+
+func (n *noopBucketView) ReleaseView() {}
+
+func getViewThunk() common.BucketView {
+	return &noopBucketView{}
+}
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
@@ -96,6 +105,7 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 		DistanceProvider:  distancer.NewCosineDistanceProvider(),
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		AllocChecker:      memwatch.NewDummyMonitor(),
+		GetViewThunk:      getViewThunk,
 	}
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 
@@ -201,12 +211,13 @@ func TestHFreshRecall(t *testing.T) {
 	t.Run("test disk layout", func(t *testing.T) {
 		dirs, err := os.ReadDir(cfg.RootPath)
 		require.NoError(t, err)
-		require.Len(t, dirs, 5)
-		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[0].Name())
-		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[1].Name())
-		require.Equal(t, "merge.queue.d", dirs[2].Name())
-		require.Equal(t, "reassign.queue.d", dirs[3].Name())
-		require.Equal(t, "split.queue.d", dirs[4].Name())
+		require.Len(t, dirs, 6)
+		require.Equal(t, "analyze.queue.d", dirs[0].Name())
+		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[1].Name())
+		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[2].Name())
+		require.Equal(t, "merge.queue.d", dirs[3].Name())
+		require.Equal(t, "reassign.queue.d", dirs[4].Name())
+		require.Equal(t, "split.queue.d", dirs[5].Name())
 	})
 
 	t.Run("restart and re-test recall", func(t *testing.T) {

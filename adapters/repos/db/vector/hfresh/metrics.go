@@ -27,6 +27,9 @@ type Metrics struct {
 	deleteTime       prometheus.Observer
 	postings         prometheus.Gauge
 	postingSize      prometheus.Observer
+	analyzePending   prometheus.Gauge
+	analyze          prometheus.Observer
+	analyzeCount     prometheus.Gauge
 	splitsPending    prometheus.Gauge
 	split            prometheus.Observer
 	splitCount       prometheus.Gauge
@@ -93,6 +96,24 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	postingSize := prom.VectorIndexPostingSize.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
+	})
+
+	analyzePending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "analyze",
+	})
+
+	analyze := prom.VectorIndexBackgroundOperationsDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "analyze",
+	})
+
+	analyzeCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "analyze",
 	})
 
 	splitsPending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
@@ -182,6 +203,9 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		deleteTime:       deleteTime,
 		postings:         postings,
 		postingSize:      postingSize,
+		analyzePending:   analyzePending,
+		analyze:          analyze,
+		analyzeCount:     analyzeCount,
 		splitsPending:    splitsPending,
 		split:            split,
 		splitCount:       splitCount,
@@ -240,6 +264,46 @@ func (m *Metrics) ObservePostingSize(size float64) {
 	m.postingSize.Observe(size)
 }
 
+func (m *Metrics) EnqueueAnalyzeTask() {
+	if !m.enabled {
+		return
+	}
+
+	m.analyzePending.Inc()
+}
+
+func (m *Metrics) DequeueAnalyzeTask() {
+	if !m.enabled {
+		return
+	}
+
+	m.analyzePending.Dec()
+}
+
+func (m *Metrics) AnalyzeDuration(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	m.analyze.Observe(float64(time.Since(start).Milliseconds()))
+}
+
+func (m *Metrics) IncAnalyzeCount() {
+	if !m.enabled {
+		return
+	}
+
+	m.analyzeCount.Inc()
+}
+
+func (m *Metrics) SetAnalyzeCount(count int64) {
+	if !m.enabled {
+		return
+	}
+
+	m.analyzePending.Add(float64(count))
+}
+
 func (m *Metrics) EnqueueSplitTask() {
 	if !m.enabled {
 		return
@@ -277,7 +341,7 @@ func (m *Metrics) SetSplitCount(count int64) {
 		return
 	}
 
-	m.splitsPending.Set(float64(count))
+	m.splitsPending.Add(float64(count))
 }
 
 func (m *Metrics) EnqueueMergeTask() {
@@ -317,7 +381,7 @@ func (m *Metrics) SetMergeCount(count int64) {
 		return
 	}
 
-	m.mergesPending.Set(float64(count))
+	m.mergesPending.Add(float64(count))
 }
 
 func (m *Metrics) EnqueueReassignTask() {
@@ -357,7 +421,7 @@ func (m *Metrics) SetReassignCount(count int64) {
 		return
 	}
 
-	m.reassignsPending.Set(float64(count))
+	m.reassignsPending.Add(float64(count))
 }
 
 func (m *Metrics) CentroidSearchDuration(start time.Time) {

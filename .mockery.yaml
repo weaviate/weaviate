@@ -105,6 +105,11 @@ packages:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"
           inpackage: false
+      schemaManager:
+        config:
+          dir: "adapters/handlers/grpc/v1/batch/mocks"
+          outpkg: "mocks"
+          inpackage: false
   github.com/weaviate/weaviate/grpc/generated/protocol/v1:
     interfaces:
       Weaviate_BatchStreamServer:

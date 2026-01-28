@@ -11,7 +11,14 @@
 
 package create
 
-type InsertOneArgs struct {
-	Collection string         `json:"collection" jsonschema_description:"Name of collection to insert into"`
-	Properties map[string]any `json:"properties,omitempty" jsonschema_description:"Properties of the object to insert"`
+type ObjectToUpsert struct {
+	UUID       string               `json:"uuid,omitempty" jsonschema_description:"UUID of the object. If not provided, a new UUID will be generated"`
+	Properties map[string]any       `json:"properties" jsonschema:"required" jsonschema_description:"Properties of the object. For date properties, use RFC3339 format with time and timezone (e.g., '2020-01-01T00:00:00Z'), not just the date."`
+	Vectors    map[string][]float32 `json:"vectors,omitempty" jsonschema_description:"Named vectors for the object (e.g., {'default': [0.1, 0.2, ...], 'image': [0.3, 0.4, ...]})"`
+}
+
+type UpsertObjectArgs struct {
+	CollectionName string           `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to upsert objects into"`
+	TenantName     string           `json:"tenant_name,omitempty" jsonschema_description:"Name of the tenant the objects belong to (for multi-tenant collections)"`
+	Objects        []ObjectToUpsert `json:"objects" jsonschema:"required,minItems=1" jsonschema_description:"Array of objects to upsert. Each object should have 'properties' (required) and optionally 'uuid' and 'vectors'. Minimum 1 object required."`
 }

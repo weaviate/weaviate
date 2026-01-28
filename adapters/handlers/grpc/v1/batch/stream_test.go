@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -36,6 +37,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -56,7 +58,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -66,6 +68,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -86,7 +89,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -96,17 +99,23 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
+		collection := "TestClass"
 		obj := &pb.BatchObject{
-			Collection: "TestClass",
+			Collection: collection,
 		}
 		mockBatcher.EXPECT().
 			BatchObjects(mock.Anything, &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{obj}}).
 			Return(&pb.BatchObjectsReply{Errors: []*pb.BatchObjectsReply_BatchError{{Error: "batcher error"}}}, nil).
+			Once()
+		mockSchemaManager.EXPECT().
+			GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
 			Once()
 
 		recvCount := 0
@@ -133,7 +142,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -142,14 +151,21 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
+		collection := "TestClass"
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().
+			GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
+			Once()
+
 		mockStream := newMockStream(t)
-		mockStream.EXPECT().Context().Return(ctx).Twice()
+		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
 		mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
 
 		obj := &pb.BatchObject{
-			Collection: "TestClass",
+			Collection: collection,
 		}
 		mockBatcher.EXPECT().
 			BatchObjects(mock.Anything, &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{obj}}).
@@ -180,7 +196,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -192,6 +208,7 @@ func TestStreamHandler(t *testing.T) {
 		logger := logrus.New()
 
 		mockBatcher := mocks.NewMockbatcher(t)
+		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -209,10 +226,15 @@ func TestStreamHandler(t *testing.T) {
 				Errors: nil,
 			}, nil
 		}).Maybe()
+		collection := "TestClass"
+		mockSchemaManager.EXPECT().
+			GetCachedClassNoAuth(mock.Anything, collection).
+			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
+			Maybe()
 
 		objs := make([]*pb.BatchObject, 0, numObjs)
 		for i := 0; i < numObjs; i++ {
-			objs = append(objs, &pb.BatchObject{Collection: "TestClass"})
+			objs = append(objs, &pb.BatchObject{Collection: collection})
 		}
 
 		recvCount := 0
@@ -239,7 +261,7 @@ func TestStreamHandler(t *testing.T) {
 		})).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when handling stream")
 		require.Len(t, objsCh, numObjs, "Expected all objects to be processed into mock channel")

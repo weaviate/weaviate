@@ -14,16 +14,19 @@ package create
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 )
 
-func Tools(creator *WeaviateCreator) []server.ServerTool {
+func Tools(creator *WeaviateCreator, descriptions map[string]string) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
-				"insert-one",
-				mcp.WithDescription("Insert a single object into a collection in the database."),
+				"weaviate-objects-upsert",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-upsert",
+					"Upserts (inserts or updates) one or more objects into a collection in batch. Supports batch operations for efficient bulk inserts and updates.")),
+				mcp.WithInputSchema[UpsertObjectArgs](),
 			),
-			Handler: mcp.NewStructuredToolHandler(creator.InsertOne),
+			Handler: mcp.NewStructuredToolHandler(creator.UpsertObject),
 		},
 	}
 }

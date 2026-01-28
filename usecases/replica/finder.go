@@ -143,13 +143,13 @@ func (f *Finder) GetOne(ctx context.Context,
 	return result.Value, err
 }
 
-func (f *Finder) FindUUIDs(ctx context.Context,
-	className, shard string, filters *filters.LocalFilter, l types.ConsistencyLevel,
+func (f *Finder) FindUUIDs(ctx context.Context, className, shard string,
+	filters *filters.LocalFilter, l types.ConsistencyLevel, limit int,
 ) (uuids []strfmt.UUID, err error) {
 	c := NewReadCoordinator[[]strfmt.UUID](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
-		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
+		return f.client.FindUUIDs(ctx, host, f.class, shard, filters, limit)
 	}
 
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
@@ -159,25 +159,40 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	}
 
 	res := make(map[strfmt.UUID]struct{})
+	anyOk := false
+	ec := errorcompounder.New()
 
 	for r := range replyCh {
 		if r.Err != nil {
+			ec.Add(r.Err)
 			f.logger.WithField("op", "finder.find_uuids").WithError(r.Err).Debug("error in reply channel")
 			continue
 		}
 
+		anyOk = true
 		for _, uuid := range r.Value {
 			res[uuid] = struct{}{}
 		}
 	}
 
-	uuids = make([]strfmt.UUID, 0, len(res))
-
-	for uuid := range res {
-		uuids = append(uuids, uuid)
+	if !anyOk {
+		return nil, ec.ToError()
 	}
 
-	return uuids, err
+	count := len(res)
+	if limit > 0 {
+		count = min(limit, len(res))
+	}
+	uuids = make([]strfmt.UUID, count)
+	i := 0
+	for uuid := range res {
+		uuids[i] = uuid
+		i++
+		if i == count {
+			break
+		}
+	}
+	return uuids, nil
 }
 
 type ShardDesc struct {

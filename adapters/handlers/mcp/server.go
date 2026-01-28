@@ -13,11 +13,14 @@ package mcp
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/create"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/read"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -30,6 +33,7 @@ type MCPServer struct {
 	creator           *create.WeaviateCreator
 	searcher          *search.WeaviateSearcher
 	reader            *read.WeaviateReader
+	state             *state.State
 }
 
 func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServer, error) {
@@ -45,9 +49,10 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 		),
 		// TODO: configurable collection name
 		defaultCollection: "DefaultCollection",
-		creator:           create.NewWeaviateCreator(authHandler, objectsManager),
+		creator:           create.NewWeaviateCreator(authHandler, state.BatchManager),
 		searcher:          search.NewWeaviateSearcher(authHandler, state.Traverser),
 		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager),
+		state:             state,
 	}
 	s.registerTools()
 	return s, nil
@@ -65,7 +70,17 @@ func (s *MCPServer) Serve() {
 }
 
 func (s *MCPServer) registerTools() {
-	s.server.AddTools(create.Tools(s.creator)...)
+	// Load configuration for custom tool descriptions
+	config := internal.LoadConfig(s.state.Logger)
+	descriptions := config.ToDescriptionMap()
+
 	s.server.AddTools(search.Tools(s.searcher)...)
 	s.server.AddTools(read.Tools(s.reader)...)
+
+	// Write access is disabled by default. It is enabled only when
+	// MCP_SERVER_WRITE_ACCESS_DISABLED is set to "false" (case-insensitive).
+	writeDisabled := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED")
+	if strings.ToLower(writeDisabled) == "false" {
+		s.server.AddTools(create.Tools(s.creator, descriptions)...)
+	}
 }
