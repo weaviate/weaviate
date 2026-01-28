@@ -116,6 +116,7 @@ message SearchReply {
   optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
+  optional bytes iterator_next_uuid = 6;
 }
 
 message RerankReply {

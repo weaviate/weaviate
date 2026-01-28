@@ -46,6 +46,13 @@ type TargetCombination struct {
 	Weights []float32
 }
 
+// IteratorState carries iterator continuation state from the storage layer
+// back to the API response layer. When non-nil, the shard layer populates
+// NextIteratorUUID if the scan limit is hit during cursor+filter iteration.
+type IteratorState struct {
+	NextIteratorUUID string
+}
+
 type GetParams struct {
 	Filters                 *filters.LocalFilter
 	ClassName               string
@@ -66,6 +73,7 @@ type GetParams struct {
 	Tenant                  string
 	IsRefOrigin             bool   // is created by ref filter
 	Alias                   string // used only to transfer alias passed in search request, not used for actual search
+	IteratorState           *IteratorState
 }
 
 type Embedding interface {
