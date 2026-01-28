@@ -671,7 +671,13 @@ func (s *Shard) handleHashbeatWakeup(
 	lastHashbeatPropagatedObjects *bool,
 	lastHashbeatMux *sync.Mutex,
 ) (shouldStop bool) {
-	if (!s.index.AsyncReplicationEnabled() && len(s.targetNodeOverrides) == 0) || s.index.maintenanceModeEnabled() {
+	targetNodeOverridesLen := func() int {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+		return len(s.targetNodeOverrides)
+	}()
+
+	if (!s.index.AsyncReplicationEnabled() && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
 		// skip hashbeat iteration when async replication is disabled and no target node overrides are set
 		// or maintenance mode is enabled for localhost
 		if s.index.maintenanceModeEnabled() {
@@ -842,6 +848,7 @@ func (s *Shard) hashBeat(ctx context.Context, config AsyncReplicationConfig) (st
 	}()
 
 	var ht hashtree.AggregatedHashTree
+	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
 	if s.hashtree == nil {
@@ -850,15 +857,19 @@ func (s *Shard) hashBeat(ctx context.Context, config AsyncReplicationConfig) (st
 		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
 	ht = s.hashtree
+	// create a snapshot of targetNodeOverrides to use throughout hashbeat
+	if s.targetNodeOverrides != nil {
+		targetNodeOverridesSnapshot = slices.Clone(s.targetNodeOverrides)
+	}
 	s.asyncReplicationRWMux.RUnlock()
 
 	hashtreeDiffStart := time.Now()
 
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, s.targetNodeOverrides)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
 	if err != nil {
-		if errors.Is(err, replica.ErrNoDiffFound) && len(s.targetNodeOverrides) > 0 {
-			stats := make([]*hashBeatHostStats, 0, len(s.targetNodeOverrides))
-			for _, o := range s.targetNodeOverrides {
+		if errors.Is(err, replica.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
+			stats := make([]*hashBeatHostStats, 0, len(targetNodeOverridesSnapshot))
+			for _, o := range targetNodeOverridesSnapshot {
 				stats = append(stats, &hashBeatHostStats{
 					targetNodeName:        o.TargetNode,
 					hashtreeDiffStartTime: hashtreeDiffStart,
@@ -903,6 +914,7 @@ func (s *Shard) hashBeat(ctx context.Context, config AsyncReplicationConfig) (st
 			initialLeaf,
 			finalLeaf,
 			config.propagationLimit-len(localObjectsToPropagate),
+			targetNodeOverridesSnapshot,
 		)
 		if err != nil {
 			if objectDigestsDiffCtx.Err() != nil {
@@ -946,7 +958,7 @@ func (s *Shard) hashBeat(ctx context.Context, config AsyncReplicationConfig) (st
 
 			if !r.Deleted ||
 				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution ||
-				s.targetNodeOverrides.NoDeletionResolution(shardDiffReader.TargetNodeName) {
+				targetNodeOverridesSnapshot.NoDeletionResolution(shardDiffReader.TargetNodeName) {
 				objectsNotResolved++
 				continue
 			}
@@ -1013,6 +1025,7 @@ type objectToPropagate struct {
 
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
+	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
 ) (localObjectsCount int, remoteObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
 	objectsToPropagate = make([]objectToPropagate, 0, limit)
 
@@ -1067,7 +1080,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 
 		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
 		// or if an upper time bound is configured for shard replica movement
-		maxUpdateTime := s.getHashBeatMaxUpdateTime(config, targetNodeName)
+		maxUpdateTime := s.getHashBeatMaxUpdateTime(config, targetNodeName, targetNodeOverrides)
 
 		for _, d := range allLocalDigests {
 			if d.UpdateTime <= maxUpdateTime {
@@ -1185,9 +1198,9 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 // getHashBeatMaxUpdateTime returns the maximum update time for the hash beat.
 // If our local node and the target node have an upper time bound configured, use the
 // configured upper time bound instead of the default one
-func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNodeName string) int64 {
+func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNodeName string, targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides) int64 {
 	localNodeName := s.index.replicator.LocalNodeName()
-	for _, override := range s.targetNodeOverrides {
+	for _, override := range targetNodeOverrides {
 		if override.Equal(&additional.AsyncReplicationTargetNodeOverride{
 			SourceNode:   localNodeName,
 			TargetNode:   targetNodeName,
