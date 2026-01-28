@@ -524,7 +524,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup2",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
 								ChunkKeys:  []string{"chunk1"},
 								Size:       100,
@@ -544,7 +544,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup3",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
 								Size:       unchangedInfo.Size(),
@@ -564,7 +564,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup4",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk3", "chunk4"},
 								Size:       1000, // Different size, same modified time
@@ -584,7 +584,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup5",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"modified.db": {
 								ChunkKeys:  []string{"chunk5"},
 								Size:       100,                            // Different from actual
@@ -604,7 +604,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup7",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk8"},
 								Size:       unchangedInfo.Size(),
@@ -634,7 +634,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup8",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"nonexistent.db": {
 								ChunkKeys:  []string{"chunk9"},
 								Size:       100,
@@ -653,7 +653,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup9",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"../../../etc/passwd": {
 								ChunkKeys:  []string{"chunk10"},
 								Size:       100,
@@ -672,7 +672,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup10",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{},
+						BigFilesChunk: map[string]BigFileInfo{},
 					},
 				},
 			},
@@ -686,7 +686,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base1",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
 								Size:       unchangedInfo.Size(),
@@ -698,7 +698,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base2",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
 								ChunkKeys:  []string{"chunk3"},
 								Size:       100,
@@ -728,7 +728,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base1",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
 								ChunkKeys:  []string{"chunk1"},
 								Size:       100,
@@ -740,7 +740,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base2",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk2", "chunk3"},
 								Size:       unchangedInfo.Size(),
@@ -770,7 +770,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base1",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
 								Size:       unchangedInfo.Size(),
@@ -782,7 +782,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base2",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"modified.db": {
 								ChunkKeys: []string{"chunk3", "chunk4"},
 								Size:      int64(len("modified content")),
@@ -821,7 +821,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base1",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
 								Size:       unchangedInfo.Size(),
@@ -838,7 +838,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base2",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"file2.db": {
 								ChunkKeys:  []string{"old_chunk2"},
 								Size:       200, // Different size, will be re-backed up
@@ -868,7 +868,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base1",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
 								Size:       unchangedInfo.Size(),
@@ -880,7 +880,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				{
 					BackupId: "backup_base2",
 					ShardDesc: &ShardDescriptor{
-						BigFilesChunk: map[string]BigFiles{
+						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk3", "chunk4"},
 								Size:       unchangedInfo.Size(),
