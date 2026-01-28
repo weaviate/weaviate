@@ -69,7 +69,7 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/miekg/dns v1.1.68 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/netresearch/go-cron v0.6.0 // indirect
+	github.com/netresearch/go-cron v0.9.1 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect

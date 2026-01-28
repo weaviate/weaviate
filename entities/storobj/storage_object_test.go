@@ -1225,8 +1225,8 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
-		// Properties should be nil since they weren't serialized
-		assert.Nil(t, after.Properties())
+		// Properties should be empty since they were serialized as an empty map
+		assert.Empty(t, after.Properties())
 	})
 
 	t.Run("with empty Vectors excludes target vectors from serialization", func(t *testing.T) {
@@ -1323,8 +1323,8 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
-		// Properties should be nil since they weren't serialized
-		assert.Nil(t, after.Properties())
+		// Properties should be empty since they were serialized as an empty map
+		assert.Empty(t, after.Properties())
 		assert.Equal(t, before.ExplainScore(), after.ExplainScore())
 	})
 }
