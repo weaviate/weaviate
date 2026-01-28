@@ -9826,6 +9826,10 @@ func init() {
       "name": "backups"
     },
     {
+      "description": "Operations for exporting Weaviate data to Parquet format on external storage backends (S3, GCS, Azure, or filesystem). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate Parquet file containing object IDs, vectors, properties, and metadata.",
+      "name": "exports"
+    },
+    {
       "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
       "name": "users"
     },
@@ -20129,6 +20133,10 @@ func init() {
     {
       "description": "Operations related to creating and managing backups of Weaviate data. This feature allows you to create snapshots of your collections and store them on external storage backends such as cloud object storage (S3, GCS, Azure) or a shared filesystem. These endpoints enable you to initiate backup and restore processes, monitor their status, list available backups on a backend, and delete unwanted backups. Backups are essential for disaster recovery, data migration, and maintaining point-in-time copies of your vector database.",
       "name": "backups"
+    },
+    {
+      "description": "Operations for exporting Weaviate data to Parquet format on external storage backends (S3, GCS, Azure, or filesystem). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate Parquet file containing object IDs, vectors, properties, and metadata.",
+      "name": "exports"
     },
     {
       "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
