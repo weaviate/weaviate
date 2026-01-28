@@ -131,7 +131,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
 
 		baseBackupID := req.BaseBackupID
-		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, store.bucket, store.path, store.MetaForBackupID)
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, store.bucket, store.path, compressionType, store.MetaForBackupID)
 		if err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
@@ -163,6 +163,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 
 type BackupChainDescriptor interface {
 	GetBaseBackupId() string
+	GetCompressionType() backup.CompressionType
 }
 
 // resolveBaseBackupChain follows the chain of base backups and validates them.
@@ -177,6 +178,7 @@ func resolveBaseBackupChain[T BackupChainDescriptor](
 	ctx context.Context,
 	baseBackupID string,
 	bucket, path string,
+	compression backup.CompressionType,
 	fetchMeta func(ctx context.Context, backupID, bucket, path string) (T, error),
 ) ([]T, error) {
 	if baseBackupID == "" {
@@ -198,6 +200,10 @@ func resolveBaseBackupChain[T BackupChainDescriptor](
 		baseDescr, err := fetchMeta(ctx, nextId, bucket, path)
 		if err != nil {
 			return nil, fmt.Errorf("could not fetch base backup: %w", err)
+		}
+
+		if baseDescr.GetCompressionType() != compression {
+			return nil, fmt.Errorf("backup %q has compression type %q, expected %q", nextId, baseDescr.GetCompressionType(), compression)
 		}
 
 		baseDescrs = append(baseDescrs, baseDescr)

@@ -231,6 +231,10 @@ func (d *DistributedBackupDescriptor) GetBaseBackupId() string {
 	return d.BaseBackupId
 }
 
+func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
+	return d.CompressionType
+}
+
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
 	Name                  string                 `json:"name"`

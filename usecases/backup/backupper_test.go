@@ -425,13 +425,15 @@ func TestResolveBaseBackupChain(t *testing.T) {
 	tests := []struct {
 		name              string
 		baseBackupID      string
+		compressionType   backup.CompressionType
 		setupFetchMeta    func() fetchMetaFunc
 		errorContains     []string
 		expectedResultIDs []string
 	}{
 		{
-			name:         "EmptyBaseBackupID",
-			baseBackupID: "",
+			name:            "EmptyBaseBackupID",
+			baseBackupID:    "",
+			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
 					t.Fatal("fetchMeta should not be called for empty base backup ID")
@@ -441,8 +443,9 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			expectedResultIDs: nil,
 		},
 		{
-			name:         "SingleBaseBackup",
-			baseBackupID: "backup-1",
+			name:            "SingleBaseBackup",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
 					return &backup.BackupDescriptor{
@@ -455,8 +458,9 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			expectedResultIDs: []string{"backup-1"},
 		},
 		{
-			name:         "ChainOfMultipleBackups",
-			baseBackupID: "backup-3",
+			name:            "ChainOfMultipleBackups",
+			baseBackupID:    "backup-3",
+			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				descriptors := map[string]*backup.BackupDescriptor{
 					"backup-1": {
@@ -482,8 +486,9 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			expectedResultIDs: []string{"backup-3", "backup-2", "backup-1"},
 		},
 		{
-			name:         "CircularReferenceDetection",
-			baseBackupID: "backup-1",
+			name:            "CircularReferenceDetection",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				descriptors := map[string]*backup.BackupDescriptor{
 					"backup-1": {
@@ -504,8 +509,9 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			errorContains: []string{"circular references in backup ids detected", "backup-1"},
 		},
 		{
-			name:         "ErrorFetchingBackup",
-			baseBackupID: "backup-1",
+			name:            "ErrorFetchingBackup",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
 					return nil, errors.New("network error")
@@ -514,8 +520,9 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			errorContains: []string{"could not fetch base backup", "network error"},
 		},
 		{
-			name:         "SelfReferentialBackup",
-			baseBackupID: "backup-1",
+			name:            "SelfReferentialBackup",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
 					return &backup.BackupDescriptor{
@@ -527,13 +534,29 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			},
 			errorContains: []string{"circular references in backup ids detected"},
 		},
+		{
+			name:            "WrongCompressionType",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				noneCompression := backup.CompressionNone
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &noneCompression,
+						BaseBackupId:    "",
+					}, nil
+				}
+			},
+			errorContains: []string{"backup \"backup-1\" has compression type", "expected"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fetchMeta := tt.setupFetchMeta()
 
-			result, err := resolveBaseBackupChain(ctx, tt.baseBackupID, bucket, path, fetchMeta)
+			result, err := resolveBaseBackupChain(ctx, tt.baseBackupID, bucket, path, tt.compressionType, fetchMeta)
 
 			if len(tt.errorContains) > 0 {
 				assert.Error(t, err)

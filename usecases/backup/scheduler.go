@@ -415,7 +415,11 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 
 	// validate base backup chain
-	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupId, req.Bucket, req.Path, store.MetaForBackupID); err != nil {
+	compressionType, err := CompressionTypeFromLevel(req.Level)
+	if err != nil {
+		return nil, fmt.Errorf("get compression type: %w", err)
+	}
+	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupId, req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
 		return nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
