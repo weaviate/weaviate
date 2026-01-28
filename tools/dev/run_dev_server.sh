@@ -1218,12 +1218,12 @@ local-usage-s3)
   local-mcp)
     AUTHENTICATION_APIKEY_ENABLED=true \
     AUTHORIZATION_RBAC_ENABLED=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key' \
-    AUTHENTICATION_APIKEY_USERS='admin' \
+    AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,custom-key' \
+    AUTHENTICATION_APIKEY_USERS='admin,custom-user' \
     AUTHORIZATION_RBAC_ROOT_USERS='admin' \
     MCP_SERVER_ENABLED='true' \
     MCP_SERVER_WRITE_ACCESS_DISABLED='false' \
-    MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/mcp-config.yaml" \
+    MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.yaml" \
     MCP_SERVER_READ_LOGS_ENABLED='true' \
     DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
     TRANSFORMERS_INFERENCE_API="http://localhost:8000" \

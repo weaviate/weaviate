@@ -24,7 +24,7 @@ func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest
 	if err != nil {
 		return nil, err
 	}
-	tenants, err := r.schemaReader.GetConsistentTenants(ctx, principal, args.Collection, true, args.Tenants)
+	tenants, err := r.schemaReader.GetConsistentTenants(ctx, principal, args.CollectionName, true, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tenants: %w", err)
 	}

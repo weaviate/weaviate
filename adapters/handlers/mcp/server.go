@@ -51,7 +51,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 		defaultCollection: "DefaultCollection",
 		creator:           create.NewWeaviateCreator(authHandler, state.BatchManager),
 		searcher:          search.NewWeaviateSearcher(authHandler, state.Traverser),
-		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager),
+		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager, objectsManager),
 		state:             state,
 	}
 	s.registerTools()
@@ -74,8 +74,8 @@ func (s *MCPServer) registerTools() {
 	config := internal.LoadConfig(s.state.Logger)
 	descriptions := config.ToDescriptionMap()
 
-	s.server.AddTools(search.Tools(s.searcher)...)
-	s.server.AddTools(read.Tools(s.reader)...)
+	s.server.AddTools(search.Tools(s.searcher, descriptions)...)
+	s.server.AddTools(read.Tools(s.reader, descriptions)...)
 
 	// Write access is disabled by default. It is enabled only when
 	// MCP_SERVER_WRITE_ACCESS_DISABLED is set to "false" (case-insensitive).

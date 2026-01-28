@@ -31,7 +31,7 @@ import (
 
 func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, tool, key string, in I, out *O) error {
 	c, err := client.NewStreamableHttpClient(
-		"http://localhost:9001/mcp",
+		"http://localhost:9000/mcp",
 		transport.WithHTTPHeaders(map[string]string{"Authorization": fmt.Sprintf("Bearer %s", key)}),
 	)
 	if err != nil {
@@ -70,9 +70,13 @@ func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, tool,
 }
 
 func TestMCPServerAuthZ(t *testing.T) {
-	helper.SetupClient("localhost:8081")
-	adminKey := "admin-key"
+	helper.SetupClient("localhost:8080")
 
+	// These users must be pre-configured in Weaviate via environment variables:
+	// AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,custom-key'
+	// AUTHENTICATION_APIKEY_USERS='admin,custom-user'
+	// AUTHORIZATION_RBAC_ROOT_USERS='admin'
+	adminKey := "admin-key"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
@@ -104,8 +108,8 @@ func TestMCPServerAuthZ(t *testing.T) {
 	defer helper.DeleteRole(t, adminKey, roleName)
 
 	t.Run("fail to call tool without MCP permission", func(t *testing.T) {
-		var resp *read.GetSchemaResp
-		err := callToolOnceWithAuth[any](ctx, t, "get-schema", customKey, nil, &resp)
+		var resp *read.GetCollectionConfigResp
+		err := callToolOnceWithAuth[any](ctx, t, "weaviate-collections-get-config", customKey, nil, &resp)
 		require.NotNil(t, err)
 		require.Contains(t, err.Error(), "user 'custom-user' has insufficient permissions to read_mcp []")
 	})
@@ -113,12 +117,11 @@ func TestMCPServerAuthZ(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 
 	t.Run("succeed to call tool with MCP permission", func(t *testing.T) {
-		var resp *read.GetSchemaResp
-		err := callToolOnceWithAuth[any](ctx, t, "get-schema", customKey, nil, &resp)
-		t.Log(err)
+		var resp *read.GetCollectionConfigResp
+		err := callToolOnceWithAuth[any](ctx, t, "weaviate-collections-get-config", customKey, nil, &resp)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
-		require.NotNil(t, resp.Schema)
-		require.Len(t, resp.Schema.Classes, 1)
+		require.NotNil(t, resp.Collections)
+		require.Len(t, resp.Collections, 1)
 	})
 }
