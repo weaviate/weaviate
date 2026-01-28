@@ -12,7 +12,10 @@
 package internal
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -20,15 +23,15 @@ import (
 
 // ToolConfig represents the configuration for a single tool
 type ToolConfig struct {
-	Description string `yaml:"description"`
+	Description string `yaml:"description" json:"description"`
 }
 
-// Config represents the MCP server configuration from YAML
+// Config represents the MCP server configuration from YAML or JSON
 type Config struct {
-	Tools map[string]ToolConfig `yaml:"tools"`
+	Tools map[string]ToolConfig `yaml:"tools" json:"tools"`
 }
 
-// LoadConfig loads the MCP configuration from a YAML file
+// LoadConfig loads the MCP configuration from a YAML or JSON file
 // Returns nil if no config file is specified or if loading fails
 func LoadConfig(logger logrus.FieldLogger) *Config {
 	configPath := os.Getenv("MCP_SERVER_CONFIG_PATH")
@@ -45,11 +48,24 @@ func LoadConfig(logger logrus.FieldLogger) *Config {
 	}
 
 	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		logger.WithError(err).
-			WithField("config_path", configPath).
-			Error("failed to parse MCP config YAML")
-		return nil
+	ext := strings.ToLower(filepath.Ext(configPath))
+
+	// Determine format based on file extension
+	if ext == ".json" {
+		if err := json.Unmarshal(data, &config); err != nil {
+			logger.WithError(err).
+				WithField("config_path", configPath).
+				Error("failed to parse MCP config JSON")
+			return nil
+		}
+	} else {
+		// Default to YAML for .yaml, .yml, or unknown extensions
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			logger.WithError(err).
+				WithField("config_path", configPath).
+				Error("failed to parse MCP config YAML")
+			return nil
+		}
 	}
 
 	return &config
