@@ -14,14 +14,17 @@ package search
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 )
 
-func Tools(searcher *WeaviateSearcher) []server.ServerTool {
+func Tools(searcher *WeaviateSearcher, descriptions map[string]string) []server.ServerTool {
 	return []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
-				"search-with-hybrid",
-				mcp.WithDescription("Search for data from a collection in the database."),
+				"weaviate-query-hybrid",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-query-hybrid",
+					"Performs hybrid search (vector + keyword) for data in a collection.")),
+				mcp.WithInputSchema[QueryHybridArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(searcher.Hybrid),
 		},
