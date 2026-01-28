@@ -773,26 +773,6 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
-// isAsyncReplicationEnabled determines whether async replication should be
-// considered enabled, while preserving backward compatibility.
-//
-// Historically, async replication was controlled by a single boolean flag
-// (AsyncEnabled). Newer configs replace this with an explicit disable flag
-// (AsyncDisabled).
-//
-// Behavior:
-//   - If AsyncDisabled is set (new configs), it takes precedence and
-//     AsyncEnabled is ignored.
-//   - If AsyncDisabled is nil (legacy configs), fall back to AsyncEnabled.
-func isAsyncReplicationEnabled(cfg *models.ReplicationConfig) bool {
-	if cfg.AsyncDisabled != nil {
-		return !*cfg.AsyncDisabled
-	}
-
-	// Legacy behavior for older collections
-	return cfg.AsyncEnabled
-}
-
 func (i *Index) asyncReplicationGloballyDisabled() bool {
 	return i.globalreplicationConfig.AsyncReplicationDisabled.Get()
 }
@@ -803,7 +783,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = isAsyncReplicationEnabled(cfg)
+	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
 	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig)
 	if err != nil {

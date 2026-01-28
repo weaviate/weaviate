@@ -78,8 +78,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:        int64(clusterSize),
-			AsyncDisabled: AsyncDisabledFalse(),
+			Factor:       int64(clusterSize),
+			AsyncEnabled: true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -182,8 +182,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 
 	t.Run("create schema with async replication disabled", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:        int64(clusterSize),
-			AsyncDisabled: AsyncDisabledTrue(),
+			Factor:       int64(clusterSize),
+			AsyncEnabled: false,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -209,7 +209,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 
 		// Update to enable async replication
 		class := res.Payload
-		class.ReplicationConfig.AsyncDisabled = AsyncDisabledFalse()
+		class.ReplicationConfig.AsyncEnabled = true
 
 		// Update the class
 		helper.UpdateClass(t, class)

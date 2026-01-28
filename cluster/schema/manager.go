@@ -275,15 +275,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
 		}
 
-		// Normalize replication config for partial updates:
-		// - If replication config is not provided, keep the existing one
-		// - If asyncDisabled is omitted, keep the existing value
-		if u.ReplicationConfig == nil {
-			u.ReplicationConfig = meta.Class.ReplicationConfig
-		} else if meta.Class.ReplicationConfig != nil && u.ReplicationConfig.AsyncDisabled == nil {
-			u.ReplicationConfig.AsyncDisabled = meta.Class.ReplicationConfig.AsyncDisabled
-		}
-
 		// Capture previous and updated replication factors
 		var initialRF int64
 		if meta.Class.ReplicationConfig != nil {

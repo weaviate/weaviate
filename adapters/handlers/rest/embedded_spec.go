@@ -8250,16 +8250,10 @@ func init() {
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
         },
-        "asyncDisabled": {
-          "description": "Disable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
-          "type": "boolean",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "asyncEnabled": {
-          "description": "DEPRECATED. Enable asynchronous replication (default: ` + "`" + `false` + "`" + `). Use ` + "`" + `asyncDisabled` + "`" + ` instead.",
+          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
-          "x-omitempty": true
+          "x-omitempty": false
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",
@@ -18064,16 +18058,10 @@ func init() {
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
         },
-        "asyncDisabled": {
-          "description": "Disable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
-          "type": "boolean",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "asyncEnabled": {
-          "description": "DEPRECATED. Enable asynchronous replication (default: ` + "`" + `false` + "`" + `). Use ` + "`" + `asyncDisabled` + "`" + ` instead.",
+          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
-          "x-omitempty": true
+          "x-omitempty": false
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",

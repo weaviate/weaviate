@@ -100,7 +100,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"virtualPerPhysical":  float64(128),
 				},
 				"replicationConfig": map[string]interface{}{
-					"asyncDisabled":    false,
+					"asyncEnabled":     false,
 					"factor":           float64(1),
 					"deletionStrategy": "NoAutomatedResolution",
 				},

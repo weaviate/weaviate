@@ -24,16 +24,6 @@ func int64Ptr(v int64) *int64 {
 	return &v
 }
 
-func truePtr() *bool {
-	b := true
-	return &b
-}
-
-func falsePtr() *bool {
-	b := false
-	return &b
-}
-
 func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 	className := "AsyncReplicationClass"
 
@@ -47,7 +37,7 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			ReplicationConfig: &models.ReplicationConfig{
-				AsyncDisabled: truePtr(),
+				AsyncEnabled: false,
 			},
 		}
 
@@ -111,7 +101,7 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 			require.Nil(t, err)
 
 			class := res.Payload
-			class.ReplicationConfig.AsyncDisabled = falsePtr()
+			class.ReplicationConfig.AsyncEnabled = true
 			class.ReplicationConfig.AsyncConfig = tc.config
 
 			// update
@@ -128,7 +118,7 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 
 			rc := res.Payload.ReplicationConfig
 			require.NotNil(t, rc)
-			require.False(t, *rc.AsyncDisabled)
+			require.True(t, rc.AsyncEnabled)
 			require.NotNil(t, rc.AsyncConfig)
 
 			requireAsyncConfigEquals(t, tc.config, rc.AsyncConfig)
