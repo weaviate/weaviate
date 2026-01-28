@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -35,7 +36,6 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
-	gocron "github.com/netresearch/go-cron"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -71,7 +71,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/cron"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -231,7 +230,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// use build.Version instead.
 	config.ServerVersion = build.Version
 
-	appState := startupRoutine(ctx, options)
+	appState := startupRoutine(ctx, serverShutdownCtx, options)
 
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
@@ -413,6 +412,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
+		ObjectsTTLConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
@@ -661,7 +662,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
-	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
+	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
@@ -756,7 +757,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		l.Info("Configuring crons")
-		configureCrons(appState, serverShutdownCtx)
+		appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator)
 	}, appState.Logger)
 
 	configureServer = makeConfigureServer(appState)
@@ -843,121 +844,6 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	}
 	reindexer.Init()
 	return reindexer
-}
-
-func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
-	// enterrors.GoWrapper(func() {
-	// 	f := func() {
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-
-	// 		nodes := appState.SchemaManager.Nodes()
-	// 		nodeName := appState.SchemaManager.NodeName()
-	// 		fmt.Printf("  ==> SchemaManager.Nodes: %v\n"+
-	// 			"      SchemaManager.NodeName: %v\n", nodes, nodeName)
-	// 		fmt.Println()
-
-	// 		allHostnames := appState.Cluster.AllHostnames()
-	// 		allNames := appState.Cluster.AllNames()
-	// 		allOtherClusterMembers := appState.Cluster.AllOtherClusterMembers(0)
-	// 		nodeCount := appState.Cluster.NodeCount()
-	// 		fmt.Printf("  ==> Cluster.AllHostnames: %v\n"+
-	// 			"      Cluster.AllNames: %v\n"+
-	// 			"      Cluster.AllOtherClusterMembers: %v\n"+
-	// 			"      Cluster.NodeCount: %v\n", allHostnames, allNames, allOtherClusterMembers, nodeCount)
-	// 		fmt.Println()
-
-	// 		for _, name := range allNames {
-	// 			nodeAddress := appState.Cluster.NodeAddress(name)
-	// 			nodeHostname, b := appState.Cluster.NodeHostname(name)
-	// 			nodeInfo, b2 := appState.Cluster.NodeInfo(name)
-	// 			fmt.Printf("  ==> Cluster.NodeAddress[%s]: %v\n"+
-	// 				"      Cluster.NodeHostname[%s]: %v [%v]\n"+
-	// 				"      Cluster.NodeInfo[%s]: %#v [%v]\n", name, nodeAddress, name, nodeHostname, b, name, nodeInfo, b2)
-	// 			fmt.Println()
-	// 		}
-
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-	// 	}
-	// 	f()
-
-	// 	t := time.NewTicker(5 * time.Second)
-	// 	for {
-	// 		<-t.C
-	// 		f()
-	// 	}
-
-	// }, appState.Logger)
-
-	type jobSpec struct {
-		name     string
-		schedule string
-		job      gocron.Job
-	}
-
-	logger := appState.Logger.WithField("action", "cron")
-	cronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
-	specs := []jobSpec{}
-
-	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
-		l := logger.WithField("action", "cron_ttl_scheduler")
-
-		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
-			Then(cron.NewGoCronJob(func() {
-				if !appState.ClusterService.IsLeader() {
-					l.Debug("not a ttl scheduler - skipping")
-					return
-				}
-
-				var err error
-				started := time.Now()
-
-				l.Info("triggering deletion of expired objects")
-				defer func() {
-					l = l.WithField("took", time.Since(started))
-					if err != nil {
-						l.WithError(err).Error("triggering deletion of expired objects failed")
-					} else {
-						l.Info("triggering deletion of expired objects succeeded")
-					}
-				}()
-
-				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
-			}))
-
-		specs = append(specs, jobSpec{
-			name:     "trigger_deletion_objects_expired",
-			schedule: schedule,
-			job:      triggerDeletionObjectsExpiredJob,
-		})
-	}
-
-	if len(specs) == 0 {
-		logger.Info("no jobs configured")
-		return
-	}
-
-	opts := []gocron.Option{
-		gocron.WithLogger(cronLogger),
-		gocron.WithChain(gocron.Recover(cronLogger)),
-	}
-	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
-		opts = append(opts, gocron.WithSeconds())
-	}
-	cr := gocron.New(opts...)
-	for i := range specs {
-		l := logger.WithField("job_name", specs[i].name)
-
-		entryId, err := cr.AddJob(specs[i].schedule, specs[i].job)
-		if err != nil {
-			l.WithError(err).Error("failed adding job")
-			continue
-		}
-		l.WithField("entry", entryId).Info("added job")
-	}
-	cr.Start()
-
-	<-serverShutdownCtx.Done()
-	cr.Stop()
 }
 
 type metaStoreReady struct {
@@ -1215,7 +1101,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
+func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
 
 	logger := logger()
@@ -1280,6 +1166,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
 		logger.Exit(1)
 	}
+	appState.Crons = configureCrons(appState, serverShutdownCtx)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
@@ -2198,6 +2085,9 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
+		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
+		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
+		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2250,6 +2140,8 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			hooks["OIDC"] = appState.OIDC.Init
 		}
+		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
+
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
 		cm.RegisterHooks(hooks)
 		// reload current overrides file to take into account additional settings

@@ -62,7 +62,7 @@ require (
 	github.com/mark3labs/mcp-go v0.37.1-0.20250812151906-9f16336f83e1
 	github.com/maypok86/otter/v2 v2.2.1
 	github.com/minio/minio-go/v7 v7.0.97
-	github.com/netresearch/go-cron v0.6.0
+	github.com/netresearch/go-cron v0.9.1
 	github.com/nyaruka/phonenumbers v1.2.2
 	github.com/parquet-go/parquet-go v0.25.1
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58

@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
+	DefaultRNGFactor = 10.0
 )
 
 var (
@@ -69,12 +69,12 @@ type HFresh struct {
 	quantizer          *compressionhelpers.BinaryRotationalQuantizer
 
 	// Internal components
-	Centroids       *HNSWIndex            // Provides access to the centroids.
-	PostingStore    *PostingStore         // Used for managing persistence of postings.
-	IDs             *common.Sequence      // Shared monotonic counter for generating unique IDs for new postings.
-	VersionMap      *VersionMap           // Stores vector versions in-memory.
-	IndexMetadata   *IndexMetadataStore   // Stores metadata about the index.
-	PostingMetadata *PostingMetadataStore // Stores metadata about the postings.
+	Centroids     *HNSWIndex          // Provides access to the centroids.
+	PostingStore  *PostingStore       // Used for managing persistence of postings.
+	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
+	VersionMap    *VersionMap         // Stores vector versions in-memory.
+	PostingMap    *PostingMap         // Maps postings to vector IDs.
+	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -98,46 +98,39 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
+	// initialize shared bucket used for storing various metadata
 	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingMetadata := NewPostingMetadataStore(bucket, metrics)
-
-	postingStore, err := NewPostingStore(store, postingMetadata, bucket, metrics, cfg.ID, cfg.Store)
+	// initialize posting store used for storing actual postings and their vectors
+	postingStore, err := NewPostingStore(store, bucket, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
-
-	versionMap, err := NewVersionMap(bucket)
-	if err != nil {
-		return nil, err
-	}
-
-	indexMetadata := NewIndexMetadataStore(bucket)
 
 	h := HFresh{
-		id:              cfg.ID,
-		logger:          cfg.Logger.WithField("component", "HFresh"),
-		config:          cfg,
-		scheduler:       cfg.Scheduler,
-		store:           store,
-		metrics:         metrics,
-		PostingStore:    postingStore,
-		vectorForId:     cfg.VectorForIDThunk,
-		VersionMap:      versionMap,
-		PostingMetadata: postingMetadata,
-		IndexMetadata:   indexMetadata,
-		postingLocks:    common.NewDefaultShardedRWLocks(),
+		id:            cfg.ID,
+		logger:        cfg.Logger.WithField("component", "HFresh"),
+		config:        cfg,
+		scheduler:     cfg.Scheduler,
+		store:         store,
+		metrics:       metrics,
+		PostingStore:  postingStore,
+		vectorForId:   cfg.VectorForIDThunk,
+		VersionMap:    NewVersionMap(bucket),
+		PostingMap:    NewPostingMap(bucket, metrics),
+		IndexMetadata: NewIndexMetadataStore(bucket),
+		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:      visited.NewPool(1, 512, -1),
 		maxPostingSizeKB: uc.MaxPostingSizeKB,
 		replicas:         uc.Replicas,
-		rngFactor:        uc.RNGFactor,
+		rngFactor:        DefaultRNGFactor,
 		searchProbe:      uc.SearchProbe,
-		rescoreLimit:     uc.RescoreLimit,
+		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -193,7 +186,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	}
 
 	atomic.StoreUint32(&h.searchProbe, parsed.SearchProbe)
-	atomic.StoreUint32(&h.rescoreLimit, parsed.RescoreLimit)
+	atomic.StoreUint32(&h.rescoreLimit, uint32(parsed.RQ.RescoreLimit))
 
 	callback()
 	return nil

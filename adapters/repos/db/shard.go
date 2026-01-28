@@ -66,14 +66,14 @@ var (
 )
 
 type ShardLike interface {
-	Index() *Index                                                                      // Get the parent index
-	Name() string                                                                       // Get the shard name
-	Store() *lsmkv.Store                                                                // Get the underlying store
-	NotifyReady()                                                                       // Set shard status to ready
-	GetStatus() storagestate.Status                                                     // Return the shard status
-	UpdateStatus(status, reason string) error                                           // Set shard status
-	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
-	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
+	Index() *Index                                                                                 // Get the parent index
+	Name() string                                                                                  // Get the shard name
+	Store() *lsmkv.Store                                                                           // Get the underlying store
+	NotifyReady()                                                                                  // Set shard status to ready
+	GetStatus() storagestate.Status                                                                // Return the shard status
+	UpdateStatus(status, reason string) error                                                      // Set shard status
+	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
+	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
 	ObjectCount(ctx context.Context) (int, error)

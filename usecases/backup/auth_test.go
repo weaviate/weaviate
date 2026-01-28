@@ -79,6 +79,13 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
+			methodName:       "CancelRestore",
+			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
+			expectedVerb:     authorization.DELETE,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
+		},
+		{
 			methodName:     "List",
 			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
 			classes:        []string{"ABC"},

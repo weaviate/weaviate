@@ -817,6 +817,11 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
 		}
 		schemaLength = uint32(len(schema))
+	} else {
+		// send empty object so that we don't break unmarshalling during upgrades
+		// where some nodes don't have the empty check on the unmarshal side yet
+		schema = []byte("{}")
+		schemaLength = uint32(len(schema))
 	}
 
 	meta, err := json.Marshal(ko.AdditionalProperties())
@@ -976,7 +981,7 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	}
 
 	rw.WriteUint32(schemaLength)
-	if !addProps.NoProps && schemaLength > 0 {
+	if schemaLength > 0 {
 		err = rw.CopyBytesToBuffer(schema)
 		if err != nil {
 			return byteBuffer, errors.Wrap(err, "Could not copy schema")
@@ -1231,13 +1236,13 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 
 	vectors, err := unmarshalTargetVectors(&rw)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "unmarshal target vectors")
 	}
 	ko.Vectors = vectors
 
 	multiVectors, err := unmarshalMultiVectors(&rw, nil)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "unmarshal multi vectors")
 	}
 	ko.MultiVectors = multiVectors
 
@@ -1283,6 +1288,51 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 		}
 	}
 	return nil, nil
+}
+
+// unmarshalSingleTargetVector unmarshals only the requested target vector, reusing the
+// provided buffer if it has sufficient capacity. This avoids allocating memory for all
+// target vectors when only one is needed (e.g., during HNSW rescoring).
+func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, buffer []float32) ([]float32, error) {
+	if rw.Position >= uint64(len(rw.Buffer)) {
+		return nil, nil
+	}
+
+	targetVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	targetVectorsSegmentLength := rw.ReadUint32()
+	pos := rw.Position
+
+	if len(targetVectorsOffsets) == 0 {
+		return nil, nil
+	}
+
+	var tvOffsets map[string]uint32
+	if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
+		return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
+	}
+
+	offset, ok := tvOffsets[targetVector]
+	if !ok {
+		rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+		return nil, fmt.Errorf("target vector %q not found", targetVector)
+	}
+
+	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+	vecLen := rw.ReadUint16()
+
+	var out []float32
+	if cap(buffer) >= int(vecLen) {
+		out = buffer[:vecLen]
+	} else {
+		out = make([]float32, vecLen)
+	}
+
+	for j := uint16(0); j < vecLen; j++ {
+		out[j] = math.Float32frombits(rw.ReadUint32())
+	}
+
+	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+	return out, nil
 }
 
 // unmarshalMultiVectors unmarshals the multi vectors from the buffer. If onlyUnmarshalNames is set and non-empty,
@@ -1366,15 +1416,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		vectorWeightsLength := uint64(rw.ReadUint32())
 		rw.MoveBufferPositionForward(vectorWeightsLength)
 
-		targetVectors, err := unmarshalTargetVectors(&rw)
-		if err != nil {
-			return nil, errors.Errorf("unable to unmarshal vector for target vector: %s", targetVector)
-		}
-		vector, ok := targetVectors[targetVector]
-		if !ok {
-			return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
-		}
-		return vector, nil
+		return unmarshalSingleTargetVector(&rw, targetVector, buffer)
 	}
 
 	// since we know the version and know that the blob is not len(0), we can
@@ -1482,15 +1524,17 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
 	var returnProps map[string]interface{}
-	if properties == nil || propLength == 0 {
-		if err := json.Unmarshal(propsB, &returnProps); err != nil {
-			return err
-		}
-	} else if len(propsB) >= int(propLength) {
-		// the properties are not read in all cases, skip if not needed
-		returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
-		if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
-			return err
+	if len(propsB) > 0 {
+		if properties == nil || propLength == 0 {
+			if err := json.Unmarshal(propsB, &returnProps); err != nil {
+				return errors.Wrapf(err, "unmarshal property bytes: size %d", len(propsB))
+			}
+		} else if len(propsB) >= int(propLength) {
+			// the properties are not read in all cases, skip if not needed
+			returnProps = make(map[string]interface{}, len(properties.PropertyPaths))
+			if err := UnmarshalProperties(propsB[:propLength], returnProps, properties.PropertyPaths); err != nil {
+				return errors.Wrapf(err, "unmarshal property bytes: size %d and property length %d", len(propsB), int(propLength))
+			}
 		}
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -233,13 +234,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
-		if len(h.nodes) > 0 {
-			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
-				h.dims = int32(len(vec))
-			}
-		}
 	} else {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
+	}
+
+	if h.dims == 0 {
+		h.setDimensionsFromEntrypoint()
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -257,7 +257,16 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	return nil
 }
 
-func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+func (h *hnsw) setDimensionsFromEntrypoint() {
+	if len(h.nodes) > 0 {
+		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+			h.dims = int32(len(vec))
+		}
+	}
+}
+
+func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
+	h.dims = int32(data.InputDim)
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -302,7 +311,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 	return err
 }
 
-func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {

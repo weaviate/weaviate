@@ -88,6 +88,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 				DistanceProvider:      distancer.NewCosineDistanceProvider(),
 				MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 				AllocChecker:          memwatch.NewDummyMonitor(),
+				GetViewThunk:          getViewThunk,
 			}
 			cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 
