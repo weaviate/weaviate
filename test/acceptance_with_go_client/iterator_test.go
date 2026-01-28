@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,15 +13,40 @@ package acceptance_with_go_client
 
 import (
 	"context"
+	"sort"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
+
+func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
+	// wait for all of the objects to get indexed
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := c.Cluster().NodesStatusGetter().
+			WithClass(className).
+			WithOutput("verbose").
+			Do(context.Background())
+		require.NoError(ct, err)
+		require.NotEmpty(ct, resp.Nodes)
+		for _, n := range resp.Nodes {
+			require.NotEmpty(ct, n.Shards)
+			for _, s := range n.Shards {
+				assert.Equal(ct, "READY", s.VectorIndexingStatus)
+			}
+		}
+	}, 30*time.Second, 500*time.Millisecond)
+}
 
 func TestAfterUnsetVsEmpty(t *testing.T) {
 	c, className := createClientWithClassName(t)
@@ -69,7 +94,7 @@ func TestAfterUnsetVsEmpty(t *testing.T) {
 
 func TestIteratorWithFilter(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080", Timeout: 10 * time.Minute})
 	require.Nil(t, err)
 
 	className := "GoldenSunsetFlower"
@@ -131,4 +156,111 @@ func TestIteratorWithFilter(t *testing.T) {
 	}
 
 	require.Equal(t, numObjs/2, found)
+}
+
+func TestIteratorWithFilterGRPC(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080", Timeout: 10 * time.Minute})
+	require.NoError(t, err)
+
+	className := "GoldenSunsetFlowerGRPC"
+	require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+
+	class := models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "bool", DataType: []string{string(schema.DataTypeBoolean)}},
+			{Name: "counter", DataType: []string{string(schema.DataTypeInt)}},
+		},
+		Vectorizer: "none",
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(&class).Do(ctx))
+
+	expectedNextUuid := ""
+	numObjs := 200
+	uuids := make([]string, numObjs)
+	for i := 0; i < numObjs; i++ {
+		obj, err := c.Data().Creator().WithClassName(className).WithProperties(
+			map[string]interface{}{"counter": i, "bool": i == 2},
+		).Do(ctx)
+		require.NoError(t, err)
+		uuids[i] = string(obj.Object.ID)
+	}
+
+	// Sort uuids ascending
+	sort.Strings(uuids)
+
+	// Set expectedNextUuid to the 100th (index 99) after sorting
+	expectedNextUuid = uuids[99]
+
+	testAllObjectsIndexed(t, c, className)
+
+	// Connect via raw gRPC
+	conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	grpcClient := pb.NewWeaviateClient(conn)
+
+	emptyString := ""
+	after := &emptyString
+
+	reply, err := grpcClient.Search(ctx, &pb.SearchRequest{
+		Collection: className,
+		Limit:      10,
+		After:      after,
+		Filters: &pb.Filters{
+			Operator: pb.Filters_OPERATOR_EQUAL,
+			TestValue: &pb.Filters_ValueBoolean{
+				ValueBoolean: true,
+			},
+			Target: &pb.FilterTarget{
+				Target: &pb.FilterTarget_Property{
+					Property: "bool",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, reply.Results, 1)
+
+	require.NotEmpty(t, reply.IteratorNextUuid, "Expected iteratorNextUuid to be set")
+	parsed, err := uuid.FromBytes(reply.IteratorNextUuid)
+	require.NoError(t, err)
+	parsedStr := parsed.String()
+
+	require.NoError(t, err)
+
+	require.Equal(t, parsedStr, expectedNextUuid, "Expected next UUID to match the 100th inserted object")
+
+	after = &parsedStr
+
+	reply, err = grpcClient.Search(ctx, &pb.SearchRequest{
+		Collection: className,
+		Limit:      20,
+		After:      after,
+		Filters: &pb.Filters{
+			Operator: pb.Filters_OPERATOR_EQUAL,
+			TestValue: &pb.Filters_ValueBoolean{
+				ValueBoolean: true,
+			},
+			Target: &pb.FilterTarget{
+				Target: &pb.FilterTarget_Property{
+					Property: "bool",
+				},
+			},
+		},
+	})
+
+	require.Len(t, reply.Results, 0)
+
+	require.NotEmpty(t, reply.IteratorNextUuid, "Expected iteratorNextUuid to be set")
+	parsed, err = uuid.FromBytes(reply.IteratorNextUuid)
+	require.NoError(t, err)
+	parsedStr = parsed.String()
+
+	require.NoError(t, err)
+
+	require.Equal(t, parsedStr, uuid.Nil.String(), "Expected next UUID to be nil UUID")
 }

@@ -265,7 +265,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties, properties []string,
+	additional additional.Properties, properties []string, iteratorState *dto.IteratorState,
 ) ([]*storobj.Object, []float32, error) {
 	var err error
 
@@ -342,13 +342,19 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		defer filterDocIds.Close()
 
+		var nextIteratorUuid *string
+		if iteratorState != nil {
+			nextIteratorUuid = &iteratorState.NextIteratorUUID
+		}
+
 		objs, err := s.ObjectList(ctx, limit, sort,
-			cursor, additional, s.index.Config.ClassName, filterDocIds)
+			cursor, additional, s.index.Config.ClassName, filterDocIds, nextIteratorUuid)
+
 		return objs, nil, err
 	}
 
 	if filters == nil {
-		objs, err := s.ObjectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName, nil)
+		objs, err := s.ObjectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName, nil, nil)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
@@ -574,7 +580,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	return objs, distCombined, nil
 }
 
-func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, allowlist helpers.AllowList) ([]*storobj.Object, error) {
+func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, allowlist helpers.AllowList, nextIteratorUuid *string) ([]*storobj.Object, error) {
 	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
 		beforeSort := time.Now()
@@ -596,10 +602,10 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 	if cursor == nil {
 		cursor = &filters.Cursor{After: "", Limit: limit}
 	}
-	return s.cursorObjectList(ctx, cursor, allowlist)
+	return s.cursorObjectList(ctx, cursor, allowlist, nextIteratorUuid)
 }
 
-func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowlist helpers.AllowList) ([]*storobj.Object, error) {
+func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowlist helpers.AllowList, nextIteratorUuid *string) ([]*storobj.Object, error) {
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
 
@@ -619,17 +625,42 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 	}
 
 	i := 0
-	out := make([]*storobj.Object, c.Limit)
+	j := 0
 
-	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
+	scanLimit := int(^uint(0) >> 1) // max int value
+
+	if c != nil && c.Limit > 0 {
+		scanLimit = c.Limit * 10 // scan up to 10x the limit to find allowed IDs
+	}
+
+	out := make([]*storobj.Object, c.Limit)
+	*nextIteratorUuid = uuid.Nil.String()
+
+	// 1. This loop has to move ahead 10x Limit searching for allowed IDs
+	// 2. Happy path finds {Limit} amount of results and returns
+	// 3. Worst case it scans 10x Limit and does not find enough results to return Limit objects.
+	// 4. Populate then UUID from the last seen docID to restore the starting point on the next iteration.
+	for ; key != nil && i < c.Limit && j < scanLimit; key, val = cursor.Next() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+
+		j++
+
+		if j == scanLimit && nextIteratorUuid != nil {
+			uuid, err := storobj.FromBinaryUUIDOnly(val)
+			if err != nil {
+				return nil, errors.Wrapf(err, "unmarshal uuid from item")
+			}
+			*nextIteratorUuid = uuid.ID().String()
+		}
+
 		if allowlist != nil {
 			docId, err := storobj.DocIDFromBinary(val)
 			if err != nil {
 				return nil, errors.Wrapf(err, "unmarshal doc id from item")
 			}
+
 			if !allowlist.Contains(docId) {
 				// skip this object, it does not match the filter
 				continue

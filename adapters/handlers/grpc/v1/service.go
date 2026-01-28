@@ -314,6 +314,10 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
+	if searchParams.Cursor != nil {
+		searchParams.IteratorState = &dto.IteratorState{}
+	}
+
 	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)
 	if err != nil {
 		return nil, err

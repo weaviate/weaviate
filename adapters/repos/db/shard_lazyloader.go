@@ -257,11 +257,11 @@ func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error
 	return l.shard.Exists(ctx, id)
 }
 
-func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string, iteratorState *dto.IteratorState) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
+	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties, iteratorState)
 }
 
 func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
@@ -574,11 +574,11 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
 
-func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, allowlist helpers.AllowList) ([]*storobj.Object, error) {
+func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, allowlist helpers.AllowList, nextIteratorUuid *string) ([]*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.ObjectList(ctx, limit, sort, cursor, additional, className, allowlist)
+	return l.shard.ObjectList(ctx, limit, sort, cursor, additional, className, allowlist, nextIteratorUuid)
 }
 
 func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
