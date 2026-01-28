@@ -209,6 +209,10 @@ func (e *MuveraEncoder) Dimensions() int {
 	return e.config.Dimensions
 }
 
+func (e *MuveraEncoder) EncodedDimensions() int {
+	return e.config.Repetitions * e.config.NumClusters * e.config.DProjections
+}
+
 func MuveraBytesFromFloat32(vec []float32) []byte {
 	slice := make([]byte, len(vec)*4)
 	for i := range vec {
