@@ -880,7 +880,7 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
-	if err := parseInt(
+	if err := parsePositiveInt(
 		"ASYNC_REPLICATION_CLUSTER_MAX_WORKERS",
 		func(val int) {
 			config.Replication.AsyncReplicationClusterMaxWorkers = configRuntime.NewDynamicValue(val)
