@@ -671,10 +671,11 @@ func (s *Shard) handleHashbeatWakeup(
 	lastHashbeatPropagatedObjects *bool,
 	lastHashbeatMux *sync.Mutex,
 ) (shouldStop bool) {
-	var targetNodeOverridesLen int
-	s.asyncReplicationRWMux.RLock()
-	targetNodeOverridesLen = len(s.targetNodeOverrides)
-	s.asyncReplicationRWMux.RUnlock()
+	targetNodeOverridesLen := func() int {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+		return len(s.targetNodeOverrides)
+	}()
 
 	if (!s.index.AsyncReplicationEnabled() && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
 		// skip hashbeat iteration when async replication is disabled and no target node overrides are set
