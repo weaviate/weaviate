@@ -284,7 +284,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
 
-	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
+	primaryDiskIndex := segmentindex.NewDiskTreeRaw(primaryIndex)
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
@@ -358,7 +358,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
 				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
-			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			seg.secondaryIndices[i] = segmentindex.NewDiskTreeRaw(secondary)
 		}
 	}
 
