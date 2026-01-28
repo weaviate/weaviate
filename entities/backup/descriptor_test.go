@@ -12,11 +12,14 @@
 package backup
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExcludeClasses(t *testing.T) {
@@ -461,15 +464,465 @@ func TestShardDescriptorClear(t *testing.T) {
 		ShardVersionPath:      "a/d",
 		Version:               []byte{3},
 		Files:                 []string{"file"},
-		Chunk:                 1,
 	}
 
 	want := ShardDescriptor{
 		Name:  "name",
 		Node:  "node",
 		Files: []string{"file"},
-		Chunk: 1,
 	}
 	s.ClearTemporary()
 	assert.Equal(t, want, s)
+}
+
+func TestShardDescriptorFillFileInfo(t *testing.T) {
+	// Setup: create a temporary directory with test files
+	tempDir := t.TempDir()
+
+	testFile1 := filepath.Join(tempDir, "file1.db")
+	testFile2 := filepath.Join(tempDir, "file2.db")
+	testFile3 := filepath.Join(tempDir, "file3.db")
+	unchangedFile := filepath.Join(tempDir, "unchanged.db")
+	modifiedFile := filepath.Join(tempDir, "modified.db")
+
+	// Create test files with specific content and timestamps
+	require.NoError(t, os.WriteFile(testFile1, []byte("content1"), 0o644))
+	require.NoError(t, os.WriteFile(testFile2, []byte("content2"), 0o644))
+	require.NoError(t, os.WriteFile(testFile3, []byte("content3"), 0o644))
+	require.NoError(t, os.WriteFile(unchangedFile, []byte("unchanged"), 0o644))
+	require.NoError(t, os.WriteFile(modifiedFile, []byte("modified content"), 0o644))
+
+	// Get actual file info for unchanged file
+	unchangedInfo, err := os.Stat(unchangedFile)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name              string
+		files             []string
+		shardBaseDescrs   []ShardAndId
+		expectedFiles     []string
+		expectedIncreInfo IncrementalBackupInfos
+		errorContains     string
+	}{
+		{
+			name:              "nil base descriptor - all files added",
+			files:             []string{"file1.db", "file2.db", "file3.db"},
+			shardBaseDescrs:   nil,
+			expectedFiles:     []string{"file1.db", "file2.db", "file3.db"},
+			expectedIncreInfo: IncrementalBackupInfos{},
+		},
+		{
+			name:            "empty files list with nil base",
+			files:           []string{},
+			shardBaseDescrs: nil,
+			expectedFiles:   []string{},
+		},
+		{
+			name:  "no matching files in base descriptor",
+			files: []string{"file1.db", "file2.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup2",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"other.db": {
+								ChunkKeys:  []string{"chunk1"},
+								Size:       100,
+								ModifiedAt: time.Now().Add(-1 * time.Hour),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles:     []string{"file1.db", "file2.db"},
+			expectedIncreInfo: IncrementalBackupInfos{},
+		},
+		{
+			name:  "file different time - newly backed up",
+			files: []string{"unchanged.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup3",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk1", "chunk2"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: time.Now().Add(-2 * time.Hour), // Different time, same size
+							},
+						},
+					},
+				},
+			},
+			expectedFiles:     []string{"unchanged.db"},
+			expectedIncreInfo: IncrementalBackupInfos{},
+		},
+		{
+			name:  "file different size - newly backed up",
+			files: []string{"unchanged.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup4",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk3", "chunk4"},
+								Size:       1000, // Different size, same modified time
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles:     []string{"unchanged.db"},
+			expectedIncreInfo: IncrementalBackupInfos{},
+		},
+		{
+			name:  "both changed - newly backed up",
+			files: []string{"modified.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup5",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"modified.db": {
+								ChunkKeys:  []string{"chunk5"},
+								Size:       100,                            // Different from actual
+								ModifiedAt: time.Now().Add(-3 * time.Hour), // Different from actual
+							},
+						},
+					},
+				},
+			},
+			expectedFiles:     []string{"modified.db"},
+			expectedIncreInfo: IncrementalBackupInfos{},
+		},
+		{
+			name:  "multiple backups in incremental info",
+			files: []string{"unchanged.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup7",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk8"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles: nil,
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup7": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk8"},
+						},
+					},
+				},
+				TotalSize: unchangedInfo.Size(),
+			},
+		},
+		{
+			name:  "file not found - error",
+			files: []string{"nonexistent.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup8",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"nonexistent.db": {
+								ChunkKeys:  []string{"chunk9"},
+								Size:       100,
+								ModifiedAt: time.Now(),
+							},
+						},
+					},
+				},
+			},
+			errorContains: "stat big file",
+		},
+		{
+			name:  "invalid path - sanitization error",
+			files: []string{"../../../etc/passwd"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup9",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"../../../etc/passwd": {
+								ChunkKeys:  []string{"chunk10"},
+								Size:       100,
+								ModifiedAt: time.Now(),
+							},
+						},
+					},
+				},
+			},
+			errorContains: "sanitize file path",
+		},
+		{
+			name:  "empty big files chunk map",
+			files: []string{"file1.db", "file2.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup10",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{},
+					},
+				},
+			},
+			expectedFiles:     []string{"file1.db", "file2.db"},
+			expectedIncreInfo: IncrementalBackupInfos{},
+		},
+		{
+			name:  "multiple base backups - file unchanged in first",
+			files: []string{"unchanged.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup_base1",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk1", "chunk2"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+						},
+					},
+				},
+				{
+					BackupId: "backup_base2",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"other.db": {
+								ChunkKeys:  []string{"chunk3"},
+								Size:       100,
+								ModifiedAt: time.Now().Add(-1 * time.Hour),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles: nil,
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
+					},
+				},
+				TotalSize: unchangedInfo.Size(),
+			},
+		},
+		{
+			name:  "multiple base backups - file unchanged in second",
+			files: []string{"unchanged.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup_base1",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"other.db": {
+								ChunkKeys:  []string{"chunk1"},
+								Size:       100,
+								ModifiedAt: time.Now().Add(-1 * time.Hour),
+							},
+						},
+					},
+				},
+				{
+					BackupId: "backup_base2",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk2", "chunk3"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles: nil,
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base2": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk2", "chunk3"},
+						},
+					},
+				},
+				TotalSize: unchangedInfo.Size(),
+			},
+		},
+		{
+			name:  "multiple base backups - different files unchanged in different backups",
+			files: []string{"unchanged.db", "modified.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup_base1",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk1", "chunk2"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+						},
+					},
+				},
+				{
+					BackupId: "backup_base2",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"modified.db": {
+								ChunkKeys: []string{"chunk3", "chunk4"},
+								Size:      int64(len("modified content")),
+								ModifiedAt: func() time.Time {
+									info, _ := os.Stat(filepath.Join(tempDir, "modified.db"))
+									return info.ModTime()
+								}(),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles: nil,
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
+					},
+					"backup_base2": {
+						{
+							File:      "modified.db",
+							ChunkKeys: []string{"chunk3", "chunk4"},
+						},
+					},
+				},
+				TotalSize: unchangedInfo.Size() + int64(len("modified content")),
+			},
+		},
+		{
+			name:  "multiple base backups - some files changed, some unchanged",
+			files: []string{"unchanged.db", "file1.db", "file2.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup_base1",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk1", "chunk2"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+							"file1.db": {
+								ChunkKeys:  []string{"old_chunk1"},
+								Size:       100, // Different size, will be re-backed up
+								ModifiedAt: time.Now().Add(-2 * time.Hour),
+							},
+						},
+					},
+				},
+				{
+					BackupId: "backup_base2",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"file2.db": {
+								ChunkKeys:  []string{"old_chunk2"},
+								Size:       200, // Different size, will be re-backed up
+								ModifiedAt: time.Now().Add(-3 * time.Hour),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles: []string{"file1.db", "file2.db"},
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
+					},
+				},
+				TotalSize: unchangedInfo.Size(),
+			},
+		},
+		{
+			name:  "multiple base backups - file exists in both, unchanged in first",
+			files: []string{"unchanged.db"},
+			shardBaseDescrs: []ShardAndId{
+				{
+					BackupId: "backup_base1",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk1", "chunk2"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+						},
+					},
+				},
+				{
+					BackupId: "backup_base2",
+					ShardDesc: &ShardDescriptor{
+						BigFilesChunk: map[string]BigFiles{
+							"unchanged.db": {
+								ChunkKeys:  []string{"chunk3", "chunk4"},
+								Size:       unchangedInfo.Size(),
+								ModifiedAt: unchangedInfo.ModTime(),
+							},
+						},
+					},
+				},
+			},
+			expectedFiles: nil,
+			expectedIncreInfo: IncrementalBackupInfos{
+				FilesPerBackup: map[string][]IncrementalBackupInfo{
+					"backup_base1": {
+						{
+							File:      "unchanged.db",
+							ChunkKeys: []string{"chunk1", "chunk2"},
+						},
+					},
+				},
+				TotalSize: unchangedInfo.Size(),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &ShardDescriptor{
+				Name: "test-shard",
+				Node: "test-node",
+			}
+
+			err := s.FillFileInfo(tc.files, tc.shardBaseDescrs, tempDir)
+
+			if tc.errorContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedFiles, s.Files, "Files list should match expected")
+				assert.Equal(t, tc.expectedIncreInfo.FilesPerBackup, s.IncrementalBackupInfo.FilesPerBackup, "IncrementalBackupInfo.FilesPerBackup should match expected")
+				assert.Equal(t, tc.expectedIncreInfo.TotalSize, s.IncrementalBackupInfo.TotalSize, "IncrementalBackupInfo.TotalSize should match expected")
+			}
+		})
+	}
 }

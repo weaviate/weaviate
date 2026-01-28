@@ -51,28 +51,6 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 	}
 }
 
-// Backup is called by the User
-func (b *backupper) Backup(ctx context.Context,
-	store nodeStore, id string, classes []string, overrideBucket, overridePath string,
-) (*backup.CreateMeta, error) {
-	// make sure there is no active backup
-	req := Request{
-		Method:  OpCreate,
-		ID:      id,
-		Classes: classes,
-		Bucket:  overrideBucket,
-		Path:    overridePath,
-	}
-	if _, err := b.backup(store, &req); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	return &backup.CreateMeta{
-		Path:   store.HomeDir(overrideBucket, overridePath),
-		Status: backup.Started,
-	}, nil
-}
-
 func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState, error) {
 	// check if backup is still active
 	st := b.lastOp.get()
@@ -124,6 +102,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
+
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
@@ -134,6 +113,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
+
 		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
@@ -143,6 +123,21 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
+
+		// the coordinator might want to abort the backup
+		done := make(chan struct{})
+		ctx := b.withCancellation(context.Background(), id, done, b.logger)
+		defer close(done)
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
+
+		baseBackupID := req.BaseBackupID
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, store.bucket, store.path, compressionType, store.MetaForBackupID)
+		if err != nil {
+			b.logger.WithFields(logFields).Error(err)
+			b.lastAsyncError = err
+			return
+		}
+
 		result := backup.BackupDescriptor{
 			StartedAt:       time.Now().UTC(),
 			ID:              id,
@@ -150,18 +145,12 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			Version:         Version,
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
+			BaseBackupId:    baseBackupID,
 		}
 
-		// the coordinator might want to abort the backup
-		done := make(chan struct{})
-		ctx := b.withCancellation(context.Background(), id, done, b.logger)
-		defer close(done)
-
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, baseDescrs, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
-
 		} else {
 			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
@@ -170,4 +159,61 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	enterrors.GoWrapper(f, b.logger)
 
 	return ret, nil
+}
+
+type BackupChainDescriptor interface {
+	GetBaseBackupId() string
+	GetCompressionType() backup.CompressionType
+}
+
+// resolveBaseBackupChain follows the chain of base backups and validates them.
+// It returns all base backup descriptors in the chain, ordered from the most recent
+// (the requested baseBackupID) to the oldest (the full backup).
+// It validates:
+// - No circular references in the backup chain
+// - All backups in the chain exist
+// - All backups have compression type set
+// - All backups have the same compression type as requested
+func resolveBaseBackupChain[T BackupChainDescriptor](
+	ctx context.Context,
+	baseBackupID string,
+	bucket, path string,
+	compression backup.CompressionType,
+	fetchMeta func(ctx context.Context, backupID, bucket, path string) (T, error),
+) ([]T, error) {
+	if baseBackupID == "" {
+		return nil, nil
+	}
+
+	var baseDescrs []T
+	visitedIds := make(map[string]struct{})
+	nextId := baseBackupID
+
+	for {
+		// Check for circular references
+		if _, ok := visitedIds[nextId]; ok {
+			return nil, fmt.Errorf("circular references in backup ids detected, all visited IDs: %v, circular ID %v", visitedIds, nextId)
+		}
+		visitedIds[nextId] = struct{}{}
+
+		// Fetch the backup descriptor
+		baseDescr, err := fetchMeta(ctx, nextId, bucket, path)
+		if err != nil {
+			return nil, fmt.Errorf("could not fetch base backup: %w", err)
+		}
+
+		if baseDescr.GetCompressionType() != compression {
+			return nil, fmt.Errorf("backup %q has compression type %q, expected %q", nextId, baseDescr.GetCompressionType(), compression)
+		}
+
+		baseDescrs = append(baseDescrs, baseDescr)
+
+		// Check if we've reached the end of the chain
+		if baseDescr.GetBaseBackupId() == "" {
+			break
+		}
+		nextId = baseDescr.GetBaseBackupId()
+	}
+
+	return baseDescrs, nil
 }
