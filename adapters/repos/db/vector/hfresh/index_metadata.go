@@ -174,10 +174,12 @@ func (h *HFresh) restoreBackgroundMetrics() error {
 	splitCount := h.taskQueue.splitQueue.Size()
 	mergeCount := h.taskQueue.mergeQueue.Size()
 	reassignCount := h.taskQueue.reassignQueue.Size()
+	analyzeCount := h.taskQueue.analyzeQueue.Size()
 
 	h.metrics.SetSplitCount(splitCount)
 	h.metrics.SetMergeCount(mergeCount)
 	h.metrics.SetReassignCount(reassignCount)
+	h.metrics.SetAnalyzeCount(analyzeCount)
 
 	return nil
 }
