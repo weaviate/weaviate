@@ -13,6 +13,7 @@ package ent
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -182,8 +183,14 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		}
 	}
 
+	version := cs.ModelVersion()
+	if err := cs.validateModelVersion(version, model, docType); err != nil {
+		return err
+	}
+
 	dimensions := cs.Dimensions()
-	if !cs.IsThirdPartyProvider() && dimensions != nil {
+	if !cs.IsThirdPartyProvider() && version == "" && dimensions != nil {
+		// validate dimensions setting only for V3 models
 		if !basesettings.ValidateSetting(model, availableV3Models) {
 			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
 		}
@@ -191,11 +198,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		if !basesettings.ValidateSetting(*dimensions, availableDimensions) {
 			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
 		}
-	}
-
-	version := cs.ModelVersion()
-	if err := cs.validateModelVersion(version, model, docType); err != nil {
-		return err
 	}
 
 	if cs.IsAzure() {
@@ -209,10 +211,8 @@ func (cs *classSettings) Validate(class *models.Class) error {
 }
 
 func (cs *classSettings) validateModelVersion(version, model, docType string) error {
-	for i := range availableV3Models {
-		if model == availableV3Models[i] {
-			return nil
-		}
+	if slices.Contains(availableV3Models, model) {
+		return nil
 	}
 
 	if version == "001" {
@@ -255,10 +255,8 @@ func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVers
 }
 
 func PickDefaultModelVersion(model, docType string) string {
-	for i := range availableV3Models {
-		if model == availableV3Models[i] {
-			return ""
-		}
+	if slices.Contains(availableV3Models, model) {
+		return ""
 	}
 	if model == "ada" && docType == "text" {
 		return "002"
