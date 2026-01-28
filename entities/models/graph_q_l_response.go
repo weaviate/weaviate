@@ -35,6 +35,9 @@ type GraphQLResponse struct {
 
 	// Array with errors.
 	Errors []*GraphQLError `json:"errors,omitempty"`
+
+	// GraphQL extensions object.
+	Extensions interface{} `json:"extensions,omitempty"`
 }
 
 // Validate validates this graph q l response

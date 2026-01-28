@@ -683,16 +683,21 @@
           "description": "GraphQL data object.",
           "type": "object"
         },
-        "errors": {
-          "description": "Array with errors.",
-          "items": {
-            "$ref": "#/definitions/GraphQLError"
+          "errors": {
+            "description": "Array with errors.",
+            "items": {
+              "$ref": "#/definitions/GraphQLError"
+            },
+            "x-omitempty": true,
+            "type": "array"
           },
-          "x-omitempty": true,
-          "type": "array"
+          "extensions": {
+            "description": "GraphQL extensions object.",
+            "additionalProperties": true,
+            "type": "object"
+          }
         }
-      }
-    },
+      },
     "GraphQLResponses": {
       "description": "A list of GraphQL responses.",
       "items": {
