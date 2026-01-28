@@ -2478,17 +2478,17 @@ func (_c *MockShardLike_RequantizeIndex_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// SetAsyncReplicationEnabled provides a mock function with given fields: ctx, enabled
-func (_m *MockShardLike) SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error {
-	ret := _m.Called(ctx, enabled)
+// SetAsyncReplicationState provides a mock function with given fields: ctx, _a1, enabled
+func (_m *MockShardLike) SetAsyncReplicationState(ctx context.Context, _a1 AsyncReplicationConfig, enabled bool) error {
+	ret := _m.Called(ctx, _a1, enabled)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SetAsyncReplicationEnabled")
+		panic("no return value specified for SetAsyncReplicationState")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, bool) error); ok {
-		r0 = rf(ctx, enabled)
+	if rf, ok := ret.Get(0).(func(context.Context, AsyncReplicationConfig, bool) error); ok {
+		r0 = rf(ctx, _a1, enabled)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -2496,31 +2496,32 @@ func (_m *MockShardLike) SetAsyncReplicationEnabled(ctx context.Context, enabled
 	return r0
 }
 
-// MockShardLike_SetAsyncReplicationEnabled_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAsyncReplicationEnabled'
-type MockShardLike_SetAsyncReplicationEnabled_Call struct {
+// MockShardLike_SetAsyncReplicationState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAsyncReplicationState'
+type MockShardLike_SetAsyncReplicationState_Call struct {
 	*mock.Call
 }
 
-// SetAsyncReplicationEnabled is a helper method to define mock.On call
+// SetAsyncReplicationState is a helper method to define mock.On call
 //   - ctx context.Context
+//   - _a1 AsyncReplicationConfig
 //   - enabled bool
-func (_e *MockShardLike_Expecter) SetAsyncReplicationEnabled(ctx interface{}, enabled interface{}) *MockShardLike_SetAsyncReplicationEnabled_Call {
-	return &MockShardLike_SetAsyncReplicationEnabled_Call{Call: _e.mock.On("SetAsyncReplicationEnabled", ctx, enabled)}
+func (_e *MockShardLike_Expecter) SetAsyncReplicationState(ctx interface{}, _a1 interface{}, enabled interface{}) *MockShardLike_SetAsyncReplicationState_Call {
+	return &MockShardLike_SetAsyncReplicationState_Call{Call: _e.mock.On("SetAsyncReplicationState", ctx, _a1, enabled)}
 }
 
-func (_c *MockShardLike_SetAsyncReplicationEnabled_Call) Run(run func(ctx context.Context, enabled bool)) *MockShardLike_SetAsyncReplicationEnabled_Call {
+func (_c *MockShardLike_SetAsyncReplicationState_Call) Run(run func(ctx context.Context, _a1 AsyncReplicationConfig, enabled bool)) *MockShardLike_SetAsyncReplicationState_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(bool))
+		run(args[0].(context.Context), args[1].(AsyncReplicationConfig), args[2].(bool))
 	})
 	return _c
 }
 
-func (_c *MockShardLike_SetAsyncReplicationEnabled_Call) Return(_a0 error) *MockShardLike_SetAsyncReplicationEnabled_Call {
+func (_c *MockShardLike_SetAsyncReplicationState_Call) Return(_a0 error) *MockShardLike_SetAsyncReplicationState_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockShardLike_SetAsyncReplicationEnabled_Call) RunAndReturn(run func(context.Context, bool) error) *MockShardLike_SetAsyncReplicationEnabled_Call {
+func (_c *MockShardLike_SetAsyncReplicationState_Call) RunAndReturn(run func(context.Context, AsyncReplicationConfig, bool) error) *MockShardLike_SetAsyncReplicationState_Call {
 	_c.Call.Return(run)
 	return _c
 }
