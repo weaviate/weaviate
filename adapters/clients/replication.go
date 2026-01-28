@@ -152,7 +152,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	// Add compression header
 	req.Header.Set("X-Request-Compression", "zstd")
 
-	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
+	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, bodyBytes, &resp, MAX_RETRIES)
 	return resp, err
 }
 
