@@ -15,7 +15,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.38.4
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/bmatcuk/doublestar v1.3.4
-	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/buger/jsonparser v1.1.1
 	github.com/casbin/casbin/v2 v2.128.0
 	github.com/cenkalti/backoff/v4 v4.3.0

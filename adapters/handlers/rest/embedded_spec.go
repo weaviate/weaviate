@@ -1997,6 +1997,71 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.backup"
         ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.",
+        "tags": [
+          "backups"
+        ],
+        "summary": "Cancel a backup restoration",
+        "operationId": "backups.restore.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the backup restoration to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Backup restoration cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration cancellation request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred during backup restoration cancellation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
       }
     },
     "/batch/objects": {
@@ -11230,6 +11295,71 @@ func init() {
           },
           "500": {
             "description": "An internal server error occurred during restore initiation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.",
+        "tags": [
+          "backups"
+        ],
+        "summary": "Cancel a backup restoration",
+        "operationId": "backups.restore.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the backup restoration to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Backup restoration cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration cancellation request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred during backup restoration cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
