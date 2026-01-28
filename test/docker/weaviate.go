@@ -104,6 +104,24 @@ func startWeaviate(ctx context.Context,
 		wait.ForListeningPort(httpPort),
 		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
 	}
+
+	// Expose the cluster API port (CLUSTER_DATA_BIND_PORT) if configured.
+	// This allows tests to access /v1/cluster/* endpoints from the host.
+	var (
+		clusterPort     nat.Port
+		hasClusterPort  bool
+		clusterPortStr  string
+		clusterPortSpec string
+	)
+	if p, ok := env["CLUSTER_DATA_BIND_PORT"]; ok && p != "" {
+		clusterPortStr = p
+		clusterPortSpec = fmt.Sprintf("%s/tcp", clusterPortStr)
+		clusterPort = nat.Port(clusterPortSpec)
+		exposedPorts = append(exposedPorts, clusterPortSpec)
+		// Wait until the cluster API port is listening as well, so tests don't race it.
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(clusterPort))
+		hasClusterPort = true
+	}
 	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, "50051/tcp")
@@ -164,6 +182,15 @@ func startWeaviate(ctx context.Context,
 	}
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{httpPort, httpUri}
+
+	// Map the cluster API endpoint if the port is exposed.
+	if hasClusterPort {
+		clusterURI, err := c.PortEndpoint(ctx, clusterPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[CLUSTER] = endpoint{clusterPort, clusterURI}
+	}
 	if exposeGRPCPort {
 		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")
 		if err != nil {
