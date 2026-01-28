@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -103,6 +104,7 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	return resp.Digests, err
 }
 
+// HashTreeLevel fetches hash tree level digests
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
@@ -111,13 +113,35 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
 	}
+
+	// Compress the body
+	var buf bytes.Buffer
+
+	zstdw, err := zstd.NewWriter(&buf, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	if err != nil {
+		return nil, fmt.Errorf("create zstd writer: %w", err)
+	}
+	if _, err := zstdw.Write(body); err != nil {
+		return nil, fmt.Errorf("compress body: %w", err)
+	}
+	if err := zstdw.Close(); err != nil {
+		return nil, fmt.Errorf("close zstd writer: %w", err)
+	}
+
+	bodyBytes := buf.Bytes()
+	bodyReader := bytes.NewReader(bodyBytes)
+
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", fmt.Sprintf("hashtree/%d", level), bytes.NewReader(body), 0)
+		"", fmt.Sprintf("hashtree/level/%d", level), bodyReader, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
+
+	// Add compression header
+	req.Header.Set("X-Request-Compression", "zstd")
+
+	err = c.do(c.timeoutUnit*20, req, bodyBytes, &resp, 9)
 	return resp, err
 }
 

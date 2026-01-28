@@ -92,16 +92,16 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 	}
 
 	// Object bucket must be available, initAsyncReplication depends on it
-	if s.index.asyncReplicationEnabled() {
+	if s.index.AsyncReplicationEnabled() {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
 
-		err = s.initAsyncReplication()
+		err = s.initAsyncReplication(s.index.AsyncReplicationConfig())
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
 	} else if s.index.replicationEnabled() {
-		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+		s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
