@@ -104,6 +104,13 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute hybrid search: %w", err)
 	}
+
+	// Ensure res is not nil to prevent panic downstream
+	// Empty results are valid, so convert nil to empty slice
+	if res == nil {
+		res = []any{}
+	}
+
 	return &QueryHybridResp{Results: res}, nil
 }
 

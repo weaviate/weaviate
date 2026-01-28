@@ -825,3 +825,29 @@ func TestQueryHybrid_TargetAllProperties(t *testing.T) {
 	}
 	assert.True(t, found, "should find Python-related article in any text field")
 }
+
+// Test 20: Empty results should not cause error or panic
+func TestQueryHybrid_EmptyResults(t *testing.T) {
+	cls, ctx, cleanup := setupQueryHybridTest(t)
+	defer cleanup()
+
+	insertTestArticles(t, cls.Class)
+
+	// Query with filter that matches nothing - should return empty results, not error
+	var results *search.QueryHybridResp
+	alpha := 0.0
+	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+		CollectionName: cls.Class,
+		Query:          "test",
+		Alpha:          &alpha,
+		Filters: map[string]any{
+			"path":     []string{"year"},
+			"operator": "Equal",
+			"valueInt": 9999, // No article from year 9999
+		},
+	}, &results, testAPIKey)
+
+	require.Nil(t, err, "empty results should not cause an error")
+	require.NotNil(t, results)
+	assert.Len(t, results.Results, 0, "should return empty results")
+}

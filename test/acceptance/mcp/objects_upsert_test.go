@@ -337,3 +337,26 @@ func TestUpsertToolEmptyBatch(t *testing.T) {
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "at least one object is required")
 }
+
+func TestUpsertToolNonExistentCollection(t *testing.T) {
+	_, ctx, cleanup := setupUpsertTest(t)
+	defer cleanup()
+
+	// Try to upsert to a non-existent collection
+	var resp *create.UpsertObjectResp
+	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+		CollectionName: "NonExistentCollection999",
+		Objects: []create.ObjectToUpsert{
+			{
+				Properties: map[string]any{
+					"contents": "Test Content",
+					"title":    "Test Title",
+				},
+			},
+		},
+	}, &resp, testAPIKey)
+
+	// Should return an error for non-existent collection
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "not present in schema")
+}

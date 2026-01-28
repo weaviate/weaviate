@@ -1216,6 +1216,7 @@ local-usage-s3)
       --write-timeout=600s
     ;;
   local-mcp)
+    AUTOSCHEMA_ENABLED=false \
     AUTHENTICATION_APIKEY_ENABLED=true \
     AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,custom-key' \
