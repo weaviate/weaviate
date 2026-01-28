@@ -13,7 +13,11 @@ package opentelemetry
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -28,6 +32,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/grpc/credentials"
 )
 
 // Provider manages the OpenTelemetry tracing provider
@@ -116,21 +121,84 @@ func createExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 
 // createHTTPExporter creates an HTTP OTLP exporter
 func createHTTPExporter(cfg *Config) (sdktrace.SpanExporter, error) {
-	client := otlptracehttp.NewClient(
+	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(cfg.ExporterEndpoint),
-		otlptracehttp.WithInsecure(), // TODO: make configurable
-	)
+	}
 
+	// Configure TLS if certificates are provided
+	if cfg.TLSConfig != nil {
+		tlsConfig, err := createTLSConfig(cfg.TLSConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS config: %w", err)
+		}
+		opts = append(opts, otlptracehttp.WithTLSClientConfig(tlsConfig))
+	} else if cfg.Insecure {
+		// Only use insecure mode if explicitly configured and no TLS config is provided
+		opts = append(opts, otlptracehttp.WithInsecure())
+	} else {
+		return nil, errors.New("http exporter: no TLS or insecure mode configured")
+	}
+
+	client := otlptracehttp.NewClient(opts...)
 	return otlptrace.New(context.Background(), client)
 }
 
 // createGRPCExporter creates a gRPC OTLP exporter
 func createGRPCExporter(cfg *Config) (sdktrace.SpanExporter, error) {
-	client := otlptracegrpc.NewClient(
+	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(cfg.ExporterEndpoint),
-		otlptracegrpc.WithInsecure(), // TODO: make configurable
-	)
+	}
+
+	// Configure TLS if certificates are provided
+	if cfg.TLSConfig != nil {
+		tlsConfig, err := createTLSConfig(cfg.TLSConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS config: %w", err)
+		}
+		// For gRPC, we need to use credentials.TransportCredentials
+		creds := credentials.NewTLS(tlsConfig)
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(creds))
+	} else if cfg.Insecure {
+		// Only use insecure mode if explicitly configured and no TLS config is provided
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	} else {
+		return nil, errors.New("grpc exporter: no TLS or insecure mode configured")
+	}
+
+	client := otlptracegrpc.NewClient(opts...)
 	return otlptrace.New(context.Background(), client)
+}
+
+// createTLSConfig creates a TLS configuration from the provided TLS config
+func createTLSConfig(tlsCfg *TLSConfig) (*tls.Config, error) {
+	config := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+	}
+
+	// Load CA certificate
+	if tlsCfg.CAFile != "" {
+		caCert, err := os.ReadFile(tlsCfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+		config.RootCAs = caCertPool
+	}
+
+	// Load client certificate and key if provided (for mutual TLS)
+	if tlsCfg.CertFile != "" && tlsCfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+		config.Certificates = []tls.Certificate{cert}
+	}
+
+	return config, nil
 }
 
 // Tracer returns the OpenTelemetry tracer
