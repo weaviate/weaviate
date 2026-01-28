@@ -82,10 +82,17 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
+
+			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)
+			if err != nil {
+				return fmt.Errorf("async replication config: %w", err)
+			}
+
 			collection := schema.ClassName(class.Class).String()
 			indexRouter := router.NewBuilder(
 				collection,
-				multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+				isMultiTenant,
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,
@@ -125,6 +132,8 @@ func (db *DB) init(ctx context.Context) error {
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+				AsyncReplicationConfig:                       asyncConfig,
+				AsyncReplicationWorkersLimiter:               db.asyncReplicationWorkersLimiter,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,

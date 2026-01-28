@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/dynsemaphore"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -284,7 +286,8 @@ type Index struct {
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
-	replicationConfigLock sync.RWMutex
+	replicationConfigLock          sync.RWMutex
+	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -396,6 +399,13 @@ func NewIndex(
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
+
+	index.asyncReplicationWorkersLimiter = dynsemaphore.NewDynamicWeightedWithParent(index.Config.AsyncReplicationWorkersLimiter,
+		func() int64 {
+			index.replicationConfigLock.RLock()
+			defer index.replicationConfigLock.RUnlock()
+			return int64(index.Config.AsyncReplicationConfig.maxWorkers)
+		})
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -598,6 +608,10 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	return shard, nil
 }
 
+func (i *Index) maintenanceModeEnabled() bool {
+	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
+}
+
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
 	return i.ForEachShard(func(_ string, shard ShardLike) error {
@@ -767,10 +781,24 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig)
+	if err != nil {
+		return err
+	}
+	i.Config.AsyncReplicationConfig = config
+
+	// unloaded shards will fetch the latest config when they are loaded
+	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
+			// if async replication is being enabled, first disable it to reset any previous config
+			if err := shard.SetAsyncReplicationState(ctx, AsyncReplicationConfig{}, false); err != nil {
+				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+			}
+		}
+
+		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.asyncReplicationEnabled()); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -821,6 +849,8 @@ type IndexConfig struct {
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
+	AsyncReplicationConfig              AsyncReplicationConfig
+	AsyncReplicationWorkersLimiter      *dynsemaphore.DynamicWeighted
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
@@ -1049,11 +1079,30 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 	return shard, release, nil
 }
 
-func (i *Index) asyncReplicationEnabled() bool {
+func (i *Index) AsyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
+	return i.asyncReplicationEnabled()
+}
+
+func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+}
+
+func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.AsyncReplicationConfig
+}
+
+func (i *Index) asyncReplicationWorkerAcquire(ctx context.Context) error {
+	return i.asyncReplicationWorkersLimiter.Acquire(ctx, 1)
+}
+
+func (i *Index) asyncReplicationWorkerRelease() {
+	i.asyncReplicationWorkersLimiter.Release(1)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
