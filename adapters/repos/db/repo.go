@@ -291,6 +291,8 @@ type Config struct {
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
 	HNSWMaxLogSize                               int64
