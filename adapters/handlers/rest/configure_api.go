@@ -150,6 +150,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	exportUsecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -961,6 +962,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
+	exportScheduler := startExportScheduler(appState)
+	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
@@ -1095,6 +1098,18 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		appState.SchemaManager,
 		appState.Logger)
 	return backupScheduler
+}
+
+func startExportScheduler(appState *state.State) *exportUsecase.Scheduler {
+	dbWrapper := exportUsecase.NewDBWrapper(appState.DB)
+	dbAdapter := exportUsecase.NewDBAdapter(dbWrapper)
+	backendProvider := exportUsecase.NewBackendProviderWrapper(appState.Modules)
+	exportScheduler := exportUsecase.NewScheduler(
+		appState.Authorizer,
+		dbAdapter,
+		backendProvider,
+		appState.Logger)
+	return exportScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState

@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/client/classifications"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/distributed_tasks"
+	"github.com/weaviate/weaviate/client/exports"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -86,6 +87,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Cluster = cluster.New(transport, formats)
 	cli.DistributedTasks = distributed_tasks.New(transport, formats)
+	cli.Exports = exports.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
 	cli.Nodes = nodes.New(transport, formats)
@@ -151,6 +153,8 @@ type Weaviate struct {
 
 	DistributedTasks distributed_tasks.ClientService
 
+	Exports exports.ClientService
+
 	Graphql graphql.ClientService
 
 	Meta meta.ClientService
@@ -181,6 +185,7 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Classifications.SetTransport(transport)
 	c.Cluster.SetTransport(transport)
 	c.DistributedTasks.SetTransport(transport)
+	c.Exports.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)
 	c.Nodes.SetTransport(transport)
