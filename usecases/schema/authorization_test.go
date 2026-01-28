@@ -32,7 +32,7 @@ import (
 func Test_Schema_Authorization(t *testing.T) {
 	type testCase struct {
 		methodName        string
-		additionalArgs    []interface{}
+		additionalArgs    []any
 		expectedVerb      string
 		expectedResources []string
 	}
@@ -40,73 +40,79 @@ func Test_Schema_Authorization(t *testing.T) {
 	tests := []testCase{
 		{
 			methodName:        "GetClass",
-			additionalArgs:    []interface{}{"classname"},
+			additionalArgs:    []any{"classname"},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
 			methodName:        "GetConsistentClass",
-			additionalArgs:    []interface{}{"classname", false},
+			additionalArgs:    []any{"classname", false},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
 			methodName:        "GetCachedClass",
-			additionalArgs:    []interface{}{"classname"},
+			additionalArgs:    []any{"classname"},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
 			methodName:        "AddClass",
-			additionalArgs:    []interface{}{&models.Class{Class: "classname"}},
+			additionalArgs:    []any{&models.Class{Class: "classname"}},
 			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.CollectionsMetadata("Classname"),
 		},
 		{
 			methodName:        "UpdateClass",
-			additionalArgs:    []interface{}{"class", &models.Class{Class: "class"}},
+			additionalArgs:    []any{"class", &models.Class{Class: "class"}},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("class"),
 		},
 		{
 			methodName:        "DeleteClass",
-			additionalArgs:    []interface{}{"somename"},
+			additionalArgs:    []any{"somename"},
 			expectedVerb:      authorization.DELETE,
 			expectedResources: authorization.CollectionsMetadata("somename"),
 		},
 		{
 			methodName:        "AddClassProperty",
-			additionalArgs:    []interface{}{&models.Class{Class: "classname"}, "classname", false, &models.Property{}},
+			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", false, &models.Property{}},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
 			methodName:        "DeleteClassProperty",
-			additionalArgs:    []interface{}{"somename", "someprop"},
+			additionalArgs:    []any{"somename", "someprop"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("somename"),
 		},
 		{
+			methodName:        "DeleteClassPropertyIndex",
+			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", "someprop", &models.DeletePropertyIndexRequest{}},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.CollectionsMetadata("classname"),
+		},
+		{
 			methodName:        "UpdateShardStatus",
-			additionalArgs:    []interface{}{"className", "shardName", "targetStatus"},
+			additionalArgs:    []any{"className", "shardName", "targetStatus"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsMetadata("className", "shardName"),
 		},
 		{
 			methodName:        "ShardsStatus",
-			additionalArgs:    []interface{}{"className", "tenant"},
+			additionalArgs:    []any{"className", "tenant"},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsMetadata("className", "tenant"),
 		},
 		{
 			methodName:        "AddTenants",
-			additionalArgs:    []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
+			additionalArgs:    []any{"className", []*models.Tenant{{Name: "P1"}}},
 			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
 			methodName: "UpdateTenants",
-			additionalArgs: []interface{}{"className", []*models.Tenant{
+			additionalArgs: []any{"className", []*models.Tenant{
 				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
 			}},
 			expectedVerb:      authorization.UPDATE,
@@ -114,37 +120,37 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "DeleteTenants",
-			additionalArgs:    []interface{}{"className", []string{"P1"}},
+			additionalArgs:    []any{"className", []string{"P1"}},
 			expectedVerb:      authorization.DELETE,
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
 			methodName:        "ConsistentTenantExists",
-			additionalArgs:    []interface{}{"className", false, "P1"},
+			additionalArgs:    []any{"className", false, "P1"},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
 			methodName:        "AddAlias",
-			additionalArgs:    []interface{}{&models.Alias{Class: "classname", Alias: "aliasName"}},
+			additionalArgs:    []any{&models.Alias{Class: "classname", Alias: "aliasName"}},
 			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.Aliases("Classname", "AliasName"),
 		},
 		{
 			methodName:        "UpdateAlias",
-			additionalArgs:    []interface{}{"aliasName", "class"},
+			additionalArgs:    []any{"aliasName", "class"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.Aliases("class", "aliasName"),
 		},
 		{
 			methodName:        "DeleteAlias",
-			additionalArgs:    []interface{}{"aliasName"},
+			additionalArgs:    []any{"aliasName"},
 			expectedVerb:      authorization.DELETE,
 			expectedResources: authorization.Aliases("class", "aliasName"),
 		},
 		{
 			methodName:        "GetAlias",
-			additionalArgs:    []interface{}{"aliasName"},
+			additionalArgs:    []any{"aliasName"},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.Aliases("class", "aliasName"),
 		},
@@ -194,12 +200,12 @@ func Test_Schema_Authorization(t *testing.T) {
 				// to verify the permission
 				fakeSchemaManager.On("GetAlias", mock.Anything, mock.Anything).Return(&models.Alias{Alias: "aliasName", Class: "class"}, nil)
 
-				var args []interface{}
+				var args []any
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {
 					// no context on this method
-					args = append([]interface{}{principal}, test.additionalArgs...)
+					args = append([]any{principal}, test.additionalArgs...)
 				} else {
-					args = append([]interface{}{context.Background(), principal}, test.additionalArgs...)
+					args = append([]any{context.Background(), principal}, test.additionalArgs...)
 				}
 				out, _ := callFuncByName(handler, test.methodName, args...)
 
@@ -214,7 +220,7 @@ func Test_Schema_Authorization(t *testing.T) {
 }
 
 // inspired by https://stackoverflow.com/a/33008200
-func callFuncByName(manager interface{}, funcName string, params ...interface{}) (out []reflect.Value, err error) {
+func callFuncByName(manager any, funcName string, params ...any) (out []reflect.Value, err error) {
 	managerValue := reflect.ValueOf(manager)
 	m := managerValue.MethodByName(funcName)
 	if !m.IsValid() {
@@ -228,7 +234,7 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 	return out, err
 }
 
-func allExportedMethods(subject interface{}) []string {
+func allExportedMethods(subject any) []string {
 	var methods []string
 	subjectType := reflect.TypeOf(subject)
 	for i := 0; i < subjectType.NumMethod(); i++ {
