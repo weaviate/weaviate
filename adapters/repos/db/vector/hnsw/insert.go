@@ -128,28 +128,30 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	h.compressActionLock.Lock()
-	defer h.compressActionLock.Unlock()
-	if h.rqConfig.Enabled && h.rqActive {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+	func() {
+		h.compressActionLock.Lock()
+		defer h.compressActionLock.Unlock()
+		if h.rqConfig.Enabled && h.rqActive {
+			h.trackRQOnce.Do(func() {
+				h.compressor, err = compressionhelpers.NewRQCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store,
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
-			if err == nil {
-				h.Lock()
-				defer h.Unlock()
-				h.compressed.Store(true)
-				if h.cache != nil {
-					h.cache.Drop()
+				if err == nil {
+					h.Lock()
+					defer h.Unlock()
+					h.compressed.Store(true)
+					if h.cache != nil {
+						h.cache.Drop()
+					}
+					h.cache = nil
+					h.compressor.PersistCompression(h.commitLog)
 				}
-				h.cache = nil
-				h.compressor.PersistCompression(h.commitLog)
-			}
-		})
-		if err != nil {
-			return err
+			})
 		}
+	}()
+	if err != nil {
+		return err
 	}
 
 	levels := make([]int, len(ids))
