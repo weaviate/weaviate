@@ -131,7 +131,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
 
 		baseBackupID := req.BaseBackupID
-		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, compressionType, store.bucket, store.path, store.MetaForBackupID)
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, store.bucket, store.path, store.MetaForBackupID)
 		if err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
@@ -161,8 +161,9 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	return ret, nil
 }
 
-// metadataFetcher is a function type that fetches backup metadata
-type metadataFetcher func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error)
+type BackupChainDescriptor interface {
+	GetBaseBackupId() string
+}
 
 // resolveBaseBackupChain follows the chain of base backups and validates them.
 // It returns all base backup descriptors in the chain, ordered from the most recent
@@ -172,18 +173,17 @@ type metadataFetcher func(ctx context.Context, backupID, bucket, path string) (*
 // - All backups in the chain exist
 // - All backups have compression type set
 // - All backups have the same compression type as requested
-func resolveBaseBackupChain(
+func resolveBaseBackupChain[T BackupChainDescriptor](
 	ctx context.Context,
 	baseBackupID string,
-	compressionType backup.CompressionType,
 	bucket, path string,
-	fetchMeta metadataFetcher,
-) ([]*backup.BackupDescriptor, error) {
+	fetchMeta func(ctx context.Context, backupID, bucket, path string) (T, error),
+) ([]T, error) {
 	if baseBackupID == "" {
 		return nil, nil
 	}
 
-	var baseDescrs []*backup.BackupDescriptor
+	var baseDescrs []T
 	visitedIds := make(map[string]struct{})
 	nextId := baseBackupID
 
@@ -197,29 +197,16 @@ func resolveBaseBackupChain(
 		// Fetch the backup descriptor
 		baseDescr, err := fetchMeta(ctx, nextId, bucket, path)
 		if err != nil {
-			return nil, fmt.Errorf("fetching base backup: %w", err)
-		}
-		if baseDescr == nil {
-			return nil, fmt.Errorf("base backup %q not found", nextId)
-		}
-
-		// Validate compression type is set
-		if baseDescr.CompressionType == nil {
-			return nil, fmt.Errorf("base backup %q has no compression type set", nextId)
-		}
-
-		// Validate compression type matches
-		if *baseDescr.CompressionType != compressionType {
-			return nil, fmt.Errorf("base backup %q has different compression type %v than the requested one %v", nextId, *baseDescr.CompressionType, compressionType)
+			return nil, fmt.Errorf("could not fetch base backup: %w", err)
 		}
 
 		baseDescrs = append(baseDescrs, baseDescr)
 
 		// Check if we've reached the end of the chain
-		if baseDescr.BaseBackupId == "" {
+		if baseDescr.GetBaseBackupId() == "" {
 			break
 		}
-		nextId = baseDescr.BaseBackupId
+		nextId = baseDescr.GetBaseBackupId()
 	}
 
 	return baseDescrs, nil

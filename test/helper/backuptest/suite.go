@@ -537,23 +537,39 @@ func (s *BackupTestSuite) EnableRQ(t *testing.T) {
 }
 
 type book struct {
-	Title       string   `fake:"{sentence:10}"`
-	Description string   `fake:"{paragraph:10}"`
-	Tags        []string `fake:"{words:3}"`
+	Title   string   `fake:"{sentence:10}"`
+	Content string   `fake:"{paragraph:10}"`
+	Tags    []string `fake:"{words:3}"`
 }
 
 func (b *book) toObject(class string) *models.Object {
 	return &models.Object{
 		Class: class,
 		Properties: map[string]interface{}{
-			"title":       b.Title,
-			"description": b.Description,
-			"tags":        b.Tags,
+			"title":   b.Title,
+			"content": b.Content,
+			"tags":    b.Tags,
 		},
 	}
 }
 
 func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
+	t.Run("incremental backup and restore errors", s.RunIncrementalTestAndRestoreErrors)
+	t.Run("successful incremental backup and restore", s.RunIncrementalTestAndRestoreSuccess)
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestoreErrors(t *testing.T) {
+	t.Run("base backup does not exist", func(t *testing.T) {
+		s.CreateTestClass(t)
+		s.CreateTestObjects(t)
+		cfg := helper.DefaultBackupConfig()
+
+		_, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, "incremental-no-base-"+s.config.BackupID, "non-existent-base-backup"+s.config.BackupID)
+		require.Error(t, err)
+	})
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestoreSuccess(t *testing.T) {
 	backupIDBase := fmt.Sprintf("base-%s-%d", s.config.BackupID, time.Now().UnixNano())
 	backupIDIncremental1 := fmt.Sprintf("incremental1-%s-%d", s.config.BackupID, time.Now().UnixNano())
 	backupIDIncremental2 := fmt.Sprintf("incremental2-%s-%d", s.config.BackupID, time.Now().UnixNano())
@@ -569,8 +585,8 @@ func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
 	numObjects := 10000
 	for i := 0; i < numObjects; i++ {
 		var b book
-		gofakeit.Struct(&b)
-		helper.CreateObject(t, b.toObject(s.config.ClassName))
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
 	}
 	checkCount(t, endpoints, s.config.ClassName, numObjects)
 	s.CreateBackup(t, backupIDBase, "")
@@ -579,8 +595,8 @@ func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
 	numObjects2 := 250
 	for i := 0; i < numObjects2; i++ {
 		var b book
-		gofakeit.Struct(&b)
-		helper.CreateObject(t, b.toObject(s.config.ClassName))
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
 	}
 	s.CreateBackup(t, backupIDIncremental1, backupIDBase)
 	checkCount(t, endpoints, s.config.ClassName, numObjects+numObjects2)
@@ -588,8 +604,8 @@ func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
 	// add more data after backup completed and do a second incremental backup
 	for i := 0; i < numObjects2; i++ {
 		var b book
-		gofakeit.Struct(&b)
-		helper.CreateObject(t, b.toObject(s.config.ClassName))
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
 	}
 
 	s.CreateBackup(t, backupIDIncremental2, backupIDIncremental1)

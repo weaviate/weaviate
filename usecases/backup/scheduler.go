@@ -413,6 +413,12 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
 		return nil, err
 	}
+
+	// validate base backup chain
+	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupId, req.Bucket, req.Path, store.MetaForBackupID); err != nil {
+		return nil, fmt.Errorf("resolve base backup chain: %w", err)
+	}
+
 	return classes, nil
 }
 

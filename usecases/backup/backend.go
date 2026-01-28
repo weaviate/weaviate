@@ -146,13 +146,16 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 }
 
 func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
-	var result backup.BackupDescriptor
+	var result *backup.BackupDescriptor
 
 	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
 	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if result == nil {
+		return nil, fmt.Errorf("no backup descriptor found in %s", backupID)
+	}
+	return result, nil
 }
 
 // meta marshals and uploads metadata
@@ -180,6 +183,19 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 		}
 	}
 	return &result, err
+}
+
+func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
+	var result *backup.BackupDescriptor
+
+	cs := &coordStore{objectStore{s.backend, backupID, overrideBucket, overridePath, ""}}
+	if err := cs.meta(ctx, GlobalBackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("no global backup descriptor found in %s", backupID)
+	}
+	return result, nil
 }
 
 // uploader uploads backup artifacts. This includes db files and metadata

@@ -227,6 +227,10 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 	return d
 }
 
+func (d *DistributedBackupDescriptor) GetBaseBackupId() string {
+	return d.BaseBackupId
+}
+
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
 	Name                  string                 `json:"name"`
@@ -431,6 +435,10 @@ func (d *BackupDescriptor) List() []string {
 		lst[i] = cls.Name
 	}
 	return lst
+}
+
+func (d *BackupDescriptor) GetBaseBackupId() string {
+	return d.BaseBackupId
 }
 
 // AllExist checks if all classes exist in d.
