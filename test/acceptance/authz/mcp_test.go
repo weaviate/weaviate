@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,9 +30,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, tool, key string, in I, out *O) error {
+func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, mcpURL, tool, key string, in I, out *O) error {
 	c, err := client.NewStreamableHttpClient(
-		"http://localhost:9000/mcp",
+		mcpURL,
 		transport.WithHTTPHeaders(map[string]string{"Authorization": fmt.Sprintf("Bearer %s", key)}),
 	)
 	if err != nil {
@@ -70,15 +71,21 @@ func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, tool,
 }
 
 func TestMCPServerAuthZ(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-
-	// These users must be pre-configured in Weaviate via environment variables:
-	// AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,custom-key'
-	// AUTHENTICATION_APIKEY_USERS='admin,custom-user'
-	// AUTHORIZATION_RBAC_ROOT_USERS='admin'
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 	customUser := "custom-user"
 	customKey := "custom-key"
+
+	compose, down := composeUpWithMCP(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil, true)
+	defer down()
+
+	// Derive MCP URL from Weaviate URI (MCP runs on port 9000)
+	// The URI format is "http://host:port", we need "http://host:9000/mcp"
+	weaviateURI := compose.GetWeaviate().URI()
+	// Extract host by removing "http://" and splitting on ":"
+	hostPort := strings.TrimPrefix(weaviateURI, "http://")
+	host := strings.Split(hostPort, ":")[0]
+	mcpURL := fmt.Sprintf("http://%s:9000/mcp", host)
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassWithAuthz(t, cls.Class, helper.CreateAuth(adminKey))
@@ -109,7 +116,7 @@ func TestMCPServerAuthZ(t *testing.T) {
 
 	t.Run("fail to call tool without MCP permission", func(t *testing.T) {
 		var resp *read.GetCollectionConfigResp
-		err := callToolOnceWithAuth[any](ctx, t, "weaviate-collections-get-config", customKey, nil, &resp)
+		err := callToolOnceWithAuth[any](ctx, t, mcpURL, "weaviate-collections-get-config", customKey, nil, &resp)
 		require.NotNil(t, err)
 		require.Contains(t, err.Error(), "user 'custom-user' has insufficient permissions to read_mcp []")
 	})
@@ -118,7 +125,7 @@ func TestMCPServerAuthZ(t *testing.T) {
 
 	t.Run("succeed to call tool with MCP permission", func(t *testing.T) {
 		var resp *read.GetCollectionConfigResp
-		err := callToolOnceWithAuth[any](ctx, t, "weaviate-collections-get-config", customKey, nil, &resp)
+		err := callToolOnceWithAuth[any](ctx, t, mcpURL, "weaviate-collections-get-config", customKey, nil, &resp)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Collections)

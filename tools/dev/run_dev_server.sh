@@ -1225,7 +1225,6 @@ local-usage-s3)
     MCP_SERVER_ENABLED='true' \
     MCP_SERVER_WRITE_ACCESS_DISABLED='false' \
     MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.yaml" \
-    MCP_SERVER_READ_LOGS_ENABLED='true' \
     DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
     TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
     CLIP_INFERENCE_API="http://localhost:8005" \
