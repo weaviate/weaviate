@@ -37,15 +37,6 @@ func Tools(reader *WeaviateReader, descriptions map[string]string) []server.Serv
 			),
 			Handler: mcp.NewStructuredToolHandler(reader.GetTenants),
 		},
-		{
-			Tool: mcp.NewTool(
-				"weaviate-objects-get",
-				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-objects-get",
-					"Retrieves one or more objects from a collection. Can fetch specific objects by UUID or retrieve a paginated list of objects.")),
-				mcp.WithInputSchema[GetObjectsArgs](),
-			),
-			Handler: mcp.NewStructuredToolHandler(reader.GetObjects),
-		},
 	}
 	return tools
 }
