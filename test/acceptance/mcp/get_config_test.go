@@ -53,13 +53,8 @@ func setupGetConfigTestWithTenants(t *testing.T, tenantNames []string) (*models.
 	helper.DeleteClassAuth(t, cls.Class, testAPIKey)
 	helper.CreateClassAuth(t, cls, testAPIKey)
 
-	if len(tenantNames) > 0 {
-		tenants := make([]*models.Tenant, len(tenantNames))
-		for i, name := range tenantNames {
-			tenants[i] = &models.Tenant{Name: name}
-		}
-		helper.CreateTenantsAuth(t, cls.Class, tenants, testAPIKey)
-	}
+	// Create tenants if provided
+	createTenantsForClass(t, cls.Class, tenantNames)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 

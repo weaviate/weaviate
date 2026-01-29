@@ -101,13 +101,7 @@ func setupQueryHybridMultiTenantTest(t *testing.T, tenantNames []string) (*model
 	helper.CreateClassAuth(t, cls, testAPIKey)
 
 	// Create tenants if provided
-	if len(tenantNames) > 0 {
-		tenants := make([]*models.Tenant, len(tenantNames))
-		for i, name := range tenantNames {
-			tenants[i] = &models.Tenant{Name: name}
-		}
-		helper.CreateTenantsAuth(t, cls.Class, tenants, testAPIKey)
-	}
+	createTenantsForClass(t, cls.Class, tenantNames)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
@@ -552,7 +546,7 @@ func TestQueryHybrid_WithTenant(t *testing.T) {
 	helper.SetupClient("localhost:8080")
 	apiKey := "admin-key"
 
-	cls, _, cleanup := setupQueryHybridMultiTenantTest(t, []string{"tenant-a", "tenant-b"})
+	cls, ctx, cleanup := setupQueryHybridMultiTenantTest(t, []string{"tenant-a", "tenant-b"})
 	defer cleanup()
 
 	// Tenants already created in setup
@@ -595,9 +589,6 @@ func TestQueryHybrid_WithTenant(t *testing.T) {
 		},
 	}
 	helper.CreateObjectsBatchAuth(t, objectsB, apiKey)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	// Query tenant-a
 	var results *search.QueryHybridResp

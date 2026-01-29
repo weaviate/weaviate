@@ -27,8 +27,6 @@ import (
 )
 
 const (
-	testServerAddr = "localhost:8080"
-	testAPIKey     = "admin-key"
 	toolNameUpsert = "weaviate-objects-upsert"
 )
 
