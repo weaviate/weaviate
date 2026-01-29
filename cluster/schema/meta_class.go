@@ -162,6 +162,10 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	return nil
 }
 
+func (m *metaClass) UpdateProperty(v uint64, property *models.Property) error {
+	return m.AddProperty(v, property)
+}
+
 func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) error {
 	m.Lock()
 	defer m.Unlock()
