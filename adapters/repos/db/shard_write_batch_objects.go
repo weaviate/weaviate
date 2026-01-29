@@ -193,7 +193,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
-	status, err := ob.shard.putObjectLSM(object, idBytes)
+	status, err := ob.shard.putObjectLSM(ctx, object, idBytes)
 	if err != nil {
 		return err
 	}

@@ -695,9 +695,9 @@ func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, d
 	return l.shard.batchDeleteObject(ctx, id, deletionTime)
 }
 
-func (l *LazyLoadShard) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
+func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
 	l.mustLoad()
-	return l.shard.putObjectLSM(object, idBytes)
+	return l.shard.putObjectLSM(ctx, object, idBytes)
 }
 
 func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error {
@@ -705,9 +705,9 @@ func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes 
 	return l.shard.mayUpsertObjectHashTree(object, idBytes, status)
 }
 
-func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
+func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
 	l.mustLoad()
-	return l.shard.mutableMergeObjectLSM(merge, idBytes)
+	return l.shard.mutableMergeObjectLSM(ctx, merge, idBytes)
 }
 
 func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
