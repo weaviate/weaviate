@@ -863,6 +863,13 @@ func (m *Metrics) IncBucketReadOpFailureCountByComponent(op, component string) {
 	m.bucketReadOpFailureCountByComponent.WithLabelValues(op, component).Inc()
 }
 
+func (m *Metrics) AddBucketReadOpFailureCountByComponent(op, component string, count int) {
+	if m == nil {
+		return
+	}
+	m.bucketReadOpFailureCountByComponent.WithLabelValues(op, component).Add(float64(count))
+}
+
 func (m *Metrics) ObserveBucketReadOpDurationByComponent(op, component string, duration time.Duration) {
 	if m == nil {
 		return

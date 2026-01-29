@@ -601,6 +601,29 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 	return b.getFromSegmentGroup(key, view.Disk)
 }
 
+func (b *Bucket) getManyWithConsistentView(keys [][]byte, view BucketConsistentView) ([]byte, error) {
+	memtables, count := viewMemtables(view)
+
+	for i := range count {
+		v, err := b.getFromMemtable(key, memtables[i], memtableNames[i])
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return v, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments, return nil now
+			return nil, err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, fmt.Errorf("Bucket::get() %q: %w", memtableNames[i], err)
+		}
+	}
+
+	return b.getFromSegmentGroup(key, view.Disk)
+}
+
 // existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
 // Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
 // This is more efficient than getWithConsistentView() when only existence check is needed.
@@ -765,6 +788,38 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 	return memtable.get(key)
 }
 
+func (b *Bucket) getManyFromMemtable(keys [][]byte, memtable memtable, component string) (vals map[int][]byte, errs map[int]error) {
+	op := "getmany"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		if duration := time.Since(start); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_%s_%s", op, component),
+			}).Debug("Waited more than 100ms to retrieve objects from memtable")
+		}
+
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		errsCount := 0
+		for _, err := range errs {
+			if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+				errsCount++
+			}
+		}
+		if errsCount > 0 {
+			b.metrics.AddBucketReadOpFailureCountByComponent(op, component, errsCount)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	return memtable.getMany(keys)
+}
+
 func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable memtable, component string,
 ) (v []byte, err error) {
 	op := "getbysecondary"
@@ -790,6 +845,39 @@ func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable mem
 	}()
 
 	return memtable.getBySecondary(pos, seckey)
+}
+
+func (b *Bucket) getManyBySecondaryFromMemtable(pos int, seckeys [][]byte, memtable memtable, component string,
+) (vals map[int][]byte, errs map[int]error) {
+	op := "getmanybysecondary"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		if duration := time.Since(start); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_%s_%s", op, component),
+			}).Debug("Waited more than 100ms to retrieve objects from memtable")
+		}
+
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		errsCount := 0
+		for _, err := range errs {
+			if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+				errsCount++
+			}
+		}
+		if errsCount > 0 {
+			b.metrics.AddBucketReadOpFailureCountByComponent(op, component, errsCount)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	return memtable.getManyBySecondary(pos, seckeys)
 }
 
 func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, err error) {

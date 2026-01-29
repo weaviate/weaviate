@@ -37,7 +37,9 @@ import (
 
 type memtable interface {
 	get(key []byte) ([]byte, error)
+	getMany(keys [][]byte) (map[int][]byte, map[int]error)
 	getBySecondary(pos int, key []byte) ([]byte, error)
+	getManyBySecondary(pos int, keys [][]byte) (map[int][]byte, map[int]error)
 	exists(key []byte) error
 	put(key, value []byte, opts ...SecondaryKeyOption) error
 	setTombstone(key []byte, opts ...SecondaryKeyOption) error
@@ -209,6 +211,37 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	return m.key.get(key)
 }
 
+func (m *Memtable) getMany(keys [][]byte) (map[int][]byte, map[int]error) {
+	start := time.Now()
+	defer m.metrics.observeGet(start.UnixNano())
+
+	ln := len(keys)
+	errs := make(map[int]error, ln)
+
+	if m.strategy != StrategyReplace {
+		err := errors.Errorf("get only possible with strategy 'replace'")
+		for i := range keys {
+			errs[i] = err
+		}
+		return nil, errs
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	vals := make(map[int][]byte, ln)
+	for i := range keys {
+		val, err := m.key.get(keys[i])
+		if err != nil {
+			errs[i] = err
+		} else {
+			vals[i] = val
+		}
+	}
+
+	return vals, errs
+}
+
 // exists checks if a key exists and is not deleted, without returning the value.
 // This is more efficient than get() when only existence check is needed.
 func (m *Memtable) exists(key []byte) error {
@@ -239,6 +272,43 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	}
 
 	return m.key.get(primary)
+}
+
+func (m *Memtable) getManyBySecondary(pos int, keys [][]byte) (map[int][]byte, map[int]error) {
+	start := time.Now()
+	defer m.metrics.observeGetBySecondary(start.UnixNano())
+
+	ln := len(keys)
+	errs := make(map[int]error, ln)
+
+	if m.strategy != StrategyReplace {
+		err := errors.Errorf("get only possible with strategy 'replace'")
+		for i := range keys {
+			errs[i] = err
+		}
+		return nil, errs
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	vals := make(map[int][]byte, ln)
+	for i := range keys {
+		primary := m.secondaryToPrimary[pos][string(keys[i])]
+		if primary == nil {
+			errs[i] = lsmkv.NotFound
+			continue
+		}
+
+		val, err := m.key.get(primary)
+		if err != nil {
+			errs[i] = err
+		} else {
+			vals[i] = val
+		}
+	}
+
+	return vals, errs
 }
 
 func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
