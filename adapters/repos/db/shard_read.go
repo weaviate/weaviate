@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -664,7 +665,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 	i := 0
 	j := 0
 
-	scanLimit := int(^uint(0) >> 1) // max int value
+	scanLimit := math.MaxInt64
 
 	if c != nil && c.Limit > 0 {
 		scanLimit = c.Limit * 10 // scan up to 10x the limit to find allowed IDs
