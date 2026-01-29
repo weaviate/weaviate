@@ -371,10 +371,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 
 	// Configure CommitReplication to signal start and block until done
 	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, _ string, _ string, _ string) {
-		select {
-		case startSignal <- struct{}{}:
-		default:
-		}
+		startSignal <- struct{}{}
 		<-doneSignal
 	}).Return(replica.SimpleResponse{})
 
@@ -425,7 +422,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	// Start shutdown
 	closeErr := make(chan error, 1)
 	go func() {
-		closeErr <- indices.Close(context.Background())
+		closeErr <- indices.Close(t.Context())
 	}()
 
 	// Send a few concurrent requests while shutdown is in progress
@@ -437,7 +434,10 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			req, err := http.NewRequest("POST", reqURL, nil)
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
 			if err != nil {
 				return
 			}
