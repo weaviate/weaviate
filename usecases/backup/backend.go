@@ -64,6 +64,7 @@ type objectStore struct {
 	backupId string // use supplied backup id
 	bucket   string // Override bucket for one call
 	path     string // Override path for one call
+	node     string
 }
 
 func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
@@ -85,6 +86,10 @@ func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePa
 
 func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	return s.backend.Read(ctx, s.backupId, key, overrideBucket, overridePath, w)
+}
+
+func (s *objectStore) ReadFromOtherBackup(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
+	return s.backend.Read(ctx, fmt.Sprintf("%s/%s", backupID, s.node), key, overrideBucket, overridePath, w)
 }
 
 func (s *objectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
@@ -121,10 +126,6 @@ type nodeStore struct {
 	objectStore
 }
 
-func NewNodeStore(backend modulecapabilities.BackupBackend, backupId, bucket, path string) *nodeStore {
-	return &nodeStore{objectStore: objectStore{backend, backupId, bucket, path}}
-}
-
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
@@ -132,7 +133,7 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath} // for backward compatibility
+		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
 			if adjustBasePath {
 				s.objectStore.backupId = backupID
@@ -142,6 +143,19 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	}
 
 	return &result, err
+}
+
+func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
+	var result *backup.BackupDescriptor
+
+	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
+	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("no backup descriptor found in %s", backupID)
+	}
+	return result, nil
 }
 
 // meta marshals and uploads metadata
@@ -169,6 +183,19 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 		}
 	}
 	return &result, err
+}
+
+func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
+	var result *backup.BackupDescriptor
+
+	cs := &coordStore{objectStore{s.backend, backupID, overrideBucket, overridePath, ""}}
+	if err := cs.meta(ctx, GlobalBackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("no global backup descriptor found in %s", backupID)
+	}
+	return result, nil
 }
 
 // uploader uploads backup artifacts. This includes db files and metadata
@@ -205,10 +232,10 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions
@@ -391,6 +418,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		return sendCh
 	}
 
+	incrementalBackupSize := atomic.Int64{}
+
 	// processor
 	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
@@ -407,6 +436,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					for shard := range sender {
 						firstChunk := true
 						filesInShard := shard.CopyFilesInShard()
+						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
 						for {
 							chunk := atomic.AddInt32(&lastChunk, 1)
 							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, overrideBucket, overridePath)
@@ -435,6 +465,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		desc.Chunks[x.chunk] = x.shards
 		desc.PreCompressionSizeBytes += x.preCompressionSize
 	}
+	desc.PreCompressionSizeBytes += incrementalBackupSize.Load()
 	return desc.PreCompressionSizeBytes, err
 }
 
@@ -470,10 +501,9 @@ func (u *uploader) compress(ctx context.Context,
 			return err
 		}
 
-		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize); err != nil {
+		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize, chunkKey); err != nil {
 			return err
 		}
-		shard.Chunk = chunk
 		shards = append(shards, shard.Name)
 		shard.ClearTemporary()
 
@@ -620,6 +650,28 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			_, err := uz.ReadChunk()
 			return err
 		})
+	}
+
+	// fetch files from base backup(s)
+	for _, shard := range desc.Shards {
+		for backupId, incrementalBackupInfos := range shard.IncrementalBackupInfo.FilesPerBackup { // can be multiple incremental backups
+			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
+				for _, chunkId := range incrementalBackupInfo.ChunkKeys { // chunks for file
+					eg.Go(func() error {
+						uz, w := NewUnzip(classTempDir, compressionType)
+
+						enterrors.GoWrapper(func() {
+							_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+							if err != nil {
+								fw.logger.WithError(err).WithField("backup_id", backupId).Warn("failed to read chunk")
+							}
+						}, fw.logger)
+						_, err := uz.ReadChunk()
+						return err
+					})
+				}
+			}
+		}
 	}
 	return eg.Wait()
 }

@@ -252,6 +252,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		}
 		meta.Include(req.Classes)
 	}
+
 	return meta, cs, nil
 }
 
