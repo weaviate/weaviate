@@ -32,7 +32,7 @@ func composeUpWithMCP(t *testing.T, admins map[string]string, users map[string]s
 
 	// Enable MCP server if requested
 	if enableMCP {
-		builder = builder.WithWeaviateEnv("MCP_SERVER_ENABLED", "true").WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_DISABLED", "false")
+		builder = builder.WithMCP()
 	}
 
 	adminUserNames := make([]string, 0, len(admins))

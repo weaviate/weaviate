@@ -122,6 +122,7 @@ type Compose struct {
 	withQnATransformers         bool
 	withWeaviateExposeGRPCPort  bool
 	withWeaviateExposeDebugPort bool
+	withWeaviateExposeMCPPort   bool
 	withSecondWeaviate          bool
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
@@ -539,6 +540,13 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMCP() *Compose {
+	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
+	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_DISABLED", "false")
+	d.withWeaviateExposeMCPPort = true
+	return d
+}
+
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeDebugPort = true
@@ -914,7 +922,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, "/v1/.well-known/ready")
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1049,7 +1057,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node1"))
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, wellKnownEndpointFunc("node1"))
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -1065,7 +1073,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node2"))
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -1082,7 +1090,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node3"))
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, wellKnownEndpointFunc("node3"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}

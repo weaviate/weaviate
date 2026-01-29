@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -79,13 +78,7 @@ func TestMCPServerAuthZ(t *testing.T) {
 	compose, down := composeUpWithMCP(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil, true)
 	defer down()
 
-	// Derive MCP URL from Weaviate URI (MCP runs on port 9000)
-	// The URI format is "http://host:port", we need "http://host:9000/mcp"
-	weaviateURI := compose.GetWeaviate().URI()
-	// Extract host by removing "http://" and splitting on ":"
-	hostPort := strings.TrimPrefix(weaviateURI, "http://")
-	host := strings.Split(hostPort, ":")[0]
-	mcpURL := fmt.Sprintf("http://%s:9000/mcp", host)
+	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassWithAuthz(t, cls.Class, helper.CreateAuth(adminKey))
