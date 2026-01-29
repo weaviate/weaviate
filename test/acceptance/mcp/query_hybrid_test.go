@@ -188,7 +188,7 @@ func insertTestArticles(t *testing.T, className string) {
 }
 
 // Test 1: Pure BM25 keyword search (alpha=0.0)
-func TestQueryHybrid_PureBM25Search(t *testing.T) {
+func TestQueryHybridPureBM25Search(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -210,7 +210,7 @@ func TestQueryHybrid_PureBM25Search(t *testing.T) {
 }
 
 // Test 2: Test with limit parameter
-func TestQueryHybrid_WithLimit(t *testing.T) {
+func TestQueryHybridWithLimit(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -241,7 +241,7 @@ func TestQueryHybrid_WithLimit(t *testing.T) {
 }
 
 // Test 3: Return specific properties
-func TestQueryHybrid_ReturnSpecificProperties(t *testing.T) {
+func TestQueryHybridReturnSpecificProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -269,7 +269,7 @@ func TestQueryHybrid_ReturnSpecificProperties(t *testing.T) {
 }
 
 // Test 4: Return all properties (default behavior)
-func TestQueryHybrid_ReturnAllProperties(t *testing.T) {
+func TestQueryHybridReturnAllProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -294,7 +294,7 @@ func TestQueryHybrid_ReturnAllProperties(t *testing.T) {
 }
 
 // Test 5: Return metadata
-func TestQueryHybrid_ReturnMetadata(t *testing.T) {
+func TestQueryHybridReturnMetadata(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -324,7 +324,7 @@ func TestQueryHybrid_ReturnMetadata(t *testing.T) {
 }
 
 // Test 6: Target specific properties for BM25 search
-func TestQueryHybrid_TargetSpecificProperties(t *testing.T) {
+func TestQueryHybridTargetSpecificProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -349,7 +349,7 @@ func TestQueryHybrid_TargetSpecificProperties(t *testing.T) {
 }
 
 // Test 7: Simple filter - Equal operator
-func TestQueryHybrid_WithSimpleFilter(t *testing.T) {
+func TestQueryHybridWithSimpleFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -379,7 +379,7 @@ func TestQueryHybrid_WithSimpleFilter(t *testing.T) {
 }
 
 // Test 8: Numeric filter
-func TestQueryHybrid_WithNumericFilter(t *testing.T) {
+func TestQueryHybridWithNumericFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -410,7 +410,7 @@ func TestQueryHybrid_WithNumericFilter(t *testing.T) {
 }
 
 // Test 9: Date filter with RFC3339 format
-func TestQueryHybrid_WithDateFilter(t *testing.T) {
+func TestQueryHybridWithDateFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -441,7 +441,7 @@ func TestQueryHybrid_WithDateFilter(t *testing.T) {
 }
 
 // Test 10: Complex AND filter
-func TestQueryHybrid_WithComplexAndFilter(t *testing.T) {
+func TestQueryHybridWithComplexAndFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -483,7 +483,7 @@ func TestQueryHybrid_WithComplexAndFilter(t *testing.T) {
 }
 
 // Test 11: OR filter
-func TestQueryHybrid_WithOrFilter(t *testing.T) {
+func TestQueryHybridWithOrFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -524,7 +524,7 @@ func TestQueryHybrid_WithOrFilter(t *testing.T) {
 }
 
 // Test 12: Query without filter
-func TestQueryHybrid_NoFilter(t *testing.T) {
+func TestQueryHybridNoFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -542,7 +542,7 @@ func TestQueryHybrid_NoFilter(t *testing.T) {
 }
 
 // Test 13: Multi-tenant search
-func TestQueryHybrid_WithTenant(t *testing.T) {
+func TestQueryHybridWithTenant(t *testing.T) {
 	helper.SetupClient("localhost:8080")
 	apiKey := "admin-key"
 
@@ -613,7 +613,7 @@ func TestQueryHybrid_WithTenant(t *testing.T) {
 }
 
 // Test 14: Complex query with multiple parameters
-func TestQueryHybrid_ComplexQuery(t *testing.T) {
+func TestQueryHybridComplexQuery(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -673,7 +673,7 @@ func TestQueryHybrid_ComplexQuery(t *testing.T) {
 }
 
 // Test 15: Empty query
-func TestQueryHybrid_EmptyQuery(t *testing.T) {
+func TestQueryHybridEmptyQuery(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -692,7 +692,7 @@ func TestQueryHybrid_EmptyQuery(t *testing.T) {
 }
 
 // Test 16: No results scenario
-func TestQueryHybrid_NoResults(t *testing.T) {
+func TestQueryHybridNoResults(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -711,7 +711,7 @@ func TestQueryHybrid_NoResults(t *testing.T) {
 }
 
 // Test 17: Invalid collection name
-func TestQueryHybrid_InvalidCollectionName(t *testing.T) {
+func TestQueryHybridInvalidCollectionName(t *testing.T) {
 	helper.SetupClient(testServerAddr)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -730,7 +730,7 @@ func TestQueryHybrid_InvalidCollectionName(t *testing.T) {
 }
 
 // Test 18: Default alpha behavior
-func TestQueryHybrid_DefaultAlpha(t *testing.T) {
+func TestQueryHybridDefaultAlpha(t *testing.T) {
 	cls, ctx, cleanup, _ := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -753,7 +753,7 @@ func TestQueryHybrid_DefaultAlpha(t *testing.T) {
 }
 
 // Test 19: Target all properties (default behavior)
-func TestQueryHybrid_TargetAllProperties(t *testing.T) {
+func TestQueryHybridTargetAllProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
@@ -786,7 +786,7 @@ func TestQueryHybrid_TargetAllProperties(t *testing.T) {
 }
 
 // Test 20: Empty results should not cause error or panic
-func TestQueryHybrid_EmptyResults(t *testing.T) {
+func TestQueryHybridEmptyResults(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
