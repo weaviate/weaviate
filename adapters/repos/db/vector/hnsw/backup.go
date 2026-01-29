@@ -125,3 +125,8 @@ func (h *hnsw) listSnapshotFiles(ctx context.Context, basePath string) ([]string
 	}
 	return files, nil
 }
+
+func (h *hnsw) PauseQueues(ctx context.Context) error {
+	// HNSW index has no queues to pause
+	return nil
+}

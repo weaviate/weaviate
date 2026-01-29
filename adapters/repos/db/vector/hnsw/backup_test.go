@@ -107,3 +107,48 @@ func TestBackup_ListFiles(t *testing.T) {
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
+
+func TestBackup_HFreshListFiles(t *testing.T) {
+	ctx := context.Background()
+
+	dirName := t.TempDir()
+	indexID := "backup-list-files-test"
+
+	idx, err := New(Config{
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		},
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
+	require.Nil(t, err)
+	idx.PostStartup(context.Background())
+
+	t.Run("assert expected index contents", func(t *testing.T) {
+		files, err := idx.ListFiles(ctx, dirName)
+		assert.Nil(t, err)
+
+		// should return empty, because the only file which
+		// exists in the commitlog root is the current active
+		// log file.
+		assert.Len(t, files, 0)
+
+		// checking to ensure that the commitlog root does
+		// contain a file. this is the one that was ignored
+		// in the check above.
+		ls, err := os.ReadDir(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
+		require.Nil(t, err)
+		require.Len(t, ls, 1)
+		// filename should just be a 10 digit int
+		matched, err := regexp.MatchString("[0-9]{10}", ls[0].Name())
+		assert.Nil(t, err)
+		assert.True(t, matched, "regex does not match")
+	})
+
+	err = idx.Shutdown(ctx)
+	require.Nil(t, err)
+}

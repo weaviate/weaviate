@@ -1259,3 +1259,8 @@ func (h *flat) Upgrade(callback func()) error {
 func (h *flat) Upgraded() bool {
 	return false
 }
+
+func (h *flat) PauseQueues(ctx context.Context) error {
+	// Flat index has no queues to pause
+	return nil
+}

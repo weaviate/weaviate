@@ -51,6 +51,8 @@ type VectorIndex interface {
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	// CompressionStats returns the compression statistics for this index
 	CompressionStats() compressionhelpers.CompressionStats
+	// Pause pending action queues such as merges/splits for HFresh
+	PauseQueues(ctx context.Context) error
 }
 
 // VectorIndexMulti is a VectorIndex that supports multi-vector indexing.
