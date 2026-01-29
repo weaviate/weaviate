@@ -86,21 +86,10 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 		return err
 	}
 
-	// add the vector to the version map.
-	version, err := h.VersionMap.Increment(h.ctx, id, VectorVersion(0))
-	if err != nil {
-		if !errors.Is(err, ErrVersionIncrementFailed) {
-			return errors.Wrapf(err, "failed to increment version map for vector %d", id)
-		}
-
-		// vector already exists, no need to re-insert
-		return nil
-	}
-
 	var v Vector
 
 	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
-	v = NewVector(id, version, compressed)
+	v = NewVector(id, VectorVersion(1), compressed)
 
 	targets, _, err := h.RNGSelect(vector, 0)
 	if err != nil {
