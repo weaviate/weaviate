@@ -102,16 +102,23 @@ func (h *hnsw) checkAndCompress() error {
 		h.trackRQOnce.Do(func() {
 			h.compressActionLock.Lock()
 			defer h.compressActionLock.Unlock()
-			h.compressor, err = compressionhelpers.NewRQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+			singleVector := !h.multivector.Load() || h.muvera.Load()
+			if singleVector {
+				h.compressor, err = compressionhelpers.NewRQCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store,
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+			} else {
+				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store,
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+			}
 
 			if err == nil {
 				h.Lock()
 				defer h.Unlock()
 				h.compressed.Store(true)
 				if h.cache != nil {
-					singleVector := !h.multivector.Load() || h.muvera.Load()
+
 					data := h.cache.All()
 					if singleVector {
 						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
