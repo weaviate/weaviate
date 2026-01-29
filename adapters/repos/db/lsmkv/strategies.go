@@ -27,6 +27,15 @@ const (
 	StrategyInverted        = "inverted"
 )
 
+var allStrategies = []string{
+	StrategyReplace,
+	StrategySetCollection,
+	StrategyMapCollection,
+	StrategyRoaringSet,
+	StrategyRoaringSetRange,
+	StrategyInverted,
+}
+
 func SegmentStrategyFromString(in string) segmentindex.Strategy {
 	switch in {
 	case StrategyReplace:
@@ -48,14 +57,7 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 
 func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 	if len(expectedStrategies) == 0 {
-		expectedStrategies = []string{
-			StrategyReplace,
-			StrategySetCollection,
-			StrategyMapCollection,
-			StrategyRoaringSet,
-			StrategyRoaringSetRange,
-			StrategyInverted,
-		}
+		expectedStrategies = allStrategies
 	}
 
 	for _, s := range expectedStrategies {
