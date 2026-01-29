@@ -160,6 +160,61 @@ func Test_CompressAndInsertDoNotRace(t *testing.T) {
 	<-done
 }
 
+func Test_ShutdownAndInsertDoNotRace(t *testing.T) {
+	efConstruction := 64
+	ef := 32
+	maxNeighbors := 32
+	dimensions := 200
+	vectors_size := 10
+	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, dimensions)
+	distancer := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	uc := ent.UserConfig{}
+	uc.MaxConnections = maxNeighbors
+	uc.EFConstruction = efConstruction
+	uc.EF = ef
+	uc.VectorCacheMaxObjects = 10e12
+	uc.RQ = ent.RQConfig{
+		Enabled: true,
+		Bits:    8,
+	}
+
+	index, _ := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "recallbenchmark",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+			copy(container.Slice, vectors[int(id)])
+			return container.Slice, nil
+		},
+	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+
+	done := make(chan struct{})
+	go func() {
+		_ = index.Shutdown(ctx)
+		close(done)
+	}()
+
+	err := compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
+		return index.Add(ctx, uint64(id), vectors[id])
+	})
+
+	// err puede ser nil o context.Canceled dependiendo de timing; lo importante es no colgar y no race
+	_ = err
+
+	<-done
+}
+
 func userConfig(segments, centroids, maxConn, efC, ef, trainingLimit int) ent.UserConfig {
 	uc := ent.UserConfig{}
 	uc.MaxConnections = maxConn

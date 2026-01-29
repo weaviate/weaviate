@@ -338,7 +338,11 @@ func (s *shardedLockCache[T]) CountVectors() int64 {
 func (s *shardedLockCache[T]) Drop() {
 	s.deleteAllVectors()
 	if s.deletionInterval != 0 {
-		s.cancel <- true
+		select {
+		case s.cancel <- true:
+		default:
+			// no one listening; no blocking
+		}
 	}
 }
 
