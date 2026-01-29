@@ -121,7 +121,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return err
 		}
 	} else if cfg.RQ.Enabled {
-		h.rqActive = true
+		h.rqActive.Store(true)
 		return nil
 	}
 	if singleVector {

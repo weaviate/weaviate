@@ -97,7 +97,7 @@ func Test_CompressAndInsertDoNotRace(t *testing.T) {
 	ef := 32
 	maxNeighbors := 32
 	dimensions := 200
-	vectors_size := 10
+	vectors_size := 100
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, dimensions)
 	distancer := distancer.NewL2SquaredProvider()
 	logger, _ := test.NewNullLogger()

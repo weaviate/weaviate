@@ -129,9 +129,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	}
 
 	func() {
-		h.compressActionLock.Lock()
-		defer h.compressActionLock.Unlock()
-		if h.rqConfig.Enabled && h.rqActive {
+		if h.rqActive.Load() {
 			h.trackRQOnce.Do(func() {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store,
@@ -267,7 +265,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
-	if h.rqConfig.Enabled && h.rqActive {
+	if h.rqActive.Load() {
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
@@ -389,12 +387,14 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 }
 
 func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error {
+	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
 
 	before := time.Now()
 
 	defer func() {
 		h.deleteVsInsertLock.RUnlock()
+		h.compressActionLock.RUnlock()
 		h.insertMetrics.updateGlobalEntrypoint(before)
 	}()
 

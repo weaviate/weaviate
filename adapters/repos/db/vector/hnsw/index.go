@@ -176,7 +176,7 @@ type hnsw struct {
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
 	rqConfig   ent.RQConfig
-	rqActive   bool
+	rqActive   atomic.Bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -392,7 +392,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.RQ.Enabled {
-		index.rqActive = true
+		index.rqActive.Store(true)
 	}
 
 	if uc.Multivector.Enabled {
