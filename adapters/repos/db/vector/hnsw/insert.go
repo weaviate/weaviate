@@ -131,6 +131,8 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	func() {
 		if h.rqActive.Load() {
 			h.trackRQOnce.Do(func() {
+				h.compressActionLock.Lock()
+				defer h.compressActionLock.Unlock()
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store,
 					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
@@ -140,6 +142,11 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 					defer h.Unlock()
 					h.compressed.Store(true)
 					if h.cache != nil {
+						for id, vec := range h.cache.All() {
+							if len(vec) == int(h.dims) {
+								h.compressor.Preload(uint64(id), vec)
+							}
+						}
 						h.cache.Drop()
 					}
 					h.cache = nil
@@ -263,36 +270,34 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if err != nil {
 		return err
 	}
-	h.compressActionLock.Lock()
-	defer h.compressActionLock.Unlock()
-	if h.rqActive.Load() {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
-			if err == nil {
-				h.Lock()
-				data := h.cache.All()
-				h.compressor.GrowCache(h.vecIDcounter)
-				compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-					func(index uint64) {
-						if len(data[index]) == 0 {
-							return
+	func() {
+		if h.rqActive.Load() {
+			h.trackRQOnce.Do(func() {
+				h.compressActionLock.Lock()
+				defer h.compressActionLock.Unlock()
+				h.compressor, err = compressionhelpers.NewRQCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store,
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+
+				if err == nil {
+					h.Lock()
+					defer h.Unlock()
+					h.compressed.Store(true)
+					if h.cache != nil {
+						for id, vec := range h.cache.All() {
+							if len(vec) == int(h.dims) {
+								h.compressor.Preload(uint64(id), vec)
+							}
 						}
-						docID, relativeID := h.cache.GetKeys(index)
-						h.compressor.PreloadPassage(index, docID, relativeID, data[index])
-					})
-				h.compressed.Store(true)
-				h.cache.Drop()
-				h.compressor.PersistCompression(h.commitLog)
-				h.Unlock()
-			}
-		})
-		if err != nil {
-			return err
+						h.cache.Drop()
+					}
+					h.cache = nil
+					h.compressor.PersistCompression(h.commitLog)
+				}
+			})
 		}
-	}
+	}()
 	if err != nil {
 		return err
 	}
