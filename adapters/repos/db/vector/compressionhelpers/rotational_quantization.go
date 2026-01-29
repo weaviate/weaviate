@@ -171,6 +171,12 @@ func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 }
 
 func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
+	c := RQCode(compressed)
+	x := make([]float32, c.Dimension())
+	for i := range c.Dimension() {
+		x[i] = c.Lower() + c.Step()*float32(c.Byte(i))
+	}
+
 	return rq.UnRotate(rq.Restore(compressed))
 }
 
@@ -214,7 +220,7 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 }
 
 func (rq *RotationalQuantizer) UnRotate(x []float32) []float32 {
-	return rq.rotation.UnRotate(x)
+	return rq.rotation.UnRotateNoCopy(x)
 }
 
 func (rq *RotationalQuantizer) Rotate(x []float32) []float32 {
