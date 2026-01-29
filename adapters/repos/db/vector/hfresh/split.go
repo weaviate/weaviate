@@ -26,9 +26,13 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	start := time.Now()
 	defer h.metrics.SplitDuration(start)
 
-	h.postingLocks.Lock(postingID)
-
 	var markedAsDone bool
+	if !h.postingLocks.TryLock(postingID) {
+		// another split operation is in progress for this posting
+		// re-enqueue the operation to be processed later
+		h.taskQueue.SplitDone(postingID) // remove from the in-progress list
+		return h.taskQueue.EnqueueSplit(postingID)
+	}
 	defer func() {
 		if !markedAsDone {
 			h.postingLocks.Unlock(postingID)
