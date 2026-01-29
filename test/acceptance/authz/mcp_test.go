@@ -29,9 +29,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, tool, key string, in I, out *O) error {
+func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, mcpURL, tool, key string, in I, out *O) error {
 	c, err := client.NewStreamableHttpClient(
-		"http://localhost:9001/mcp",
+		mcpURL,
 		transport.WithHTTPHeaders(map[string]string{"Authorization": fmt.Sprintf("Bearer %s", key)}),
 	)
 	if err != nil {
@@ -70,11 +70,15 @@ func callToolOnceWithAuth[I any, O any](ctx context.Context, t *testing.T, tool,
 }
 
 func TestMCPServerAuthZ(t *testing.T) {
-	helper.SetupClient("localhost:8081")
+	adminUser := "admin-user"
 	adminKey := "admin-key"
-
 	customUser := "custom-user"
 	customKey := "custom-key"
+
+	compose, down := composeUpWithMCP(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil, true)
+	defer down()
+
+	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
 
 	cls := articles.ParagraphsClass()
 	helper.DeleteClassWithAuthz(t, cls.Class, helper.CreateAuth(adminKey))
@@ -104,8 +108,8 @@ func TestMCPServerAuthZ(t *testing.T) {
 	defer helper.DeleteRole(t, adminKey, roleName)
 
 	t.Run("fail to call tool without MCP permission", func(t *testing.T) {
-		var resp *read.GetSchemaResp
-		err := callToolOnceWithAuth[any](ctx, t, "get-schema", customKey, nil, &resp)
+		var resp *read.GetCollectionConfigResp
+		err := callToolOnceWithAuth[any](ctx, t, mcpURL, "weaviate-collections-get-config", customKey, nil, &resp)
 		require.NotNil(t, err)
 		require.Contains(t, err.Error(), "user 'custom-user' has insufficient permissions to read_mcp []")
 	})
@@ -113,12 +117,11 @@ func TestMCPServerAuthZ(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 
 	t.Run("succeed to call tool with MCP permission", func(t *testing.T) {
-		var resp *read.GetSchemaResp
-		err := callToolOnceWithAuth[any](ctx, t, "get-schema", customKey, nil, &resp)
-		t.Log(err)
+		var resp *read.GetCollectionConfigResp
+		err := callToolOnceWithAuth[any](ctx, t, mcpURL, "weaviate-collections-get-config", customKey, nil, &resp)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
-		require.NotNil(t, resp.Schema)
-		require.Len(t, resp.Schema.Classes, 1)
+		require.NotNil(t, resp.Collections)
+		require.Len(t, resp.Collections, 1)
 	})
 }

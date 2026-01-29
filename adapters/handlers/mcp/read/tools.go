@@ -14,23 +14,29 @@ package read
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 )
 
-func Tools(reader *WeaviateReader) []server.ServerTool {
-	return []server.ServerTool{
+func Tools(reader *WeaviateReader, descriptions map[string]string) []server.ServerTool {
+	tools := []server.ServerTool{
 		{
 			Tool: mcp.NewTool(
-				"get-schema",
-				mcp.WithDescription("Retrieves the schema of the database."),
+				"weaviate-collections-get-config",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-collections-get-config",
+					"Retrieves collection configuration(s). If collection_name is provided, returns only that collection's config. Otherwise returns all collections.")),
+				mcp.WithInputSchema[GetCollectionConfigArgs](),
 			),
-			Handler: mcp.NewStructuredToolHandler(reader.GetSchema),
+			Handler: mcp.NewStructuredToolHandler(reader.GetCollectionConfig),
 		},
 		{
 			Tool: mcp.NewTool(
-				"get-tenants",
-				mcp.WithDescription("Retrieves the tenants of a collection in the database."),
+				"weaviate-tenants-list",
+				mcp.WithDescription(internal.GetDescription(descriptions, "weaviate-tenants-list",
+					"Lists the tenants of a collection in the database.")),
+				mcp.WithInputSchema[GetTenantsArgs](),
 			),
 			Handler: mcp.NewStructuredToolHandler(reader.GetTenants),
 		},
 	}
+	return tools
 }
