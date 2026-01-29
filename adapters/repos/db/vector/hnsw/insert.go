@@ -96,6 +96,36 @@ func (h *hnsw) validatePQSegments(dims int) error {
 	return nil
 }
 
+func (h *hnsw) checkAndCompress() error {
+	var err error
+	if h.rqActive.Load() {
+		h.trackRQOnce.Do(func() {
+			h.compressActionLock.Lock()
+			defer h.compressActionLock.Unlock()
+			h.compressor, err = compressionhelpers.NewRQCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+
+			if err == nil {
+				h.Lock()
+				defer h.Unlock()
+				h.compressed.Store(true)
+				if h.cache != nil {
+					for id, vec := range h.cache.All() {
+						if len(vec) == int(h.dims) {
+							h.compressor.Preload(uint64(id), vec)
+						}
+					}
+					h.cache.Drop()
+				}
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+	}
+	return err
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -128,33 +158,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	func() {
-		if h.rqActive.Load() {
-			h.trackRQOnce.Do(func() {
-				h.compressActionLock.Lock()
-				defer h.compressActionLock.Unlock()
-				h.compressor, err = compressionhelpers.NewRQCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store,
-					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
-
-				if err == nil {
-					h.Lock()
-					defer h.Unlock()
-					h.compressed.Store(true)
-					if h.cache != nil {
-						for id, vec := range h.cache.All() {
-							if len(vec) == int(h.dims) {
-								h.compressor.Preload(uint64(id), vec)
-							}
-						}
-						h.cache.Drop()
-					}
-					h.cache = nil
-					h.compressor.PersistCompression(h.commitLog)
-				}
-			})
-		}
-	}()
+	err = h.checkAndCompress()
 	if err != nil {
 		return err
 	}
@@ -271,33 +275,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		return err
 	}
 
-	func() {
-		if h.rqActive.Load() {
-			h.trackRQOnce.Do(func() {
-				h.compressActionLock.Lock()
-				defer h.compressActionLock.Unlock()
-				h.compressor, err = compressionhelpers.NewRQCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store,
-					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
-
-				if err == nil {
-					h.Lock()
-					defer h.Unlock()
-					h.compressed.Store(true)
-					if h.cache != nil {
-						for id, vec := range h.cache.All() {
-							if len(vec) == int(h.dims) {
-								h.compressor.Preload(uint64(id), vec)
-							}
-						}
-						h.cache.Drop()
-					}
-					h.cache = nil
-					h.compressor.PersistCompression(h.commitLog)
-				}
-			})
-		}
-	}()
+	err = h.checkAndCompress()
 	if err != nil {
 		return err
 	}
