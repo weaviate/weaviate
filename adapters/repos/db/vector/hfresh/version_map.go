@@ -42,6 +42,21 @@ func (ve VectorVersion) Deleted() bool {
 	return (uint8(ve) & tombstoneMask) != 0
 }
 
+func (ve VectorVersion) Increment() VectorVersion {
+	delBit := uint8(ve) & tombstoneMask // 0x00 or 0x80
+	counter := uint8(ve) & counterMask  // 0-127
+
+	if counter < 127 {
+		counter++
+	} else {
+		counter = 0 // wraparound behavior
+	}
+
+	return VectorVersion(delBit | counter)
+}
+
+var v1 = VectorVersion(0).Increment()
+
 // VersionMap keeps track of the version of each vector.
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
@@ -67,7 +82,7 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 		version, err := v.store.Get(ctx, vectorID)
 		if err != nil {
 			if errors.Is(err, ErrVectorNotFound) {
-				return 0, otter.ErrNotFound
+				return v1, nil
 			}
 
 			return 0, err
@@ -89,11 +104,11 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
 		if !found {
 			oldVersion, err = v.store.Get(ctx, vectorID)
+			if err != nil && !errors.Is(err, ErrVectorNotFound) {
+				return 0, otter.CancelOp
+			}
 			if err != nil {
-				err = v.store.Set(ctx, vectorID, VectorVersion(1))
-				if err != nil {
-					return 0, otter.CancelOp
-				}
+				oldVersion = v1
 			}
 		}
 		if oldVersion.Deleted() || oldVersion != previousVersion {
@@ -101,16 +116,7 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 			return oldVersion, otter.CancelOp
 		}
 
-		delBit := uint8(oldVersion) & tombstoneMask // 0x00 or 0x80
-		counter := uint8(oldVersion) & counterMask  // 0-127
-
-		if counter < 127 {
-			counter++
-		} else {
-			counter = 0 // wraparound behavior
-		}
-
-		newVersion := VectorVersion(delBit | counter)
+		newVersion := oldVersion.Increment()
 		err = v.store.Set(ctx, vectorID, newVersion)
 		if err != nil {
 			return oldVersion, otter.CancelOp
@@ -126,8 +132,11 @@ func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVe
 	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
 		if !found {
 			oldVersion, err = v.store.Get(ctx, vectorID)
-			if err != nil {
+			if err != nil && !errors.Is(err, ErrVectorNotFound) {
 				return 0, otter.CancelOp
+			}
+			if err != nil {
+				oldVersion = v1
 			}
 		}
 
