@@ -211,6 +211,16 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	h.postingLocks.Unlock(centroidID)
 
 	if !reassigned {
+		// If the posting is way too big, we need to split it immediately.
+		if count > h.maxPostingSize*5 {
+			err = h.doSplit(ctx, centroidID, true)
+			if err != nil {
+				return false, err
+			}
+
+			return true, nil
+		}
+
 		// enqueue an analyze operation to persist the changes and update the posting map on disk
 		err = h.taskQueue.EnqueueAnalyze(centroidID)
 		if err != nil {
