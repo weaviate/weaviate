@@ -58,9 +58,22 @@ func NewLoader(config LoaderConfig) *Loader {
 // Load discovers and loads all commit log files, returning the accumulated state.
 // Returns nil state (not error) if directory is empty or doesn't exist.
 func (l *Loader) Load() (*ent.DeserializationResult, error) {
+	// 0. Migrate snapshots from old directory FIRST (before any other operations)
+	// This ensures that snapshots stored in the old .hnsw.snapshot.d/ directory
+	// are moved to the new unified .hnsw.commitlog.d/ directory before we scan.
+	migrator := NewMigrator(l.config.Dir, l.config.Logger)
+	if err := migrator.MigrateSnapshotDirectory(); err != nil {
+		return nil, errors.Wrap(err, "migrate snapshot directory")
+	}
+
 	// 1. Cleanup orphaned temp files from previous incomplete operations
 	if err := CleanupOrphanedTempFiles(l.config.Dir); err != nil {
 		return nil, errors.Wrap(err, "cleanup orphaned temp files")
+	}
+
+	// Also cleanup any orphaned .migrating files from incomplete migrations
+	if err := CleanupMigratingFiles(l.config.Dir); err != nil {
+		return nil, errors.Wrap(err, "cleanup orphaned migrating files")
 	}
 
 	// 2. Discover files in the directory

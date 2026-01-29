@@ -113,8 +113,16 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.Deserialization
 	if err := binary.Read(reader, binary.LittleEndian, &version); err != nil {
 		return errors.Wrap(err, "read version")
 	}
-	if version != snapshotVersionV3 {
-		return fmt.Errorf("unsupported snapshot version %d, expected %d", version, snapshotVersionV3)
+
+	switch version {
+	case snapshotVersionV1, snapshotVersionV2:
+		return fmt.Errorf("legacy snapshot version %d detected; upgrade not supported. "+
+			"Please downgrade Weaviate and either: (1) delete the snapshot file and let it "+
+			"regenerate, or (2) run a compaction cycle to create a V3 snapshot before upgrading", version)
+	case snapshotVersionV3:
+		// V3 is supported, continue with reading
+	default:
+		return fmt.Errorf("unsupported snapshot version %d", version)
 	}
 
 	// Read checksum

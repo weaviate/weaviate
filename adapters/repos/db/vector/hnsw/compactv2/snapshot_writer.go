@@ -26,7 +26,9 @@ import (
 )
 
 const (
-	// snapshotVersionV3 is the version of the snapshot format we write.
+	// Snapshot version constants
+	snapshotVersionV1 = 1
+	snapshotVersionV2 = 2
 	snapshotVersionV3 = 3
 
 	// defaultBlockSize is the default size of each block in the snapshot body (4MB).
