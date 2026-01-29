@@ -119,6 +119,15 @@ func setupQueryHybridMultiTenantTest(t *testing.T, tenantNames []string) (*model
 	return cls, ctx, cleanup
 }
 
+// setupQueryHybridTestWithData combines setup and data insertion for most tests.
+// Returns class, context, cleanup function, and pure BM25 alpha value.
+func setupQueryHybridTestWithData(t *testing.T) (*models.Class, context.Context, func(), float64) {
+	cls, ctx, cleanup := setupQueryHybridTest(t)
+	insertTestArticles(t, cls.Class)
+	alpha := 0.0 // Pure BM25 for most tests
+	return cls, ctx, cleanup, alpha
+}
+
 // insertTestArticles inserts test articles for query testing
 func insertTestArticles(t *testing.T, className string) {
 	t.Helper()
@@ -186,13 +195,10 @@ func insertTestArticles(t *testing.T, className string) {
 
 // Test 1: Pure BM25 keyword search (alpha=0.0)
 func TestQueryHybrid_PureBM25Search(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	insertTestArticles(t, cls.Class)
-
 	var results *search.QueryHybridResp
-	alpha := 0.0 // Pure BM25 keyword search
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "machine learning",
@@ -211,14 +217,11 @@ func TestQueryHybrid_PureBM25Search(t *testing.T) {
 
 // Test 2: Test with limit parameter
 func TestQueryHybrid_WithLimit(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Test with limit=2
 	var results *search.QueryHybridResp
-	alpha := 0.0
 	limit := 2
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
@@ -245,13 +248,10 @@ func TestQueryHybrid_WithLimit(t *testing.T) {
 
 // Test 3: Return specific properties
 func TestQueryHybrid_ReturnSpecificProperties(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	insertTestArticles(t, cls.Class)
-
 	var results *search.QueryHybridResp
-	alpha := 0.0
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
 		Query:            "learning",
@@ -276,13 +276,10 @@ func TestQueryHybrid_ReturnSpecificProperties(t *testing.T) {
 
 // Test 4: Return all properties (default behavior)
 func TestQueryHybrid_ReturnAllProperties(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	insertTestArticles(t, cls.Class)
-
 	var results *search.QueryHybridResp
-	alpha := 0.0
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -304,13 +301,10 @@ func TestQueryHybrid_ReturnAllProperties(t *testing.T) {
 
 // Test 5: Return metadata
 func TestQueryHybrid_ReturnMetadata(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	insertTestArticles(t, cls.Class)
-
 	var results *search.QueryHybridResp
-	alpha := 0.0
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -337,14 +331,12 @@ func TestQueryHybrid_ReturnMetadata(t *testing.T) {
 
 // Test 6: Target specific properties for BM25 search
 func TestQueryHybrid_TargetSpecificProperties(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Search for "Python" targeting only title
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
 		Query:            "Python",
@@ -364,14 +356,12 @@ func TestQueryHybrid_TargetSpecificProperties(t *testing.T) {
 
 // Test 7: Simple filter - Equal operator
 func TestQueryHybrid_WithSimpleFilter(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Search with filter for status="published"
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -396,14 +386,12 @@ func TestQueryHybrid_WithSimpleFilter(t *testing.T) {
 
 // Test 8: Numeric filter
 func TestQueryHybrid_WithNumericFilter(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Search with filter for year >= 2020
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -429,14 +417,12 @@ func TestQueryHybrid_WithNumericFilter(t *testing.T) {
 
 // Test 9: Date filter with RFC3339 format
 func TestQueryHybrid_WithDateFilter(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Search with filter for publishDate >= 2021-01-01T00:00:00Z
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -462,14 +448,12 @@ func TestQueryHybrid_WithDateFilter(t *testing.T) {
 
 // Test 10: Complex AND filter
 func TestQueryHybrid_WithComplexAndFilter(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Search with AND filter: status="published" AND year >= 2020
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -506,14 +490,12 @@ func TestQueryHybrid_WithComplexAndFilter(t *testing.T) {
 
 // Test 11: OR filter
 func TestQueryHybrid_WithOrFilter(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Search with OR filter: author="John Doe" OR author="Jane Smith"
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -549,13 +531,10 @@ func TestQueryHybrid_WithOrFilter(t *testing.T) {
 
 // Test 12: Query without filter
 func TestQueryHybrid_NoFilter(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	insertTestArticles(t, cls.Class)
-
 	var results *search.QueryHybridResp
-	alpha := 0.0
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -644,14 +623,12 @@ func TestQueryHybrid_WithTenant(t *testing.T) {
 
 // Test 14: Complex query with multiple parameters
 func TestQueryHybrid_ComplexQuery(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Complex query combining multiple parameters
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	limit := 3
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
@@ -706,13 +683,10 @@ func TestQueryHybrid_ComplexQuery(t *testing.T) {
 
 // Test 15: Empty query
 func TestQueryHybrid_EmptyQuery(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	insertTestArticles(t, cls.Class)
-
 	var results *search.QueryHybridResp
-	alpha := 0.0
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "",
@@ -728,14 +702,12 @@ func TestQueryHybrid_EmptyQuery(t *testing.T) {
 
 // Test 16: No results scenario
 func TestQueryHybrid_NoResults(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Search for something that doesn't exist
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "xyznonexistentquery12345",
@@ -768,10 +740,8 @@ func TestQueryHybrid_InvalidCollectionName(t *testing.T) {
 
 // Test 18: Default alpha behavior
 func TestQueryHybrid_DefaultAlpha(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, _ := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Query without specifying alpha (should default to 0.5 or similar)
 	var results *search.QueryHybridResp
@@ -793,14 +763,12 @@ func TestQueryHybrid_DefaultAlpha(t *testing.T) {
 
 // Test 19: Target all properties (default behavior)
 func TestQueryHybrid_TargetAllProperties(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Query without specifying target_properties (should search all text properties)
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "Python",
@@ -828,14 +796,12 @@ func TestQueryHybrid_TargetAllProperties(t *testing.T) {
 
 // Test 20: Empty results should not cause error or panic
 func TestQueryHybrid_EmptyResults(t *testing.T) {
-	cls, ctx, cleanup := setupQueryHybridTest(t)
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
-
-	insertTestArticles(t, cls.Class)
 
 	// Query with filter that matches nothing - should return empty results, not error
 	var results *search.QueryHybridResp
-	alpha := 0.0
+	// alpha already set from setupQueryHybridTestWithData
 	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "test",

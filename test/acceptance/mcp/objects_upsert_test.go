@@ -345,7 +345,7 @@ func TestUpsertToolNonExistentCollection(t *testing.T) {
 	// Try to upsert to a non-existent collection
 	var resp *create.UpsertObjectResp
 	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
-		CollectionName: "NonExistentCollection999",
+		CollectionName: "NonExistentCollection9999",
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
@@ -356,7 +356,10 @@ func TestUpsertToolNonExistentCollection(t *testing.T) {
 		},
 	}, &resp, testAPIKey)
 
-	// Should return an error for non-existent collection
-	require.NotNil(t, err)
-	assert.Contains(t, err.Error(), "not present in schema")
+	// Should return success but with error in results
+	require.Nil(t, err, "should not return error at function level")
+	require.NotNil(t, resp)
+	require.Len(t, resp.Results, 1)
+	require.NotEmpty(t, resp.Results[0].Error, "should have error in result")
+	assert.Contains(t, resp.Results[0].Error, "not present in schema")
 }

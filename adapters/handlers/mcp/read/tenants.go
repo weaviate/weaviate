@@ -20,6 +20,7 @@ import (
 )
 
 func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest, args GetTenantsArgs) (*GetTenantsResp, error) {
+	// Authorize the request
 	principal, err := r.Authorize(ctx, req, authorization.READ)
 	if err != nil {
 		return nil, err

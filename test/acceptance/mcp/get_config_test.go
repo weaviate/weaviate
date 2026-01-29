@@ -31,36 +31,28 @@ const (
 // setupGetConfigTest handles the boilerplate setup: client init, class creation, and context generation.
 // It returns the class schema, the context, and a cleanup function.
 func setupGetConfigTest(t *testing.T) (*models.Class, context.Context, func()) {
-	helper.SetupClient(testServerAddr)
-	cls := articles.ParagraphsClass()
-
-	// Clean start
-	helper.DeleteClassAuth(t, cls.Class, testAPIKey)
-	helper.CreateClassAuth(t, cls, testAPIKey)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-
-	cleanup := func() {
-		cancel()
-		helper.DeleteClassAuth(t, cls.Class, testAPIKey)
-	}
-
-	return cls, ctx, cleanup
+	return setupGetConfigTestWithTenants(t, nil)
 }
 
 // setupMultiTenantTest creates a multi-tenant class and returns it with context and cleanup.
 func setupMultiTenantTest(t *testing.T, tenantNames []string) (*models.Class, context.Context, func()) {
+	return setupGetConfigTestWithTenants(t, tenantNames)
+}
+
+// setupGetConfigTestWithTenants is the common setup function for both single and multi-tenant tests.
+func setupGetConfigTestWithTenants(t *testing.T, tenantNames []string) (*models.Class, context.Context, func()) {
 	helper.SetupClient(testServerAddr)
 	cls := articles.ParagraphsClass()
-	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
-		Enabled: true,
+
+	if tenantNames != nil {
+		cls.MultiTenancyConfig = &models.MultiTenancyConfig{
+			Enabled: true,
+		}
 	}
 
-	// Clean start
 	helper.DeleteClassAuth(t, cls.Class, testAPIKey)
 	helper.CreateClassAuth(t, cls, testAPIKey)
 
-	// Create tenants
 	if len(tenantNames) > 0 {
 		tenants := make([]*models.Tenant, len(tenantNames))
 		for i, name := range tenantNames {

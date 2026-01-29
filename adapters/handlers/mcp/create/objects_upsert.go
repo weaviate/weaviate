@@ -71,33 +71,30 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	// Call batch add operation
 	batchResults, err := c.batchManager.AddObjects(ctx, principal, modelObjects, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to upsert objects: %w", err)
+		// If the batch operation itself fails (e.g., collection doesn't exist),
+		// return error details for all objects in the results
+		results := make([]UpsertObjectResult, len(args.Objects))
+		for i := range results {
+			results[i] = UpsertObjectResult{
+				Error: err.Error(),
+			}
+		}
+		return &UpsertObjectResp{Results: results}, nil
 	}
 
 	// Convert batch results to response
 	results := make([]UpsertObjectResult, len(batchResults))
-	var firstError error
-	successCount := 0
 
 	for i, result := range batchResults {
 		if result.Err != nil {
 			results[i] = UpsertObjectResult{
 				Error: result.Err.Error(),
 			}
-			if firstError == nil {
-				firstError = result.Err
-			}
 		} else {
 			results[i] = UpsertObjectResult{
 				ID: result.UUID.String(),
 			}
-			successCount++
 		}
-	}
-
-	// If all objects failed, return an error instead of a successful response with errors
-	if successCount == 0 && firstError != nil {
-		return nil, firstError
 	}
 
 	return &UpsertObjectResp{Results: results}, nil

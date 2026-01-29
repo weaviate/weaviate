@@ -29,6 +29,7 @@ import (
 )
 
 func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (*QueryHybridResp, error) {
+	// Authorize the request
 	principal, err := s.Authorize(ctx, req, authorization.READ)
 	if err != nil {
 		return nil, err

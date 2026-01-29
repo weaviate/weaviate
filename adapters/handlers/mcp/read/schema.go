@@ -21,6 +21,7 @@ import (
 )
 
 func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallToolRequest, args GetCollectionConfigArgs) (*GetCollectionConfigResp, error) {
+	// Authorize the request
 	principal, err := r.Authorize(ctx, req, authorization.READ)
 	if err != nil {
 		return nil, err
