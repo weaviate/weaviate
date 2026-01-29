@@ -794,7 +794,7 @@ func (index *flat) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (index *flat) SwitchCommitLogs(context.Context) error {
+func (index *flat) PrepareForBackup(context.Context) error {
 	return nil
 }
 
@@ -1258,9 +1258,4 @@ func (h *flat) Upgrade(callback func()) error {
 
 func (h *flat) Upgraded() bool {
 	return false
-}
-
-func (h *flat) PauseQueues(ctx context.Context) error {
-	// Flat index has no queues to pause
-	return nil
 }

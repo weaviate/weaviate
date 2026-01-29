@@ -93,21 +93,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("flush vector index queues: %w", err)
 	}
 
-	// pause all operation queues (e.g. HFresh merge/split/reassign)
+	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.PauseQueues(ctx); err != nil {
-			return fmt.Errorf("pause queues of vector %q: %w", targetVector, err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	// switch commit logs to ensure all data is flushed to disk
-	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+		if err = index.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})

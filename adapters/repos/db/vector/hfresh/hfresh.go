@@ -268,18 +268,23 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {
-	return h.Centroids.hnsw.SwitchCommitLogs(ctx)
-}
-
-func (h *HFresh) PauseQueues(ctx context.Context) error {
-	err := h.Centroids.hnsw.PauseQueues(ctx)
+func (h *HFresh) PrepareForBackup(ctx context.Context) error {
+	err := h.Centroids.hnsw.PrepareForBackup(ctx)
 	if err != nil {
 		return err
 	}
-	h.taskQueue.splitQueue.Pause()
-	h.taskQueue.reassignQueue.Pause()
-	h.taskQueue.mergeQueue.Pause()
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.Pause()
+		queue.Wait()
+		err = queue.Flush()
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

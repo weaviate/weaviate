@@ -236,7 +236,7 @@ type CommitLogger interface {
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
-	SwitchCommitLogs(bool) error
+	PrepareForBackup(bool) error
 	AddPQCompression(compression.PQData) error
 	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error

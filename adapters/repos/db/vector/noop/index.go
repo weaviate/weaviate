@@ -120,7 +120,7 @@ func (i *Index) Shutdown(context.Context) error {
 	return nil
 }
 
-func (i *Index) SwitchCommitLogs(context.Context) error {
+func (i *Index) PrepareForBackup(context.Context) error {
 	return nil
 }
 
@@ -192,9 +192,4 @@ func (i *Index) VectorStorageSize(_ context.Context) int64 {
 func (i *Index) CompressionStats() compressionhelpers.CompressionStats {
 	// Noop index doesn't compress vectors
 	return compressionhelpers.UncompressedStats{}
-}
-
-func (i *Index) PauseQueues(ctx context.Context) error {
-	// Noop index has no queues to pause
-	return nil
 }

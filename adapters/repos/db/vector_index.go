@@ -34,7 +34,7 @@ type VectorIndex interface {
 	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	SwitchCommitLogs(ctx context.Context) error
+	PrepareForBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
@@ -51,8 +51,6 @@ type VectorIndex interface {
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	// CompressionStats returns the compression statistics for this index
 	CompressionStats() compressionhelpers.CompressionStats
-	// Pause pending action queues such as merges/splits for HFresh
-	PauseQueues(ctx context.Context) error
 }
 
 // VectorIndexMulti is a VectorIndex that supports multi-vector indexing.

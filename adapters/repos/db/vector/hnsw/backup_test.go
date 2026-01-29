@@ -33,7 +33,7 @@ type backupNoopBucketView struct{}
 
 func (n *backupNoopBucketView) ReleaseView() {}
 
-func TestBackup_SwitchCommitLogs(t *testing.T) {
+func TestBackup_PrepareForBackup(t *testing.T) {
 	ctx := context.Background()
 
 	dirName := t.TempDir()
@@ -56,7 +56,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	err = idx.SwitchCommitLogs(ctx)
+	err = idx.PrepareForBackup(ctx)
 	assert.Nil(t, err)
 
 	err = idx.Shutdown(ctx)
