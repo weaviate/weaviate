@@ -11,9 +11,6 @@
     },
     "weaviate-objects-upsert": {
       "description": "Upserts (inserts or updates) one or more objects into a collection in batch. Supports efficient bulk operations - provide an array of objects to insert or update multiple objects at once. Each object can optionally specify a UUID; if provided and exists, the object is updated, otherwise a new object is created. Returns results for each object including success/failure status and generated UUIDs. Use this for adding or modifying data in Weaviate collections."
-    },
-    "weaviate-objects-get": {
-      "description": "Retrieves one or more objects from a collection. Can fetch specific objects by providing an array of UUIDs, or retrieve a paginated list of all objects in the collection. Supports filtering which properties and metadata to return, and optionally including vectors. Use this to inspect stored data, verify insertions, or retrieve objects for processing."
     }
   }
 }

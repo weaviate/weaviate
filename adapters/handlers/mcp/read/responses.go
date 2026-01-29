@@ -20,7 +20,3 @@ type GetCollectionConfigResp struct {
 type GetTenantsResp struct {
 	Tenants []*models.Tenant `json:"tenants" jsonschema_description:"The returned tenants"`
 }
-
-type GetObjectsResp struct {
-	Objects []*models.Object `json:"objects" jsonschema_description:"Array of retrieved objects"`
-}
