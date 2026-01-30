@@ -61,6 +61,7 @@ type neighborFinderConnector struct {
 	// bufLinksLog     BufferedLinksLogger
 	tombstoneCleanupNodes bool
 	processedIDs          *sync.Map
+	connectionsBuf        []uint64 // reusable buffer to avoid allocations in CopyLayer
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
@@ -156,8 +157,10 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
-	var connections []uint64
-	connections = n.graph.nodes[from].connections.CopyLayer(connections, uint8(level))
+	// Reuse connectionsBuf to avoid allocations. Safe despite recursion because
+	// we complete the first loop over connections before any recursive calls.
+	n.connectionsBuf = n.graph.nodes[from].connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+	connections := n.connectionsBuf
 	n.graph.nodes[from].Unlock()
 	n.graph.shardedNodeLocks.Unlock(from)
 	pending := make([]uint64, 0, min(16, len(connections)))
@@ -226,8 +229,8 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.RUnlock()
 		n.node.Lock()
-		var connections []uint64
-		connections = n.node.connections.CopyLayer(connections, uint8(level))
+		n.connectionsBuf = n.node.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+		connections := n.connectionsBuf
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
