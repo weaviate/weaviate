@@ -13,6 +13,7 @@ package properties
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -33,6 +34,7 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 		bookClass := "Book"
 		author := "author"
 		title := "title"
+		title_only_filterable := "title_only_filterable"
 		year := "year"
 
 		ptrBool := func(in bool) *bool {
@@ -66,15 +68,15 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 			}
 		}
 
-		filterByTitle := func(t *testing.T, resultsShouldExist bool) {
-			query := `
+		filterByTextProperty := func(t *testing.T, propertyName string, resultsShouldExist bool) {
+			query := fmt.Sprintf(`
 				{
 					Get{
 						Book(
 							where:{
 								valueText: "Dune"
 								operator: Equal,
-								path: "title"
+								path: "%s"
 							}
 						){
 							title
@@ -83,8 +85,16 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 						}
 					}
 				}
-			`
+			`, propertyName)
 			assertFilterByQuery(t, resultsShouldExist, query)
+		}
+
+		filterByTitle := func(t *testing.T, resultsShouldExist bool) {
+			filterByTextProperty(t, "title", resultsShouldExist)
+		}
+
+		filterByTitleOnlyFilterable := func(t *testing.T, resultsShouldExist bool) {
+			filterByTextProperty(t, "title_only_filterable", resultsShouldExist)
 		}
 
 		filterByYear := func(t *testing.T, resultsShouldExist bool) {
@@ -155,6 +165,13 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 					IndexInverted: ptrBool(true),
 				},
 				{
+					Name:              title_only_filterable,
+					DataType:          []string{schema.DataTypeText.String()},
+					IndexFilterable:   ptrBool(true),
+					IndexSearchable:   ptrBool(false), // also where? or only bm25?
+					IndexRangeFilters: ptrBool(false),
+				},
+				{
 					Name:              year,
 					DataType:          []string{schema.DataTypeNumber.String()},
 					IndexFilterable:   ptrBool(true),
@@ -182,9 +199,10 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 				ID:    strfmt.UUID("00000000-0000-0000-0000-000000000001"),
 				Class: bookClass,
 				Properties: map[string]any{
-					"author": "Frank Herbert",
-					"title":  "Dune",
-					"year":   1960,
+					"author":                "Frank Herbert",
+					"title":                 "Dune",
+					"title_only_filterable": "Dune",
+					"year":                  1960,
 				},
 			})
 
@@ -196,9 +214,10 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 				ID:    strfmt.UUID("00000000-0000-0000-0000-000000000002"),
 				Class: bookClass,
 				Properties: map[string]any{
-					"author": "Jaroslaw Grzedowicz",
-					"title":  "The Lord of the Ice Garden",
-					"year":   2005,
+					"author":                "Jaroslaw Grzedowicz",
+					"title":                 "The Lord of the Ice Garden",
+					"title_only_filterable": "The Lord of the Ice Garden",
+					"year":                  2005,
 				},
 			})
 
@@ -207,8 +226,13 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 
 		t.Run("perform search", func(t *testing.T) {
 			filterByTitle(t, true)
+			filterByTitleOnlyFilterable(t, true)
 			searchByAuthor(t, true)
 			filterByYear(t, true)
+		})
+
+		t.Run("delete title_only_filterable property filterable index", func(t *testing.T) {
+			deleteIndex(t, title_only_filterable, nil, ptrBool(true), nil)
 		})
 
 		t.Run("delete author property searchable index", func(t *testing.T) {
@@ -219,8 +243,8 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 			deleteIndex(t, title, nil, ptrBool(true), nil)
 		})
 
-		t.Run("delete year property rangeable and filterable index", func(t *testing.T) {
-			deleteIndex(t, year, nil, ptrBool(true), ptrBool(true))
+		t.Run("delete title property searchable index", func(t *testing.T) {
+			deleteIndex(t, title, ptrBool(true), nil, nil)
 		})
 
 		t.Run("cannot update non-existent property", func(t *testing.T) {
@@ -241,6 +265,13 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 			})
 		})
 
+		t.Run("perform search - should not work", func(t *testing.T) {
+			filterByTitle(t, false)
+			filterByTitleOnlyFilterable(t, false)
+			searchByAuthor(t, false)
+			filterByYear(t, false)
+		})
+
 		if compose != nil {
 			t.Run("restart Weaviate", func(t *testing.T) {
 				containers := []*docker.DockerContainer{compose.GetWeaviate()}
@@ -258,8 +289,9 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 				helper.SetupClient(compose.GetWeaviate().URI())
 				defer helper.ResetClient()
 
-				t.Run("perform search", func(t *testing.T) {
+				t.Run("perform search - should not work after restart", func(t *testing.T) {
 					filterByTitle(t, false)
+					filterByTitleOnlyFilterable(t, false)
 					searchByAuthor(t, false)
 					filterByYear(t, false)
 				})

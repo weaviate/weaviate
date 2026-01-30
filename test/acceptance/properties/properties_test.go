@@ -21,6 +21,7 @@ import (
 )
 
 func TestProperties_SingleNode(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "module_test_image")
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
