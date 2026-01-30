@@ -516,20 +516,21 @@ LOOP:
 			if i%1000 == 0 {
 				// updating the metric has virtually no cost, so we can do it every 1k
 				h.metrics.TombstoneCycleProgress(float64(i) / float64(size))
+				if i%1_000_000 == 0 {
+					// the interval of 1M is rather arbitrary, but if we have less than 1M
+					// nodes in the graph tombstones cleanup should be so fast, we don't
+					// need to log the progress.
+					h.logger.WithFields(logrus.Fields{
+						"action":          "tombstone_cleanup_progress",
+						"class":           h.className,
+						"shard":           h.shardName,
+						"total_nodes":     size,
+						"processed_nodes": i,
+					}).
+						Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
+				}
 			}
-			if i%1_000_000 == 0 {
-				// the interval of 1M is rather arbitrary, but if we have less than 1M
-				// nodes in the graph tombstones cleanup should be so fast, we don't
-				// need to log the progress.
-				h.logger.WithFields(logrus.Fields{
-					"action":          "tombstone_cleanup_progress",
-					"class":           h.className,
-					"shard":           h.shardName,
-					"total_nodes":     size,
-					"processed_nodes": i,
-				}).
-					Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
-			}
+
 		case <-ctx.Done():
 			// before https://github.com/weaviate/weaviate/issues/4615 the context
 			// would not be canceled if a routine panicked. However, with the fix, it is
