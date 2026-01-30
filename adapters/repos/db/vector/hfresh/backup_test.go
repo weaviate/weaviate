@@ -98,7 +98,7 @@ func TestHFreshBackupListFiles(t *testing.T) {
 		for index.taskQueue.Size() > 0 {
 			fmt.Println("background tasks: ", index.taskQueue.Size())
 
-			err = index.stopHFreshTaskQueues()
+			err = index.stopTaskQueues()
 			require.NoError(t, err)
 			if index.taskQueue.Size() > 0 {
 				hasAtLeastOneQueueFile := false

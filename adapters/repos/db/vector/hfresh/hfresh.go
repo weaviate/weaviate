@@ -260,7 +260,7 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) stopHFreshTaskQueues() error {
+func (h *HFresh) stopTaskQueues() error {
 	for _, queue := range []*queue.DiskQueue{
 		h.taskQueue.analyzeQueue,
 		h.taskQueue.splitQueue,
@@ -293,7 +293,7 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return h.stopHFreshTaskQueues()
+	return h.stopTaskQueues()
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
