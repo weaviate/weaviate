@@ -226,8 +226,8 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.RUnlock()
 		n.node.Lock()
-		connections := make([]uint64, n.node.connections.LenAtLayer(uint8(level)))
-		n.node.connections.CopyLayer(connections, uint8(level))
+		var connections []uint64
+		connections = n.node.connections.CopyLayer(connections, uint8(level))
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
