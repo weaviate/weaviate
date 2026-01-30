@@ -277,7 +277,7 @@ func (h *HFresh) stopTaskQueues() error {
 	return nil
 }
 
-func (h *HFresh) resumeHFreshTaskQueues() {
+func (h *HFresh) resumeTaskQueues() {
 	for _, queue := range []*queue.DiskQueue{
 		h.taskQueue.analyzeQueue,
 		h.taskQueue.splitQueue,

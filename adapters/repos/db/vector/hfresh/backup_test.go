@@ -114,7 +114,7 @@ func TestHFreshBackupListFiles(t *testing.T) {
 				// queue files should be present, but the number is not deterministic
 				require.True(t, hasAtLeastOneQueueFile)
 			}
-			index.resumeHFreshTaskQueues()
+			index.resumeTaskQueues()
 			time.Sleep(500 * time.Millisecond)
 		}
 		fmt.Println("all background tasks done, took: ", time.Since(before))
