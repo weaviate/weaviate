@@ -258,3 +258,65 @@ func (h *HashedLocks) TryLock(id uint64) bool {
 func (h *HashedLocks) Unlock(id uint64) {
 	h.shards[h.Hash(id)].Unlock()
 }
+
+// HashedRWLocks is similar to HashedLocks but provides read-write locking capabilities.
+type HashedRWLocks struct {
+	// sharded locks
+	shards []sync.RWMutex
+	// number of locks
+	count uint64
+	prime uint64
+}
+
+// NewHashedRWLocks512 creates a HashedRWLocks instance with 512 shards.
+func NewHashedRWLocks512() *HashedRWLocks {
+	return &HashedRWLocks{
+		shards: make([]sync.RWMutex, 512), // 512 shards for optimal distribution
+		count:  512,
+		prime:  1009, // sweet spot prime for 512 shards
+	}
+}
+
+// NewHashedRWLocks32k creates a HashedRWLocks instance with 32k shards.
+func NewHashedRWLocks32k() *HashedRWLocks {
+	return &HashedRWLocks{
+		shards: make([]sync.RWMutex, 32768), // 32k shards for optimal distribution
+		count:  32768,
+		prime:  99991, // sweet spot prime for 32k shards
+	}
+}
+
+func (h *HashedRWLocks) Hash(idx uint64) uint64 {
+	// Multiplicative hashing with large prime
+	result := idx * h.prime
+	// Add bit rotation (rotate left by 2 bits)
+	result += bits.RotateLeft64(result, 2)
+	// Add constant for additional perturbation
+	result += 101
+	// Mask with pool size (equivalent to modulo but faster)
+	return result & (h.count - 1)
+}
+
+func (h *HashedRWLocks) Lock(id uint64) {
+	h.shards[h.Hash(id)].Lock()
+}
+
+func (h *HashedRWLocks) TryLock(id uint64) bool {
+	return h.shards[h.Hash(id)].TryLock()
+}
+
+func (h *HashedRWLocks) Unlock(id uint64) {
+	h.shards[h.Hash(id)].Unlock()
+}
+
+func (h *HashedRWLocks) RLock(id uint64) {
+	h.shards[h.Hash(id)].RLock()
+}
+
+func (h *HashedRWLocks) RUnlock(id uint64) {
+	h.shards[h.Hash(id)].RUnlock()
+}
+
+func (h *HashedRWLocks) TryRLock(id uint64) bool {
+	return h.shards[h.Hash(id)].TryRLock()
+}

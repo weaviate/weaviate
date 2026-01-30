@@ -36,7 +36,7 @@ const (
 const (
 	analyzeTaskQueueChunkSize  = 16 * 1024 // 16KB
 	splitTaskQueueChunkSize    = 16 * 1024 // 16KB
-	reassignTaskQueueChunkSize = 16 * 1024 // 16KB
+	reassignTaskQueueChunkSize = 32 * 1024 // 32KB
 	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
 )
 

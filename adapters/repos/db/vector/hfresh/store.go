@@ -26,7 +26,7 @@ import (
 type PostingStore struct {
 	store    *lsmkv.Store
 	bucket   *lsmkv.Bucket
-	locks    *common.ShardedRWLocks
+	locks    *common.HashedRWLocks
 	metrics  *Metrics
 	versions *PostingVersionsStore
 }
@@ -66,7 +66,7 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 	return &PostingStore{
 		store:    store,
 		bucket:   store.Bucket(bName),
-		locks:    common.NewDefaultShardedRWLocks(),
+		locks:    common.NewHashedRWLocks32k(),
 		metrics:  metrics,
 		versions: versions,
 	}, nil
