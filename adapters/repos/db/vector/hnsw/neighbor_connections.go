@@ -244,7 +244,6 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 			total++
 		}
 		for _, id := range pending {
-			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
 				n.graph.pools.visitedListsLock.RLock()
