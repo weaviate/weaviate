@@ -84,7 +84,7 @@ type HFresh struct {
 
 	visitedPool *visited.Pool
 
-	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
+	postingLocks       *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
 	vectorForId common.VectorForID[float32]
@@ -122,7 +122,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		VersionMap:    NewVersionMap(bucket),
 		PostingMap:    NewPostingMap(bucket, metrics),
 		IndexMetadata: NewIndexMetadataStore(bucket),
-		postingLocks:  common.NewDefaultShardedRWLocks(),
+		postingLocks:  common.NewHashedLocks32k(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:      visited.NewPool(1, 512, -1),

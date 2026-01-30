@@ -130,13 +130,13 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 		return errors.New("posting cannot be nil")
 	}
 
-	p.locks.Lock(postingID)
-	defer p.locks.Unlock(postingID)
-
 	set := make([][]byte, len(posting))
 	for i, v := range posting {
 		set[i] = v
 	}
+
+	p.locks.Lock(postingID)
+	defer p.locks.Unlock(postingID)
 
 	currentVersion, err := p.versions.Get(ctx, postingID)
 	if err != nil {
