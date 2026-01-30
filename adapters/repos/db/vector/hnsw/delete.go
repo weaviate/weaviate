@@ -617,10 +617,12 @@ func (h *hnsw) reassignNeighbor(
 }
 
 func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
-	iter := connections.Iterator()
-	for iter.Next() {
-		_, atLevel := iter.Current()
-		for _, pointer := range atLevel {
+	// Use CopyLayer with buffer reuse to avoid allocations per layer
+	buffer := make([]uint64, 0, 64)
+
+	for layer := uint8(0); layer < connections.Layers(); layer++ {
+		buffer = connections.CopyLayer(buffer, layer)
+		for _, pointer := range buffer {
 			if needles.Contains(pointer) {
 				return true
 			}
