@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 // Action represents the type of compaction action to perform.
@@ -63,6 +64,10 @@ type CompactorConfig struct {
 	// BufferSize is the buffer size for file I/O operations.
 	// Default: 1MB (DefaultBufferSize)
 	BufferSize int
+
+	// FS is the filesystem interface to use for file operations.
+	// If nil, defaults to common.NewOSFS().
+	FS common.FS
 }
 
 // DefaultCompactorConfig returns the default configuration.
@@ -81,6 +86,7 @@ func DefaultCompactorConfig(dir string) CompactorConfig {
 type Compactor struct {
 	config CompactorConfig
 	logger logrus.FieldLogger
+	fs     common.FS
 }
 
 // NewCompactor creates a new Compactor.
@@ -95,10 +101,14 @@ func NewCompactor(config CompactorConfig, logger logrus.FieldLogger) *Compactor 
 	if config.BufferSize <= 0 {
 		config.BufferSize = DefaultBufferSize
 	}
+	if config.FS == nil {
+		config.FS = common.NewOSFS()
+	}
 
 	return &Compactor{
 		config: config,
 		logger: logger,
+		fs:     config.FS,
 	}
 }
 
@@ -111,7 +121,7 @@ func (c *Compactor) RunCycle() (Action, error) {
 	}
 
 	// Step 2: Discover files
-	discovery := NewFileDiscovery(c.config.Dir)
+	discovery := NewFileDiscoveryWithFS(c.config.Dir, c.fs)
 	state, err := discovery.Scan()
 	if err != nil {
 		return ActionNone, errors.Wrap(err, "file discovery")
@@ -158,7 +168,7 @@ func (c *Compactor) RunCycle() (Action, error) {
 
 // cleanup removes orphaned temp files.
 func (c *Compactor) cleanup() error {
-	return CleanupOrphanedTempFiles(c.config.Dir)
+	return CleanupOrphanedTempFilesWithFS(c.config.Dir, c.fs)
 }
 
 // resolveOverlaps removes files that are contained within merged ranges.
@@ -170,7 +180,7 @@ func (c *Compactor) resolveOverlaps(state *DirectoryState) error {
 			"contained_file": filepath.Base(overlap.ContainedFile.Path),
 		}).Debug("removing file contained in merged range")
 
-		if err := os.Remove(overlap.ContainedFile.Path); err != nil && !os.IsNotExist(err) {
+		if err := c.fs.Remove(overlap.ContainedFile.Path); err != nil && !os.IsNotExist(err) {
 			return errors.Wrapf(err, "remove contained file %s", overlap.ContainedFile.Path)
 		}
 	}
@@ -205,7 +215,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	}).Debug("converting file to sorted format")
 
 	// Open source file
-	srcFile, err := os.Open(f.Path)
+	srcFile, err := c.fs.Open(f.Path)
 	if err != nil {
 		return errors.Wrapf(err, "open source file")
 	}
@@ -224,7 +234,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	outPath := filepath.Join(c.config.Dir, outFilename)
 
 	// Write using SortedWriter via SafeFileWriter
-	sfw, err := NewSafeFileWriter(outPath, c.config.BufferSize)
+	sfw, err := NewSafeFileWriterWithFS(outPath, c.config.BufferSize, c.fs)
 	if err != nil {
 		return errors.Wrap(err, "create safe file writer")
 	}
@@ -240,7 +250,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) error {
 	}
 
 	// Delete original file after successful conversion
-	if err := os.Remove(f.Path); err != nil && !os.IsNotExist(err) {
+	if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
 		return errors.Wrap(err, "remove original file")
 	}
 
@@ -342,7 +352,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 
 	// Create iterators for each file
 	// Track opened files for cleanup
-	openedFiles := make([]*os.File, 0, len(filesToMerge))
+	openedFiles := make([]common.File, 0, len(filesToMerge))
 	closeFiles := func() {
 		for _, f := range openedFiles {
 			f.Close()
@@ -352,7 +362,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 
 	iterators := make([]IteratorLike, 0, len(filesToMerge))
 	for i, f := range filesToMerge {
-		file, err := os.Open(f.Path)
+		file, err := c.fs.Open(f.Path)
 		if err != nil {
 			return errors.Wrapf(err, "open file %s", f.Path)
 		}
@@ -379,7 +389,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 	outPath := filepath.Join(c.config.Dir, outFilename)
 
 	// Write merged output using WALWriter via SafeFileWriter
-	sfw, err := NewSafeFileWriter(outPath, c.config.BufferSize)
+	sfw, err := NewSafeFileWriterWithFS(outPath, c.config.BufferSize, c.fs)
 	if err != nil {
 		return errors.Wrap(err, "create safe file writer")
 	}
@@ -413,7 +423,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 
 	// Delete source files after successful merge
 	for _, f := range filesToMerge {
-		if err := os.Remove(f.Path); err != nil && !os.IsNotExist(err) {
+		if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
 			c.logger.WithError(err).WithField("file", f.Path).Warn("failed to delete source file after merge")
 		}
 	}
@@ -457,7 +467,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 	}).Debug("creating snapshot")
 
 	// Track opened files for cleanup
-	openedFiles := make([]*os.File, 0, len(allInputFiles))
+	openedFiles := make([]common.File, 0, len(allInputFiles))
 	closeFiles := func() {
 		for _, f := range openedFiles {
 			f.Close()
@@ -472,9 +482,9 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 		var err error
 
 		if f.Type == FileTypeSnapshot {
-			it, err = NewSnapshotIterator(f.Path, i, c.logger)
+			it, err = NewSnapshotIteratorWithFS(f.Path, i, c.logger, c.fs)
 		} else {
-			file, err2 := os.Open(f.Path)
+			file, err2 := c.fs.Open(f.Path)
 			if err2 != nil {
 				return errors.Wrapf(err2, "open file %s", f.Path)
 			}
@@ -503,7 +513,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 	outPath := filepath.Join(c.config.Dir, outFilename)
 
 	// Write snapshot via SafeFileWriter
-	sfw, err := NewSafeFileWriter(outPath, c.config.BufferSize)
+	sfw, err := NewSafeFileWriterWithFS(outPath, c.config.BufferSize, c.fs)
 	if err != nil {
 		return errors.Wrap(err, "create safe file writer")
 	}
@@ -520,7 +530,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 
 	// Delete source files after successful snapshot creation
 	for _, f := range allInputFiles {
-		if err := os.Remove(f.Path); err != nil && !os.IsNotExist(err) {
+		if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
 			c.logger.WithError(err).WithField("file", f.Path).Warn("failed to delete source file after snapshot")
 		}
 	}

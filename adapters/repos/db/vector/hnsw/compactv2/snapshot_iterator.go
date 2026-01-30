@@ -14,6 +14,7 @@ package compactv2
 import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -38,8 +39,13 @@ type SnapshotIterator struct {
 // The id parameter is used for merge precedence (higher ID = more recent data).
 // Typically snapshots should have the lowest ID since they represent the oldest state.
 func NewSnapshotIterator(path string, id int, logger logrus.FieldLogger) (*SnapshotIterator, error) {
+	return NewSnapshotIteratorWithFS(path, id, logger, common.NewOSFS())
+}
+
+// NewSnapshotIteratorWithFS creates a new iterator from a snapshot file using a custom filesystem.
+func NewSnapshotIteratorWithFS(path string, id int, logger logrus.FieldLogger, fs common.FS) (*SnapshotIterator, error) {
 	reader := NewSnapshotReader(logger)
-	result, err := reader.ReadFromFile(path)
+	result, err := reader.ReadFromFileWithFS(path, fs)
 	if err != nil {
 		return nil, errors.Wrapf(err, "read snapshot file %s", path)
 	}

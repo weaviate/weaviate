@@ -19,11 +19,11 @@ import (
 	"hash/crc32"
 	"io"
 	"math"
-	"os"
 	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -77,13 +77,24 @@ func NewSnapshotReaderWithBlockSize(logger logrus.FieldLogger, blockSize int64) 
 
 // ReadFromFile reads a snapshot file into a DeserializationResult.
 func (r *SnapshotReader) ReadFromFile(filename string) (*ent.DeserializationResult, error) {
-	f, err := os.Open(filename)
+	return r.ReadFromFileWithFS(filename, common.NewOSFS())
+}
+
+// ReadFromFileWithFS reads a snapshot file into a DeserializationResult using a custom filesystem.
+func (r *SnapshotReader) ReadFromFileWithFS(filename string, fs common.FS) (*ent.DeserializationResult, error) {
+	f, err := fs.Open(filename)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open snapshot file %q", filename)
 	}
 	defer f.Close()
 
-	return r.Read(f)
+	// common.File includes io.ReaderAt and io.Seeker, so it satisfies ReadSeekReaderAt
+	rsa, ok := f.(ReadSeekReaderAt)
+	if !ok {
+		return nil, errors.New("file does not implement ReadSeekReaderAt")
+	}
+
+	return r.Read(rsa)
 }
 
 // Read reads a snapshot from a reader into a DeserializationResult.

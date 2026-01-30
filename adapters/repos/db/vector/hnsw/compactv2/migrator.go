@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
@@ -57,20 +58,27 @@ type MigrationState struct {
 type Migrator struct {
 	dir    string
 	logger logrus.FieldLogger
+	fs     common.FS
 }
 
 // NewMigrator creates a new migrator for the given commitlog directory.
 func NewMigrator(dir string, logger logrus.FieldLogger) *Migrator {
+	return NewMigratorWithFS(dir, logger, common.NewOSFS())
+}
+
+// NewMigratorWithFS creates a new migrator with a custom filesystem.
+func NewMigratorWithFS(dir string, logger logrus.FieldLogger, fs common.FS) *Migrator {
 	return &Migrator{
 		dir:    dir,
 		logger: logger,
+		fs:     fs,
 	}
 }
 
 // IsMigrationComplete checks if the sentinel file exists indicating migration is done.
 func (m *Migrator) IsMigrationComplete() bool {
 	sentinelPath := filepath.Join(m.dir, migrationSentinelFile)
-	_, err := os.Stat(sentinelPath)
+	_, err := m.fs.Stat(sentinelPath)
 	return err == nil
 }
 
@@ -82,7 +90,7 @@ func (m *Migrator) NeedsMigration() (bool, error) {
 	}
 
 	// Check for .condensed files
-	entries, err := os.ReadDir(m.dir)
+	entries, err := m.fs.ReadDir(m.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -103,7 +111,7 @@ func (m *Migrator) NeedsMigration() (bool, error) {
 // Returns nil if no state file exists.
 func (m *Migrator) LoadState() (*MigrationState, error) {
 	statePath := filepath.Join(m.dir, migrationStateFile)
-	data, err := os.ReadFile(statePath)
+	data, err := m.fs.ReadFile(statePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -129,12 +137,12 @@ func (m *Migrator) SaveState(state *MigrationState) error {
 		return errors.Wrap(err, "marshal state")
 	}
 
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+	if err := m.fs.WriteFile(tmpPath, data, 0o644); err != nil {
 		return errors.Wrap(err, "write temp state file")
 	}
 
-	if err := os.Rename(tmpPath, statePath); err != nil {
-		os.Remove(tmpPath)
+	if err := m.fs.Rename(tmpPath, statePath); err != nil {
+		m.fs.Remove(tmpPath)
 		return errors.Wrap(err, "rename state file")
 	}
 
@@ -145,13 +153,13 @@ func (m *Migrator) SaveState(state *MigrationState) error {
 func (m *Migrator) MarkMigrationComplete() error {
 	// Create sentinel file
 	sentinelPath := filepath.Join(m.dir, migrationSentinelFile)
-	if err := os.WriteFile(sentinelPath, []byte("migrated"), 0o644); err != nil {
+	if err := m.fs.WriteFile(sentinelPath, []byte("migrated"), 0o644); err != nil {
 		return errors.Wrap(err, "create sentinel file")
 	}
 
 	// Remove state file (best effort)
 	statePath := filepath.Join(m.dir, migrationStateFile)
-	os.Remove(statePath)
+	m.fs.Remove(statePath)
 
 	return nil
 }
@@ -170,7 +178,7 @@ func (m *Migrator) MigrateSnapshotDirectory() error {
 	oldSnapshotDir := strings.TrimSuffix(m.dir, commitlogDirSuffix) + oldSnapshotDirSuffix
 
 	// 2. Check if old directory exists
-	entries, err := os.ReadDir(oldSnapshotDir)
+	entries, err := m.fs.ReadDir(oldSnapshotDir)
 	if os.IsNotExist(err) {
 		return nil // No old directory, nothing to migrate
 	}
@@ -217,19 +225,19 @@ func (m *Migrator) MigrateSnapshotDirectory() error {
 	for _, entry := range entries {
 		if strings.HasSuffix(entry.Name(), ".checkpoints") {
 			oldPath := filepath.Join(oldSnapshotDir, entry.Name())
-			os.Remove(oldPath) // Best effort, ignore errors
+			m.fs.Remove(oldPath) // Best effort, ignore errors
 		}
 	}
 
 	// 7. Try to remove old directory (will fail if not empty, that's OK)
-	os.Remove(oldSnapshotDir)
+	m.fs.Remove(oldSnapshotDir)
 
 	return nil
 }
 
 // detectSnapshotVersion reads the first byte of a snapshot file to get its version.
 func (m *Migrator) detectSnapshotVersion(path string) (uint8, error) {
-	f, err := os.Open(path)
+	f, err := m.fs.Open(path)
 	if err != nil {
 		return 0, errors.Wrap(err, "open snapshot file")
 	}
@@ -247,36 +255,36 @@ func (m *Migrator) detectSnapshotVersion(path string) (uint8, error) {
 // or falls back to copy+delete with crash safety.
 func (m *Migrator) atomicMoveFile(src, dst string) error {
 	// Try rename first (atomic on same filesystem)
-	if err := os.Rename(src, dst); err == nil {
+	if err := m.fs.Rename(src, dst); err == nil {
 		return nil
 	}
 
 	// Fall back to copy + delete
 	// 1. Copy to temp file in destination directory
 	tmpDst := dst + migratingFileSuffix
-	if err := copyFile(src, tmpDst); err != nil {
+	if err := m.copyFile(src, tmpDst); err != nil {
 		return errors.Wrap(err, "copy file")
 	}
 
 	// 2. Atomic rename temp to final
-	if err := os.Rename(tmpDst, dst); err != nil {
-		os.Remove(tmpDst) // Cleanup on failure
+	if err := m.fs.Rename(tmpDst, dst); err != nil {
+		m.fs.Remove(tmpDst) // Cleanup on failure
 		return errors.Wrap(err, "rename temp file")
 	}
 
 	// 3. Delete original
-	return os.Remove(src)
+	return m.fs.Remove(src)
 }
 
 // copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
+func (m *Migrator) copyFile(src, dst string) error {
+	srcFile, err := m.fs.Open(src)
 	if err != nil {
 		return errors.Wrap(err, "open source")
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.Create(dst)
+	dstFile, err := m.fs.Create(dst)
 	if err != nil {
 		return errors.Wrap(err, "create destination")
 	}
@@ -307,7 +315,7 @@ func (m *Migrator) Migrate(ctx context.Context) error {
 			CondensedPending:   make([]string, 0),
 		}
 
-		entries, err := os.ReadDir(m.dir)
+		entries, err := m.fs.ReadDir(m.dir)
 		if err != nil {
 			return errors.Wrap(err, "read directory for condensed files")
 		}
@@ -344,7 +352,7 @@ func (m *Migrator) Migrate(ctx context.Context) error {
 		}
 
 		// Check if file still exists (may have been deleted)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		if _, err := m.fs.Stat(path); os.IsNotExist(err) {
 			// Mark as converted (file is gone)
 			state.CondensedConverted = append(state.CondensedConverted, path)
 			if err := m.SaveState(state); err != nil {
@@ -405,7 +413,7 @@ func (m *Migrator) convertCondensedToSorted(ctx context.Context, path string) er
 	}
 
 	// Open source file
-	srcFile, err := os.Open(path)
+	srcFile, err := m.fs.Open(path)
 	if err != nil {
 		return errors.Wrap(err, "open condensed file")
 	}
@@ -424,7 +432,7 @@ func (m *Migrator) convertCondensedToSorted(ctx context.Context, path string) er
 	outPath := filepath.Join(m.dir, outFilename)
 
 	// Write using SortedWriter via SafeFileWriter
-	sfw, err := NewSafeFileWriter(outPath, DefaultBufferSize)
+	sfw, err := NewSafeFileWriterWithFS(outPath, DefaultBufferSize, m.fs)
 	if err != nil {
 		return errors.Wrap(err, "create safe file writer")
 	}
@@ -440,7 +448,7 @@ func (m *Migrator) convertCondensedToSorted(ctx context.Context, path string) er
 	}
 
 	// Delete original file after successful conversion
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := m.fs.Remove(path); err != nil && !os.IsNotExist(err) {
 		return errors.Wrap(err, "remove original condensed file")
 	}
 
@@ -450,7 +458,12 @@ func (m *Migrator) convertCondensedToSorted(ctx context.Context, path string) er
 // CleanupMigratingFiles removes any orphaned .migrating files in the directory.
 // This should be called during startup to clean up from incomplete migrations.
 func CleanupMigratingFiles(dir string) error {
-	entries, err := os.ReadDir(dir)
+	return CleanupMigratingFilesWithFS(dir, common.NewOSFS())
+}
+
+// CleanupMigratingFilesWithFS removes any orphaned .migrating files using a custom filesystem.
+func CleanupMigratingFilesWithFS(dir string, fs common.FS) error {
+	entries, err := fs.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -466,7 +479,7 @@ func CleanupMigratingFiles(dir string) error {
 		name := entry.Name()
 		if strings.HasSuffix(name, migratingFileSuffix) {
 			migPath := filepath.Join(dir, name)
-			if err := os.Remove(migPath); err != nil && !os.IsNotExist(err) {
+			if err := fs.Remove(migPath); err != nil && !os.IsNotExist(err) {
 				return errors.Wrapf(err, "remove orphaned migrating file %s", migPath)
 			}
 		}

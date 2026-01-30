@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
@@ -77,16 +78,22 @@ func (ds *DirectoryState) TotalSnapshotSize() int64 {
 // FileDiscovery scans directories for commit log files.
 type FileDiscovery struct {
 	dir string
+	fs  common.FS
 }
 
 // NewFileDiscovery creates a new file discovery scanner for the given directory.
 func NewFileDiscovery(dir string) *FileDiscovery {
-	return &FileDiscovery{dir: dir}
+	return NewFileDiscoveryWithFS(dir, common.NewOSFS())
+}
+
+// NewFileDiscoveryWithFS creates a new file discovery scanner with a custom filesystem.
+func NewFileDiscoveryWithFS(dir string, fs common.FS) *FileDiscovery {
+	return &FileDiscovery{dir: dir, fs: fs}
 }
 
 // Scan scans the directory and returns the current state of commit log files.
 func (d *FileDiscovery) Scan() (*DirectoryState, error) {
-	entries, err := os.ReadDir(d.dir)
+	entries, err := d.fs.ReadDir(d.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &DirectoryState{}, nil
@@ -122,7 +129,7 @@ func (d *FileDiscovery) Scan() (*DirectoryState, error) {
 		}
 
 		// Get file size
-		stat, err := os.Stat(filepath.Join(d.dir, name))
+		stat, err := d.fs.Stat(filepath.Join(d.dir, name))
 		if err != nil {
 			return nil, errors.Wrapf(err, "stat file %s", name)
 		}

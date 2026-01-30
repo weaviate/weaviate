@@ -14,11 +14,11 @@ package compactv2
 import (
 	"bufio"
 	"io"
-	"os"
 	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -38,6 +38,10 @@ type LoaderConfig struct {
 	// BufferSize is the buffer size for reading WAL files.
 	// If zero or negative, DefaultLoaderBufferSize is used.
 	BufferSize int
+
+	// FS is the filesystem interface to use for file operations.
+	// If nil, defaults to common.NewOSFS().
+	FS common.FS
 }
 
 // Loader reads all commit log files at startup and returns the accumulated state.
@@ -45,6 +49,7 @@ type LoaderConfig struct {
 // commit log (LiveFile) since at startup nothing is being written yet.
 type Loader struct {
 	config LoaderConfig
+	fs     common.FS
 }
 
 // NewLoader creates a new Loader with the given configuration.
@@ -52,7 +57,10 @@ func NewLoader(config LoaderConfig) *Loader {
 	if config.BufferSize <= 0 {
 		config.BufferSize = DefaultLoaderBufferSize
 	}
-	return &Loader{config: config}
+	if config.FS == nil {
+		config.FS = common.NewOSFS()
+	}
+	return &Loader{config: config, fs: config.FS}
 }
 
 // Load discovers and loads all commit log files, returning the accumulated state.
@@ -61,23 +69,23 @@ func (l *Loader) Load() (*ent.DeserializationResult, error) {
 	// 0. Migrate snapshots from old directory FIRST (before any other operations)
 	// This ensures that snapshots stored in the old .hnsw.snapshot.d/ directory
 	// are moved to the new unified .hnsw.commitlog.d/ directory before we scan.
-	migrator := NewMigrator(l.config.Dir, l.config.Logger)
+	migrator := NewMigratorWithFS(l.config.Dir, l.config.Logger, l.fs)
 	if err := migrator.MigrateSnapshotDirectory(); err != nil {
 		return nil, errors.Wrap(err, "migrate snapshot directory")
 	}
 
 	// 1. Cleanup orphaned temp files from previous incomplete operations
-	if err := CleanupOrphanedTempFiles(l.config.Dir); err != nil {
+	if err := CleanupOrphanedTempFilesWithFS(l.config.Dir, l.fs); err != nil {
 		return nil, errors.Wrap(err, "cleanup orphaned temp files")
 	}
 
 	// Also cleanup any orphaned .migrating files from incomplete migrations
-	if err := CleanupMigratingFiles(l.config.Dir); err != nil {
+	if err := CleanupMigratingFilesWithFS(l.config.Dir, l.fs); err != nil {
 		return nil, errors.Wrap(err, "cleanup orphaned migrating files")
 	}
 
 	// 2. Discover files in the directory
-	discovery := NewFileDiscovery(l.config.Dir)
+	discovery := NewFileDiscoveryWithFS(l.config.Dir, l.fs)
 	state, err := discovery.Scan()
 	if err != nil {
 		return nil, errors.Wrap(err, "scan directory")
@@ -100,7 +108,7 @@ func (l *Loader) Load() (*ent.DeserializationResult, error) {
 
 	if state.Snapshot != nil {
 		snapshotReader := NewSnapshotReader(l.config.Logger)
-		result, err = snapshotReader.ReadFromFile(state.Snapshot.Path)
+		result, err = snapshotReader.ReadFromFileWithFS(state.Snapshot.Path, l.fs)
 		if err != nil {
 			return nil, errors.Wrapf(err, "read snapshot %s", state.Snapshot.Path)
 		}
@@ -193,7 +201,7 @@ func (l *Loader) filterFilesAlreadyInSnapshot(files []FileInfo, snapshotEndTS in
 
 // loadWALFile reads a single WAL file and applies it to the current state.
 func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent.DeserializationResult, error) {
-	file, err := os.Open(f.Path)
+	file, err := l.fs.Open(f.Path)
 	if err != nil {
 		return state, errors.Wrapf(err, "open file %s", f.Path)
 	}

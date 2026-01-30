@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -47,9 +48,10 @@ const (
 //
 //	return sfw.Commit()
 type SafeFileWriter struct {
+	fs        common.FS
 	tmpPath   string
 	finalPath string
-	file      *os.File
+	file      common.File
 	buffered  *bufio.Writer
 	committed bool
 	closed    bool
@@ -59,18 +61,25 @@ type SafeFileWriter struct {
 // The file is created at finalPath + ".tmp" with O_CREATE|O_EXCL|O_WRONLY.
 // O_EXCL ensures we fail if temp file exists (detects incomplete previous writes).
 func NewSafeFileWriter(finalPath string, bufferSize int) (*SafeFileWriter, error) {
+	return NewSafeFileWriterWithFS(finalPath, bufferSize, common.NewOSFS())
+}
+
+// NewSafeFileWriterWithFS creates a new crash-safe file writer with a custom filesystem.
+// This is useful for testing crash safety scenarios.
+func NewSafeFileWriterWithFS(finalPath string, bufferSize int, fs common.FS) (*SafeFileWriter, error) {
 	if bufferSize <= 0 {
 		bufferSize = DefaultBufferSize
 	}
 
 	tmpPath := finalPath + tempFileSuffix
 
-	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o666)
+	file, err := fs.OpenFile(tmpPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o666)
 	if err != nil {
 		return nil, errors.Wrapf(err, "create temp file %s", tmpPath)
 	}
 
 	return &SafeFileWriter{
+		fs:        fs,
 		tmpPath:   tmpPath,
 		finalPath: finalPath,
 		file:      file,
@@ -113,7 +122,7 @@ func (s *SafeFileWriter) Commit() error {
 	s.closed = true
 
 	// 4. Atomic rename
-	if err := os.Rename(s.tmpPath, s.finalPath); err != nil {
+	if err := s.fs.Rename(s.tmpPath, s.finalPath); err != nil {
 		return errors.Wrapf(err, "rename %s to %s", s.tmpPath, s.finalPath)
 	}
 
@@ -140,7 +149,7 @@ func (s *SafeFileWriter) Abort() error {
 	}
 
 	// Remove temp file (ignore errors - may not exist)
-	os.Remove(s.tmpPath)
+	s.fs.Remove(s.tmpPath)
 
 	return nil
 }
@@ -148,7 +157,13 @@ func (s *SafeFileWriter) Abort() error {
 // CleanupOrphanedTempFiles removes any orphaned .tmp files in the given directory.
 // This should be called during index startup to clean up from previous incomplete writes.
 func CleanupOrphanedTempFiles(dir string) error {
-	entries, err := os.ReadDir(dir)
+	return CleanupOrphanedTempFilesWithFS(dir, common.NewOSFS())
+}
+
+// CleanupOrphanedTempFilesWithFS removes any orphaned .tmp files in the given directory.
+// This version accepts a custom filesystem for testing.
+func CleanupOrphanedTempFilesWithFS(dir string, fs common.FS) error {
+	entries, err := fs.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -164,7 +179,7 @@ func CleanupOrphanedTempFiles(dir string) error {
 		name := entry.Name()
 		if len(name) > len(tempFileSuffix) && name[len(name)-len(tempFileSuffix):] == tempFileSuffix {
 			tmpPath := filepath.Join(dir, name)
-			if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			if err := fs.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
 				return errors.Wrapf(err, "remove orphaned temp file %s", tmpPath)
 			}
 		}
