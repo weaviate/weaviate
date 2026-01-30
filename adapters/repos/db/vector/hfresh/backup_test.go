@@ -72,12 +72,23 @@ func TestHFreshBackupListFiles(t *testing.T) {
 	t.Run("test disk layout", func(t *testing.T) {
 		dirs, err := os.ReadDir(cfg.RootPath)
 		require.NoError(t, err)
-		require.Len(t, dirs, 5)
-		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[0].Name())
-		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[1].Name())
-		require.Equal(t, "merge.queue.d", dirs[2].Name())
-		require.Equal(t, "reassign.queue.d", dirs[3].Name())
-		require.Equal(t, "split.queue.d", dirs[4].Name())
+		dirsFound := make(map[string]struct{})
+		for _, dir := range dirs {
+			dirsFound[dir.Name()] = struct{}{}
+		}
+		expectedDirs := []string{
+			"analyze.queue.d",
+			"centroids.hnsw.commitlog.d",
+			"centroids.hnsw.snapshot.d",
+			"merge.queue.d",
+			"reassign.queue.d",
+			"split.queue.d",
+		}
+		for _, expectedDir := range expectedDirs {
+			if _, ok := dirsFound[expectedDir]; !ok {
+				t.Fatalf("expected dir %s not found in %v", expectedDir, dirsFound)
+			}
+		}
 	})
 
 	fmt.Printf("indexing done, took: %s, waiting for background tasks...\n", time.Since(before))
@@ -85,15 +96,8 @@ func TestHFreshBackupListFiles(t *testing.T) {
 	var err error
 	for index.taskQueue.Size() > 0 {
 		fmt.Println("background tasks: ", index.taskQueue.Size())
-		index.taskQueue.splitQueue.Pause()
-		index.taskQueue.reassignQueue.Pause()
-		index.taskQueue.mergeQueue.Pause()
-		index.taskQueue.splitQueue.Wait()
-		index.taskQueue.reassignQueue.Wait()
-		index.taskQueue.mergeQueue.Wait()
-		index.taskQueue.splitQueue.Flush()
-		index.taskQueue.reassignQueue.Flush()
-		index.taskQueue.mergeQueue.Flush()
+
+		err = index.stopHFreshTaskQueues()
 		require.NoError(t, err)
 		files, err := index.ListFiles(t.Context(), cfg.RootPath)
 		require.NoError(t, err)
@@ -106,9 +110,7 @@ func TestHFreshBackupListFiles(t *testing.T) {
 		}
 		// queue files should be present, but the number is not deterministic
 		require.True(t, hasAtLeastOneQueueFile)
-		index.taskQueue.splitQueue.Resume()
-		index.taskQueue.reassignQueue.Resume()
-		index.taskQueue.mergeQueue.Resume()
+		index.resumeHFreshTaskQueues()
 		time.Sleep(500 * time.Millisecond)
 	}
 

@@ -260,24 +260,40 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) PrepareForBackup(ctx context.Context) error {
-	err := h.Centroids.hnsw.PrepareForBackup(ctx)
-	if err != nil {
-		return err
-	}
+func (h *HFresh) stopHFreshTaskQueues() error {
 	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
 		h.taskQueue.splitQueue,
 		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
 		queue.Pause()
 		queue.Wait()
-		err = queue.Flush()
+		err := queue.Flush()
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (h *HFresh) resumeHFreshTaskQueues() {
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.Resume()
+	}
+}
+
+func (h *HFresh) PrepareForBackup(ctx context.Context) error {
+	err := h.Centroids.hnsw.PrepareForBackup(ctx)
+	if err != nil {
+		return err
+	}
+	return h.stopHFreshTaskQueues()
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
