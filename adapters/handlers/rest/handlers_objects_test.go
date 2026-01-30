@@ -1162,5 +1162,5 @@ type fakeMetricRequestsTotal struct{}
 
 func (f *fakeMetricRequestsTotal) logError(className string, err error)       {}
 func (f *fakeMetricRequestsTotal) logOk(className string)                     {}
-func (f *fakeMetricRequestsTotal) logUserError(className string)              {}
+func (f *fakeMetricRequestsTotal) logUserError(className string, err error)   {}
 func (f *fakeMetricRequestsTotal) logServerError(className string, err error) {}

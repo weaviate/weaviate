@@ -57,7 +57,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 	}
 
 	if errors.Is(err, syscall.EPIPE) {
-		metricRequestsTotal.logUserError("")
+		metricRequestsTotal.logUserError("", err)
 		handleBrokenPipe(err, logger, r)
 		return
 	}
@@ -65,7 +65,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		if netErr.Timeout() {
-			metricRequestsTotal.logUserError("")
+			metricRequestsTotal.logUserError("", err)
 			handleTimeout(netErr, logger, r)
 			return
 		}

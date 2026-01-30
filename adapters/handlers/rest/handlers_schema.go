@@ -99,7 +99,7 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	}
 
 	if class == nil {
-		s.metricRequestsTotal.logUserError(params.ClassName)
+		s.metricRequestsTotal.logUserError(params.ClassName, fmt.Errorf("class '%s' not found", params.ClassName))
 		return schema.NewSchemaObjectsGetNotFound()
 	}
 
@@ -330,7 +330,7 @@ func (s *schemaHandlers) getTenant(
 		}
 	}
 	if tenant == nil {
-		s.metricRequestsTotal.logUserError(params.ClassName)
+		s.metricRequestsTotal.logUserError(params.ClassName, fmt.Errorf("tenant '%s' not found when it should have been", params.TenantName))
 		return schema.NewTenantsGetOneUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("tenant '%s' not found when it should have been", params.TenantName)))
 	}
@@ -402,10 +402,10 @@ func newSchemaRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 func (e *schemaRequestsTotal) logError(className string, err error) {
 	switch {
 	case errors.As(err, &authzerrors.Forbidden{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &uco.ErrMultiTenancy{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	default:
-		e.logUserError(className)
+		e.logUserError(className, err)
 	}
 }
