@@ -861,12 +861,12 @@ func (_c *MockVectorIndex_Shutdown_Call) RunAndReturn(run func(context.Context) 
 	return _c
 }
 
-// SwitchCommitLogs provides a mock function with given fields: ctx
-func (_m *MockVectorIndex) SwitchCommitLogs(ctx context.Context) error {
+// PrepareForBackup provides a mock function with given fields: ctx
+func (_m *MockVectorIndex) PrepareForBackup(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SwitchCommitLogs")
+		panic("no return value specified for PrepareForBackup")
 	}
 
 	var r0 error
@@ -879,30 +879,30 @@ func (_m *MockVectorIndex) SwitchCommitLogs(ctx context.Context) error {
 	return r0
 }
 
-// MockVectorIndex_SwitchCommitLogs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SwitchCommitLogs'
-type MockVectorIndex_SwitchCommitLogs_Call struct {
+// MockVectorIndex_PrepareForBackup_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareForBackup'
+type MockVectorIndex_PrepareForBackup_Call struct {
 	*mock.Call
 }
 
-// SwitchCommitLogs is a helper method to define mock.On call
+// PrepareForBackup is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockVectorIndex_Expecter) SwitchCommitLogs(ctx interface{}) *MockVectorIndex_SwitchCommitLogs_Call {
-	return &MockVectorIndex_SwitchCommitLogs_Call{Call: _e.mock.On("SwitchCommitLogs", ctx)}
+func (_e *MockVectorIndex_Expecter) PrepareForBackup(ctx interface{}) *MockVectorIndex_PrepareForBackup_Call {
+	return &MockVectorIndex_PrepareForBackup_Call{Call: _e.mock.On("PrepareForBackup", ctx)}
 }
 
-func (_c *MockVectorIndex_SwitchCommitLogs_Call) Run(run func(ctx context.Context)) *MockVectorIndex_SwitchCommitLogs_Call {
+func (_c *MockVectorIndex_PrepareForBackup_Call) Run(run func(ctx context.Context)) *MockVectorIndex_PrepareForBackup_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockVectorIndex_SwitchCommitLogs_Call) Return(_a0 error) *MockVectorIndex_SwitchCommitLogs_Call {
+func (_c *MockVectorIndex_PrepareForBackup_Call) Return(_a0 error) *MockVectorIndex_PrepareForBackup_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockVectorIndex_SwitchCommitLogs_Call) RunAndReturn(run func(context.Context) error) *MockVectorIndex_SwitchCommitLogs_Call {
+func (_c *MockVectorIndex_PrepareForBackup_Call) RunAndReturn(run func(context.Context) error) *MockVectorIndex_PrepareForBackup_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1050,7 +1050,8 @@ func (_c *MockVectorIndex_ValidateBeforeInsert_Call) RunAndReturn(run func([]flo
 func NewMockVectorIndex(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockVectorIndex {
+},
+) *MockVectorIndex {
 	mock := &MockVectorIndex{}
 	mock.Mock.Test(t)
 

@@ -794,7 +794,7 @@ func (index *flat) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (index *flat) SwitchCommitLogs(context.Context) error {
+func (index *flat) PrepareForBackup(context.Context) error {
 	return nil
 }
 
