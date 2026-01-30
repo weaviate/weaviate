@@ -221,12 +221,12 @@ func (h *hnsw) getEntrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, deleteList helpers.AllowList) {
+func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, deleteList helpers.AllowList, totalTombstones int64) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
 	if breakCleanUpTombstonedNodes() {
-		return false, nil
+		return false, nil, 0
 	}
 
 	h.RLock()
@@ -244,7 +244,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	// want to make sure we have enough tombstones to justify the cleanup.
 	numberOfTombstones := int64(len(h.tombstones))
 	if numberOfTombstones == 0 {
-		return false, nil
+		return false, nil, 0
 	}
 
 	if numberOfTombstones < minTombstonesPerCycle() {
@@ -256,7 +256,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 			"tombstones_min":   minTombstonesPerCycle(),
 			"tombstones_max":   maxTombstonesPerCycle(),
 		}).Debugf("class %s: shard %s: skipping tombstone cleanup, not enough tombstones", h.className, h.shardName)
-		return false, nil
+		return false, nil, numberOfTombstones
 	}
 
 	// If we have a very high number of tombstones, we run into scaling issues.
@@ -284,7 +284,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 		elementsOnList++
 	}
 
-	return true, deleteList
+	return true, deleteList, numberOfTombstones
 }
 
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
@@ -322,7 +322,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	}
 
 	executed := false
-	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
+	ok, deleteList, total_tombstones := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
 	if !ok {
 		return executed, nil
 	}
@@ -331,10 +331,6 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
 
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
-
-	h.tombstoneLock.Lock()
-	total_tombstones := len(h.tombstones)
-	h.tombstoneLock.Unlock()
 
 	h.logger.WithFields(logrus.Fields{
 		"action":              "tombstone_cleanup_begin",
@@ -577,6 +573,16 @@ func (h *hnsw) reassignNeighbor(
 		return true, nil
 	}
 
+	neighborNode.Lock()
+	neighborLevel := neighborNode.level
+	if !connectionsPointTo(neighborNode.connections, deleteList) {
+		// nothing needs to be changed, skip
+		neighborNode.Unlock()
+		return true, nil
+	}
+	neighborNode.Unlock()
+
+	neighborNode.markAsMaintenance()
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
@@ -595,16 +601,6 @@ func (h *hnsw) reassignNeighbor(
 			return false, errors.Wrap(err, "get neighbor vec")
 		}
 	}
-	neighborNode.Lock()
-	neighborLevel := neighborNode.level
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
-		// nothing needs to be changed, skip
-		neighborNode.Unlock()
-		return true, nil
-	}
-	neighborNode.Unlock()
-
-	neighborNode.markAsMaintenance()
 
 	// the new recursive implementation no longer needs an entrypoint, so we can
 	// just pass this dummy value to make the neighborFinderConnector happy
