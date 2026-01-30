@@ -45,7 +45,7 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 
 	// if the metadata was loaded from disk or the posting doesn't have a mapping entry yet, it might not be in sync with
 	// the posting store. load the posting from disk to do the analysis.
-	if meta.fromDisk || err != nil {
+	if err != nil || meta.fromDisk {
 		p, err := h.PostingStore.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
