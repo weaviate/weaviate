@@ -93,45 +93,51 @@ func TestHFreshBackupListFiles(t *testing.T) {
 
 	fmt.Printf("indexing done, took: %s, waiting for background tasks...\n", time.Since(before))
 
-	var err error
-	for index.taskQueue.Size() > 0 {
-		fmt.Println("background tasks: ", index.taskQueue.Size())
+	t.Run("test list files during execution", func(t *testing.T) {
+		var err error
+		for index.taskQueue.Size() > 0 {
+			fmt.Println("background tasks: ", index.taskQueue.Size())
 
-		err = index.stopHFreshTaskQueues()
+			err = index.stopHFreshTaskQueues()
+			require.NoError(t, err)
+			if index.taskQueue.Size() > 0 {
+				hasAtLeastOneQueueFile := false
+				files, err := index.ListFiles(t.Context(), cfg.RootPath)
+				require.NoError(t, err)
+				for _, file := range files {
+					if strings.Contains(file, "queue.d") {
+						fmt.Println("found queue file: ", file)
+						hasAtLeastOneQueueFile = true
+						break
+					}
+				}
+				// queue files should be present, but the number is not deterministic
+				require.True(t, hasAtLeastOneQueueFile)
+			}
+			index.resumeHFreshTaskQueues()
+			time.Sleep(500 * time.Millisecond)
+		}
+		fmt.Println("all background tasks done, took: ", time.Since(before))
+	})
+
+	t.Run("test list files after backup preparation", func(t *testing.T) {
+		err := index.Flush()
+		require.NoError(t, err)
+		err = index.Shutdown(t.Context())
+		require.NoError(t, err)
+		err = index.PrepareForBackup(t.Context())
 		require.NoError(t, err)
 		files, err := index.ListFiles(t.Context(), cfg.RootPath)
 		require.NoError(t, err)
-		var hasAtLeastOneQueueFile bool
+
+		// at least one centroid commit log
+		var hasCentroidCommitLog bool
 		for _, file := range files {
-			if strings.Contains(file, "queue.d") {
-				hasAtLeastOneQueueFile = true
+			if strings.HasPrefix(file, "centroids.hnsw.commitlog.d") {
+				hasCentroidCommitLog = true
 				break
 			}
 		}
-		// queue files should be present, but the number is not deterministic
-		require.True(t, hasAtLeastOneQueueFile)
-		index.resumeHFreshTaskQueues()
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	fmt.Println("all background tasks done, took: ", time.Since(before))
-
-	err = index.Flush()
-	require.NoError(t, err)
-	err = index.Shutdown(t.Context())
-	require.NoError(t, err)
-	err = index.PrepareForBackup(t.Context())
-	require.NoError(t, err)
-	files, err := index.ListFiles(t.Context(), cfg.RootPath)
-	require.NoError(t, err)
-
-	// at least one centroid commit log
-	var hasCentroidCommitLog bool
-	for _, file := range files {
-		if strings.HasPrefix(file, "centroids.hnsw.commitlog.d") {
-			hasCentroidCommitLog = true
-			break
-		}
-	}
-	require.True(t, hasCentroidCommitLog)
+		require.True(t, hasCentroidCommitLog)
+	})
 }
