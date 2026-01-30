@@ -95,7 +95,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	ec := errorcompounder.New()
 
 	err = s.GetPropertyLengthTracker().Close()
-	ec.AddWrap(err, "close prop length tracker")
+	ec.AddWrapf(err, "close prop length tracker")
 
 	// unregister all callbacks at once, in parallel
 	err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
@@ -144,12 +144,12 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
-		ec.AddWrap(err, "stop lsmkv store")
+		ec.AddWrapf(err, "stop lsmkv store")
 	}
 
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()
-		ec.AddWrap(err, "stop dynamic vector index db")
+		ec.AddWrapf(err, "stop dynamic vector index db")
 	}
 
 	return ec.ToError()

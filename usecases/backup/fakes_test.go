@@ -135,6 +135,20 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, overrideBuc
 func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	fb.RLock()
 	defer fb.RUnlock()
+
+	// For GlobalRestoreFile, dynamically return current glMeta state if it has been set
+	// by PutObject during an active restore. This allows coordinator code to read the
+	// current status (e.g., to check for cancellation) without requiring explicit mock
+	// expectations for each read. Falls back to mock expectations for tests that
+	// explicitly set them (like status check tests).
+	if key == GlobalRestoreFile && fb.glMeta.ID != "" {
+		bytes, err := json.Marshal(fb.glMeta)
+		if err != nil {
+			return nil, err
+		}
+		return bytes, nil
+	}
+
 	args := fb.Called(ctx, backupID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)

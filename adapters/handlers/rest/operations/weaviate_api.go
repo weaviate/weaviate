@@ -119,6 +119,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BackupsBackupsRestoreHandler: backups.BackupsRestoreHandlerFunc(func(params backups.BackupsRestoreParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsRestore has not yet been implemented")
 		}),
+		BackupsBackupsRestoreCancelHandler: backups.BackupsRestoreCancelHandlerFunc(func(params backups.BackupsRestoreCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsRestoreCancel has not yet been implemented")
+		}),
 		BackupsBackupsRestoreStatusHandler: backups.BackupsRestoreStatusHandlerFunc(func(params backups.BackupsRestoreStatusParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsRestoreStatus has not yet been implemented")
 		}),
@@ -443,6 +446,8 @@ type WeaviateAPI struct {
 	BackupsBackupsListHandler backups.BackupsListHandler
 	// BackupsBackupsRestoreHandler sets the operation handler for the backups restore operation
 	BackupsBackupsRestoreHandler backups.BackupsRestoreHandler
+	// BackupsBackupsRestoreCancelHandler sets the operation handler for the backups restore cancel operation
+	BackupsBackupsRestoreCancelHandler backups.BackupsRestoreCancelHandler
 	// BackupsBackupsRestoreStatusHandler sets the operation handler for the backups restore status operation
 	BackupsBackupsRestoreStatusHandler backups.BackupsRestoreStatusHandler
 	// BatchBatchObjectsCreateHandler sets the operation handler for the batch objects create operation
@@ -734,6 +739,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.BackupsBackupsRestoreHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsRestoreHandler")
+	}
+	if o.BackupsBackupsRestoreCancelHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsRestoreCancelHandler")
 	}
 	if o.BackupsBackupsRestoreStatusHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsRestoreStatusHandler")
@@ -1139,6 +1147,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestoreCancel(o.context, o.BackupsBackupsRestoreCancelHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

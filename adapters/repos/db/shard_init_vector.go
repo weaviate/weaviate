@@ -263,7 +263,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                            s.index.logger,
-					RootPath:                          s.path(),
+					RootPath:                          rootPath,
 					ID:                                hfreshConfigID + "_centroids",
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),

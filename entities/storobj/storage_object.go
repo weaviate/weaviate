@@ -817,6 +817,11 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
 		}
 		schemaLength = uint32(len(schema))
+	} else {
+		// send empty object so that we don't break unmarshalling during upgrades
+		// where some nodes don't have the empty check on the unmarshal side yet
+		schema = []byte("{}")
+		schemaLength = uint32(len(schema))
 	}
 
 	meta, err := json.Marshal(ko.AdditionalProperties())
@@ -976,7 +981,7 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	}
 
 	rw.WriteUint32(schemaLength)
-	if !addProps.NoProps && schemaLength > 0 {
+	if schemaLength > 0 {
 		err = rw.CopyBytesToBuffer(schema)
 		if err != nil {
 			return byteBuffer, errors.Wrap(err, "Could not copy schema")

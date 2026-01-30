@@ -186,11 +186,11 @@ func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
 	return l.shard.SetStatusReadonly(reason)
 }
 
-func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
+func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
 	if err := l.Load(ctx); err != nil {
 		return []strfmt.UUID{}, err
 	}
-	return l.shard.FindUUIDs(ctx, filters)
+	return l.shard.FindUUIDs(ctx, filters, limit)
 }
 
 func (l *LazyLoadShard) Counter() *indexcounter.Counter {
@@ -286,11 +286,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.SetAsyncReplicationEnabled(ctx, enabled)
+	return l.shard.SetAsyncReplicationState(ctx, config, enabled)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {

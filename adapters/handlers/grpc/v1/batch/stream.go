@@ -281,7 +281,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 		log.Errorf("failed to send started message: %s", err)
 		return err
 	}
-	batchResults := newBatchResults()
+	batchResults := newBatchResults(h.workerStats(streamId).getBatchSize())
 	timer := time.NewTicker(5 * time.Second)
 	defer timer.Stop()
 	for {
@@ -334,6 +334,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 		case <-timer.C:
 			// Periodically send the current batchSizeEma to the client to adjust its sending rate
 			batchSize := h.workerStats(streamId).getBatchSize()
+			batchResults.updateBatchSize(batchSize)
 			log.WithField("batchSize", batchSize).Debug("sending backoff message to client")
 			if err := stream.Send(newBatchBackoffMessage(batchSize)); err != nil {
 				log.Errorf("failed to send backoff message: %s", err)
@@ -574,15 +575,21 @@ func estimateBatchMemory(objs []*pb.BatchObject) int64 {
 }
 
 type batchResults struct {
+	batchSize int
 	successes []*pb.BatchStreamReply_Results_Success
 	errors    []*pb.BatchStreamReply_Results_Error
 }
 
-func newBatchResults() *batchResults {
+func newBatchResults(batchSize int) *batchResults {
 	return &batchResults{
-		successes: make([]*pb.BatchStreamReply_Results_Success, 0, 10000),
-		errors:    make([]*pb.BatchStreamReply_Results_Error, 0),
+		batchSize: batchSize,
+		successes: make([]*pb.BatchStreamReply_Results_Success, 0, batchSize),
+		errors:    make([]*pb.BatchStreamReply_Results_Error, 0, batchSize),
 	}
+}
+
+func (r *batchResults) updateBatchSize(newSize int) {
+	r.batchSize = newSize
 }
 
 func (r *batchResults) add(successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error) {
@@ -596,7 +603,7 @@ func (r *batchResults) reset() {
 }
 
 func (r *batchResults) shouldSend() bool {
-	return len(r.successes)+len(r.errors) > 10000
+	return len(r.successes)+len(r.errors) > r.batchSize
 }
 
 func (r *batchResults) send(stream pb.Weaviate_BatchStreamServer) error {

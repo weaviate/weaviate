@@ -15,7 +15,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.38.4
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/bmatcuk/doublestar v1.3.4
-	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/buger/jsonparser v1.1.1
 	github.com/casbin/casbin/v2 v2.128.0
 	github.com/cenkalti/backoff/v4 v4.3.0
@@ -62,7 +61,7 @@ require (
 	github.com/launchdarkly/go-server-sdk/v7 v7.14.1
 	github.com/maypok86/otter/v2 v2.2.1
 	github.com/minio/minio-go/v7 v7.0.97
-	github.com/netresearch/go-cron v0.6.0
+	github.com/netresearch/go-cron v0.9.1
 	github.com/nyaruka/phonenumbers v1.2.2
 	github.com/parquet-go/parquet-go v0.25.1
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
