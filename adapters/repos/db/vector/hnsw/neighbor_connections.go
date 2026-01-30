@@ -62,6 +62,7 @@ type neighborFinderConnector struct {
 	tombstoneCleanupNodes bool
 	processedIDs          *sync.Map
 	connectionsBuf        []uint64 // reusable buffer to avoid allocations in CopyLayer
+	pendingBuf            []uint64 // reusable buffer for accumulating pending IDs
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
@@ -234,19 +235,20 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
-		pending := make([]uint64, 0, 16)
+		// Reuse pendingBuf for accumulation
+		n.pendingBuf = n.pendingBuf[:0]
 
 		for _, id := range connections {
 			visited.Visit(id)
 			if n.denyList.Contains(id) {
-				pending = append(pending, id)
+				n.pendingBuf = append(n.pendingBuf, id)
 				continue
 			}
 			extraIDs = append(extraIDs, id)
 			top--
 			total++
 		}
-		for _, id := range pending {
+		for _, id := range n.pendingBuf {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
