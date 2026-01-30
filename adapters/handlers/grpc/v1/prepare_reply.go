@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -100,14 +99,9 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.Results = objects
 	}
 
-	if searchParams.IteratorState != nil && searchParams.IteratorState.NextIteratorUUID != "" {
-		parsed, err := uuid.Parse(searchParams.IteratorState.NextIteratorUUID)
-		if err == nil {
-			uuidBytes, err := parsed.MarshalBinary()
-			if err == nil {
-				out.IteratorNextUuid = uuidBytes
-			}
-		}
+	// Populate per-shard cursors for filtered iterator mode
+	if searchParams.IteratorState != nil && len(searchParams.IteratorState.ShardCursors) > 0 {
+		out.ShardCursors = searchParams.IteratorState.ShardCursors
 	}
 
 	return out, nil

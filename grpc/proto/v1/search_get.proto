@@ -31,6 +31,11 @@ message SearchRequest {
   optional string after = 33;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated SortBy sort_by = 34;
+  // Per-shard cursor continuation state for filtered iterator mode
+  // Key: shard name, Value: UUID to start after for that shard
+  // ONLY used when BOTH 'after' AND 'filters' are set
+  // Value of uuid.Nil ("00000000-0000-0000-0000-000000000000") indicates shard is exhausted
+  map<string, string> shard_cursors = 35;
 
   // matches/searches for objects
   optional Filters filters = 40;
@@ -116,7 +121,10 @@ message SearchReply {
   optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
-  optional bytes iterator_next_uuid = 6;
+  // Per-shard cursor state for pagination continuation (filtered iterator mode)
+  // Key: shard name, Value: UUID to start after for that shard on next request
+  // Value of uuid.Nil indicates shard is exhausted (no more results to scan)
+  map<string, string> shard_cursors = 6;
 }
 
 message RerankReply {

@@ -380,13 +380,18 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		defer filterDocIds.Close()
 
-		var nextIteratorUuid *string
-		if iteratorState != nil {
-			nextIteratorUuid = &iteratorState.NextIteratorUUID
-		}
-
+		// For filtered iterator mode, track where this shard's scan stopped
+		var nextIteratorUuid string
 		objs, err := s.ObjectList(ctx, limit, sort,
-			cursor, additional, s.index.Config.ClassName, filterDocIds, nextIteratorUuid)
+			cursor, additional, s.index.Config.ClassName, filterDocIds, &nextIteratorUuid)
+
+		// Write to ShardCursors if iteratorState is provided
+		if iteratorState != nil && nextIteratorUuid != "" {
+			if iteratorState.ShardCursors == nil {
+				iteratorState.ShardCursors = make(map[string]string)
+			}
+			iteratorState.ShardCursors[s.name] = nextIteratorUuid
+		}
 
 		return objs, nil, err
 	}
@@ -710,6 +715,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 		}
 
 		out[i] = obj
+		*nextIteratorUuid = obj.ID().String()
 		i++
 	}
 

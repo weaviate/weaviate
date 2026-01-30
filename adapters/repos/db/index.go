@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -49,7 +50,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/filters"
+	entfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -1714,8 +1715,8 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	return shard.Exists(ctx, id)
 }
 
-func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+func (i *Index) objectSearch(ctx context.Context, limit int, filters *entfilters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []entfilters.Sort, cursor *entfilters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string, iteratorState *dto.IteratorState,
 ) ([]*storobj.Object, []float32, error) {
@@ -1748,7 +1749,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
-	outObjects, outScores, err := i.objectSearchByShard(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan, properties, iteratorState)
+	outObjects, outScores, perShardNextUUIDs, err := i.objectSearchByShard(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan, properties, iteratorState)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1802,6 +1803,73 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outScores = outScores[:cutOff]
 	}
 
+	// Compute per-shard cursor positions BEFORE truncation in filtered iterator mode
+	// The cursor logic ensures we don't skip any results when global truncation occurs
+	if filters != nil && cursor != nil && iteratorState != nil && len(perShardNextUUIDs) > 0 {
+		// Preserve incoming shard cursors before overwriting
+		incomingShardCursors := iteratorState.ShardCursors
+		iteratorState.ShardCursors = make(map[string]string)
+
+		// Determine which objects will be discarded by truncation
+		willBeTruncated := !addlProps.ReferenceQuery && len(outObjects) > limit
+
+		// Build a map of index positions for the first discarded result per shard
+		firstDiscardedIndexPerShard := make(map[string]int)
+		if willBeTruncated {
+			// Scan the objects that will be discarded (from limit onwards)
+			for i := limit; i < len(outObjects); i++ {
+				shardName := outObjects[i].BelongsToShard
+				if shardName != "" {
+					// Keep the first (lowest) index for each shard
+					if _, exists := firstDiscardedIndexPerShard[shardName]; !exists {
+						firstDiscardedIndexPerShard[shardName] = i
+					}
+				}
+			}
+		}
+
+		// For each shard that participated in the search
+		for shardName, nextUUID := range perShardNextUUIDs {
+			if nextUUID == uuid.Nil.String() {
+				// Shard is exhausted - no more results to scan
+				iteratorState.ShardCursors[shardName] = uuid.Nil.String()
+			} else if firstDiscardedIndex, hasDiscarded := firstDiscardedIndexPerShard[shardName]; hasDiscarded {
+				// This shard has results that were discarded by global truncation
+				// Find the UUID immediately BEFORE the first discarded result
+				// by scanning backwards from the discarded position
+				var uuidBeforeDiscarded string
+				for i := firstDiscardedIndex - 1; i >= 0; i-- {
+					if outObjects[i].BelongsToShard == shardName {
+						uuidBeforeDiscarded = string(outObjects[i].ID())
+						break
+					}
+				}
+
+				if uuidBeforeDiscarded != "" {
+					// Use the UUID before the discarded results
+					// Next request starts AFTER this UUID, including the discarded results
+					iteratorState.ShardCursors[shardName] = uuidBeforeDiscarded
+				} else {
+					// All results from this shard were discarded, nothing kept
+					// Don't advance cursor - use incoming shard cursor or global cursor
+					if incomingShardCursors != nil {
+						if incomingCursor, exists := incomingShardCursors[shardName]; exists {
+							iteratorState.ShardCursors[shardName] = incomingCursor
+						} else {
+							iteratorState.ShardCursors[shardName] = cursor.After
+						}
+					} else {
+						iteratorState.ShardCursors[shardName] = cursor.After
+					}
+				}
+			} else {
+				// Shard hit scan limit and no results were discarded
+				// Use the scan limit position (nextUUID) to continue from where we stopped
+				iteratorState.ShardCursors[shardName] = nextUUID
+			}
+		}
+	}
+
 	// if this search was caused by a reference property
 	// search, we should not limit the number of results.
 	// for example, if the query contains a where filter
@@ -1829,11 +1897,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, outScores, nil
 }
 
-func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *entfilters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []entfilters.Sort, cursor *entfilters.Cursor,
 	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
 	iteratorState *dto.IteratorState,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, map[string]string, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, readPlan.Shards())
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
@@ -1845,15 +1913,64 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	eg.SetLimit(_NUMCPU*2 + 1)
 	shardResultLock := sync.Mutex{}
 
+	// Determine if we're in filtered iterator mode
+	filteredIteratorMode := filters != nil && cursor != nil && iteratorState != nil
+
+	// Per-shard iterator state collection (only used in filtered iterator mode)
+	type shardState struct {
+		nextUUID string
+		objs     []*storobj.Object
+	}
+	shardStates := &sync.Map{} // map[string]*shardState
+
 	remoteSearch := func(shardName string) error {
-		objs, scores, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties)
+		// Determine shard-specific cursor position for filtered iterator mode
+		shardCursor := cursor // Default to global cursor
+		if filteredIteratorMode && len(iteratorState.ShardCursors) > 0 {
+			// Use per-shard cursor if available
+			if perShardCursor, exists := iteratorState.ShardCursors[shardName]; exists {
+				// Check if shard is exhausted (uuid.Nil marker)
+				if perShardCursor == uuid.Nil.String() {
+					// Skip this shard entirely, it's exhausted
+					return nil
+				}
+				// Create a new cursor with shard-specific after position
+				shardCursor = &entfilters.Cursor{
+					After: perShardCursor,
+					Limit: cursor.Limit,
+				}
+			}
+		}
+
+		// Create per-shard iterator state to capture nextIteratorUUID from remote shard
+		shardIterState := &dto.IteratorState{
+			ShardCursors: make(map[string]string),
+		}
+
+		objs, scores, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, shardCursor, nil, addlProps, nil, properties, shardIterState)
 		if err != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err)
 		}
 
-		if i.shardHasMultipleReplicasRead(tenant, shardName) {
+		// Always add ownership in filtered iterator mode (needed for per-shard cursor tracking)
+		// or when there are multiple replicas
+		if filteredIteratorMode || i.shardHasMultipleReplicasRead(tenant, shardName) {
 			storobj.AddOwnership(objs, nodeName, shardName)
+		}
+
+		// In filtered iterator mode, collect this shard's next cursor position
+		if filteredIteratorMode {
+			nextUUID := uuid.Nil.String() // Default: shard exhausted
+			if shardIterState.ShardCursors != nil {
+				if cursorVal, exists := shardIterState.ShardCursors[shardName]; exists {
+					nextUUID = cursorVal
+				}
+			}
+			shardStates.Store(shardName, &shardState{
+				nextUUID: nextUUID,
+				objs:     objs,
+			})
 		}
 
 		shardResultLock.Lock()
@@ -1863,7 +1980,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		return nil
 	}
-	localSeach := func(shardName string) error {
+	localSearch := func(shardName string) error {
 		// Use getShardForDirectLocalOperation to get or initialize the shard for reads.
 		// This ensures shards are initialized when needed (e.g., after tenant reactivation).
 		// If shard doesn't exist locally or shouldn't be used, fall back to remote search.
@@ -1879,17 +1996,56 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return remoteSearch(shardName)
 		}
 
+		// Determine shard-specific cursor position for filtered iterator mode
+		shardCursor := cursor // Default to global cursor
+		if filteredIteratorMode && len(iteratorState.ShardCursors) > 0 {
+			// Use per-shard cursor if available
+			if perShardCursor, exists := iteratorState.ShardCursors[shardName]; exists {
+				// Check if shard is exhausted (uuid.Nil marker)
+				if perShardCursor == uuid.Nil.String() {
+					// Skip this shard entirely, it's exhausted
+					return nil
+				}
+				// Create a new cursor with shard-specific after position
+				shardCursor = &entfilters.Cursor{
+					After: perShardCursor,
+					Limit: cursor.Limit,
+				}
+			}
+		}
+
+		// Create per-shard iterator state to capture nextIteratorUUID
+		shardIterState := &dto.IteratorState{
+			ShardCursors: make(map[string]string),
+		}
+
 		localCtx := helpers.InitSlowQueryDetails(ctx)
 		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties, iteratorState)
+		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, shardCursor, addlProps, properties, shardIterState)
 		if err != nil {
 			return fmt.Errorf(
 				"local shard object search %s: %w", shard.ID(), err)
 		}
 		nodeName := i.getSchema.NodeName()
 
-		if i.shardHasMultipleReplicasRead(tenant, shardName) {
+		// Always add ownership in filtered iterator mode (needed for per-shard cursor tracking)
+		// or when there are multiple replicas
+		if filteredIteratorMode || i.shardHasMultipleReplicasRead(tenant, shardName) {
 			storobj.AddOwnership(objs, nodeName, shardName)
+		}
+
+		// In filtered iterator mode, collect this shard's next cursor position
+		if filteredIteratorMode {
+			nextUUID := uuid.Nil.String() // Default: shard exhausted
+			if shardIterState.ShardCursors != nil {
+				if cursorVal, exists := shardIterState.ShardCursors[shardName]; exists {
+					nextUUID = cursorVal
+				}
+			}
+			shardStates.Store(shardName, &shardState{
+				nextUUID: nextUUID,
+				objs:     objs,
+			})
 		}
 
 		shardResultLock.Lock()
@@ -1904,7 +2060,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		func(replica routerTypes.Replica) error {
 			shardName := replica.ShardName
 			eg.Go(func() error {
-				return localSeach(shardName)
+				return localSearch(shardName)
 			}, shardName)
 			return nil
 		},
@@ -1917,10 +2073,22 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		},
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error executing search for each shard: %w", err)
+		return nil, nil, nil, fmt.Errorf("error executing search for each shard: %w", err)
 	}
 	if err := eg.Wait(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+
+	// Extract per-shard nextUUIDs for filtered iterator mode
+	var perShardNextUUIDs map[string]string
+	if filteredIteratorMode {
+		perShardNextUUIDs = make(map[string]string)
+		shardStates.Range(func(key, value interface{}) bool {
+			shardName := key.(string)
+			state := value.(*shardState)
+			perShardNextUUIDs[shardName] = state.nextUUID
+			return true
+		})
 	}
 
 	if len(resultObjects) == len(resultScores) {
@@ -1954,10 +2122,10 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			finalScores[i] = result.score
 		}
 
-		return finalObjs, finalScores, nil
+		return finalObjs, finalScores, perShardNextUUIDs, nil
 	}
 
-	return resultObjects, resultScores, nil
+	return resultObjects, resultScores, perShardNextUUIDs, nil
 }
 
 func (i *Index) sortByID(objects []*storobj.Object, scores []float32,
@@ -1972,7 +2140,7 @@ func (i *Index) sortKeywordRanking(objects []*storobj.Object,
 }
 
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
-	sort []filters.Sort, limit int,
+	sort []entfilters.Sort, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	return sorter.NewObjectsSorter(i.getSchema.ReadOnlyClass).
 		Sort(objects, scores, limit, sort)
@@ -1985,8 +2153,8 @@ func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 }
 
 func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVectors []models.Vector,
-	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
+	targetVectors []string, dist float32, limit int, filters *entfilters.LocalFilter,
+	sort []entfilters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	ctx = helpers.InitSlowQueryDetails(ctx)
@@ -2003,8 +2171,8 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 }
 
 func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vector,
-	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
+	targetVectors []string, dist float32, limit int, localFilters *entfilters.LocalFilter,
+	sort []entfilters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, tenantName string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
@@ -2031,8 +2199,8 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 }
 
 func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Vector,
-	targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
+	targetVectors []string, distance float32, limit int, localFilters *entfilters.LocalFilter,
+	sort []entfilters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, tenantName string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
 	var outObjects []*storobj.Object
@@ -2065,7 +2233,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Search only what is necessary
 		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, targetCombination, properties)
+			nil, sort, nil, groupBy, additional, targetCombination, properties, nil)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
@@ -2080,7 +2248,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.Vector,
-	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
+	targetVectors []string, dist float32, limit int, localFilters *entfilters.LocalFilter, sort []entfilters.Sort,
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
@@ -2238,9 +2406,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVectors []models.Vector, targetVectors []string, distance float32, limit int,
-	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+	filters *entfilters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+	sort []entfilters.Sort, cursor *entfilters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+	iteratorState *dto.IteratorState,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -2260,7 +2429,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	if len(searchVectors) == 0 {
-		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties, nil)
+		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties, iteratorState)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2344,6 +2513,96 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	defer release()
 
 	return shard.DeleteObject(ctx, id, deletionTime)
+}
+
+func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnPropName string,
+	ttlThreshold, deletionTime time.Time, schemaVersion uint64,
+) error {
+	// use closing context to stop long-running TTL deletions in case index is closed
+	return i.incomingDeleteObjectsExpired(i.closingCtx, eg, deleteOnPropName, ttlThreshold, deletionTime, schemaVersion)
+}
+
+func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, deleteOnPropName string, ttlThreshold, deletionTime time.Time, schemaVersion uint64) error {
+	class := i.getClass()
+	filter := &entfilters.LocalFilter{Root: &entfilters.Clause{
+		Operator: entfilters.OperatorLessThanEqual,
+		Value: &entfilters.Value{
+			Value: ttlThreshold,
+			Type:  schema.DataTypeDate,
+		},
+		On: &entfilters.Path{
+			Class:    schema.ClassName(class.Class),
+			Property: schema.PropertyName(deleteOnPropName),
+		},
+	}}
+
+	// the replication properties determine how aggressive the errors are returned and does not change anything about
+	// the server's behaviour. Therefore, we set it to QUORUM to be able to log errors in case the deletion does not
+	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
+	// deletion process happens to run on that node again, the object will be deleted then.
+	replProps := defaultConsistency()
+
+	if isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig); isMT {
+		tenants, err := i.schemaReader.Shards(class.Class)
+		if err != nil {
+			return fmt.Errorf("getting tenants of collection %q: %w", class.Class, err)
+		}
+
+		for _, tenant := range tenants {
+			tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps)
+			// skip inactive tenants
+			if err != nil && !errors.Is(err, enterrors.ErrTenantNotActive) {
+				// TODO aliszka:ttl exit or continue with other tenants
+				return fmt.Errorf("finding uuids for tenant %q of collection %q: %w", tenant, class.Class, err)
+			}
+
+			if len(tenants2uuids[tenant]) == 0 {
+				continue
+			}
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, tenants2uuids, deletionTime, false, replProps, schemaVersion, tenant)
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete for tenant %q of collection %q: %w", tenant, class.Class, err)
+					}
+
+					i.logger.
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class, "tenant": tenant}).
+						Infof("batch delete response: %+v", resp)
+					return nil
+				})
+		}
+
+	} else {
+		shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps)
+		if err != nil {
+			return fmt.Errorf("finding uuids of collection %q: %w", class.Class, err)
+		}
+
+		for shard := range shards2uuids {
+			if len(shards2uuids[shard]) == 0 {
+				delete(shards2uuids, shard)
+			}
+		}
+		if len(shards2uuids) != 0 {
+			eg.Go(
+				func() error {
+					resp, err := i.batchDeleteObjects(ctx, shards2uuids, deletionTime, false, replProps, schemaVersion, "")
+					if err != nil {
+						// TODO aliszka:ttl exit or continue with other tenants
+						return fmt.Errorf("batch delete of collection %q: %w", class.Class, err)
+					}
+					i.logger.
+						WithFields(logrus.Fields{"action": "ttl_cleanup", "collection": class.Class}).
+						Infof("batch delete response: %+v", resp)
+
+					return nil
+				})
+		}
+	}
+
+	return nil
 }
 
 func (i *Index) getClass() *models.Class {
@@ -2982,7 +3241,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
-	filters *filters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
+	filters *entfilters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
 	perShardLimit int,
 ) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
@@ -3041,7 +3300,7 @@ func (i *Index) consistencyLevel(
 }
 
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
-	filters *filters.LocalFilter, limit int,
+	filters *entfilters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
