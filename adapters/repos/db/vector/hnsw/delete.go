@@ -577,6 +577,17 @@ func (h *hnsw) reassignNeighbor(
 		return true, nil
 	}
 
+	neighborNode.Lock()
+	neighborLevel := neighborNode.level
+	if !connectionsPointTo(neighborNode.connections, deleteList) {
+		// nothing needs to be changed, skip
+		neighborNode.Unlock()
+		return true, nil
+	}
+	neighborNode.Unlock()
+
+	neighborNode.markAsMaintenance()
+
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
@@ -595,16 +606,6 @@ func (h *hnsw) reassignNeighbor(
 			return false, errors.Wrap(err, "get neighbor vec")
 		}
 	}
-	neighborNode.Lock()
-	neighborLevel := neighborNode.level
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
-		// nothing needs to be changed, skip
-		neighborNode.Unlock()
-		return true, nil
-	}
-	neighborNode.Unlock()
-
-	neighborNode.markAsMaintenance()
 
 	// the new recursive implementation no longer needs an entrypoint, so we can
 	// just pass this dummy value to make the neighborFinderConnector happy
