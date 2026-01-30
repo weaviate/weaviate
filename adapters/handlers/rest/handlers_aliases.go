@@ -176,10 +176,10 @@ func newAliasesRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logru
 func (e *aliasesRequestsTotal) logError(className string, err error) {
 	switch {
 	case errors.As(err, &authzerrors.Forbidden{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &uco.ErrMultiTenancy{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	default:
-		e.logUserError(className)
+		e.logUserError(className, err)
 	}
 }

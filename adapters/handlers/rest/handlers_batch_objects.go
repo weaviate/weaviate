@@ -268,16 +268,16 @@ func newBatchRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.
 func (e *batchRequestsTotal) logError(className string, err error) {
 	switch {
 	case errors.As(err, &errReplication{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &autherrs.Forbidden{}), errors.As(err, &objects.ErrInvalidUserInput{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &objects.ErrMultiTenancy{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	default:
 		if errors.As(err, &objects.ErrMultiTenancy{}) ||
 			errors.As(err, &objects.ErrInvalidUserInput{}) ||
 			errors.As(err, &autherrs.Forbidden{}) {
-			e.logUserError(className)
+			e.logUserError(className, err)
 		} else {
 			e.logServerError(className, err)
 		}
