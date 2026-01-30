@@ -215,7 +215,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	before := time.Now()
 
 	var results *priorityqueue.Queue[any]
-	var extraIDs []uint64 = nil
+	extraIDs := make([]uint64, 0, n.graph.maximumConnections)
 	total := 0
 	maxConnections := n.graph.maximumConnections
 
@@ -231,7 +231,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
-		var pending []uint64 = nil
+		pending := make([]uint64, 0, 16)
 
 		for _, id := range connections {
 			visited.Visit(id)
