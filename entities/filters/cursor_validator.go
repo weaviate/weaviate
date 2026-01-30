@@ -35,8 +35,13 @@ func ValidateCursor(className schema.ClassName, cursor *Cursor, offset int, filt
 		return fmt.Errorf("%s cannot be set with after and limit parameters", strings.Join(params, ","))
 	}
 	if cursor.After != "" {
-		if _, err := uuid.Parse(cursor.After); err != nil {
+		parsed, err := uuid.Parse(cursor.After)
+		if err != nil {
 			return errors.Wrapf(err, "after parameter '%s' is not a valid uuid", cursor.After)
+		}
+		// Prevent nil UUID to avoid infinite re-entry
+		if parsed == uuid.Nil {
+			return errors.New("after parameter cannot be the nil UUID (00000000-0000-0000-0000-000000000000)")
 		}
 	}
 	if cursor.Limit < 0 {

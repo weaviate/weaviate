@@ -369,6 +369,20 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.Cursor = &filters.Cursor{After: *req.After, Limit: out.Pagination.Limit}
 	}
 
+	// Parse per-shard cursors for filtered iterator mode
+	if len(req.ShardCursors) > 0 {
+		if out.IteratorState == nil {
+			out.IteratorState = &dto.IteratorState{}
+		}
+		out.IteratorState.ShardCursors = req.ShardCursors
+	} else if req.After != nil && req.Filters != nil {
+		// Initialize empty IteratorState for first request in filtered iterator mode
+		// This enables per-shard cursor tracking to be populated in the response
+		out.IteratorState = &dto.IteratorState{
+			ShardCursors: make(map[string]string),
+		}
+	}
+
 	if req.Filters != nil {
 		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
 		if err != nil {

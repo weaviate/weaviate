@@ -89,6 +89,7 @@ type RemoteIndexClient interface {
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+		iteratorState *dto.IteratorState,
 	) ([]*storobj.Object, []float32, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
@@ -290,8 +291,9 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	properties []string,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
+		// SearchAllReplicas doesn't use iterator state (returns all replicas, not pagination)
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, nil)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
@@ -313,6 +315,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
+	iteratorState *dto.IteratorState,
 ) ([]*storobj.Object, []float32, string, error) {
 	type pair struct {
 		first  []*storobj.Object
@@ -320,7 +323,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, iteratorState)
 		if err != nil {
 			return nil, err
 		}

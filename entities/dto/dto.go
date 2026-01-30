@@ -46,6 +46,17 @@ type TargetCombination struct {
 	Weights []float32
 }
 
+// IteratorState carries iterator continuation state for filtered pagination
+// across multiple shards. ShardCursors tracks the cursor position per shard
+// independently, ensuring no results are skipped when paginating filtered
+// results across a distributed index.
+type IteratorState struct {
+	// Per-shard cursor state for filtered pagination.
+	// Key: shard name, Value: UUID to start after for that shard.
+	// Value of uuid.Nil.String() ("00000000-0000-0000-0000-000000000000") indicates shard is exhausted.
+	ShardCursors map[string]string
+}
+
 type GetParams struct {
 	Filters                 *filters.LocalFilter
 	ClassName               string
@@ -66,6 +77,7 @@ type GetParams struct {
 	Tenant                  string
 	IsRefOrigin             bool   // is created by ref filter
 	Alias                   string // used only to transfer alias passed in search request, not used for actual search
+	IteratorState           *IteratorState
 }
 
 type Embedding interface {

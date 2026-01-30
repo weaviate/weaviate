@@ -568,6 +568,7 @@ type searchParametersPayload struct {
 	TargetVectors     []string                     `json:"TargetVectors"`
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
+	IteratorState     *dto.IteratorState           `json:"iteratorState,omitempty"`
 }
 
 func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
@@ -623,6 +624,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+	iteratorState *dto.IteratorState,
 ) ([]byte, error) {
 	var vector []float32
 	var targetVector string
@@ -635,13 +637,13 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 		}
 	}
 
-	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, iteratorState}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *dto.IteratorState, error,
 ) {
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
@@ -652,7 +654,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, fl
 	}
 
 	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.IteratorState, err
 }
 
 func (p searchParamsPayload) MIME() string {
@@ -670,7 +672,7 @@ func (p searchParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
 
 type searchResultsPayload struct{}
 
-func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, error) {
+func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, *dto.IteratorState, error) {
 	read := uint64(0)
 
 	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
@@ -678,7 +680,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 
 	objs, err := IndicesPayloads.ObjectList.Unmarshal(in[read:read+objsLength], MethodGet)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	read += objsLength
 
@@ -691,11 +693,27 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 		read += 4
 	}
 
-	return objs, dists, nil
+	// Read iterator state if present (for backward compatibility, check if there's more data)
+	var iteratorState *dto.IteratorState
+	if read < uint64(len(in)) {
+		iteratorStateLength := binary.LittleEndian.Uint64(in[read : read+8])
+		read += 8
+
+		if iteratorStateLength > 0 {
+			iteratorState = &dto.IteratorState{}
+			err = json.Unmarshal(in[read:read+iteratorStateLength], iteratorState)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
+
+	return objs, dists, iteratorState, nil
 }
 
 func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 	dists []float32,
+	iteratorState *dto.IteratorState,
 ) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
@@ -720,6 +738,19 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
 	}
 	out = append(out, distsBuf...)
+
+	// Append iterator state
+	var iteratorStateBytes []byte
+	if iteratorState != nil {
+		iteratorStateBytes, err = json.Marshal(iteratorState)
+		if err != nil {
+			return nil, err
+		}
+	}
+	iteratorStateLength := uint64(len(iteratorStateBytes))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, iteratorStateLength)
+	out = append(out, reusableLengthBuf...)
+	out = append(out, iteratorStateBytes...)
 
 	return out, nil
 }
