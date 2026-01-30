@@ -165,7 +165,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 			class, err = h.manager.GetObjectClassFromName(ctx, principal, params.ClassName)
 		}
 		if err != nil {
-			h.metricRequestsTotal.logUserError(params.ClassName)
+			h.metricRequestsTotal.logUserError(params.ClassName, err)
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -816,25 +816,25 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	switch {
 
 	case errors.As(err, &uco.ErrMultiTenancy{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &errReplication{}), errors.As(err, &errUnregonizedProperty{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &authzerrors.Forbidden{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &uco.ErrInvalidUserInput{}), errors.As(err, &uco.ErrNotFound{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &customError):
 		switch customError.Code {
 		case uco.StatusInternalServerError:
 			e.logServerError(className, err)
 		default:
-			e.logUserError(className)
+			e.logUserError(className, err)
 		}
 	default:
 		if errors.As(err, &uco.ErrInvalidUserInput{}) ||
 			errors.As(err, &uco.ErrMultiTenancy{}) ||
 			errors.As(err, &authzerrors.Forbidden{}) {
-			e.logUserError(className)
+			e.logUserError(className, err)
 		} else {
 			e.logServerError(className, err)
 		}

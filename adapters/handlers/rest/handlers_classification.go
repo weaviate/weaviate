@@ -45,7 +45,7 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 			}
 
 			if res == nil {
-				metricRequestsTotal.logUserError("")
+				metricRequestsTotal.logUserError("", errors.New("classification not found"))
 				return classifications.NewClassificationsGetNotFound()
 			}
 
@@ -58,7 +58,7 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 		func(params classifications.ClassificationsPostParams, principal *models.Principal) middleware.Responder {
 			res, err := classifier.Schedule(params.HTTPRequest.Context(), principal, *params.Params)
 			if err != nil {
-				metricRequestsTotal.logUserError("")
+				metricRequestsTotal.logUserError("", err)
 
 				var forbidden autherrs.Forbidden
 				switch {
