@@ -96,6 +96,58 @@ func (h *hnsw) validatePQSegments(dims int) error {
 	return nil
 }
 
+func (h *hnsw) checkAndCompress() error {
+	var err error
+	if h.rqActive.Load() {
+		h.trackRQOnce.Do(func() {
+			h.compressActionLock.Lock()
+			defer h.compressActionLock.Unlock()
+			singleVector := !h.multivector.Load() || h.muvera.Load()
+			if singleVector {
+				h.compressor, err = compressionhelpers.NewRQCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store,
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+			} else {
+				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store,
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
+			}
+
+			if err == nil {
+				h.Lock()
+				defer h.Unlock()
+				h.compressed.Store(true)
+				if h.cache != nil {
+
+					data := h.cache.All()
+					if singleVector {
+						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+							func(index uint64) {
+								if data[index] == nil {
+									return
+								}
+								h.compressor.Preload(index, data[index])
+							})
+					} else {
+						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+							func(index uint64) {
+								if len(data[index]) == 0 {
+									return
+								}
+								docID, relativeID := h.cache.GetKeys(index)
+								h.compressor.PreloadPassage(index, docID, relativeID, data[index])
+							})
+					}
+					h.cache.Drop()
+				}
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+	}
+	return err
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -128,26 +180,9 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	if h.rqConfig.Enabled && h.rqActive {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
-
-			if err == nil {
-				h.Lock()
-				defer h.Unlock()
-				h.compressed.Store(true)
-				if h.cache != nil {
-					h.cache.Drop()
-				}
-				h.cache = nil
-				h.compressor.PersistCompression(h.commitLog)
-			}
-		})
-		if err != nil {
-			return err
-		}
+	err = h.checkAndCompress()
+	if err != nil {
+		return err
 	}
 
 	levels := make([]int, len(ids))
@@ -261,34 +296,8 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if err != nil {
 		return err
 	}
-	if h.rqConfig.Enabled && h.rqActive {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
-			if err == nil {
-				h.Lock()
-				data := h.cache.All()
-				h.compressor.GrowCache(h.vecIDcounter)
-				compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-					func(index uint64) {
-						if len(data[index]) == 0 {
-							return
-						}
-						docID, relativeID := h.cache.GetKeys(index)
-						h.compressor.PreloadPassage(index, docID, relativeID, data[index])
-					})
-				h.compressed.Store(true)
-				h.cache.Drop()
-				h.compressor.PersistCompression(h.commitLog)
-				h.Unlock()
-			}
-		})
-		if err != nil {
-			return err
-		}
-	}
+	err = h.checkAndCompress()
 	if err != nil {
 		return err
 	}
