@@ -42,12 +42,14 @@ var batchSettings = batch.Settings{
 	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int {
 		model := ent.NewClassSettings(cfg).Model()
 		switch model {
-		case "voyage-2":
+		case "voyage-2", "voyage-4", "voyage-3.5":
 			return 320000
-		case "voyage-large-2", "voyage-code-2":
+		case "voyage-large-2", "voyage-code-2", "voyage-4-large", "voyage-3-large":
 			return 120000
-		case "voyage-3", "voyage-3-lite", "voyage-3-large", "voyage-3.5", "voyage-3.5-lite", "voyage-context-3":
+		case "voyage-3", "voyage-3-lite", "voyage-context-3":
 			return 160000
+		case "voyage-4-lite", "voyage-3.5-lite":
+			return 1000000
 		default:
 			return 120000 // unknown model, use the smallest limit
 		}
