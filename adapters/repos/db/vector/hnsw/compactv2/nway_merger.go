@@ -18,10 +18,33 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// NWayMerger performs an n-way merge of sorted commit logs.
-// It takes n iterators and merges them into a single sorted stream.
-// It accepts any iterator implementing the IteratorLike interface,
-// allowing both regular Iterator (from .sorted files) and SnapshotIterator to be merged.
+// NWayMerger performs an n-way merge of sorted commit logs into a single
+// sorted stream of [NodeCommits].
+//
+// The merger uses a min-heap ordered by node ID to efficiently select
+// the next node across all input iterators. When multiple iterators have
+// commits for the same node ID, commits are merged using precedence rules:
+// higher iterator ID = more recent data = higher precedence.
+//
+// The merger accepts any [IteratorLike] implementation, allowing both
+// [Iterator] (from .sorted files) and [SnapshotIterator] (from .snapshot
+// files) to be combined. This enables merging a snapshot with subsequent
+// WAL files into a new snapshot.
+//
+// Global commits (compression data, entrypoint) are merged separately via
+// [NWayMerger.GlobalCommits], taking the most recent value of each type.
+//
+// Usage:
+//
+//	merger, _ := NewNWayMerger(iterators, logger)
+//	globalCommits := merger.GlobalCommits()
+//	for {
+//	    nodeCommits, _ := merger.Next()
+//	    if nodeCommits == nil {
+//	        break // exhausted
+//	    }
+//	    // process nodeCommits
+//	}
 type NWayMerger struct {
 	iterators     []IteratorLike
 	heap          *iteratorHeap

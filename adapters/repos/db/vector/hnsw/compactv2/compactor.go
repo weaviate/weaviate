@@ -81,8 +81,22 @@ func DefaultCompactorConfig(dir string) CompactorConfig {
 }
 
 // Compactor manages the compaction process for commit log files.
-// It performs a single iteration of the compaction loop when RunCycle is called.
-// External logic is responsible for calling RunCycle periodically.
+//
+// Each call to [Compactor.RunCycle] performs one iteration of the compaction loop:
+//  1. Cleanup orphaned temp files from interrupted operations
+//  2. Discover files via [FileDiscovery] to get current [DirectoryState]
+//  3. Resolve overlaps by deleting files contained within merged ranges
+//  4. Convert raw and .condensed files to .sorted format
+//  5. Decide on an [Action]: merge sorted files or create a snapshot
+//  6. Execute the chosen action using [NWayMerger] and appropriate writers
+//
+// The decision logic balances write amplification against file count:
+// when sorted files exceed SnapshotThreshold of total size, a new snapshot
+// is created; otherwise, sorted files are merged to reduce count.
+//
+// External logic (typically a background goroutine) is responsible for
+// calling RunCycle periodically. Each cycle is idempotent and crash-safe
+// via [SafeFileWriter].
 type Compactor struct {
 	config CompactorConfig
 	logger logrus.FieldLogger

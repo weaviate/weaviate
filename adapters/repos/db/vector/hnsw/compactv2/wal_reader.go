@@ -31,6 +31,26 @@ const maxConnectionsPerNodeReader = 4096
 // Commit interface + concrete commit types
 // ---------------------------------------------------------------------------
 
+// Commit represents a single HNSW graph operation read from a WAL file.
+//
+// Commits are categorized into two groups:
+//
+// Global commits (no node ID, apply to entire index):
+//   - [SetEntryPointMaxLevelCommit] - Sets graph entrypoint and max level
+//   - [ResetIndexCommit] - Clears entire index
+//   - [AddPQCommit], [AddSQCommit], [AddRQCommit], [AddBRQCommit] - Compression data
+//   - [AddMuveraCommit] - Multi-vector encoder data
+//
+// Node-specific commits (have a node ID):
+//   - [AddNodeCommit] - Creates a node with a level
+//   - [DeleteNodeCommit] - Removes a node
+//   - [AddLinkAtLevelCommit], [AddLinksAtLevelCommit] - Add connections
+//   - [ReplaceLinksAtLevelCommit] - Replace all connections at a level
+//   - [ClearLinksCommit], [ClearLinksAtLevelCommit] - Remove connections
+//   - [AddTombstoneCommit], [RemoveTombstoneCommit] - Tombstone management
+//
+// Use [WALCommitReader] to stream commits from a file, or [Iterator] for
+// node-grouped iteration suitable for merging.
 type Commit interface {
 	Type() HnswCommitType
 }
@@ -148,8 +168,15 @@ func (c *AddMuveraCommit) Type() HnswCommitType { return AddMuvera }
 // WALCommitReader
 // ---------------------------------------------------------------------------
 
-// WALCommitReader streams fully decoded commits from a WAL.
-// It does NOT apply them to any in-memory HNSW state.
+// WALCommitReader streams [Commit] values from a WAL file (raw, .condensed,
+// or .sorted format). It handles the low-level binary deserialization but
+// does not apply commits to any in-memory state.
+//
+// For building in-memory graph state, wrap with [InMemoryReader].
+// For node-grouped iteration suitable for merging, wrap with [Iterator].
+//
+// The reader is stateful and reads commits sequentially. Call
+// [WALCommitReader.ReadNextCommit] repeatedly until io.EOF.
 type WALCommitReader struct {
 	r      *bufio.Reader
 	logger logrus.FieldLogger

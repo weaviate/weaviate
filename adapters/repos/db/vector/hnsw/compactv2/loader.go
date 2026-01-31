@@ -44,9 +44,21 @@ type LoaderConfig struct {
 	FS common.FS
 }
 
-// Loader reads all commit log files at startup and returns the accumulated state.
-// Unlike the compactor, the loader includes all files including the most recent
+// Loader reads all commit log files at startup and returns the accumulated
+// HNSW graph state.
+//
+// The [Loader.Load] method executes the following steps:
+//  1. Migrate snapshots from the old .hnsw.snapshot.d/ directory if needed
+//  2. Cleanup orphaned temp files from interrupted operations
+//  3. Discover files via [FileDiscovery] to get current [DirectoryState]
+//  4. Load snapshot via [SnapshotReader] if one exists (provides base state)
+//  5. Filter out WAL files already covered by the snapshot's timestamp range
+//  6. Apply remaining WAL files in timestamp order via [InMemoryReader]
+//
+// Unlike [Compactor], the loader includes all files including the most recent
 // commit log (LiveFile) since at startup nothing is being written yet.
+//
+// Returns nil state (not an error) if the directory is empty or doesn't exist.
 type Loader struct {
 	config LoaderConfig
 	fs     common.FS

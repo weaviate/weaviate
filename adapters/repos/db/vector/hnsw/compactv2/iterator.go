@@ -30,9 +30,18 @@ type CommitReader interface {
 	ReadNextCommit() (Commit, error)
 }
 
-// Iterator wraps a CommitReader and provides node-level iteration.
-// Unlike CommitReader which is commit-specific, Iterator is node-specific
-// and returns all commits for a node at once.
+// Iterator wraps a [CommitReader] and provides node-level iteration over
+// a sorted WAL file (.sorted format).
+//
+// While [CommitReader] returns individual commits, Iterator groups commits
+// by node ID and returns all commits for a node at once via [NodeCommits].
+// This abstraction enables efficient n-way merging in [NWayMerger].
+//
+// Iterator implements [IteratorLike], the same interface as [SnapshotIterator],
+// allowing sorted files and snapshots to be merged uniformly.
+//
+// Global commits (compression data, entrypoint) are separated from node
+// commits and accessible via [Iterator.GlobalCommits].
 type Iterator struct {
 	reader          CommitReader
 	logger          logrus.FieldLogger
