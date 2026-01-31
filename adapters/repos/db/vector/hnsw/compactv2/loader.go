@@ -96,6 +96,11 @@ func (l *Loader) Load() (*ent.DeserializationResult, error) {
 		return nil, errors.Wrap(err, "cleanup orphaned migrating files")
 	}
 
+	// Cleanup corrupt .condensed/.sorted files (when raw file with same timestamp exists)
+	if err := CleanupCorruptCondensedFilesWithFS(l.config.Dir, l.fs); err != nil {
+		return nil, errors.Wrap(err, "cleanup corrupt condensed files")
+	}
+
 	// 2. Discover files in the directory
 	discovery := NewFileDiscoveryWithFS(l.config.Dir, l.fs)
 	state, err := discovery.Scan()

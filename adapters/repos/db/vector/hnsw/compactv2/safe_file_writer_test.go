@@ -239,6 +239,54 @@ func TestCleanupOrphanedTempFiles_SkipsSubdirectories(t *testing.T) {
 	require.NoError(t, err, "subdirectory should still exist")
 }
 
+func TestCleanupCorruptCondensedFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a raw file (simulating a valid commit log)
+	rawFile := filepath.Join(dir, "1234567890")
+	err := os.WriteFile(rawFile, []byte("valid raw data"), 0o666)
+	require.NoError(t, err)
+
+	// Create a .condensed file with the same timestamp (simulates interrupted condense)
+	corruptCondensed := filepath.Join(dir, "1234567890.condensed")
+	err = os.WriteFile(corruptCondensed, []byte("corrupt"), 0o666)
+	require.NoError(t, err)
+
+	// Create a .sorted file with the same timestamp (simulates interrupted sort)
+	corruptSorted := filepath.Join(dir, "1234567890.sorted")
+	err = os.WriteFile(corruptSorted, []byte("corrupt"), 0o666)
+	require.NoError(t, err)
+
+	// Create a valid .condensed file (no corresponding raw file)
+	validCondensed := filepath.Join(dir, "9999999999.condensed")
+	err = os.WriteFile(validCondensed, []byte("valid condensed"), 0o666)
+	require.NoError(t, err)
+
+	// Run cleanup
+	err = CleanupCorruptCondensedFiles(dir)
+	require.NoError(t, err)
+
+	// Raw file should still exist
+	_, err = os.Stat(rawFile)
+	require.NoError(t, err, "raw file should still exist")
+
+	// Corrupt .condensed and .sorted should be removed
+	_, err = os.Stat(corruptCondensed)
+	assert.True(t, os.IsNotExist(err), "corrupt .condensed should be removed")
+	_, err = os.Stat(corruptSorted)
+	assert.True(t, os.IsNotExist(err), "corrupt .sorted should be removed")
+
+	// Valid .condensed should still exist
+	_, err = os.Stat(validCondensed)
+	require.NoError(t, err, "valid .condensed should still exist")
+}
+
+func TestCleanupCorruptCondensedFiles_NonExistentDir(t *testing.T) {
+	// Should not error on non-existent directory
+	err := CleanupCorruptCondensedFiles("/non/existent/path")
+	require.NoError(t, err)
+}
+
 func TestSafeFileWriter_LargeWrite(t *testing.T) {
 	dir := t.TempDir()
 	finalPath := filepath.Join(dir, "test.dat")

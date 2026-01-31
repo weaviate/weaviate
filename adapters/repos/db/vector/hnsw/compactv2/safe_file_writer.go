@@ -154,6 +154,79 @@ func (s *SafeFileWriter) Abort() error {
 	return nil
 }
 
+// CleanupCorruptCondensedFiles removes .condensed files when a raw file with the
+// same timestamp exists.
+//
+// This indicates an interrupted condensing operation - a successful condense would
+// have deleted the original raw file. The .condensed file is likely corrupt, so we
+// delete it and use the raw file instead.
+//
+// The same logic applies to .sorted files - if both exist with the same timestamp,
+// the sort was interrupted and the .sorted file should be removed.
+func CleanupCorruptCondensedFiles(dir string) error {
+	return CleanupCorruptCondensedFilesWithFS(dir, common.NewOSFS())
+}
+
+// CleanupCorruptCondensedFilesWithFS is like [CleanupCorruptCondensedFiles] but
+// accepts a custom filesystem for testing.
+func CleanupCorruptCondensedFilesWithFS(dir string, fs common.FS) error {
+	entries, err := fs.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrapf(err, "read directory %s", dir)
+	}
+
+	// Build set of raw file timestamps
+	rawTimestamps := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// Raw files have no suffix (just a timestamp)
+		if !hasKnownSuffix(name) {
+			rawTimestamps[name] = struct{}{}
+		}
+	}
+
+	// Check for corrupt .condensed and .sorted files
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+
+		var baseName string
+		switch {
+		case len(name) > len(suffixCondensed) && name[len(name)-len(suffixCondensed):] == suffixCondensed:
+			baseName = name[:len(name)-len(suffixCondensed)]
+		case len(name) > len(suffixSorted) && name[len(name)-len(suffixSorted):] == suffixSorted:
+			baseName = name[:len(name)-len(suffixSorted)]
+		default:
+			continue
+		}
+
+		// If a raw file with the same timestamp exists, the processed file is corrupt
+		if _, exists := rawTimestamps[baseName]; exists {
+			corruptPath := filepath.Join(dir, name)
+			if err := fs.Remove(corruptPath); err != nil && !os.IsNotExist(err) {
+				return errors.Wrapf(err, "remove corrupt file %s", corruptPath)
+			}
+		}
+	}
+
+	return nil
+}
+
+func hasKnownSuffix(name string) bool {
+	return (len(name) > len(suffixCondensed) && name[len(name)-len(suffixCondensed):] == suffixCondensed) ||
+		(len(name) > len(suffixSorted) && name[len(name)-len(suffixSorted):] == suffixSorted) ||
+		(len(name) > len(suffixSnapshot) && name[len(name)-len(suffixSnapshot):] == suffixSnapshot) ||
+		(len(name) > len(tempFileSuffix) && name[len(name)-len(tempFileSuffix):] == tempFileSuffix)
+}
+
 // CleanupOrphanedTempFiles removes any orphaned .tmp files in the given directory.
 // This should be called during index startup to clean up from previous incomplete writes.
 func CleanupOrphanedTempFiles(dir string) error {
