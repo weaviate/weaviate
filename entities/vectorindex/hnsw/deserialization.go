@@ -69,6 +69,39 @@ func NewDeserializationResult(initialCapacity int) *DeserializationResult {
 	}
 }
 
+// IsEmpty returns true if no meaningful data has been loaded into this result.
+// A result is considered empty if all nodes are nil, no entrypoint has been set,
+// and there's no compression data.
+func (dr *DeserializationResult) IsEmpty() bool {
+	if dr == nil || dr.Graph == nil {
+		return true
+	}
+
+	// Check if entrypoint was explicitly set (EntrypointChanged tracks this)
+	if dr.Graph.EntrypointChanged {
+		return false
+	}
+
+	// Check for any compression data
+	if dr.Compression != nil {
+		return false
+	}
+
+	// Check if any nodes have data
+	for _, node := range dr.Graph.Nodes {
+		if node != nil {
+			return false
+		}
+	}
+
+	// Check for any tombstones
+	if len(dr.Graph.Tombstones) > 0 {
+		return false
+	}
+
+	return true
+}
+
 // Convenience accessors for backward compatibility.
 // These provide direct access to frequently-used GraphState fields.
 

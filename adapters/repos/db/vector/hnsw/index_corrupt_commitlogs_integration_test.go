@@ -93,7 +93,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("create a corrupt commit log file without deleting the original",
 		func(t *testing.T) {
 			input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath,
-				"corrupt_test"), common.NewOSFS())
+				"corrupt_test"))
 			require.Nil(t, err)
 			require.True(t, ok)
 
