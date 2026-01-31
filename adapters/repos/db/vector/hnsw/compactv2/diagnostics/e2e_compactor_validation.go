@@ -27,6 +27,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compactv2"
+	"github.com/weaviate/weaviate/entities/errors"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -38,24 +39,24 @@ import (
 // 5. Compares the compacted result against the control to ensure correctness
 
 func main() {
-	// Start pprof server for profiling
-	go func() {
-		fmt.Println("Starting pprof server on :6060")
-		fmt.Println("  CPU profile: go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30")
-		fmt.Println("  Heap profile: go tool pprof http://localhost:6060/debug/pprof/heap")
-		if err := http.ListenAndServe(":6060", nil); err != nil {
-			fmt.Printf("pprof server error: %v\n", err)
-		}
-	}()
-
-	startTotal := time.Now()
-
 	// Setup logger with debug level to see all compactor decisions
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 	logger.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
+
+	// Start pprof server for profiling
+	errors.GoWrapper(func() {
+		fmt.Println("Starting pprof server on :6060")
+		fmt.Println("  CPU profile: go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30")
+		fmt.Println("  Heap profile: go tool pprof http://localhost:6060/debug/pprof/heap")
+		if err := http.ListenAndServe(":6060", nil); err != nil {
+			fmt.Printf("pprof server error: %v\n", err)
+		}
+	}, logger)
+
+	startTotal := time.Now()
 
 	fmt.Println("=== Compactor V2 E2E Validation (Using Orchestrator) ===\n")
 
