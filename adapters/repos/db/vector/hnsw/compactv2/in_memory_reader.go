@@ -104,6 +104,8 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 			out.Graph.Level = 0
 			out.Graph.Nodes = make([]*ent.Vertex, cache.InitialSize)
 			out.Graph.Tombstones = make(map[uint64]struct{})
+			// Reset compression state - ResetIndex clears everything
+			out.Compression = nil
 		case *AddPQCommit:
 			out.SetCompressionPQData(commit.Data)
 			out.SetCompressed(true)

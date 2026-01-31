@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -61,6 +62,13 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	}()
 
 	dir := commitLogDirectory(h.rootPath, h.id)
+
+	// Ensure the commit log directory exists. This is important for compatibility
+	// with code that checks for directory existence to determine index state
+	// (e.g., dynamic index migration detection).
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return errors.Wrap(err, "create commit log directory")
+	}
 
 	loader := compactv2.NewLoader(compactv2.LoaderConfig{
 		Dir:    dir,

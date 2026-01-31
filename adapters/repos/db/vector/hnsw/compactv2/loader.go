@@ -161,6 +161,13 @@ func (l *Loader) Load() (*ent.DeserializationResult, error) {
 		"wal_files": len(walFiles),
 	}).Debug("loaded all WAL files")
 
+	// If no meaningful data was loaded (e.g., only empty files), return nil
+	// This maintains compatibility with the old behavior where an empty commit log
+	// directory would result in no state being returned.
+	if result != nil && result.IsEmpty() {
+		return nil, nil
+	}
+
 	return result, nil
 }
 
