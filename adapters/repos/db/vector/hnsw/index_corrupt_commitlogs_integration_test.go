@@ -30,6 +30,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+type corruptCommitlogsNoopBucketView struct{}
+
+func (n *corruptCommitlogsNoopBucketView) ReleaseView() {}
+
 func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
@@ -66,6 +70,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &corruptCommitlogsNoopBucketView{} },
 		}, hnswent.UserConfig{
 			MaxConnections:         100,
 			EFConstruction:         100,
@@ -117,6 +122,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &corruptCommitlogsNoopBucketView{} },
 		}, hnswent.UserConfig{
 			MaxConnections:         100,
 			EFConstruction:         100,

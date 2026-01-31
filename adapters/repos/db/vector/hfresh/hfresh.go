@@ -14,6 +14,10 @@ package hfresh
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,8 +35,7 @@ import (
 )
 
 const (
-	reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
-	DefaultRNGFactor  = 10.0
+	DefaultRNGFactor = 10.0
 )
 
 var (
@@ -70,12 +73,12 @@ type HFresh struct {
 	quantizer          *compressionhelpers.BinaryRotationalQuantizer
 
 	// Internal components
-	Centroids       *HNSWIndex            // Provides access to the centroids.
-	PostingStore    *PostingStore         // Used for managing persistence of postings.
-	IDs             *common.Sequence      // Shared monotonic counter for generating unique IDs for new postings.
-	VersionMap      *VersionMap           // Stores vector versions in-memory.
-	IndexMetadata   *IndexMetadataStore   // Stores metadata about the index.
-	PostingMetadata *PostingMetadataStore // Stores metadata about the postings.
+	Centroids     *HNSWIndex          // Provides access to the centroids.
+	PostingStore  *PostingStore       // Used for managing persistence of postings.
+	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
+	VersionMap    *VersionMap         // Stores vector versions in-memory.
+	PostingMap    *PostingMap         // Maps postings to vector IDs.
+	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
 	ctx    context.Context
@@ -89,6 +92,8 @@ type HFresh struct {
 	initialPostingLock sync.Mutex
 
 	vectorForId common.VectorForID[float32]
+
+	rootPath string
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -99,38 +104,31 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
+	// initialize shared bucket used for storing various metadata
 	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
 
-	postingMetadata := NewPostingMetadataStore(bucket, metrics)
-
-	postingStore, err := NewPostingStore(store, postingMetadata, bucket, metrics, cfg.ID, cfg.Store)
+	// initialize posting store used for storing actual postings and their vectors
+	postingStore, err := NewPostingStore(store, bucket, metrics, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
-
-	versionMap, err := NewVersionMap(bucket)
-	if err != nil {
-		return nil, err
-	}
-
-	indexMetadata := NewIndexMetadataStore(bucket)
 
 	h := HFresh{
-		id:              cfg.ID,
-		logger:          cfg.Logger.WithField("component", "HFresh"),
-		config:          cfg,
-		scheduler:       cfg.Scheduler,
-		store:           store,
-		metrics:         metrics,
-		PostingStore:    postingStore,
-		vectorForId:     cfg.VectorForIDThunk,
-		VersionMap:      versionMap,
-		PostingMetadata: postingMetadata,
-		IndexMetadata:   indexMetadata,
-		postingLocks:    common.NewDefaultShardedRWLocks(),
+		id:            cfg.ID,
+		logger:        cfg.Logger.WithField("component", "HFresh"),
+		config:        cfg,
+		scheduler:     cfg.Scheduler,
+		store:         store,
+		metrics:       metrics,
+		PostingStore:  postingStore,
+		vectorForId:   cfg.VectorForIDThunk,
+		VersionMap:    NewVersionMap(bucket),
+		PostingMap:    NewPostingMap(bucket, metrics),
+		IndexMetadata: NewIndexMetadataStore(bucket),
+		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
 		visitedPool:      visited.NewPool(1, 512, -1),
@@ -139,6 +137,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rngFactor:        DefaultRNGFactor,
 		searchProbe:      uc.SearchProbe,
 		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
+		rootPath:         cfg.RootPath,
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -261,12 +260,95 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {
-	return h.Centroids.hnsw.SwitchCommitLogs(ctx)
+func (h *HFresh) stopTaskQueues() error {
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.Pause()
+		queue.Wait()
+		err := queue.Flush()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *HFresh) resumeTaskQueues() {
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.Resume()
+	}
+}
+
+func (h *HFresh) PrepareForBackup(ctx context.Context) error {
+	err := h.Centroids.hnsw.PrepareForBackup(ctx)
+	if err != nil {
+		return err
+	}
+	return h.stopTaskQueues()
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	return nil, nil
+	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	queueFiles, err := h.ListQueues(ctx, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// combine both slices
+	var allFiles []string
+	allFiles = append(allFiles, hnswFiles...)
+	allFiles = append(allFiles, queueFiles...)
+
+	return allFiles, nil
+}
+
+func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, error) {
+	files := make([]string, 0)
+	// list all files in paths that end with .queue.d
+	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && strings.HasSuffix(d.Name(), ".queue.d") {
+			// list all files in this directory
+			err := filepath.WalkDir(path, func(p string, de fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !de.IsDir() {
+					relPath, err := filepath.Rel(basePath, p)
+					if err != nil {
+						return err
+					}
+					files = append(files, relPath)
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			// skip walking into subdirectories of this queue directory
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list queue files: %w", err)
+	}
+	return files, nil
 }
 
 func (h *HFresh) PostStartup(ctx context.Context) {

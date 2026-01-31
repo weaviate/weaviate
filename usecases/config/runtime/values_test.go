@@ -234,7 +234,7 @@ func TestDyanamicValue_Reset(t *testing.T) {
 	assert.Nil(t, slice.val)
 }
 
-func Test_String(t *testing.T) {
+func TestDynamicValue_String(t *testing.T) {
 	s := time.Second * 2
 
 	zeroInt := NewDynamicValue(89)
@@ -248,4 +248,156 @@ func Test_String(t *testing.T) {
 	assert.Equal(t, "true", fmt.Sprintf("%v", zeroBool))
 	assert.Equal(t, s.String(), fmt.Sprintf("%v", zeroDur))
 	assert.Equal(t, "weaviate", fmt.Sprintf("%v", zeroString))
+}
+
+func TestDynamicValue_Validation(t *testing.T) {
+	intValid := 1
+	intValid2 := 2
+	intInvalid := -1
+	intValidate := func(val int) error {
+		if val < 0 {
+			return fmt.Errorf("int < 0")
+		}
+		return nil
+	}
+
+	floatValid := 1.
+	floatValid2 := 2.
+	floatInvalid := -1.
+	floatValidate := func(val float64) error {
+		if val < 0 {
+			return fmt.Errorf("float < 0")
+		}
+		return nil
+	}
+
+	boolValid := true
+	boolValid2 := true
+	boolInvalid := false
+	boolValidate := func(val bool) error {
+		if !val {
+			return fmt.Errorf("bool = false")
+		}
+		return nil
+	}
+
+	durationValid := time.Second
+	durationValid2 := 2 * time.Second
+	durationInvalid := -time.Second
+	durationValidate := func(val time.Duration) error {
+		if val < 0 {
+			return fmt.Errorf("duration < 0")
+		}
+		return nil
+	}
+
+	stringValid := "string"
+	stringValid2 := "string2"
+	stringInvalid := ""
+	stringValidate := func(val string) error {
+		if val == "" {
+			return fmt.Errorf("string = \"\"")
+		}
+		return nil
+	}
+
+	sliceValid := []string{"string"}
+	sliceValid2 := []string{"string1", "string2"}
+	sliceInvalid := []string{}
+	sliceValidate := func(val []string) error {
+		if len(val) == 0 {
+			return fmt.Errorf("slice = []")
+		}
+		return nil
+	}
+
+	t.Run("create valid", func(t *testing.T) {
+		dvInt, err := NewDynamicValueWithValidation(intValid, intValidate)
+		assert.NoError(t, err)
+		assert.Equal(t, intValid, dvInt.Get())
+
+		dvFloat, err := NewDynamicValueWithValidation(floatValid, floatValidate)
+		assert.NoError(t, err)
+		assert.Equal(t, floatValid, dvFloat.Get())
+
+		dvBool, err := NewDynamicValueWithValidation(boolValid, boolValidate)
+		assert.NoError(t, err)
+		assert.Equal(t, boolValid, dvBool.Get())
+
+		dvDuration, err := NewDynamicValueWithValidation(durationValid, durationValidate)
+		assert.NoError(t, err)
+		assert.Equal(t, durationValid, dvDuration.Get())
+
+		dvString, err := NewDynamicValueWithValidation(stringValid, stringValidate)
+		assert.NoError(t, err)
+		assert.Equal(t, stringValid, dvString.Get())
+
+		dvSlice, err := NewDynamicValueWithValidation(sliceValid, sliceValidate)
+		assert.NoError(t, err)
+		assert.Equal(t, sliceValid, dvSlice.Get())
+	})
+
+	t.Run("create invalid", func(t *testing.T) {
+		dvInt, err := NewDynamicValueWithValidation(intInvalid, intValidate)
+		assert.Error(t, err)
+		assert.Nil(t, dvInt)
+
+		dvFloat, err := NewDynamicValueWithValidation(floatInvalid, floatValidate)
+		assert.Error(t, err)
+		assert.Nil(t, dvFloat)
+
+		dvBool, err := NewDynamicValueWithValidation(boolInvalid, boolValidate)
+		assert.Error(t, err)
+		assert.Nil(t, dvBool)
+
+		dvDuration, err := NewDynamicValueWithValidation(durationInvalid, durationValidate)
+		assert.Error(t, err)
+		assert.Nil(t, dvDuration)
+
+		dvString, err := NewDynamicValueWithValidation(stringInvalid, stringValidate)
+		assert.Error(t, err)
+		assert.Nil(t, dvString)
+
+		dvSlice, err := NewDynamicValueWithValidation(sliceInvalid, sliceValidate)
+		assert.Error(t, err)
+		assert.Nil(t, dvSlice)
+	})
+
+	t.Run("setValue invalid", func(t *testing.T) {
+		dvInt, _ := NewDynamicValueWithValidation(intValid, intValidate)
+		assert.Error(t, dvInt.SetValue(intInvalid))
+		assert.Equal(t, intValid, dvInt.Get())
+		assert.NoError(t, dvInt.SetValue(intValid2))
+		assert.Equal(t, intValid2, dvInt.Get())
+
+		dvFloat, _ := NewDynamicValueWithValidation(floatValid, floatValidate)
+		assert.Error(t, dvFloat.SetValue(floatInvalid))
+		assert.Equal(t, floatValid, dvFloat.Get())
+		assert.NoError(t, dvFloat.SetValue(floatValid2))
+		assert.Equal(t, floatValid2, dvFloat.Get())
+
+		dvBool, _ := NewDynamicValueWithValidation(boolValid, boolValidate)
+		assert.Error(t, dvBool.SetValue(boolInvalid))
+		assert.Equal(t, boolValid, dvBool.Get())
+		assert.NoError(t, dvBool.SetValue(boolValid2))
+		assert.Equal(t, boolValid2, dvBool.Get())
+
+		dvDuration, _ := NewDynamicValueWithValidation(durationValid, durationValidate)
+		assert.Error(t, dvDuration.SetValue(durationInvalid))
+		assert.Equal(t, durationValid, dvDuration.Get())
+		assert.NoError(t, dvDuration.SetValue(durationValid2))
+		assert.Equal(t, durationValid2, dvDuration.Get())
+
+		dvString, _ := NewDynamicValueWithValidation(stringValid, stringValidate)
+		assert.Error(t, dvString.SetValue(stringInvalid))
+		assert.Equal(t, stringValid, dvString.Get())
+		assert.NoError(t, dvString.SetValue(stringValid2))
+		assert.Equal(t, stringValid2, dvString.Get())
+
+		dvSlice, _ := NewDynamicValueWithValidation(sliceValid, sliceValidate)
+		assert.Error(t, dvSlice.SetValue(sliceInvalid))
+		assert.Equal(t, sliceValid, dvSlice.Get())
+		assert.NoError(t, dvSlice.SetValue(sliceValid2))
+		assert.Equal(t, sliceValid2, dvSlice.Get())
+	})
 }

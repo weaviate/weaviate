@@ -386,7 +386,7 @@ var (
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
 	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
 
-	postingSizeBuckets = []float64{10, 40, 70, 100, 130, 160, 190, 250, 500}
+	postingSizeBuckets = []float64{10, 40, 70, 100, 130, 160, 190, 250, 500, 1000, 1500, 2000, 3000, 5000, 10000}
 
 	metrics *PrometheusMetrics = nil
 )

@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/cron"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
@@ -58,6 +59,7 @@ type State struct {
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
 	RBAC             *rbac.Manager
+	Crons            *cron.Crons
 
 	ServerConfig        *config.WeaviateConfig
 	LDIntegration       *configRuntime.LDIntegration

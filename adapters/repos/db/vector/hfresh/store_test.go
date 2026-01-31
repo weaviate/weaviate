@@ -25,7 +25,7 @@ func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg St
 		return nil, err
 	}
 
-	return NewPostingStore(store, NewPostingMetadataStore(bucket, metrics), bucket, metrics, id, cfg)
+	return NewPostingStore(store, bucket, metrics, id, cfg)
 }
 
 func TestStore(t *testing.T) {
@@ -112,14 +112,14 @@ func TestStore(t *testing.T) {
 		err = s.Put(ctx, 1, Posting{})
 		require.NoError(t, err)
 
-		version, err := s.postingMetadata.GetVersion(ctx, 1)
+		version, err := s.versions.Get(ctx, 1)
 		require.NoError(t, err)
 		require.Equal(t, uint32(1), version)
 
 		err = s.Put(ctx, 1, Posting{})
 		require.NoError(t, err)
 
-		version, err = s.postingMetadata.GetVersion(ctx, 1)
+		version, err = s.versions.Get(ctx, 1)
 		require.NoError(t, err)
 		require.Equal(t, uint32(2), version)
 	})

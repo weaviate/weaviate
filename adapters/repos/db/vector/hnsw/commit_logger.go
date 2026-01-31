@@ -424,7 +424,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	return action != compactv2.ActionNone
 }
 
-func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
+func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 	_, err := l.switchCommitLogs(force)
 	return err
 }

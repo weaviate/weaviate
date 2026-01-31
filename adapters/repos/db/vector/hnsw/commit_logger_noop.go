@@ -118,7 +118,7 @@ func (n *NoopCommitLogger) RootPath() string {
 	return ""
 }
 
-func (n *NoopCommitLogger) SwitchCommitLogs(force bool) error {
+func (n *NoopCommitLogger) PrepareForBackup(force bool) error {
 	return nil
 }
 

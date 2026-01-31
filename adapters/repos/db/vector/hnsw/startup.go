@@ -208,13 +208,12 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
-		if len(h.nodes) > 0 {
-			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
-				h.dims = int32(len(vec))
-			}
-		}
 	} else {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
+	}
+
+	if h.dims == 0 {
+		h.setDimensionsFromEntrypoint()
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -232,7 +231,16 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 	return nil
 }
 
+func (h *hnsw) setDimensionsFromEntrypoint() {
+	if len(h.nodes) > 0 {
+		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+			h.dims = int32(len(vec))
+		}
+	}
+}
+
 func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
+	h.dims = int32(data.InputDim)
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {

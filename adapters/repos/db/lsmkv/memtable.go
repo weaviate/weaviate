@@ -38,6 +38,7 @@ import (
 type memtable interface {
 	get(key []byte) ([]byte, error)
 	getBySecondary(pos int, key []byte) ([]byte, error)
+	exists(key []byte) error
 	put(key, value []byte, opts ...SecondaryKeyOption) error
 	setTombstone(key []byte, opts ...SecondaryKeyOption) error
 	setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error
@@ -206,6 +207,19 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	defer m.RUnlock()
 
 	return m.key.get(key)
+}
+
+// exists checks if a key exists and is not deleted, without returning the value.
+// This is more efficient than get() when only existence check is needed.
+func (m *Memtable) exists(key []byte) error {
+	if m.strategy != StrategyReplace {
+		return errors.Errorf("exists only possible with strategy 'replace'")
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.key.exists(key)
 }
 
 func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {

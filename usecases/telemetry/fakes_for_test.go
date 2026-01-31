@@ -46,3 +46,17 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 	}
 	return schema.Schema{}
 }
+
+type fakeCloudInfoProvider struct {
+	mock.Mock
+}
+
+func (f *fakeCloudInfoProvider) getCloudInfo() *cloudInfo {
+	if len(f.ExpectedCalls) > 0 {
+		args := f.Called()
+		if args.Get(0) != nil {
+			return args.Get(0).(*cloudInfo)
+		}
+	}
+	return nil
+}

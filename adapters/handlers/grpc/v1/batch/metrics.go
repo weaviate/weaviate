@@ -40,7 +40,7 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 
 	streamTotalErrors := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 		Namespace: "weaviate",
-		Name:      "batch_streaming_total_errors_per_stream",
+		Name:      "batch_streaming_total_errors",
 		Help:      "Total number of errors reported across all streams",
 	}, []string{})
 

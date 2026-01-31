@@ -24,11 +24,16 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type backupIntegrationNoopBucketView struct{}
+
+func (n *backupIntegrationNoopBucketView) ReleaseView() {}
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
@@ -64,6 +69,7 @@ func TestBackup_Integration(t *testing.T) {
 		Logger:           logger,
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupIntegrationNoopBucketView{} },
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},
@@ -90,7 +96,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("switch commit logs", func(t *testing.T) {
-		err = idx.SwitchCommitLogs(ctx)
+		err = idx.PrepareForBackup(ctx)
 		require.Nil(t, err)
 	})
 
@@ -100,7 +106,7 @@ func TestBackup_Integration(t *testing.T) {
 
 		// by this point there should be two files in the commitlog directory.
 		// one is the active log file, and the other is the previous active
-		// log which was in use prior to `SwitchCommitLogs`. additionally,
+		// log which was in use prior to `PrepareForBackup`. additionally,
 		// maintenance has been paused, so we shouldn't see any .condensed
 		// files either.
 		//
