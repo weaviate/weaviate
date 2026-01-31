@@ -79,7 +79,6 @@ func TestHFreshBackupListFiles(t *testing.T) {
 		expectedDirs := []string{
 			"analyze.queue.d",
 			"centroids.hnsw.commitlog.d",
-			"centroids.hnsw.snapshot.d",
 			"merge.queue.d",
 			"reassign.queue.d",
 			"split.queue.d",
