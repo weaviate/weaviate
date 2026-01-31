@@ -92,7 +92,18 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 	if len(moduleParams) == 1 {
 		for name, value := range moduleParams {
-			return v.vectorFromModules(ctx, className, name, value, tenant, targetVector)
+			vec, err := v.vectorFromModules(ctx, className, name, value, tenant, targetVector)
+			if err != nil {
+				return nil, err
+			}
+
+			if name == "nearText" {
+				if vector, ok := vec.([]float32); ok {
+					storeQueryVector(ctx, vector)
+				}
+			}
+
+			return vec, nil
 		}
 	}
 
@@ -100,7 +111,11 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 		if index >= len(nearVector.Vectors) {
 			return nil, fmt.Errorf("nearVector.vectorFromParams was called with invalid index")
 		}
-		return nearVector.Vectors[index], nil
+		vec := nearVector.Vectors[index]
+		if vector, ok := vec.([]float32); ok {
+			storeQueryVector(ctx, vector)
+		}
+		return vec, nil
 	}
 
 	if nearObject != nil {

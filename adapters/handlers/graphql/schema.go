@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type Traverser interface {
@@ -70,7 +71,9 @@ func Build(schema *schema.SchemaWithAliases, traverser Traverser,
 
 // Resolve at query time
 func (g *graphQL) Resolve(context context.Context, query string, operationName string, variables map[string]interface{}) *graphql.Result {
-	return graphql.Do(graphql.Params{
+	ctx, _ := traverser.EnsureQueryVectorHolder(context)
+
+	result := graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
 			"Resolver": g.traverser,
@@ -79,8 +82,36 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 		RequestString:  query,
 		OperationName:  operationName,
 		VariableValues: variables,
-		Context:        context,
+		Context:        ctx,
 	})
+
+	holder, ok := traverser.GetQueryVectorHolder(ctx)
+	if ok {
+		queryVectors := holder.Snapshot()
+		if len(queryVectors) > 0 {
+			ext, _ := result.Extensions.(map[string]interface{})
+			if ext == nil {
+				ext = map[string]interface{}{}
+			}
+
+			md, _ := ext["metadata"].(map[string]interface{})
+			if md == nil {
+				md = map[string]interface{}{}
+				ext["metadata"] = md
+			}
+
+			vz, _ := md["vectorizer"].(map[string]interface{})
+			if vz == nil {
+				vz = map[string]interface{}{}
+				md["vectorizer"] = vz
+			}
+
+			vz["queryVectors"] = queryVectors
+			result.Extensions = ext
+		}
+	}
+
+	return result
 }
 
 func buildGraphqlSchema(dbSchema *schema.SchemaWithAliases, logger logrus.FieldLogger,
