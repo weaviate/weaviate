@@ -98,19 +98,8 @@ func (n *NoopCommitLogger) Shutdown(context.Context) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) CreateSnapshot() (bool, int64, error) {
-	return false, 0, nil
-}
-
-func (n *NoopCommitLogger) CreateAndLoadSnapshot() (*DeserializationResult, int64, error) {
-	return nil, 0, nil
-}
-
-func (n *NoopCommitLogger) LoadSnapshot() (*DeserializationResult, int64, error) {
-	return nil, 0, nil
-}
-
-func MakeNoopCommitLogger() (CommitLogger, error) {
+func MakeNoopCommitLogger(opts ...CommitlogOption) (CommitLogger, error) {
+	// Options are ignored for noop logger
 	return &NoopCommitLogger{}, nil
 }
 

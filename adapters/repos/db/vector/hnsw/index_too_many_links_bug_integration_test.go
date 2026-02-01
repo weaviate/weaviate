@@ -72,8 +72,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", tombstoneCleanupCallbacks.CycleCallback)
 
 	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, commitLoggerCallbacks,
-		WithCommitlogThreshold(1e5),
-		WithCommitlogThresholdForCombining(5e5))
+		WithCommitlogThreshold(1e5))
 	require.Nil(t, err)
 
 	data := make([][]float32, n)
@@ -90,7 +89,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
 			AllocChecker: memwatch.NewDummyMonitor(),
-			MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 				return original, nil
 			},
 			ID:               "too_many_links_test",

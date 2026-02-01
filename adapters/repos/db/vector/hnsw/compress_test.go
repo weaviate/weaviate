@@ -123,8 +123,8 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 	return Config{
 		RootPath: tempDir,
 		ID:       correctedID,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(tempDir, correctedID, logger, cyclemanager.NewCallbackGroupNoop())
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(tempDir, correctedID, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 		DistanceProvider: distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {

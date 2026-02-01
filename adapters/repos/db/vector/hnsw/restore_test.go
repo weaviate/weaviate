@@ -119,8 +119,8 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 		ID:               indexID,
 		Logger:           logger,
 		DistanceProvider: distancer,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logger, noopCallback)
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logger, noopCallback, opts...)
 		},
 		AllocChecker: memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {

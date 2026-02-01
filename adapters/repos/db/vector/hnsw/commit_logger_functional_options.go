@@ -11,13 +11,6 @@
 
 package hnsw
 
-import (
-	"time"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-)
-
 type CommitlogOption func(l *hnswCommitLogger) error
 
 func WithCommitlogThreshold(size int64) CommitlogOption {
@@ -27,58 +20,12 @@ func WithCommitlogThreshold(size int64) CommitlogOption {
 	}
 }
 
-func WithCommitlogThresholdForCombining(size int64) CommitlogOption {
+// WithForceNewFile forces the commit logger to create a new file instead of
+// appending to the existing one. This is used after crash recovery to ensure
+// we don't append to a potentially corrupted file.
+func WithForceNewFile() CommitlogOption {
 	return func(l *hnswCommitLogger) error {
-		l.maxSizeCombining = size
-		return nil
-	}
-}
-
-func WithAllocChecker(mm memwatch.AllocChecker) CommitlogOption {
-	return func(l *hnswCommitLogger) error {
-		l.allocChecker = mm
-		return nil
-	}
-}
-
-func WithCondensor(condensor Condensor) CommitlogOption {
-	return func(l *hnswCommitLogger) error {
-		l.condensor = condensor
-		return nil
-	}
-}
-
-func WithSnapshotDisabled(disabled bool) CommitlogOption {
-	return func(l *hnswCommitLogger) error {
-		l.snapshotDisabled = disabled
-		return nil
-	}
-}
-
-func WithSnapshotCreateInterval(interval time.Duration) CommitlogOption {
-	return func(l *hnswCommitLogger) error {
-		l.snapshotCreateInterval = interval
-		return nil
-	}
-}
-
-func WithSnapshotMinDeltaCommitlogsNumer(number int) CommitlogOption {
-	return func(l *hnswCommitLogger) error {
-		l.snapshotMinDeltaCommitlogsNumber = number
-		return nil
-	}
-}
-
-func WithSnapshotMinDeltaCommitlogsSizePercentage(percentage int) CommitlogOption {
-	return func(l *hnswCommitLogger) error {
-		l.snapshotMinDeltaCommitlogsSizePercentage = percentage
-		return nil
-	}
-}
-
-func WithFS(fs common.FS) CommitlogOption {
-	return func(l *hnswCommitLogger) error {
-		l.fs = fs
+		l.forceNewFile = true
 		return nil
 	}
 }
