@@ -233,3 +233,48 @@ func (o *TenantExistsInternalServerError) WriteResponse(rw http.ResponseWriter, 
 		}
 	}
 }
+
+// TenantExistsServiceUnavailableCode is the HTTP code returned for type TenantExistsServiceUnavailable
+const TenantExistsServiceUnavailableCode int = 503
+
+/*
+TenantExistsServiceUnavailable The operational mode of the server does not allow schema operations at this time.
+
+swagger:response tenantExistsServiceUnavailable
+*/
+type TenantExistsServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewTenantExistsServiceUnavailable creates TenantExistsServiceUnavailable with default headers values
+func NewTenantExistsServiceUnavailable() *TenantExistsServiceUnavailable {
+
+	return &TenantExistsServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the tenant exists service unavailable response
+func (o *TenantExistsServiceUnavailable) WithPayload(payload *models.ErrorResponse) *TenantExistsServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the tenant exists service unavailable response
+func (o *TenantExistsServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *TenantExistsServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
