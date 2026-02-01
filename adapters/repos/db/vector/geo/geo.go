@@ -125,8 +125,8 @@ func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager
 ) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
-		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks)
+		makeCL = func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks, opts...)
 		}
 	}
 	return makeCL

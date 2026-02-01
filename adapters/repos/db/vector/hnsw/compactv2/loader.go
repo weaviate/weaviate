@@ -12,7 +12,6 @@
 package compactv2
 
 import (
-	"bufio"
 	"io"
 	"sort"
 
@@ -64,6 +63,17 @@ type Loader struct {
 	fs     common.FS
 }
 
+// LoadResult contains the result of loading commit logs.
+type LoadResult struct {
+	// State is the accumulated HNSW graph state, or nil if directory was empty.
+	State *ent.DeserializationResult
+
+	// RecoveredFromCrash is true if a truncated/corrupt WAL file was detected
+	// and truncated during loading. When true, the caller should start a new
+	// commit log file instead of appending to the existing one.
+	RecoveredFromCrash bool
+}
+
 // NewLoader creates a new Loader with the given configuration.
 func NewLoader(config LoaderConfig) *Loader {
 	if config.BufferSize <= 0 {
@@ -76,8 +86,9 @@ func NewLoader(config LoaderConfig) *Loader {
 }
 
 // Load discovers and loads all commit log files, returning the accumulated state.
-// Returns nil state (not error) if directory is empty or doesn't exist.
-func (l *Loader) Load() (*ent.DeserializationResult, error) {
+// Returns nil result (not error) if directory is empty or doesn't exist.
+// If a truncated WAL file is detected (crash recovery), RecoveredFromCrash will be true.
+func (l *Loader) Load() (*LoadResult, error) {
 	// 0. Migrate snapshots from old directory FIRST (before any other operations)
 	// This ensures that snapshots stored in the old .hnsw.snapshot.d/ directory
 	// are moved to the new unified .hnsw.commitlog.d/ directory before we scan.
@@ -149,10 +160,15 @@ func (l *Loader) Load() (*ent.DeserializationResult, error) {
 	}
 
 	// 9. Load WAL files sequentially (oldest to newest)
+	var recoveredFromCrash bool
 	for _, f := range walFiles {
-		result, err = l.loadWALFile(f, result)
+		var crashed bool
+		result, crashed, err = l.loadWALFile(f, result)
 		if err != nil {
 			return nil, errors.Wrapf(err, "load WAL file %s", f.Path)
+		}
+		if crashed {
+			recoveredFromCrash = true
 		}
 	}
 
@@ -168,7 +184,10 @@ func (l *Loader) Load() (*ent.DeserializationResult, error) {
 		return nil, nil
 	}
 
-	return result, nil
+	return &LoadResult{
+		State:              result,
+		RecoveredFromCrash: recoveredFromCrash,
+	}, nil
 }
 
 // collectWALFiles collects all WAL files that need to be loaded.
@@ -224,15 +243,15 @@ func (l *Loader) filterFilesAlreadyInSnapshot(files []FileInfo, snapshotEndTS in
 }
 
 // loadWALFile reads a single WAL file and applies it to the current state.
-func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent.DeserializationResult, error) {
+// Returns the result, whether crash recovery occurred (truncation), and any error.
+func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent.DeserializationResult, bool, error) {
 	file, err := l.fs.Open(f.Path)
 	if err != nil {
-		return state, errors.Wrapf(err, "open file %s", f.Path)
+		return state, false, errors.Wrapf(err, "open file %s", f.Path)
 	}
 	defer file.Close()
 
-	reader := bufio.NewReaderSize(file, l.config.BufferSize)
-	walReader := NewWALCommitReader(reader, l.config.Logger)
+	walReader := NewWALCommitReader(file, l.config.Logger)
 	inMemReader := NewInMemoryReader(walReader, l.config.Logger)
 
 	// keepLinkReplaceInfo=false at startup since we're building final state
@@ -245,10 +264,30 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 				"action": "hnsw_loader",
 				"file":   f.Path,
 				"error":  err.Error(),
-			}).Warn("WAL file may be truncated, continuing with partial state")
-			return result, nil
+			}).Warn("WAL file truncated - recovering from crash")
+
+			// Truncate raw files to remove partial entries.
+			// This prevents the partial entry from becoming corrupted on next write
+			// and ensures clean compaction later.
+			if f.Type == FileTypeRaw {
+				validBytes := walReader.BytesRead()
+				if truncErr := l.fs.Truncate(f.Path, validBytes); truncErr != nil {
+					l.config.Logger.WithError(truncErr).
+						WithField("file", f.Path).
+						WithField("valid_bytes", validBytes).
+						Error("failed to truncate corrupt WAL file")
+				} else {
+					l.config.Logger.WithFields(logrus.Fields{
+						"action":      "hnsw_loader",
+						"file":        f.Path,
+						"valid_bytes": validBytes,
+					}).Info("truncated corrupt WAL file")
+				}
+			}
+
+			return result, true, nil // true = recovered from crash
 		}
-		return result, err
+		return result, false, err
 	}
 
 	l.config.Logger.WithFields(logrus.Fields{
@@ -259,5 +298,5 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 		"end_ts":   f.EndTS,
 	}).Debug("loaded WAL file")
 
-	return result, nil
+	return result, false, nil
 }

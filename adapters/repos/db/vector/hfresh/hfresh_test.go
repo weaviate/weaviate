@@ -79,7 +79,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
+func makeNoopCommitLogger(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
@@ -96,9 +96,10 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath: tmpDir,
 		ID:       "centroids",
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+		MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(tmpDir, "centroids",
 				l, cyclemanager.NewCallbackGroupNoop(),
+				opts...,
 			)
 		},
 		DistanceProvider:  distancer.NewCosineDistanceProvider(),

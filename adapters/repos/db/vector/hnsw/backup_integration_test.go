@@ -70,8 +70,8 @@ func TestBackup_Integration(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		GetViewThunk:     func() common.BucketView { return &backupIntegrationNoopBucketView{} },
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks, opts...)
 		},
 	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, nil)
 	require.Nil(t, err)

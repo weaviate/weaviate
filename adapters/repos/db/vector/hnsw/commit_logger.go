@@ -55,6 +55,7 @@ type hnswCommitLogger struct {
 
 	// Config
 	maxSizeIndividual int64
+	forceNewFile      bool // if true, create a new file instead of appending to existing
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -82,8 +83,9 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
-	// Create or open the current commit log file
-	fd, err := getLatestCommitFileOrCreate(rootPath, name)
+	// Create or open the current commit log file.
+	// If forceNewFile is set (e.g., after crash recovery), always create a new file.
+	fd, err := getLatestCommitFileOrCreate(rootPath, name, l.forceNewFile)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +122,7 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
+func getLatestCommitFileOrCreate(rootPath, name string, forceNewFile bool) (*os.File, error) {
 	dir := commitLogDirectory(rootPath, name)
 	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
@@ -132,8 +134,10 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 		return nil, errors.Wrap(err, "find commit logger file in directory")
 	}
 
-	if !ok {
-		// this is a new commit log, initialize with the current time stamp
+	if !ok || forceNewFile {
+		// Create a new commit log with the current timestamp.
+		// forceNewFile is used after crash recovery to avoid appending to
+		// a potentially corrupted file.
 		fileName = fmt.Sprintf("%d", time.Now().Unix())
 	}
 

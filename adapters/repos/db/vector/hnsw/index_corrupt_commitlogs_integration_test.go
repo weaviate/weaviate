@@ -60,9 +60,9 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
 			AllocChecker: memwatch.NewDummyMonitor(),
-			MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 				return NewCommitLogger(rootPath, "corrupt_test", logger,
-					cyclemanager.NewCallbackGroupNoop())
+					cyclemanager.NewCallbackGroupNoop(), opts...)
 			},
 			ID:               "corrupt_test",
 			RootPath:         rootPath,

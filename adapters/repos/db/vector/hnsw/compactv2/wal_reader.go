@@ -168,6 +168,19 @@ func (c *AddMuveraCommit) Type() HnswCommitType { return AddMuvera }
 // WALCommitReader
 // ---------------------------------------------------------------------------
 
+// countingReader wraps an io.Reader and tracks bytes read.
+// Used for tracking valid file position for truncation after crash recovery.
+type countingReader struct {
+	r     io.Reader
+	count int64
+}
+
+func (c *countingReader) Read(p []byte) (n int, err error) {
+	n, err = c.r.Read(p)
+	c.count += int64(n)
+	return n, err
+}
+
 // WALCommitReader streams [Commit] values from a WAL file (raw, .condensed,
 // or .sorted format). It handles the low-level binary deserialization but
 // does not apply commits to any in-memory state.
@@ -178,8 +191,9 @@ func (c *AddMuveraCommit) Type() HnswCommitType { return AddMuvera }
 // The reader is stateful and reads commits sequentially. Call
 // [WALCommitReader.ReadNextCommit] repeatedly until io.EOF.
 type WALCommitReader struct {
-	r      *bufio.Reader
-	logger logrus.FieldLogger
+	r         *bufio.Reader
+	countingR *countingReader // tracks bytes read from underlying reader
+	logger    logrus.FieldLogger
 
 	reusableBuf     []byte
 	reusableUint64s []uint64
@@ -188,16 +202,19 @@ type WALCommitReader struct {
 // NewWALCommitReader wraps an io.Reader. Caller controls flow by repeatedly
 // calling ReadNextCommit().
 func NewWALCommitReader(r io.Reader, logger logrus.FieldLogger) *WALCommitReader {
-	if br, ok := r.(*bufio.Reader); ok {
-		return &WALCommitReader{
-			r:      br,
-			logger: logger,
-		}
-	}
+	cr := &countingReader{r: r}
 	return &WALCommitReader{
-		r:      bufio.NewReader(r),
-		logger: logger,
+		r:         bufio.NewReader(cr),
+		countingR: cr,
+		logger:    logger,
 	}
+}
+
+// BytesRead returns the number of bytes successfully read from the underlying
+// reader, accounting for buffered but unprocessed data. This is used to determine
+// the valid file position for truncation after detecting corrupt/truncated data.
+func (w *WALCommitReader) BytesRead() int64 {
+	return w.countingR.count - int64(w.r.Buffered())
 }
 
 // ReadNextCommit returns the next commit in the WAL.

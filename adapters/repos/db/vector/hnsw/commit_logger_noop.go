@@ -98,7 +98,8 @@ func (n *NoopCommitLogger) Shutdown(context.Context) error {
 	return nil
 }
 
-func MakeNoopCommitLogger() (CommitLogger, error) {
+func MakeNoopCommitLogger(opts ...CommitlogOption) (CommitLogger, error) {
+	// Options are ignored for noop logger
 	return &NoopCommitLogger{}, nil
 }
 

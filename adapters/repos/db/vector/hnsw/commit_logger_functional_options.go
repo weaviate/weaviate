@@ -19,3 +19,13 @@ func WithCommitlogThreshold(size int64) CommitlogOption {
 		return nil
 	}
 }
+
+// WithForceNewFile forces the commit logger to create a new file instead of
+// appending to the existing one. This is used after crash recovery to ensure
+// we don't append to a potentially corrupted file.
+func WithForceNewFile() CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.forceNewFile = true
+		return nil
+	}
+}

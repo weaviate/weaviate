@@ -31,14 +31,22 @@ import (
 func (h *hnsw) init(cfg Config) error {
 	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
 
-	// init commit logger for future writes
-	cl, err := cfg.MakeCommitLoggerThunk()
-	if err != nil {
-		return errors.Wrap(err, "create commit logger")
+	// First restore from disk to determine if crash recovery occurred.
+	// This must happen before creating the commit logger so we can pass
+	// the forceNewFile option if needed.
+	if err := h.restoreFromDisk(); err != nil {
+		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
 
-	if err := h.restoreFromDisk(cl); err != nil {
-		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
+	// Create commit logger for future writes.
+	// If crash recovery occurred, force creation of a new file.
+	var commitLogOpts []CommitlogOption
+	if h.recoveredFromCrash.Load() {
+		commitLogOpts = append(commitLogOpts, WithForceNewFile())
+	}
+	cl, err := cfg.MakeCommitLoggerThunk(commitLogOpts...)
+	if err != nil {
+		return errors.Wrap(err, "create commit logger")
 	}
 	h.commitLog = cl
 
@@ -52,7 +60,8 @@ func (h *hnsw) init(cfg Config) error {
 }
 
 // restoreFromDisk loads the HNSW state from commit log files using compactv2.Loader.
-func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
+// If a truncated/corrupt WAL file is detected, it sets h.recoveredFromCrash to true.
+func (h *hnsw) restoreFromDisk() error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
 	defer func() {
@@ -75,20 +84,28 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		Logger: h.logger,
 	})
 
-	state, err := loader.Load()
+	loadResult, err := loader.Load()
 	if err != nil {
 		return errors.Wrap(err, "load commit logs with compactv2")
 	}
 
-	h.cachePrefilled.Store(state == nil)
+	h.cachePrefilled.Store(loadResult == nil || loadResult.State == nil)
 
-	if state == nil {
+	if loadResult == nil || loadResult.State == nil {
 		// nothing to do
 		return nil
 	}
 
+	// If we recovered from a crash (truncated a corrupt WAL file), we should
+	// start a new commit log file instead of appending to the potentially
+	// corrupted one. Store this flag for use when creating the commit logger.
+	if loadResult.RecoveredFromCrash {
+		h.recoveredFromCrash.Store(true)
+		h.logger.Info("recovered from crash - will start new commit log file")
+	}
+
 	// Apply loaded state to index
-	return h.applyLoadedState(state)
+	return h.applyLoadedState(loadResult.State)
 }
 
 // applyLoadedState applies the deserialization result to the HNSW index.

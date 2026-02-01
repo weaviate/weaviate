@@ -71,15 +71,15 @@ func TestLoader_SnapshotOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	assert.Equal(t, uint64(42), result.Graph.Entrypoint)
-	assert.Equal(t, uint16(2), result.Graph.Level)
-	assert.True(t, result.Graph.EntrypointChanged)
+	assert.Equal(t, uint64(42), result.State.Graph.Entrypoint)
+	assert.Equal(t, uint16(2), result.State.Graph.Level)
+	assert.True(t, result.State.Graph.EntrypointChanged)
 
 	// Verify nodes were loaded
-	require.True(t, len(result.Graph.Nodes) > 2)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
-	require.NotNil(t, result.Graph.Nodes[2])
+	require.True(t, len(result.State.Graph.Nodes) > 2)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
+	require.NotNil(t, result.State.Graph.Nodes[2])
 }
 
 func TestLoader_WALFilesOnly(t *testing.T) {
@@ -105,14 +105,14 @@ func TestLoader_WALFilesOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	assert.Equal(t, uint64(0), result.Graph.Entrypoint)
-	assert.Equal(t, uint16(1), result.Graph.Level)
-	assert.True(t, result.Graph.EntrypointChanged)
+	assert.Equal(t, uint64(0), result.State.Graph.Entrypoint)
+	assert.Equal(t, uint16(1), result.State.Graph.Level)
+	assert.True(t, result.State.Graph.EntrypointChanged)
 
 	// Verify nodes were loaded
-	require.True(t, len(result.Graph.Nodes) > 1)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
+	require.True(t, len(result.State.Graph.Nodes) > 1)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
 }
 
 func TestLoader_SnapshotPlusWALFiles(t *testing.T) {
@@ -143,10 +143,10 @@ func TestLoader_SnapshotPlusWALFiles(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Verify snapshot + WAL data combined
-	require.True(t, len(result.Graph.Nodes) > 2)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
-	require.NotNil(t, result.Graph.Nodes[2])
+	require.True(t, len(result.State.Graph.Nodes) > 2)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
+	require.NotNil(t, result.State.Graph.Nodes[2])
 }
 
 func TestLoader_MultipleWALFiles(t *testing.T) {
@@ -182,13 +182,13 @@ func TestLoader_MultipleWALFiles(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Verify all data combined, including LiveFile
-	assert.Equal(t, uint64(2), result.Graph.Entrypoint)
-	assert.Equal(t, uint16(1), result.Graph.Level)
+	assert.Equal(t, uint64(2), result.State.Graph.Entrypoint)
+	assert.Equal(t, uint16(1), result.State.Graph.Level)
 
-	require.True(t, len(result.Graph.Nodes) > 2)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
-	require.NotNil(t, result.Graph.Nodes[2])
+	require.True(t, len(result.State.Graph.Nodes) > 2)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
+	require.NotNil(t, result.State.Graph.Nodes[2])
 }
 
 func TestLoader_LiveFileIncluded(t *testing.T) {
@@ -218,11 +218,11 @@ func TestLoader_LiveFileIncluded(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Verify LiveFile was loaded (node 1 with level 1)
-	assert.Equal(t, uint64(1), result.Graph.Entrypoint)
-	assert.Equal(t, uint16(1), result.Graph.Level)
-	require.True(t, len(result.Graph.Nodes) > 1)
-	require.NotNil(t, result.Graph.Nodes[1])
-	assert.Equal(t, 1, result.Graph.Nodes[1].Level)
+	assert.Equal(t, uint64(1), result.State.Graph.Entrypoint)
+	assert.Equal(t, uint16(1), result.State.Graph.Level)
+	require.True(t, len(result.State.Graph.Nodes) > 1)
+	require.NotNil(t, result.State.Graph.Nodes[1])
+	assert.Equal(t, 1, result.State.Graph.Nodes[1].Level)
 }
 
 func TestLoader_OverlapFiltering(t *testing.T) {
@@ -260,15 +260,15 @@ func TestLoader_OverlapFiltering(t *testing.T) {
 
 	// Verify the overlapped file's data was excluded
 	// Node 99 should NOT exist if overlap filtering works
-	if len(result.Graph.Nodes) > 99 {
-		assert.Nil(t, result.Graph.Nodes[99], "overlapped file should be excluded")
+	if len(result.State.Graph.Nodes) > 99 {
+		assert.Nil(t, result.State.Graph.Nodes[99], "overlapped file should be excluded")
 	}
 
 	// But nodes 0, 1, 2 should exist
-	require.True(t, len(result.Graph.Nodes) > 2)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
-	require.NotNil(t, result.Graph.Nodes[2])
+	require.True(t, len(result.State.Graph.Nodes) > 2)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
+	require.NotNil(t, result.State.Graph.Nodes[2])
 }
 
 func TestLoader_FilesProcessedInOrder(t *testing.T) {
@@ -299,8 +299,8 @@ func TestLoader_FilesProcessedInOrder(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Final entrypoint should be 1 (from the later file)
-	assert.Equal(t, uint64(1), result.Graph.Entrypoint)
-	assert.Equal(t, uint16(1), result.Graph.Level)
+	assert.Equal(t, uint64(1), result.State.Graph.Entrypoint)
+	assert.Equal(t, uint16(1), result.State.Graph.Level)
 }
 
 func TestLoader_TombstonesHandled(t *testing.T) {
@@ -324,7 +324,7 @@ func TestLoader_TombstonesHandled(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Verify tombstone was recorded
-	_, hasTombstone := result.Graph.Tombstones[1]
+	_, hasTombstone := result.State.Graph.Tombstones[1]
 	assert.True(t, hasTombstone, "node 1 should have tombstone")
 }
 
@@ -412,10 +412,10 @@ func TestLoader_CondensedFiles(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Verify all nodes loaded
-	require.True(t, len(result.Graph.Nodes) > 2)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
-	require.NotNil(t, result.Graph.Nodes[2])
+	require.True(t, len(result.State.Graph.Nodes) > 2)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
+	require.NotNil(t, result.State.Graph.Nodes[2])
 }
 
 func TestLoader_SortedFiles(t *testing.T) {
@@ -443,9 +443,9 @@ func TestLoader_SortedFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	require.True(t, len(result.Graph.Nodes) > 1)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
+	require.True(t, len(result.State.Graph.Nodes) > 1)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
 }
 
 func TestLoader_WALFilesFilteredBySnapshot(t *testing.T) {
@@ -480,13 +480,13 @@ func TestLoader_WALFilesFilteredBySnapshot(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Node 99 should NOT exist if filtering works correctly
-	if len(result.Graph.Nodes) > 99 {
-		assert.Nil(t, result.Graph.Nodes[99], "old WAL file should be filtered")
+	if len(result.State.Graph.Nodes) > 99 {
+		assert.Nil(t, result.State.Graph.Nodes[99], "old WAL file should be filtered")
 	}
 
 	// Node 1 from new WAL should exist
-	require.True(t, len(result.Graph.Nodes) > 1)
-	require.NotNil(t, result.Graph.Nodes[1])
+	require.True(t, len(result.State.Graph.Nodes) > 1)
+	require.NotNil(t, result.State.Graph.Nodes[1])
 }
 
 func TestLoader_MixedFileTypes(t *testing.T) {
@@ -532,12 +532,12 @@ func TestLoader_MixedFileTypes(t *testing.T) {
 	require.NotNil(t, result)
 
 	// All nodes should exist
-	require.True(t, len(result.Graph.Nodes) > 4)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
-	require.NotNil(t, result.Graph.Nodes[2])
-	require.NotNil(t, result.Graph.Nodes[3])
-	require.NotNil(t, result.Graph.Nodes[4])
+	require.True(t, len(result.State.Graph.Nodes) > 4)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
+	require.NotNil(t, result.State.Graph.Nodes[2])
+	require.NotNil(t, result.State.Graph.Nodes[3])
+	require.NotNil(t, result.State.Graph.Nodes[4])
 }
 
 // Helper types and functions for creating test files

@@ -207,11 +207,11 @@ func TestMigratorCondensedConversion(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	assert.Equal(t, uint64(0), result.Graph.Entrypoint)
-	assert.Equal(t, uint16(1), result.Graph.Level)
-	require.True(t, len(result.Graph.Nodes) > 1)
-	require.NotNil(t, result.Graph.Nodes[0])
-	require.NotNil(t, result.Graph.Nodes[1])
+	assert.Equal(t, uint64(0), result.State.Graph.Entrypoint)
+	assert.Equal(t, uint16(1), result.State.Graph.Level)
+	require.True(t, len(result.State.Graph.Nodes) > 1)
+	require.NotNil(t, result.State.Graph.Nodes[0])
+	require.NotNil(t, result.State.Graph.Nodes[1])
 }
 
 func TestMigratorMultipleCondensedFiles(t *testing.T) {
@@ -559,8 +559,8 @@ func TestLoaderIntegrationWithMigrator(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Verify snapshot was loaded correctly
-		assert.Equal(t, uint64(42), result.Graph.Entrypoint)
-		assert.Equal(t, uint16(2), result.Graph.Level)
+		assert.Equal(t, uint64(42), result.State.Graph.Entrypoint)
+		assert.Equal(t, uint16(2), result.State.Graph.Level)
 	})
 
 	t.Run("loader fails on V1 snapshot", func(t *testing.T) {

@@ -24,6 +24,10 @@ import (
 const (
 	maxConnectionsPerNodeInMemory = 4096
 	indexGrowthRate               = 1.2
+	// maxNodeID is the theoretical maximum node ID supported by the HNSW index.
+	// 100 billion should give us a node ID space of approximately 750 GB.
+	// This matches the legacy deserializer constant.
+	maxNodeID = 100_000_000_000
 )
 
 // InMemoryReader deserializes commit logs into an in-memory HNSW graph state.
@@ -382,7 +386,18 @@ func (r *InMemoryReader) readDeleteNode(c *DeleteNodeCommit, res *ent.Deserializ
 
 // growIndexToAccommodateNode grows the nodes slice if needed to accommodate the given ID.
 // Returns the new slice (if grown), whether it changed, and any error.
+// Invalid node IDs (beyond maxNodeID) are logged and skipped to prevent panics
+// from corrupt WAL data after crashes.
 func growIndexToAccommodateNode(index []*ent.Vertex, id uint64, logger logrus.FieldLogger) ([]*ent.Vertex, bool, error) {
+	// Safety check for node ID to protect against corrupt WAL data.
+	// If the id is beyond maxNodeID, it is probably invalid (e.g. corrupt commit log).
+	if id > maxNodeID {
+		logger.WithField("action", "hnsw_loader").
+			WithField("node_id", id).
+			Warnf("deserialized node ID beyond maxNodeID (%d), ignoring", maxNodeID)
+		return nil, false, nil
+	}
+
 	previousSize := uint64(len(index))
 	if id < previousSize {
 		// node will fit, nothing to do
