@@ -124,7 +124,7 @@ func TestQuantileKeysDistribution(t *testing.T) {
 	}
 }
 
-func buildSampleDiskTree(t *testing.T, n int) *DiskTree {
+func buildSampleDiskTree(t *testing.T, n int) *DiskTreeRaw {
 	nodes := make([]Node, 0, n)
 	for i := 0; i < n; i++ {
 		key := make([]byte, 8)
@@ -142,5 +142,5 @@ func buildSampleDiskTree(t *testing.T, n int) *DiskTree {
 	dt, err := balanced.MarshalBinary()
 	require.Nil(t, err)
 
-	return NewDiskTree(dt)
+	return NewDiskTreeRaw(dt)
 }

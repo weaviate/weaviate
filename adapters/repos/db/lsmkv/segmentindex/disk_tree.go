@@ -25,7 +25,16 @@ import (
 // can be used for reading, but cannot change the underlying structure. It is
 // thus perfectly suited as an index for an (immutable) LSM disk segment, but
 // pretty much useless for anything else
-type DiskTree struct {
+type DiskTree interface {
+	Get(key []byte) (Node, error)
+	Seek(key []byte) (Node, error)
+	Next(key []byte) (Node, error)
+	AllKeys() ([][]byte, error)
+	Size() int
+	Data() []byte
+}
+
+type DiskTreeRaw struct {
 	data []byte
 }
 
@@ -37,13 +46,13 @@ type dtNode struct {
 	rightChild int64
 }
 
-func NewDiskTree(data []byte) *DiskTree {
-	return &DiskTree{
+func NewDiskTreeRaw(data []byte) *DiskTreeRaw {
+	return &DiskTreeRaw{
 		data: data,
 	}
 }
 
-func (t *DiskTree) Get(key []byte) (Node, error) {
+func (t *DiskTreeRaw) Get(key []byte) (Node, error) {
 	if len(t.data) == 0 {
 		return Node{}, lsmkv.NotFound
 	}
@@ -87,12 +96,12 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	}
 }
 
-func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
+func (t *DiskTreeRaw) readNodeAt(offset int64) (dtNode, error) {
 	retNode, _, err := t.readNode(t.data[offset:])
 	return retNode, err
 }
 
-func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
+func (t *DiskTreeRaw) readNode(in []byte) (dtNode, int, error) {
 	var out dtNode
 	// in buffer needs at least 36 bytes of data:
 	// 4bytes for key length, 32bytes for position and children
@@ -116,7 +125,7 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 	return out, int(rw.Position), nil
 }
 
-func (t *DiskTree) Seek(key []byte) (Node, error) {
+func (t *DiskTreeRaw) Seek(key []byte) (Node, error) {
 	if len(t.data) == 0 {
 		return Node{}, lsmkv.NotFound
 	}
@@ -124,7 +133,7 @@ func (t *DiskTree) Seek(key []byte) (Node, error) {
 	return t.seekAt(0, key, true)
 }
 
-func (t *DiskTree) Next(key []byte) (Node, error) {
+func (t *DiskTreeRaw) Next(key []byte) (Node, error) {
 	if len(t.data) == 0 {
 		return Node{}, lsmkv.NotFound
 	}
@@ -132,7 +141,7 @@ func (t *DiskTree) Next(key []byte) (Node, error) {
 	return t.seekAt(0, key, false)
 }
 
-func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, error) {
+func (t *DiskTreeRaw) seekAt(offset int64, key []byte, includingKey bool) (Node, error) {
 	node, err := t.readNodeAt(offset)
 	if err != nil {
 		return Node{}, err
@@ -181,7 +190,7 @@ func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, er
 // order. Do not use this method if an In-Order traversal is required, but only
 // for use cases who don't require a specific order, such as building a
 // bloom filter.
-func (t *DiskTree) AllKeys() ([][]byte, error) {
+func (t *DiskTreeRaw) AllKeys() ([][]byte, error) {
 	var out [][]byte
 	bufferPos := 0
 	for {
@@ -200,6 +209,10 @@ func (t *DiskTree) AllKeys() ([][]byte, error) {
 	return out, nil
 }
 
-func (t *DiskTree) Size() int {
+func (t *DiskTreeRaw) Size() int {
 	return len(t.data)
+}
+
+func (t *DiskTreeRaw) Data() []byte {
+	return t.data
 }
