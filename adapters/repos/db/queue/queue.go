@@ -451,6 +451,43 @@ func (q *DiskQueue) Wait() {
 	q.scheduler.Wait(q.id)
 }
 
+// ForceSwitch forces the queue to switch to a new chunk file.
+// It also returns the content of the directory before the switch.
+// Important: the queue must be paused before calling this method.
+func (q *DiskQueue) ForceSwitch() ([]string, error) {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	// list current files
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read directory")
+	}
+
+	chunkList := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// check if the entry name matches the regex pattern of a chunk file
+		if !chunkFilePattern.Match([]byte(entry.Name())) {
+			continue
+		}
+
+		filePath := filepath.Join(q.dir, entry.Name())
+		chunkList = append(chunkList, filePath)
+	}
+
+	// promote the current partial chunk
+	err = q.w.Promote()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to promote chunk")
+	}
+
+	return chunkList, nil
+}
+
 func (q *DiskQueue) Drop() error {
 	if q == nil {
 		return nil
