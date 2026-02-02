@@ -220,6 +220,21 @@ func (h *hnsw) Get(id uint64) ([]float32, error) {
 	return h.compressor.Get(id)
 }
 
+// GetCompressedVector retrieves the compressed vector for a given ID.
+// The index must be compressed, otherwise an error is returned.
+func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
+	if !h.compressed.Load() {
+		return nil, errors.New("index is not compressed")
+	}
+
+	v, err := h.compressor.GetCompressed(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]T), nil
+}
+
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error

@@ -78,13 +78,12 @@ func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQ
 }
 
 func (i *HNSWIndex) Get(id uint64) *Centroid {
-	vec, err := i.hnsw.Get(id)
-	if err != nil {
-		return nil
-	}
+	vec, _ := i.hnsw.Get(id)
+	cmp, _ := hnsw.GetCompressedVector[byte](i.hnsw, id)
+
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   i.quantizer.CompressedBytes(i.quantizer.Encode(vec)),
+		Compressed:   cmp,
 		Deleted:      false,
 	}
 }
