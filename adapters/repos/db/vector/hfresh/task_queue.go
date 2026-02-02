@@ -170,6 +170,10 @@ func (tq *TaskQueue) Close() error {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
 	}
 
+	if err := tq.reassignList.flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
+	}
+
 	if err := tq.analyzeQueue.Close(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close analyze queue"))
 	}
@@ -191,10 +195,6 @@ func (tq *TaskQueue) Close() error {
 
 func (tq *TaskQueue) Flush() error {
 	var errs []error
-
-	if err := tq.reassignList.flush(); err != nil {
-		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
-	}
 
 	if err := tq.analyzeQueue.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush analyze queue"))
