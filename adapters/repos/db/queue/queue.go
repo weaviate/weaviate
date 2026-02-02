@@ -460,7 +460,7 @@ func (q *DiskQueue) Wait() {
 // ForceSwitch forces the queue to switch to a new chunk file.
 // It also returns the content of the directory before the switch.
 // Important: the queue must be paused before calling this method.
-func (q *DiskQueue) ForceSwitch() ([]string, error) {
+func (q *DiskQueue) ForceSwitch(basePath string) ([]string, error) {
 	q.m.Lock()
 	defer q.m.Unlock()
 
@@ -474,7 +474,7 @@ func (q *DiskQueue) ForceSwitch() ([]string, error) {
 		return nil, errors.Wrap(err, "failed to promote chunk")
 	}
 
-	return q.listFilesNoLock(context.Background(), q.dir)
+	return q.listFilesNoLock(context.Background(), basePath)
 }
 
 func (q *DiskQueue) Drop() error {

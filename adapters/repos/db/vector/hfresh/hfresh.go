@@ -320,7 +320,7 @@ func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, err
 		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
-		f, err := queue.ForceSwitch()
+		f, err := queue.ForceSwitch(basePath)
 		if err != nil {
 			return nil, err
 		}

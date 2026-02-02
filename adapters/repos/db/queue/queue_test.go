@@ -651,7 +651,7 @@ func TestQueueForceSwitch(t *testing.T) {
 	q.Wait()
 
 	// call ForceSwitch to promote the last chunk
-	got, err := q.ForceSwitch()
+	got, err := q.ForceSwitch(q.dir)
 	require.NoError(t, err)
 
 	// compare
