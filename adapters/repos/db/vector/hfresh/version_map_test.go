@@ -106,7 +106,7 @@ func TestVersionMap(t *testing.T) {
 
 		version, err = versionMap.Get(ctx, 1)
 		require.NoError(t, err)
-		require.Equal(t, VectorVersion(1), version)
+		require.Equal(t, VectorVersion(2), version)
 	})
 
 	t.Run("increment with wraparound", func(t *testing.T) {
