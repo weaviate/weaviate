@@ -458,6 +458,10 @@ func (q *DiskQueue) ForceSwitch() ([]string, error) {
 	q.m.Lock()
 	defer q.m.Unlock()
 
+	if !q.scheduler.IsQueuePaused(q.id) {
+		return nil, errors.New("queue must be paused before forcing a switch")
+	}
+
 	// list current files
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
