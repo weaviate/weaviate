@@ -13,10 +13,13 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
 )
 
 // LeaderWithID is used to return the current leader address and ID of the cluster.
@@ -83,16 +86,163 @@ func (s *Raft) Join(ctx context.Context, id, addr string, voter bool) error {
 
 func (s *Raft) Remove(ctx context.Context, id string) error {
 	s.log.WithField("id", id).Debug("membership.remove")
+
+	var err error
 	if s.store.IsLeader() {
-		return s.store.Remove(id)
+		err = s.store.Remove(id)
+	} else {
+		leader := s.store.Leader()
+		if leader == "" {
+			return s.leaderErr()
+		}
+		req := &cmd.RemovePeerRequest{Id: id}
+		_, err = s.cl.Remove(ctx, leader, req)
 	}
-	leader := s.store.Leader()
-	if leader == "" {
-		return s.leaderErr()
+	if err != nil {
+		return err
 	}
-	req := &cmd.RemovePeerRequest{Id: id}
-	_, err := s.cl.Remove(ctx, leader, req)
-	return err
+
+	// The Raft peer has been removed from the cluster configuration.
+	// Now ensure that no shard replicas still reference this node and
+	// that we keep satisfying the configured replication factor where possible.
+	if err := s.rebalanceReplicasAfterNodeRemoval(ctx, id); err != nil {
+		return fmt.Errorf("rebalance replicas after removing node %q: %w", id, err)
+	}
+
+	return nil
+}
+
+// rebalanceReplicasAfterNodeRemoval updates shard replica assignments after a node
+// has been removed from the Raft cluster.
+func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNode string) error {
+	schemaReader := s.SchemaReader()
+	states := schemaReader.States()
+
+	// Collect class names first to avoid concurrent map iteration
+	classNames := make([]string, 0, len(states))
+	for className := range states {
+		classNames = append(classNames, className)
+	}
+
+	for _, className := range classNames {
+		shardingStateCopy := schemaReader.CopyShardingState(className)
+		if shardingStateCopy == nil {
+			continue
+		}
+
+		classInfo := schemaReader.ClassInfo(className)
+		if !classInfo.Exists || classInfo.ReplicationFactor <= 0 {
+			continue
+		}
+
+		desiredRF := int(classInfo.ReplicationFactor)
+
+		// Process each shard that contains the removed node
+		for shardName, shard := range shardingStateCopy.Physical {
+			if !slices.Contains(shard.BelongsToNodes, removedNode) {
+				continue
+			}
+
+			if err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// processShardReplicaRemoval handles the removal of a node from a specific shard's replicas.
+func (s *Raft) processShardReplicaRemoval(ctx context.Context, schemaReader schema.SchemaReader, className, shardName, removedNode string, desiredRF int) error {
+	currentReplicas, err := schemaReader.ShardReplicas(className, shardName)
+	if err != nil {
+		return fmt.Errorf("get replicas for shard %q in collection %q: %w", shardName, className, err)
+	}
+
+	currentCount := len(currentReplicas)
+
+	// If we're at or below the desired RF, add replacement replicas first
+	if currentCount <= desiredRF {
+		if err := s.addReplacementReplicas(ctx, className, shardName, currentReplicas, removedNode, desiredRF); err != nil {
+			return err
+		}
+	}
+
+	// Re-read replicas to get the current state after potential additions
+	finalReplicas, err := schemaReader.ShardReplicas(className, shardName)
+	if err != nil {
+		return fmt.Errorf("get replicas for shard %q in collection %q before deletion: %w", shardName, className, err)
+	}
+
+	// Verify the removed node is still present before attempting deletion
+	if !slices.Contains(finalReplicas, removedNode) {
+		return nil
+	}
+
+	finalCount := len(finalReplicas)
+	if finalCount < desiredRF {
+		s.log.WithFields(logrus.Fields{
+			"collection":         className,
+			"shard":              shardName,
+			"removed_node":       removedNode,
+			"replication_factor": desiredRF,
+			"current_replicas":   finalCount,
+		}).Warn("skipping replica removal after node departure: insufficient nodes to maintain replication factor")
+		return nil
+	}
+
+	if _, err := s.DeleteReplicaFromShard(ctx, className, shardName, removedNode); err != nil {
+		return fmt.Errorf("delete replica %q from shard %q in collection %q: %w", removedNode, shardName, className, err)
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"collection":         className,
+		"shard":              shardName,
+		"removed_node":       removedNode,
+		"replication_factor": desiredRF,
+		"current_replicas":   finalCount,
+	}).Info("deleted replica from shard")
+
+	return nil
+}
+
+// addReplacementReplicas adds replacement replicas to ensure we have at least desiredRF + 1
+// replicas before removing the old one.
+func (s *Raft) addReplacementReplicas(ctx context.Context, className, shardName string, currentReplicas []string, removedNode string, desiredRF int) error {
+	availableNodes := s.StorageCandidates()
+
+	// Build set of available nodes (excluding removed node and existing replicas)
+	availableSet := make(map[string]bool)
+	for _, node := range availableNodes {
+		if node != removedNode {
+			availableSet[node] = true
+		}
+	}
+	for _, replica := range currentReplicas {
+		delete(availableSet, replica)
+	}
+
+	// Always ensure we have at least desiredRF + 1 replicas before deletion
+	targetCount := desiredRF + 1
+	currentCount := len(currentReplicas)
+
+	for currentCount < targetCount && len(availableSet) > 0 {
+		// Pick first available node
+		var newNode string
+		for node := range availableSet {
+			newNode = node
+			break
+		}
+
+		if _, err := s.AddReplicaToShard(ctx, className, shardName, newNode); err != nil {
+			return fmt.Errorf("add replica %q to shard %q in collection %q: %w", newNode, shardName, className, err)
+		}
+
+		delete(availableSet, newNode)
+		currentCount++
+	}
+
+	return nil
 }
 
 func (s *Raft) Stats() map[string]any {
