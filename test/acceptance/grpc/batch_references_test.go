@@ -35,6 +35,8 @@ func TestGrpcBatchReferences(t *testing.T) {
 	grpcClient, _ := newClient(t)
 
 	clsA := articles.ArticlesClass()
+	trueVal := true
+	clsA.Properties[1].DisableDuplicatedReferences = &trueVal
 	clsP := articles.ParagraphsClass()
 
 	helper.DeleteClass(t, clsP.Class)

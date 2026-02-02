@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -290,11 +291,12 @@ func (s *Shard) mergeObjectData(prevObj *storobj.Object,
 		prevObj.SetID(merge.ID)
 	}
 
-	return mergeProps(prevObj, merge), prevObj, nil
+	return mergeProps(prevObj, merge, s.class), prevObj, nil
 }
 
 func mergeProps(previous *storobj.Object,
 	merge objects.MergeDocument,
+	cls *models.Class,
 ) *storobj.Object {
 	next := previous.DeepCopyDangerous()
 	properties, ok := next.Properties().(map[string]interface{})
@@ -320,7 +322,14 @@ func mergeProps(previous *storobj.Object,
 			propParsed = models.MultipleRef{}
 		}
 		propParsed = append(propParsed, ref.To.SingleRef())
-		properties[propName] = dedupRefs(propParsed)
+		if prop, err := schema.GetPropertyByName(cls, ref.From.Property.String()); err == nil {
+			if prop.DisableDuplicatedReferences != nil && *prop.DisableDuplicatedReferences {
+				properties[propName] = dedupRefs(propParsed)
+				continue
+			}
+		}
+		properties[propName] = propParsed
+
 	}
 
 	if merge.Vector == nil {
