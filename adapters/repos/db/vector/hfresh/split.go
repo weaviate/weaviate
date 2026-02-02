@@ -188,12 +188,21 @@ type SplitResult struct {
 }
 
 func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64, newPostings []SplitResult) error {
-	oldCentroid := h.Centroids.Get(oldPostingID)
+	oldCentroid, err := h.Centroids.Get(oldPostingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get centroid for posting %d", oldPostingID)
+	}
 
 	reassignedVectors := make(map[uint64]struct{})
 
-	newPostingCentroid0 := h.Centroids.Get(newPostingIDs[0])
-	newPostingCentroid1 := h.Centroids.Get(newPostingIDs[1])
+	newPostingCentroid0, err := h.Centroids.Get(newPostingIDs[0])
+	if err != nil {
+		return errors.Wrapf(err, "failed to get centroid for posting %d", newPostingIDs[0])
+	}
+	newPostingCentroid1, err := h.Centroids.Get(newPostingIDs[1])
+	if err != nil {
+		return errors.Wrapf(err, "failed to get centroid for posting %d", newPostingIDs[1])
+	}
 	newPostingCentroids := [2]*Centroid{newPostingCentroid0, newPostingCentroid1}
 
 	// first check: if a vector is closer to one of the new posting centroid than the old centroid,
@@ -268,7 +277,10 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 			return errors.Wrapf(err, "failed to get posting %d for reassign after split", neighborID)
 		}
 
-		neighborCentroid := h.Centroids.Get(neighborID)
+		neighborCentroid, err := h.Centroids.Get(neighborID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get centroid for posting %d", neighborID)
+		}
 		for _, v := range p {
 			vid := v.ID()
 			_, exists := reassignedVectors[vid]
