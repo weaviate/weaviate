@@ -94,7 +94,11 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// get posting centroid
-	oldCentroid := h.Centroids.Get(postingID)
+	oldCentroid, err := h.Centroids.Get(postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get centroid for posting %d", postingID)
+	}
+
 	if oldCentroid == nil {
 		h.logger.WithField("postingID", postingID).
 			Debug("posting centroid not found, skipping merge operation")
@@ -220,8 +224,15 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			// if merged vectors are closer to their old centroid than the new one
 			// there may be better centroids for them out there.
 			// we need to reassign them in the background.
-			smallCentroid := h.Centroids.Get(smallID)
-			largeCentroid := h.Centroids.Get(largeID)
+			smallCentroid, err := h.Centroids.Get(smallID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get centroid for posting %d", smallID)
+			}
+
+			largeCentroid, err := h.Centroids.Get(largeID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get centroid for posting %d", largeID)
+			}
 			for _, v := range smallPosting {
 				prevDist, err := smallCentroid.Distance(h.distancer, v)
 				if err != nil {
