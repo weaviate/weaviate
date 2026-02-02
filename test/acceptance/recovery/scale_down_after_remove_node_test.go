@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
@@ -95,15 +96,32 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 		}, 30*time.Second, time.Second)
 	})
 
-	// Pick a node that currently owns at least one replica.
+	var leaderID string
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		statsResp, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), nil)
+		require.NoError(ct, err)
+		require.NotNil(ct, statsResp.Payload)
+		require.NotEmpty(ct, statsResp.Payload.Statistics)
+		if statsResp.Payload.Statistics[0].LeaderID != nil {
+			leaderID = fmt.Sprintf("%v", statsResp.Payload.Statistics[0].LeaderID)
+		}
+		require.NotEmpty(ct, leaderID, "cluster must have a leader before removing a node")
+	}, 10*time.Second, time.Second)
+
+	// Pick a node that currently owns at least one replica, excluding the leader.
 	var nodeToRemove string
 	for _, shard := range initialState.Shards {
-		if len(shard.Replicas) > 0 {
-			nodeToRemove = shard.Replicas[0]
+		for _, replica := range shard.Replicas {
+			if replica != leaderID {
+				nodeToRemove = replica
+				break
+			}
+		}
+		if nodeToRemove != "" {
 			break
 		}
 	}
-	require.NotEmpty(t, nodeToRemove, "expected at least one replica to decide which node to remove")
+	require.NotEmpty(t, nodeToRemove, "expected at least one non-leader replica to decide which node to remove")
 
 	t.Run("remove node via /v1/cluster/remove", func(t *testing.T) {
 		body := map[string]string{"node": nodeToRemove}
