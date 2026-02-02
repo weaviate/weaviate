@@ -14,7 +14,6 @@ package hfresh
 import (
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -58,14 +57,15 @@ func TestVersionMap(t *testing.T) {
 	t.Run("get unknown vector", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		_, err := versionMap.Get(ctx, 1)
-		require.True(t, errors.Is(err, ErrVectorNotFound))
+		v, err := versionMap.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, VectorVersion(1), v)
 	})
 
 	t.Run("get existing vector", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		want, err := versionMap.Increment(ctx, 1, VectorVersion(0))
+		want, err := versionMap.Increment(ctx, 1, VectorVersion(1))
 		require.NoError(t, err)
 
 		got, err := versionMap.Get(ctx, 1)
@@ -76,33 +76,33 @@ func TestVersionMap(t *testing.T) {
 	t.Run("increment unknown vector", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		version, err := versionMap.Increment(ctx, 1, VectorVersion(0))
+		version, err := versionMap.Increment(ctx, 1, VectorVersion(1))
 		require.NoError(t, err)
-		require.Equal(t, VectorVersion(1), version)
+		require.Equal(t, VectorVersion(2), version)
 	})
 
 	t.Run("increment existing vector", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		version, err := versionMap.Increment(ctx, 1, VectorVersion(0))
+		version, err := versionMap.Increment(ctx, 1, VectorVersion(1))
 		require.NoError(t, err)
-		require.Equal(t, VectorVersion(1), version)
+		require.Equal(t, VectorVersion(2), version)
 
 		version, err = versionMap.Increment(ctx, 1, version)
 		require.NoError(t, err)
-		require.Equal(t, VectorVersion(2), version)
+		require.Equal(t, VectorVersion(3), version)
 	})
 
 	t.Run("increment with wrong previous version", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		version, err := versionMap.Increment(ctx, 1, VectorVersion(0))
+		version, err := versionMap.Increment(ctx, 1, VectorVersion(1))
 		require.NoError(t, err)
-		require.Equal(t, VectorVersion(1), version)
+		require.Equal(t, VectorVersion(2), version)
 
-		version, err = versionMap.Increment(ctx, 1, VectorVersion(0))
+		version, err = versionMap.Increment(ctx, 1, VectorVersion(1))
 		require.Error(t, err)
-		require.Equal(t, VectorVersion(1), version)
+		require.Equal(t, VectorVersion(2), version)
 
 		version, err = versionMap.Get(ctx, 1)
 		require.NoError(t, err)
@@ -112,12 +112,12 @@ func TestVersionMap(t *testing.T) {
 	t.Run("increment with wraparound", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		var version VectorVersion
+		version := v1
 		var err error
-		for i := range 127 {
+		for i := range 126 {
 			version, err = versionMap.Increment(ctx, 1, version)
 			require.NoError(t, err)
-			require.EqualValues(t, i+1, version.Version())
+			require.EqualValues(t, i+2, version.Version())
 		}
 
 		version, err = versionMap.Increment(ctx, 1, version)
@@ -134,15 +134,15 @@ func TestVersionMap(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
 		_, err := versionMap.MarkDeleted(ctx, 1)
-		require.Error(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("mark vector as deleted and check if it is deleted", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		version, err := versionMap.Increment(ctx, 1, 0)
+		version, err := versionMap.Increment(ctx, 1, v1)
 		require.NoError(t, err)
-		require.Equal(t, VectorVersion(1), version)
+		require.Equal(t, VectorVersion(2), version)
 
 		_, err = versionMap.MarkDeleted(ctx, 1)
 		require.NoError(t, err)
@@ -155,9 +155,9 @@ func TestVersionMap(t *testing.T) {
 	t.Run("mark deleted vector as deleted", func(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
-		version, err := versionMap.Increment(ctx, 1, 0)
+		version, err := versionMap.Increment(ctx, 1, v1)
 		require.NoError(t, err)
-		require.Equal(t, VectorVersion(1), version)
+		require.Equal(t, VectorVersion(2), version)
 
 		v, err := versionMap.MarkDeleted(ctx, 1)
 		require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestVersionMap(t *testing.T) {
 		versionMap := makeVersionMap(t)
 
 		deleted, err := versionMap.IsDeleted(ctx, 1)
-		require.Error(t, err)
+		require.NoError(t, err)
 		require.False(t, deleted)
 	})
 }
