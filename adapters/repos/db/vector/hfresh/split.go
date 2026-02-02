@@ -192,6 +192,10 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 
 	reassignedVectors := make(map[uint64]struct{})
 
+	newPostingCentroid0 := h.Centroids.Get(newPostingIDs[0])
+	newPostingCentroid1 := h.Centroids.Get(newPostingIDs[1])
+	newPostingCentroids := [2]*Centroid{newPostingCentroid0, newPostingCentroid1}
+
 	// first check: if a vector is closer to one of the new posting centroid than the old centroid,
 	// neighboring centroids cannot be better.
 	for i := range newPostings {
@@ -205,7 +209,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 			}
 			if !exists && !v.Version().Deleted() && version == v.Version() {
 				// compute distance from v to its new centroid
-				newDist, err := h.Centroids.Get(newPostingIDs[i]).Distance(h.distancer, v)
+				newDist, err := newPostingCentroids[i].Distance(h.distancer, v)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[i])
 				}
@@ -264,6 +268,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 			return errors.Wrapf(err, "failed to get posting %d for reassign after split", neighborID)
 		}
 
+		neighborCentroid := h.Centroids.Get(neighborID)
 		for _, v := range p {
 			vid := v.ID()
 			_, exists := reassignedVectors[vid]
@@ -275,7 +280,7 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 				continue
 			}
 
-			distNeighbor, err := h.Centroids.Get(neighborID).Distance(h.distancer, v)
+			distNeighbor, err := neighborCentroid.Distance(h.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighborID)
 			}
@@ -285,12 +290,12 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 				return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 			}
 
-			distA0, err := h.Centroids.Get(newPostingIDs[0]).Distance(h.distancer, v)
+			distA0, err := newPostingCentroid0.Distance(h.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[0])
 			}
 
-			distA1, err := h.Centroids.Get(newPostingIDs[1]).Distance(h.distancer, v)
+			distA1, err := newPostingCentroid1.Distance(h.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[1])
 			}
