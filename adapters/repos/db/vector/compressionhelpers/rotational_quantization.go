@@ -171,7 +171,9 @@ func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 }
 
 func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
-	return rq.UnRotate(rq.Restore(compressed))
+	// restore the vector from its compressed form, creating a new slice
+	// then un-rotate in place and return
+	return rq.rotation.UnRotateInPlace(rq.Restore(compressed))
 }
 
 func dotProduct(x, y []float32) float32 {
@@ -214,7 +216,7 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 }
 
 func (rq *RotationalQuantizer) UnRotate(x []float32) []float32 {
-	return rq.rotation.UnRotate(x)
+	return rq.rotation.UnRotateInPlace(x)
 }
 
 func (rq *RotationalQuantizer) Rotate(x []float32) []float32 {
