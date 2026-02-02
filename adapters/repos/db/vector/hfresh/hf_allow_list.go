@@ -74,6 +74,10 @@ func (a *hfAllowList) Contains(id uint64) bool {
 		return true
 	}
 
+	if a.h.Centroids != nil && !a.h.Centroids.Exists(id) {
+		return false
+	}
+
 	p, err := a.h.PostingMap.Get(a.ctx, id)
 	if err != nil {
 		return false
