@@ -320,7 +320,7 @@ func mergeProps(previous *storobj.Object,
 			propParsed = models.MultipleRef{}
 		}
 		propParsed = append(propParsed, ref.To.SingleRef())
-		properties[propName] = propParsed
+		properties[propName] = dedupRefs(propParsed)
 	}
 
 	if merge.Vector == nil {
@@ -341,6 +341,19 @@ func mergeProps(previous *storobj.Object,
 	next.SetProperties(properties)
 
 	return next
+}
+
+func dedupRefs(refs models.MultipleRef) models.MultipleRef {
+	seen := make(map[string]struct{})
+	var deduped models.MultipleRef
+	for _, ref := range refs {
+		key := fmt.Sprintf("%s|%s", ref.Beacon, ref.Class)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			deduped = append(deduped, ref)
+		}
+	}
+	return deduped
 }
 
 func vectorsAsMap(in models.Vectors) map[string][]float32 {
