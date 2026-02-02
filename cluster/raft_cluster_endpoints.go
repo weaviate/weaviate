@@ -163,7 +163,7 @@ func (s *Raft) processShardReplicaRemoval(ctx context.Context, schemaReader sche
 
 	// If we're at or below the desired RF, add replacement replicas first
 	if currentCount <= desiredRF {
-		if err := s.addReplacementReplicas(ctx, schemaReader, className, shardName, currentReplicas, removedNode, desiredRF); err != nil {
+		if err := s.addReplacementReplicas(ctx, className, shardName, currentReplicas, removedNode, desiredRF); err != nil {
 			return err
 		}
 	}
@@ -208,7 +208,7 @@ func (s *Raft) processShardReplicaRemoval(ctx context.Context, schemaReader sche
 
 // addReplacementReplicas adds replacement replicas to ensure we have at least desiredRF + 1
 // replicas before removing the old one.
-func (s *Raft) addReplacementReplicas(ctx context.Context, schemaReader schema.SchemaReader, className, shardName string, currentReplicas []string, removedNode string, desiredRF int) error {
+func (s *Raft) addReplacementReplicas(ctx context.Context, className, shardName string, currentReplicas []string, removedNode string, desiredRF int) error {
 	availableNodes := s.StorageCandidates()
 
 	// Build set of available nodes (excluding removed node and existing replicas)
