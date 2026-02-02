@@ -66,9 +66,7 @@ type VersionMap struct {
 }
 
 func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
-	cache, _ := otter.New(&otter.Options[uint64, VectorVersion]{
-		MaximumSize: 1_000_000,
-	})
+	cache, _ := otter.New[uint64, VectorVersion](nil)
 
 	return &VersionMap{
 		cache: cache,
