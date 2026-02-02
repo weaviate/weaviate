@@ -72,6 +72,13 @@ func TestGrpcBatchReferences(t *testing.T) {
 				FromUuid:       UUID0,
 				ToUuid:         UUID2,
 			}, // Test without ToCollection
+			{
+				Name:           "hasParagraphs",
+				FromCollection: clsA.Class,
+				ToCollection:   &clsP.Class,
+				FromUuid:       UUID0,
+				ToUuid:         UUID1,
+			}, // Test duplicate reference
 		},
 	})
 	require.NoError(t, err, "BatchReferences should not return an error")
