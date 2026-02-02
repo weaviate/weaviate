@@ -462,34 +462,13 @@ func (q *DiskQueue) ForceSwitch() ([]string, error) {
 		return nil, errors.New("queue must be paused before forcing a switch")
 	}
 
-	// list current files
-	entries, err := os.ReadDir(q.dir)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to read directory")
-	}
-
-	chunkList := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		// check if the entry name matches the regex pattern of a chunk file
-		if !chunkFilePattern.Match([]byte(entry.Name())) {
-			continue
-		}
-
-		filePath := filepath.Join(q.dir, entry.Name())
-		chunkList = append(chunkList, filePath)
-	}
-
 	// promote the current partial chunk
-	err = q.w.Promote()
+	err := q.w.Promote()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to promote chunk")
 	}
 
-	return chunkList, nil
+	return q.listFilesNoLock(context.Background(), q.dir)
 }
 
 func (q *DiskQueue) Drop() error {
@@ -601,6 +580,10 @@ func (q *DiskQueue) ListFiles(ctx context.Context, basePath string) ([]string, e
 	q.m.Lock()
 	defer q.m.Unlock()
 
+	return q.listFilesNoLock(ctx, basePath)
+}
+
+func (q *DiskQueue) listFilesNoLock(ctx context.Context, basePath string) ([]string, error) {
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
 		if stderrors.Is(err, fs.ErrNotExist) {
