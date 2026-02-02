@@ -19,14 +19,12 @@ import (
 )
 
 func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helpers.AllowList {
-	wrappedIdVisited := h.visitedPool.Borrow()
-	idVisited := h.visitedPool.Borrow()
 	return &allowList{
-		wrapped:          al,
+		AllowList:        al,
 		ctx:              ctx,
 		h:                h,
-		idVisited:        idVisited,
-		wrappedIdVisited: wrappedIdVisited,
+		idVisited:        h.visitedPool.Borrow(),
+		wrappedIdVisited: h.visitedPool.Borrow(),
 	}
 }
 
@@ -62,7 +60,7 @@ func (i *AllowListIterator) Next() (uint64, bool) {
 }
 
 type allowList struct {
-	wrapped          helpers.AllowList
+	helpers.AllowList
 	ctx              context.Context
 	h                *HFresh
 	wrappedIdVisited visited.ListSet
@@ -83,28 +81,13 @@ func (a *allowList) Contains(id uint64) bool {
 	defer p.RUnlock()
 
 	for _, metadata := range p.Iter() {
-		if !a.wrappedIdVisited.Visited(metadata.ID) && a.wrapped.Contains(metadata.ID) {
+		if !a.wrappedIdVisited.Visited(metadata.ID) && a.AllowList.Contains(metadata.ID) {
 			a.wrappedIdVisited.Visit(metadata.ID)
 			a.idVisited.Visit(id)
 			return true
 		}
 	}
 	return false
-}
-
-// DeepCopy implements [helpers.AllowList].
-func (a *allowList) DeepCopy() helpers.AllowList {
-	panic("unimplemented")
-}
-
-// Insert implements [helpers.AllowList].
-func (a *allowList) Insert(ids ...uint64) {
-	panic("unimplemented")
-}
-
-// IsEmpty implements [helpers.AllowList].
-func (a *allowList) IsEmpty() bool {
-	panic("unimplemented")
 }
 
 // Iterator implements [helpers.AllowList].
@@ -115,41 +98,6 @@ func (a *allowList) Iterator() helpers.AllowListIterator {
 // Len implements [helpers.AllowList].
 func (a *allowList) Len() int {
 	return int(a.h.Centroids.GetMaxID())
-}
-
-// LimitedIterator implements [helpers.AllowList].
-func (a *allowList) LimitedIterator(limit int) helpers.AllowListIterator {
-	panic("unimplemented")
-}
-
-// Max implements [helpers.AllowList].
-func (a *allowList) Max() uint64 {
-	panic("unimplemented")
-}
-
-// Min implements [helpers.AllowList].
-func (a *allowList) Min() uint64 {
-	panic("unimplemented")
-}
-
-// Size implements [helpers.AllowList].
-func (a *allowList) Size() uint64 {
-	panic("unimplemented")
-}
-
-// Slice implements [helpers.AllowList].
-func (a *allowList) Slice() []uint64 {
-	panic("unimplemented")
-}
-
-// Truncate implements [helpers.AllowList].
-func (a *allowList) Truncate(uint64) helpers.AllowList {
-	panic("unimplemented")
-}
-
-// WrapOnWrite implements [helpers.AllowList].
-func (a *allowList) WrapOnWrite() helpers.AllowList {
-	panic("unimplemented")
 }
 
 func (a *allowList) Close() {
