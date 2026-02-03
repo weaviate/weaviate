@@ -15,14 +15,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -72,12 +72,23 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
+	// Ensure tenant is active before read when AutoTenantActivation is enabled.
+	// Otherwise replicas with loading shards can fail QUORUM reads.
+	var activationVersion uint64
+	if updates.Tenant != "" {
+		var err error
+		activationVersion, err = m.schemaManager.EnsureTenantActiveForWrite(ctx, className, updates.Tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	maxSchemaVersion := fetchedClasses[className].Version
+	maxSchemaVersion := max(fetchedClasses[className].Version, activationVersion)
 	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)

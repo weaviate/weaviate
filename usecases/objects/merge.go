@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -75,6 +76,17 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
+	// Ensure tenant is active before read when AutoTenantActivation is enabled.
+	// Otherwise replicas with loading shards can fail QUORUM reads.
+	var activationVersion uint64
+	if updates.Tenant != "" {
+		var err error
+		activationVersion, err = m.schemaManager.EnsureTenantActiveForWrite(ctx, cls, updates.Tenant)
+		if err != nil {
+			return &Error{"repo.object", StatusInternalServerError, err}
+		}
+	}
+
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch {
@@ -99,6 +111,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
+	maxSchemaVersion = max(fetchedClass[cls].Version, activationVersion)
 
 	var propertiesToDelete []string
 	if updates.Properties != nil {
