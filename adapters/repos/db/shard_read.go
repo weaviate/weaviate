@@ -677,12 +677,14 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 	}
 
 	out := make([]*storobj.Object, c.Limit)
-	*nextIteratorUuid = uuid.Nil.String()
+	if nextIteratorUuid != nil {
+		*nextIteratorUuid = uuid.Nil.String()
+	}
 
 	// 1. This loop has to move ahead 10x Limit searching for allowed IDs
 	// 2. Happy path finds {Limit} amount of results and returns
-	// 3. Worst case it scans 10x Limit and does not find enough results to return Limit objects.
-	// 4. Populate then UUID from the last seen docID to restore the starting point on the next iteration.
+	// 3. Worst case it scans 10x Limit past the last match found and does not find enough results to return Limit objects.
+	// 4. Populate the UUID from the last seen docID to restore the starting point on the next iteration.
 	for ; key != nil && i < c.Limit && j < scanLimit; key, val = cursor.Next() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -717,6 +719,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 		out[i] = obj
 		*nextIteratorUuid = obj.ID().String()
 		i++
+		scanLimit += c.Limit * 10 // reset scan limit each time we find a match
 	}
 
 	return out[:i], nil

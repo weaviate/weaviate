@@ -312,7 +312,14 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 
 	if searchParams.Cursor != nil {
-		searchParams.IteratorState = &dto.IteratorState{}
+		// Preserve existing ShardCursors if they were parsed from the request
+		existingShardCursors := make(map[string]string)
+		if searchParams.IteratorState != nil && len(searchParams.IteratorState.ShardCursors) > 0 {
+			existingShardCursors = searchParams.IteratorState.ShardCursors
+		}
+		searchParams.IteratorState = &dto.IteratorState{
+			ShardCursors: existingShardCursors,
+		}
 	}
 
 	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)

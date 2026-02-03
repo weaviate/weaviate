@@ -1810,6 +1810,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *entfilters
 		incomingShardCursors := iteratorState.ShardCursors
 		iteratorState.ShardCursors = make(map[string]string)
 
+		// First, preserve exhausted shard cursors from incoming state
+		// These shards were skipped in the search but need to remain marked as exhausted
+		for shardName, cursor := range incomingShardCursors {
+			if cursor == uuid.Nil.String() {
+				iteratorState.ShardCursors[shardName] = uuid.Nil.String()
+			}
+		}
+
 		// Determine which objects will be discarded by truncation
 		willBeTruncated := !addlProps.ReferenceQuery && len(outObjects) > limit
 
@@ -1851,7 +1859,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *entfilters
 					iteratorState.ShardCursors[shardName] = uuidBeforeDiscarded
 				} else {
 					// All results from this shard were discarded, nothing kept
-					// Don't advance cursor - use incoming shard cursor or global cursor
+					// Retain incoming cursor - this shard will be re-queried
+					// This is OK as long as at least one other shard is advancing
 					if incomingShardCursors != nil {
 						if incomingCursor, exists := incomingShardCursors[shardName]; exists {
 							iteratorState.ShardCursors[shardName] = incomingCursor
@@ -1943,8 +1952,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *ent
 		}
 
 		// Create per-shard iterator state to capture nextIteratorUUID from remote shard
+		// Include the current shard cursor so the remote node knows where to start
 		shardIterState := &dto.IteratorState{
 			ShardCursors: make(map[string]string),
+		}
+		if shardCursor != nil && shardCursor.After != "" {
+			shardIterState.ShardCursors[shardName] = shardCursor.After
 		}
 
 		objs, scores, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, shardCursor, nil, addlProps, nil, properties, shardIterState)
@@ -2429,7 +2442,24 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	if len(searchVectors) == 0 {
-		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties, iteratorState)
+		// In filtered iterator mode, use per-shard cursor if available
+		shardCursor := cursor
+		if iteratorState != nil && len(iteratorState.ShardCursors) > 0 {
+			if perShardCursor, exists := iteratorState.ShardCursors[shardName]; exists {
+				// Check if shard is exhausted
+				if perShardCursor == uuid.Nil.String() {
+					// Shard is exhausted, return empty results
+					return nil, nil, nil
+				}
+				// Use the per-shard cursor
+				shardCursor = &entfilters.Cursor{
+					After: perShardCursor,
+					Limit: cursor.Limit,
+				}
+			}
+		}
+
+		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, shardCursor, additional, properties, iteratorState)
 		if err != nil {
 			return nil, nil, err
 		}
