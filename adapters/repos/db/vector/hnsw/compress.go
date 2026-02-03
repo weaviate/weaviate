@@ -27,7 +27,12 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		return nil
 	}
 	h.compressActionLock.Lock()
-	defer h.compressActionLock.Unlock()
+	released := false
+	defer func() {
+		if !released {
+			h.compressActionLock.Unlock()
+		}
+	}()
 	data := h.cache.All()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
@@ -122,6 +127,9 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		}
 	} else if cfg.RQ.Enabled {
 		h.rqActive.Store(true)
+		released = true
+		h.compressActionLock.Unlock()
+		h.checkAndCompress()
 		return nil
 	}
 	if singleVector {
