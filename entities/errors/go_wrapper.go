@@ -14,7 +14,6 @@ package errors
 import (
 	"fmt"
 	"os"
-	"runtime/debug"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -29,7 +28,7 @@ func GoWrapper(f func(), logger logrus.FieldLogger) {
 				if r := recover(); r != nil {
 					logger.Errorf("Recovered from panic: %v", r)
 					entsentry.Recover(r)
-					debug.PrintStack()
+					PrintStack(logger)
 				}
 			}
 		}()
@@ -45,7 +44,7 @@ func GoWrapperWithErrorCh(f func(), logger logrus.FieldLogger) chan error {
 				if r := recover(); r != nil {
 					logger.Errorf("Recovered from panic: %v", r)
 					entsentry.Recover(r)
-					debug.PrintStack()
+					PrintStack(logger)
 					errChan <- fmt.Errorf("panic occurred: %v", r)
 				}
 			}

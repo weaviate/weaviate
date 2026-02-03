@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -298,7 +297,7 @@ func (b *BM25Searcher) wand(
 						WithField("prop_names", propNames).
 						WithField("has_filter", filterDocIds != nil).
 						Errorf("panic: %v", p)
-					debug.PrintStack()
+					enterrors.PrintStack(b.logger)
 					err = fmt.Errorf("an internal error occurred during BM25 search")
 				}
 			}()

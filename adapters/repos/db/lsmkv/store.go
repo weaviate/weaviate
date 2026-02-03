@@ -18,7 +18,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -166,7 +165,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 				"bucket":   bucketName,
 			}).
 			WithError(err).Errorf("unexpected error loading shard")
-		debug.PrintStack()
+		enterrors.PrintStack(s.logger)
 	}()
 
 	if s.loadLimiter != nil {
