@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespace"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -37,11 +38,25 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return batch.NewBatchObjectsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class names with namespace for all objects
+	for _, obj := range params.Body.Objects {
+		if obj != nil && obj.Class != "" {
+			obj.Class = namespace.PrefixClassName(ns, obj.Class)
+		}
 	}
 
 	objs, err := h.manager.AddObjects(ctx, principal,
@@ -80,6 +95,8 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 		}
 
 		object.Object.ID = object.UUID
+		// Strip namespace prefix from class name in response
+		object.Object.Class = namespace.StripNamespacePrefix(object.Object.Class)
 		response[i] = &models.ObjectsGetResponse{
 			Object: *object.Object,
 			Result: &models.ObjectsGetResponseAO2Result{
@@ -158,6 +175,13 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return batch.NewBatchObjectsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -166,6 +190,11 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	}
 
 	tenant := getTenant(params.Tenant)
+
+	// Store original class name for response
+	originalClassName := params.Body.Match.Class
+	// Prefix class name with namespace in match criteria
+	params.Body.Match.Class = namespace.PrefixClassName(ns, params.Body.Match.Class)
 
 	res, err := h.manager.DeleteObjects(ctx, principal,
 		params.Body.Match, params.Body.DeletionTimeUnixMilli, params.Body.DryRun, params.Body.Output, repl, tenant)
@@ -185,6 +214,9 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
+
+	// Restore original class name in response
+	res.Match.Class = originalClassName
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsDeleteOK().

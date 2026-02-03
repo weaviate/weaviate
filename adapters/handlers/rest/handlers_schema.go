@@ -14,6 +14,7 @@ package rest
 import (
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespace"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -33,14 +35,38 @@ type schemaHandlers struct {
 	metricRequestsTotal restApiRequestsTotal
 }
 
+// getNamespaceFromRequest extracts and validates the namespace from the HTTP request header.
+// Returns the default namespace if the header is not present.
+func getNamespaceFromRequest(r *http.Request) (string, error) {
+	ns := r.Header.Get(namespace.HeaderName)
+	if ns == "" {
+		return namespace.DefaultNamespace, nil
+	}
+	if err := namespace.ValidateNamespace(ns); err != nil {
+		return "", err
+	}
+	return ns, nil
+}
+
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	_, _, err := s.manager.AddClass(ctx, principal, params.ObjectClass)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
 	if err != nil {
-		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
+		return schema.NewSchemaObjectsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Store original class name for response
+	originalClassName := params.ObjectClass.Class
+	// Prefix class name with namespace for internal storage
+	params.ObjectClass.Class = namespace.PrefixClassName(ns, params.ObjectClass.Class)
+
+	_, _, err = s.manager.AddClass(ctx, principal, params.ObjectClass)
+	if err != nil {
+		s.metricRequestsTotal.logError(originalClassName, err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsCreateForbidden().
@@ -51,7 +77,9 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 		}
 	}
 
-	s.metricRequestsTotal.logOk(params.ObjectClass.Class)
+	// Restore original class name for response
+	params.ObjectClass.Class = originalClassName
+	s.metricRequestsTotal.logOk(originalClassName)
 	return schema.NewSchemaObjectsCreateOK().WithPayload(params.ObjectClass)
 }
 
@@ -59,10 +87,24 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	err := s.manager.UpdateClass(ctx, principal, params.ClassName,
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewSchemaObjectsUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Store original class name for response
+	originalClassName := params.ClassName
+	originalBodyClassName := params.ObjectClass.Class
+	// Prefix class names with namespace for internal storage
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+	params.ObjectClass.Class = namespace.PrefixClassName(ns, params.ObjectClass.Class)
+
+	err = s.manager.UpdateClass(ctx, principal, prefixedClassName,
 		params.ObjectClass)
 	if err != nil {
-		s.metricRequestsTotal.logError(params.ClassName, err)
+		s.metricRequestsTotal.logError(originalClassName, err)
 		if errors.Is(err, schemaUC.ErrNotFound) {
 			return schema.NewSchemaObjectsUpdateNotFound()
 		}
@@ -77,7 +119,9 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 		}
 	}
 
-	s.metricRequestsTotal.logOk(params.ClassName)
+	// Restore original class name for response
+	params.ObjectClass.Class = originalBodyClassName
+	s.metricRequestsTotal.logOk(originalClassName)
 	return schema.NewSchemaObjectsUpdateOK().WithPayload(params.ObjectClass)
 }
 
@@ -85,7 +129,17 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	class, _, err := s.manager.GetConsistentClass(ctx, principal, params.ClassName, *params.Consistency)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewSchemaObjectsGetInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace for lookup
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	class, _, err := s.manager.GetConsistentClass(ctx, principal, prefixedClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -103,12 +157,23 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 		return schema.NewSchemaObjectsGetNotFound()
 	}
 
+	// Strip namespace prefix from class name in response
+	class.Class = namespace.StripNamespacePrefix(class.Class)
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsGetOK().WithPayload(class)
 }
 
 func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteClass(params.HTTPRequest.Context(), principal, params.ClassName)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewSchemaObjectsDeleteBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace for deletion
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	err = s.manager.DeleteClass(params.HTTPRequest.Context(), principal, prefixedClassName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -128,7 +193,17 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	_, _, err := s.manager.AddClassProperty(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, false, params.Body)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	_, _, err = s.manager.AddClassProperty(ctx, principal, s.manager.ReadOnlyClass(prefixedClassName), prefixedClassName, false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -146,7 +221,18 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetConsistentSchema(params.HTTPRequest.Context(), principal, *params.Consistency)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewSchemaDumpForbidden().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Get schema with RBAC filtering applied
+	// Note: For production, RBAC would need to be namespace-aware so permissions
+	// can be defined per collection rather than per namespace-prefixed name.
+	dbSchema, err := s.manager.GetConsistentSchema(ctx, principal, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
@@ -154,11 +240,24 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaDumpInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	payload := dbSchema.Objects
+	// Filter classes by namespace and strip prefix
+	var filteredClasses []*models.Class
+	for _, class := range dbSchema.Objects.Classes {
+		if namespace.BelongsToNamespace(class.Class, ns) {
+			// Strip namespace prefix from class name
+			class.Class = namespace.StripNamespacePrefix(class.Class)
+			filteredClasses = append(filteredClasses, class)
+		}
+	}
+
+	payload := &models.Schema{
+		Classes: filteredClasses,
+	}
 
 	s.metricRequestsTotal.logOk("")
 	return schema.NewSchemaDumpOK().WithPayload(payload)
@@ -168,6 +267,16 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewSchemaObjectsShardsGetNotFound().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	var tenant string
 	if params.Tenant == nil {
 		tenant = ""
@@ -175,7 +284,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 		tenant = *params.Tenant
 	}
 
-	status, err := s.manager.ShardsStatus(ctx, principal, params.ClassName, tenant)
+	status, err := s.manager.ShardsStatus(ctx, principal, prefixedClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
@@ -198,8 +307,18 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	_, err := s.manager.UpdateShardStatus(
-		ctx, principal, params.ClassName, params.ShardName, params.Body.Status)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	_, err = s.manager.UpdateShardStatus(
+		ctx, principal, prefixedClassName, params.ShardName, params.Body.Status)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
@@ -222,8 +341,18 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	_, err := s.manager.AddTenants(
-		ctx, principal, params.ClassName, params.Body)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewTenantsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	_, err = s.manager.AddTenants(
+		ctx, principal, prefixedClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -244,8 +373,18 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewTenantsUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	updatedTenants, err := s.manager.UpdateTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, prefixedClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -266,8 +405,18 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	err := s.manager.DeleteTenants(
-		ctx, principal, params.ClassName, params.Tenants)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewTenantsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	err = s.manager.DeleteTenants(
+		ctx, principal, prefixedClassName, params.Tenants)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -288,7 +437,17 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	tenants, err := s.manager.GetConsistentTenants(ctx, principal, params.ClassName, *params.Consistency, nil)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewTenantsGetUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	tenants, err := s.manager.GetConsistentTenants(ctx, principal, prefixedClassName, *params.Consistency, nil)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -310,7 +469,17 @@ func (s *schemaHandlers) getTenant(
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	tenant, err := s.manager.GetConsistentTenant(ctx, principal, params.ClassName, *params.Consistency, params.TenantName)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewTenantsGetOneUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	tenant, err := s.manager.GetConsistentTenant(ctx, principal, prefixedClassName, *params.Consistency, params.TenantName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if errors.Is(err, schemaUC.ErrNotFound) {
@@ -340,7 +509,17 @@ func (s *schemaHandlers) getTenant(
 
 func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	if err := s.manager.ConsistentTenantExists(ctx, principal, params.ClassName, *params.Consistency, params.TenantName); err != nil {
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return schema.NewTenantExistsUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
+	if err := s.manager.ConsistentTenantExists(ctx, principal, prefixedClassName, *params.Consistency, params.TenantName); err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if errors.Is(err, schemaUC.ErrNotFound) {
 			return schema.NewTenantExistsNotFound()

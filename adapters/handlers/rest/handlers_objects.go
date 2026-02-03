@@ -30,6 +30,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespace"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -85,12 +86,24 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
-	className := getClassName(params.Body)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Store original class name for response
+	originalClassName := getClassName(params.Body)
+	// Prefix class name with namespace
+	if params.Body != nil && params.Body.Class != "" {
+		params.Body.Class = namespace.PrefixClassName(ns, params.Body.Class)
+	}
 
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
-		h.metricRequestsTotal.logError(className, err)
+		h.metricRequestsTotal.logError(originalClassName, err)
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -106,23 +119,38 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		}
 	}
 
+	// Strip namespace prefix from response
+	object.Class = namespace.StripNamespacePrefix(object.Class)
+
 	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
-	h.metricRequestsTotal.logOk(className)
+	h.metricRequestsTotal.logOk(originalClassName)
 	return objects.NewObjectsCreateOK().WithPayload(object)
 }
 
 func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	className := getClassName(params.Body)
-	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	err := h.manager.ValidateObject(ctx, principal, params.Body, nil)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
 	if err != nil {
-		h.metricRequestsTotal.logError(className, err)
+		return objects.NewObjectsValidateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Store original class name for metrics
+	originalClassName := getClassName(params.Body)
+	// Prefix class name with namespace
+	if params.Body != nil && params.Body.Class != "" {
+		params.Body.Class = namespace.PrefixClassName(ns, params.Body.Class)
+	}
+
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err = h.manager.ValidateObject(ctx, principal, params.Body, nil)
+	if err != nil {
+		h.metricRequestsTotal.logError(originalClassName, err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsValidateForbidden().
@@ -139,7 +167,7 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 		}
 	}
 
-	h.metricRequestsTotal.logOk(className)
+	h.metricRequestsTotal.logOk(originalClassName)
 	return objects.NewObjectsValidateOK()
 }
 
@@ -149,6 +177,15 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 ) middleware.Responder {
 	var additional additional.Properties
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassGetBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
 
 	// The process to extract additional params depends on knowing the schema
 	// which in turn requires a preflight load of the object. We can save this
@@ -162,7 +199,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		if params.ClassName == "" { // deprecated request without classname
 			class, err = h.manager.GetObjectsClass(ctx, principal, params.ID)
 		} else {
-			class, err = h.manager.GetObjectClassFromName(ctx, principal, params.ClassName)
+			class, err = h.manager.GetObjectClassFromName(ctx, principal, prefixedClassName)
 		}
 		if err != nil {
 			h.metricRequestsTotal.logUserError(params.ClassName)
@@ -188,9 +225,9 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	tenant := getTenant(params.Tenant)
 
 	object, err := h.manager.GetObject(ctx, principal,
-		params.ClassName, params.ID, additional, replProps, tenant)
+		prefixedClassName, params.ID, additional, replProps, tenant)
 	if err != nil {
-		h.metricRequestsTotal.logError(getClassName(object), err)
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsClassGetForbidden().
@@ -206,12 +243,15 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		}
 	}
 
+	// Strip namespace prefix from response
+	object.Class = namespace.StripNamespacePrefix(object.Class)
+
 	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
-	h.metricRequestsTotal.logOk(getClassName(object))
+	h.metricRequestsTotal.logOk(params.ClassName)
 	return objects.NewObjectsClassGetOK().WithPayload(object)
 }
 
@@ -222,6 +262,13 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	if params.Class != nil && *params.Class != "" {
 		return h.query(params, principal)
 	}
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsListBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -249,18 +296,24 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		}
 	}
 
-	for i, object := range list {
-		propertiesMap, ok := object.Properties.(map[string]interface{})
-		if ok {
-			list[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
+	// Filter objects by namespace and strip prefix
+	var filteredList []*models.Object
+	for _, object := range list {
+		if namespace.BelongsToNamespace(object.Class, ns) {
+			object.Class = namespace.StripNamespacePrefix(object.Class)
+			propertiesMap, ok := object.Properties.(map[string]interface{})
+			if ok {
+				object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
+			}
+			filteredList = append(filteredList, object)
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
 	return objects.NewObjectsListOK().
 		WithPayload(&models.ObjectsListResponse{
-			Objects:      list,
-			TotalResults: int64(len(list)),
+			Objects:      filteredList,
+			TotalResults: int64(len(filteredList)),
 			Deprecations: deprecationsRes,
 		})
 }
@@ -269,14 +322,28 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
 	if err != nil {
-		h.metricRequestsTotal.logError(*params.Class, err)
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
+
+	// Store original class name for metrics
+	originalClassName := *params.Class
+
+	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
+	if err != nil {
+		h.metricRequestsTotal.logError(originalClassName, err)
+		return objects.NewObjectsListBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace for query
+	prefixedClassName := namespace.PrefixClassName(ns, originalClassName)
+
 	req := uco.QueryParams{
-		Class:      *params.Class,
+		Class:      prefixedClassName,
 		Offset:     params.Offset,
 		Limit:      params.Limit,
 		After:      params.After,
@@ -287,7 +354,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 	}
 	resultSet, rerr := h.manager.Query(ctx, principal, &req)
 	if rerr != nil {
-		h.metricRequestsTotal.logError(req.Class, rerr)
+		h.metricRequestsTotal.logError(originalClassName, rerr)
 		switch rerr.Code {
 		case uco.StatusForbidden:
 			return objects.NewObjectsListForbidden().
@@ -306,14 +373,16 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		}
 	}
 
+	// Strip namespace prefix from results
 	for i, object := range resultSet {
+		resultSet[i].Class = namespace.StripNamespacePrefix(object.Class)
 		propertiesMap, ok := object.Properties.(map[string]interface{})
 		if ok {
 			resultSet[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
 	}
 
-	h.metricRequestsTotal.logOk(req.Class)
+	h.metricRequestsTotal.logOk(originalClassName)
 	return objects.NewObjectsListOK().
 		WithPayload(&models.ObjectsListResponse{
 			Objects:      resultSet,
@@ -327,6 +396,13 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
@@ -336,8 +412,11 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 
 	tenant := getTenant(params.Tenant)
 
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	err = h.manager.DeleteObject(ctx,
-		principal, params.ClassName, params.ID, repl, tenant)
+		principal, prefixedClassName, params.ID, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -363,18 +442,33 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	className := getClassName(params.Body)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassPutUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Store original class name for metrics
+	originalClassName := getClassName(params.Body)
+
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
-		h.metricRequestsTotal.logError(className, err)
+		h.metricRequestsTotal.logError(originalClassName, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	// Prefix class names with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+	if params.Body != nil && params.Body.Class != "" {
+		params.Body.Class = namespace.PrefixClassName(ns, params.Body.Class)
+	}
+
 	object, err := h.manager.UpdateObject(ctx,
-		principal, params.ClassName, params.ID, params.Body, repl)
+		principal, prefixedClassName, params.ID, params.Body, repl)
 	if err != nil {
-		h.metricRequestsTotal.logError(className, err)
+		h.metricRequestsTotal.logError(originalClassName, err)
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -390,12 +484,15 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		}
 	}
 
+	// Strip namespace prefix from response
+	object.Class = namespace.StripNamespacePrefix(object.Class)
+
 	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
-	h.metricRequestsTotal.logOk(className)
+	h.metricRequestsTotal.logOk(originalClassName)
 	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
 
@@ -403,6 +500,13 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassHeadUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
@@ -412,8 +516,11 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 
 	tenant := getTenant(params.Tenant)
 
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	exists, objErr := h.manager.HeadObject(ctx,
-		principal, params.ClassName, params.ID, repl, tenant)
+		principal, prefixedClassName, params.ID, repl, tenant)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch {
@@ -442,19 +549,29 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 	if updates == nil {
 		return objects.NewObjectsClassPatchBadRequest()
 	}
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassPatchUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	updates.ID = params.ID
-	updates.Class = params.ClassName
+	updates.Class = prefixedClassName
 
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
-		h.metricRequestsTotal.logError(getClassName(updates), err)
+		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	objErr := h.manager.MergeObject(ctx, principal, updates, repl)
 	if objErr != nil {
-		h.metricRequestsTotal.logError(getClassName(updates), objErr)
+		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch {
 		case objErr.NotFound():
 			return objects.NewObjectsClassPatchNotFound()
@@ -473,7 +590,7 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 		}
 	}
 
-	h.metricRequestsTotal.logOk(getClassName(updates))
+	h.metricRequestsTotal.logOk(params.ClassName)
 	return objects.NewObjectsClassPatchNoContent()
 }
 
@@ -482,8 +599,18 @@ func (h *objectHandlers) addObjectReference(
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	input := uco.AddReferenceInput{
-		Class:    params.ClassName,
+		Class:    prefixedClassName,
 		ID:       params.ID,
 		Property: params.PropertyName,
 		Ref:      *params.Body,
@@ -526,8 +653,18 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassReferencesPutUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	input := uco.PutReferenceInput{
-		Class:    params.ClassName,
+		Class:    prefixedClassName,
 		ID:       params.ID,
 		Property: params.PropertyName,
 		Refs:     params.Body,
@@ -571,8 +708,18 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	if err != nil {
+		return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	// Prefix class name with namespace
+	prefixedClassName := namespace.PrefixClassName(ns, params.ClassName)
+
 	input := uco.DeleteReferenceInput{
-		Class:     params.ClassName,
+		Class:     prefixedClassName,
 		ID:        params.ID,
 		Property:  params.PropertyName,
 		Reference: *params.Body,
