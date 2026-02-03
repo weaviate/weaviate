@@ -29,6 +29,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -131,7 +132,7 @@ func (c *Client) validateConfig() error {
 }
 
 // ValidateAndExtract can be used as a middleware for go-swagger
-func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
+func (c *Client) ValidateAndExtract(token string, scopes []string) (*authentication.AuthResult, error) {
 	if !c.Config.Enabled {
 		return nil, errors.New(401, "oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured")
 	}
@@ -152,12 +153,15 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}
 
 	groups := c.extractGroups(claims)
+	namespace := c.extractNamespace(claims)
 
-	return &models.Principal{
+	principal := &models.Principal{
 		Username: username,
 		Groups:   groups,
 		UserType: models.UserTypeInputOidc,
-	}, nil
+	}
+
+	return authentication.NewAuthResultWithNamespace(principal, namespace), nil
 }
 
 func (c *Client) extractClaims(token *oidc.IDToken) (map[string]interface{}, error) {
@@ -210,6 +214,31 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 	}
 
 	return groups
+}
+
+// extractNamespace extracts the namespace from the configured claim.
+// Returns empty string (default namespace) if not configured or not present.
+func (c *Client) extractNamespace(claims map[string]interface{}) string {
+	if c.Config.NamespaceClaim == nil {
+		return ""
+	}
+
+	claimName := c.Config.NamespaceClaim.Get()
+	if claimName == "" {
+		return ""
+	}
+
+	namespaceUntyped, ok := claims[claimName]
+	if !ok {
+		return ""
+	}
+
+	namespace, ok := namespaceUntyped.(string)
+	if !ok {
+		return ""
+	}
+
+	return namespace
 }
 
 func (c *Client) useCertificate() (*http.Client, error) {

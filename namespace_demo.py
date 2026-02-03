@@ -1,212 +1,347 @@
 #!/usr/bin/env python3
 """
-Namespace POC Demo Script
+Namespace-to-Principal Mapping Demo
 
-This script demonstrates the namespace functionality in Weaviate.
-Collections are internally prefixed with the namespace (e.g., "myapp__Article"),
-but the API transparently handles this - clients only see "Article".
+This script demonstrates how API keys are bound to specific namespaces,
+providing multi-tenant isolation in Weaviate.
 
 Prerequisites:
-- Weaviate running on localhost:8080
-- pip install requests
+- Weaviate running with RBAC and DB users enabled
+- Python 3.8+ with requests library: pip install requests
 
-Usage:
-    python namespace_demo.py
+Configuration (environment variables):
+- WEAVIATE_URL: Weaviate server URL (default: http://localhost:8080)
+- ADMIN_API_KEY: Admin/root user API key for setup
 """
 
-import requests
+import os
 import json
 import sys
 
-BASE_URL = "http://localhost:8080/v1"
+# Colors for terminal output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
 
-def print_header(title):
-    print(f"\n{'='*60}")
-    print(f"  {title}")
-    print(f"{'='*60}\n")
+def print_header(text: str):
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}")
+    print(f"{Colors.HEADER}{Colors.BOLD}{text}{Colors.ENDC}")
+    print(f"{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}\n")
 
-def print_response(response, description=""):
-    if description:
-        print(f">> {description}")
-    print(f"Status: {response.status_code}")
-    try:
-        print(f"Response: {json.dumps(response.json(), indent=2)}")
-    except:
-        print(f"Response: {response.text}")
-    print()
+def print_step(step: int, text: str):
+    print(f"{Colors.CYAN}[Step {step}]{Colors.ENDC} {text}")
 
-def create_class(namespace, class_name, description=""):
-    """Create a collection in a specific namespace."""
-    headers = {"X-Weaviate-Namespace": namespace, "Content-Type": "application/json"}
-    payload = {
-        "class": class_name,
-        "description": description or f"A {class_name} in namespace '{namespace}'",
-        "properties": [
-            {"name": "title", "dataType": ["text"]},
-            {"name": "content", "dataType": ["text"]}
-        ]
-    }
-    return requests.post(f"{BASE_URL}/schema", headers=headers, json=payload)
+def print_code(code: str):
+    print(f"{Colors.YELLOW}{code}{Colors.ENDC}")
 
-def get_schema(namespace):
-    """Get schema for a specific namespace."""
-    headers = {"X-Weaviate-Namespace": namespace}
-    return requests.get(f"{BASE_URL}/schema", headers=headers)
 
-def delete_class(namespace, class_name):
-    """Delete a collection from a specific namespace."""
-    headers = {"X-Weaviate-Namespace": namespace}
-    return requests.delete(f"{BASE_URL}/schema/{class_name}", headers=headers)
+def demo_namespace_isolation():
+    """
+    Demonstrate namespace isolation with principal-bound API keys.
+    """
 
-def batch_create_objects(namespace, objects):
-    """Batch create objects in a specific namespace."""
-    headers = {"X-Weaviate-Namespace": namespace, "Content-Type": "application/json"}
-    payload = {"objects": objects}
-    return requests.post(f"{BASE_URL}/batch/objects", headers=headers, json=payload)
+    print_header("Namespace-to-Principal Mapping Demo")
 
-def list_objects(namespace, class_name=None):
-    """List objects from a specific namespace."""
-    headers = {"X-Weaviate-Namespace": namespace}
-    url = f"{BASE_URL}/objects"
-    if class_name:
-        url += f"?class={class_name}"
-    return requests.get(url, headers=headers)
+    print("""
+This demo explains how API keys are bound to specific namespaces:
 
-def get_object(namespace, class_name, object_id):
-    """Get a specific object."""
-    headers = {"X-Weaviate-Namespace": namespace}
-    return requests.get(f"{BASE_URL}/objects/{class_name}/{object_id}", headers=headers)
-
-def cleanup(namespaces_and_classes):
-    """Clean up created classes."""
-    print_header("Cleanup")
-    for ns, classes in namespaces_and_classes.items():
-        for cls in classes:
-            resp = delete_class(ns, cls)
-            print(f"Deleted {ns}::{cls}: {resp.status_code}")
-
-def main():
-    print_header("Weaviate Namespace POC Demo")
-    print("This demo shows how namespaces isolate collections and objects.")
-    print("The X-Weaviate-Namespace header determines which namespace to use.")
-    print("Default namespace is 'default' when header is not provided.")
-
-    # Track what we create for cleanup
-    created = {"teamalpha": ["Article"], "teambeta": ["Article", "Document"]}
-
-    try:
-        # ============================================================
-        # Step 1: Create collections in different namespaces
-        # ============================================================
-        print_header("Step 1: Create Collections in Different Namespaces")
-
-        print("Creating 'Article' in namespace 'teamalpha'...")
-        resp = create_class("teamalpha", "Article", "Articles for Team Alpha")
-        print_response(resp)
-
-        print("Creating 'Article' in namespace 'teambeta' (same name, different namespace)...")
-        resp = create_class("teambeta", "Article", "Articles for Team Beta")
-        print_response(resp)
-
-        print("Creating 'Document' in namespace 'teambeta'...")
-        resp = create_class("teambeta", "Document", "Documents for Team Beta")
-        print_response(resp)
-
-        # ============================================================
-        # Step 2: List schema for each namespace
-        # ============================================================
-        print_header("Step 2: List Schema per Namespace (Isolation Demo)")
-
-        print("Schema for namespace 'teamalpha' (should only show 1 Article):")
-        resp = get_schema("teamalpha")
-        print_response(resp)
-
-        print("Schema for namespace 'teambeta' (should show Article + Document):")
-        resp = get_schema("teambeta")
-        print_response(resp)
-
-        print("Schema for namespace 'default' (should be empty):")
-        resp = get_schema("default")
-        print_response(resp)
-
-        # ============================================================
-        # Step 3: Batch insert objects
-        # ============================================================
-        print_header("Step 3: Batch Insert Objects")
-
-        alpha_objects = [
-            {"class": "Article", "properties": {"title": "Alpha News 1", "content": "Content from team alpha"}},
-            {"class": "Article", "properties": {"title": "Alpha News 2", "content": "More content from alpha"}},
-        ]
-        print("Inserting 2 articles into 'teamalpha' namespace...")
-        resp = batch_create_objects("teamalpha", alpha_objects)
-        print_response(resp)
-
-        beta_objects = [
-            {"class": "Article", "properties": {"title": "Beta Article", "content": "Content from team beta"}},
-            {"class": "Document", "properties": {"title": "Beta Doc", "content": "A document from beta"}},
-        ]
-        print("Inserting 1 article + 1 document into 'teambeta' namespace...")
-        resp = batch_create_objects("teambeta", beta_objects)
-        print_response(resp)
-
-        # ============================================================
-        # Step 4: Query objects per namespace
-        # ============================================================
-        print_header("Step 4: Query Objects per Namespace (Isolation Demo)")
-
-        print("Listing Article objects in 'teamalpha' (should show 2):")
-        resp = list_objects("teamalpha", "Article")
-        print_response(resp)
-
-        print("Listing Article objects in 'teambeta' (should show 1):")
-        resp = list_objects("teambeta", "Article")
-        print_response(resp)
-
-        print("Listing Document objects in 'teambeta' (should show 1):")
-        resp = list_objects("teambeta", "Document")
-        print_response(resp)
-
-        # ============================================================
-        # Step 5: Cross-namespace isolation
-        # ============================================================
-        print_header("Step 5: Cross-Namespace Isolation")
-
-        print("Trying to access 'Document' from 'teamalpha' (should fail - doesn't exist):")
-        resp = list_objects("teamalpha", "Document")
-        print_response(resp)
-
-        # ============================================================
-        # Summary
-        # ============================================================
-        print_header("Summary")
-        print("""
-Key Points Demonstrated:
-------------------------
-1. Same class name ('Article') can exist in multiple namespaces
-2. Each namespace only sees its own collections in schema listing
-3. Objects are isolated per namespace
-4. The X-Weaviate-Namespace header controls which namespace is used
-5. Default namespace is 'default' when header is omitted
-
-Internal Implementation:
-------------------------
-- Collections are stored as 'namespace__ClassName' internally
-- e.g., 'teamalpha__Article' and 'teambeta__Article'
-- The API layer handles prefix/strip transparently
-- Clients never see the internal prefixed names
+  1. Each user/API key is assigned to exactly ONE namespace
+  2. When authenticating, Weaviate derives the namespace from the principal
+  3. Users can only see collections/objects in their namespace
+  4. Admin users can override namespace via X-Weaviate-Namespace header
 """)
 
-    except requests.exceptions.ConnectionError:
-        print("\nERROR: Could not connect to Weaviate at localhost:8080")
-        print("Make sure Weaviate is running before executing this demo.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nERROR: {e}")
-        raise
-    finally:
-        # Cleanup
-        cleanup(created)
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    # Step 1: Configuration
+    print_step(1, "Configuring namespace-bound API keys")
+    print("""
+There are THREE ways to bind API keys/users to namespaces:
+""")
+
+    print(f"{Colors.GREEN}Option A: Static API Keys (environment variables){Colors.ENDC}")
+    print_code("""
+# In your Weaviate configuration:
+AUTHENTICATION_APIKEY_ENABLED=true
+AUTHENTICATION_APIKEY_ALLOWED_KEYS=key-tenant-a,key-tenant-b,admin-key
+AUTHENTICATION_APIKEY_USERS=tenant-a-user,tenant-b-user,admin
+AUTHENTICATION_APIKEY_NAMESPACES=tenant-a,tenant-b,
+#                                  ^         ^       ^
+#                                  |         |       |
+#                          key 1 -> ns1  key 2 -> ns2  key 3 -> default (empty)
+""")
+
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    print(f"\n{Colors.GREEN}Option B: OIDC with namespace claim{Colors.ENDC}")
+    print_code("""
+# Configure OIDC to extract namespace from JWT token:
+AUTHENTICATION_OIDC_ENABLED=true
+AUTHENTICATION_OIDC_ISSUER=https://auth.example.com
+AUTHENTICATION_OIDC_USERNAME_CLAIM=sub
+AUTHENTICATION_OIDC_NAMESPACE_CLAIM=weaviate_namespace  # <-- NEW!
+
+# Your JWT token would contain:
+{
+  "sub": "user@example.com",
+  "weaviate_namespace": "tenant-a",  # <-- Bound to this namespace
+  "exp": 1234567890
+}
+""")
+
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    print(f"\n{Colors.GREEN}Option C: DB Users with namespace field{Colors.ENDC}")
+    print_code("""
+# When creating a user via the API, the namespace is stored with the user:
+
+# Internal User struct (db_users.go):
+type User struct {
+    Id                 string
+    InternalIdentifier string
+    SecureHash         string
+    Active             bool
+    Namespace          string  // <-- NEW: The bound namespace
+    CreatedAt          time.Time
+    LastUsedAt         time.Time
+}
+
+# The namespace is set when the user is created via Raft consensus
+""")
+
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    # Step 2: Authentication flow
+    print_step(2, "Authentication flow with namespace binding")
+    print(f"""
+{Colors.GREEN}Before (old way):{Colors.ENDC}
+""")
+    print_code("""
+# Client had to specify namespace in every request:
+curl -X POST http://localhost:8080/v1/schema \\
+  -H "Authorization: Bearer my-api-key" \\
+  -H "X-Weaviate-Namespace: tenant-a" \\   # <-- Had to remember this!
+  -d '{"class": "Articles", ...}'
+""")
+
+    print(f"""
+{Colors.GREEN}After (new way):{Colors.ENDC}
+""")
+    print_code("""
+# Namespace is derived from the API key automatically:
+curl -X POST http://localhost:8080/v1/schema \\
+  -H "Authorization: Bearer key-tenant-a" \\   # <-- Bound to tenant-a
+  -d '{"class": "Articles", ...}'
+
+# The server knows key-tenant-a -> tenant-a namespace
+# No X-Weaviate-Namespace header needed!
+""")
+
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    # Step 3: Code changes
+    print_step(3, "Key code changes")
+
+    print(f"""
+{Colors.GREEN}1. New AuthResult struct (auth_result.go):{Colors.ENDC}
+""")
+    print_code("""
+type AuthResult struct {
+    Principal *models.Principal  // The authenticated user
+    Namespace string             // The namespace they're bound to
+    IsAdmin   bool               // Can they access multiple namespaces?
+}
+""")
+
+    print(f"""
+{Colors.GREEN}2. TokenFunc returns AuthResult (token_validation.go):{Colors.ENDC}
+""")
+    print_code("""
+// Before:
+type TokenFunc func(token string, scopes []string) (*models.Principal, error)
+
+// After:
+type TokenFunc func(token string, scopes []string) (*AuthResult, error)
+""")
+
+    print(f"""
+{Colors.GREEN}3. Static API key returns namespace (client.go):{Colors.ENDC}
+""")
+    print_code("""
+func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*AuthResult, error) {
+    tokenPos, ok := c.isTokenAllowed(token)
+    if !ok {
+        return nil, fmt.Errorf("invalid api key")
+    }
+    return authentication.NewAuthResultWithNamespace(
+        c.getPrincipal(tokenPos),
+        c.getNamespace(tokenPos),  // <-- Returns the bound namespace
+    ), nil
+}
+""")
+
+    print(f"""
+{Colors.GREEN}4. OIDC extracts namespace from JWT (middleware.go):{Colors.ENDC}
+""")
+    print_code("""
+func (c *Client) extractNamespace(claims map[string]interface{}) string {
+    if c.Config.NamespaceClaim == nil {
+        return ""
+    }
+    claimName := c.Config.NamespaceClaim.Get()
+    if ns, ok := claims[claimName].(string); ok {
+        return ns
+    }
+    return ""
+}
+""")
+
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    # Step 4: Admin override
+    print_step(4, "Admin override mechanism")
+    print(f"""
+{Colors.GREEN}Admin users (RBAC root users) can still use the header:{Colors.ENDC}
+""")
+    print_code("""
+// In auth_wrapper.go:
+func GetNamespaceForPrincipal(principal *models.Principal, headerNs string) string {
+    if principal == nil {
+        return headerNs  // Anonymous - use header if provided
+    }
+
+    // Check if user is admin (root user in RBAC config)
+    if isAdminUser(principal.Username) {
+        if headerNs != "" {
+            return headerNs  // Admin can override with header
+        }
+    }
+
+    // For non-admin users, always use their bound namespace
+    return authNamespaceStore.Get(principal.Username)
+}
+""")
+
+    print("""
+This means:
+- Regular users: ALWAYS use their bound namespace (header ignored)
+- Admin users: Can specify X-Weaviate-Namespace to access any namespace
+- This provides strong isolation while allowing admin management
+""")
+
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    # Step 5: Visual flow
+    print_step(5, "Complete request flow")
+    print(f"""
+{Colors.GREEN}Request from Tenant A user:{Colors.ENDC}
+
+┌─────────────────┐
+│  HTTP Request   │
+│ Authorization:  │
+│ Bearer key-a    │
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  Auth Composer  │  Tries API key auth first
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  StaticApiKey   │  key-a found at position 0
+│  Validator      │  namespaces[0] = "tenant-a"
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│   AuthResult    │
+│ ───────────────│
+│ Principal:      │
+│   user-a        │
+│ Namespace:      │
+│   "tenant-a"    │  <-- Derived from key position
+│ IsAdmin: false  │
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  Auth Wrapper   │  Stores: user-a -> tenant-a
+│                 │  Returns: Principal only (for go-swagger)
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│ Schema Handler  │  Gets namespace from auth context
+│                 │  ns = GetNamespaceForPrincipal(principal, "")
+│                 │  ns = "tenant-a"
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│    Storage      │  Operations scoped to tenant-a/
+│  (tenant-a/)    │
+└─────────────────┘
+""")
+
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+
+    # Summary
+    print_header("Summary")
+    print(f"""
+{Colors.GREEN}What we implemented:{Colors.ENDC}
+
+1. {Colors.BOLD}AuthResult struct{Colors.ENDC} - Carries Principal + Namespace + IsAdmin
+
+2. {Colors.BOLD}Namespace binding for all auth methods:{Colors.ENDC}
+   - Static API keys: via AUTHENTICATION_APIKEY_NAMESPACES env var
+   - OIDC tokens: via AUTHENTICATION_OIDC_NAMESPACE_CLAIM config
+   - DB users: via Namespace field in User struct
+
+3. {Colors.BOLD}Handler integration:{Colors.ENDC}
+   - getNamespaceFromRequest() uses auth context instead of header
+   - Admin override preserved for management operations
+
+4. {Colors.BOLD}Backward compatibility:{Colors.ENDC}
+   - Empty namespace = default namespace
+   - Existing deployments continue to work
+
+{Colors.GREEN}Benefits:{Colors.ENDC}
+
+- Stronger tenant isolation (can't accidentally access wrong namespace)
+- Simpler client code (no namespace header management)  
+- Centralized namespace assignment (server-side configuration)
+- Audit trail (namespace tied to authenticated identity)
+
+{Colors.GREEN}Files modified:{Colors.ENDC}
+
+usecases/auth/authentication/
+  ├── auth_result.go           (NEW)
+  ├── composer/token_validation.go
+  ├── apikey/client.go
+  ├── apikey/db_users.go
+  └── oidc/middleware.go
+
+usecases/config/authentication.go
+
+adapters/handlers/
+  ├── rest/auth_wrapper.go     (NEW)
+  ├── rest/handlers_schema.go
+  └── grpc/v1/auth/auth.go
+
+cluster/
+  ├── proto/api/dyn_user_requests.go
+  └── raft_dynuser_apply_endpoints.go
+""")
+
+    print(f"\n{Colors.BOLD}Demo complete!{Colors.ENDC}\n")
+
 
 if __name__ == "__main__":
-    main()
+    demo_namespace_isolation()

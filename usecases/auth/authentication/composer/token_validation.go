@@ -16,11 +16,11 @@ import (
 
 	openapi "github.com/go-openapi/errors"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-type TokenFunc func(token string, scopes []string) (*models.Principal, error)
+type TokenFunc func(token string, scopes []string) (*authentication.AuthResult, error)
 
 // New provides an OpenAPI compatible token validation
 // function that validates the token either as OIDC or as an StaticAPIKey token
@@ -41,7 +41,7 @@ func New(config config.Authentication,
 		return oidc.ValidateAndExtract
 	}
 
-	return func(token string, scopes []string) (*models.Principal, error) {
+	return func(token string, scopes []string) (*authentication.AuthResult, error) {
 		return nil, openapi.New(401, "no authentication scheme is configured (API Key or OIDC), "+
 			"but an 'Authorization' header was provided. Please configure an auth scheme "+
 			"or remove the header for anonymous access")
@@ -51,7 +51,7 @@ func New(config config.Authentication,
 func pickAuthSchemeDynamically(
 	apiKey authValidator, oidc authValidator,
 ) TokenFunc {
-	return func(token string, scopes []string) (*models.Principal, error) {
+	return func(token string, scopes []string) (*authentication.AuthResult, error) {
 		_, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 			return nil, nil
 		})
@@ -65,5 +65,5 @@ func pickAuthSchemeDynamically(
 }
 
 type authValidator interface {
-	ValidateAndExtract(token string, scopes []string) (*models.Principal, error)
+	ValidateAndExtract(token string, scopes []string) (*authentication.AuthResult, error)
 }

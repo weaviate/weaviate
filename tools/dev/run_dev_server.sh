@@ -657,6 +657,35 @@ case $CONFIG in
         --write-timeout=3600s
     ;;
 
+  local-namespace-demo)
+      # Namespace-to-Principal demo config
+      # - DB users enabled for creating API keys via API
+      # - RBAC enabled with admin as root user
+      # - Admin API key: admin-key
+      #
+      # Usage:
+      #   ./tools/dev/run_dev_server.sh local-namespace-demo
+      #   cd namespace_demo && python demo.py
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      CLUSTER_IN_LOCALHOST=true \
+      DEFAULT_VECTORIZER_MODULE=none \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=admin-key \
+      AUTHENTICATION_APIKEY_USERS=admin \
+      AUTHENTICATION_DB_USERS_ENABLED=true \
+      AUTHORIZATION_RBAC_ENABLED=true \
+      AUTHORIZATION_RBAC_ROOT_USERS=admin \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=3600s \
+        --write-timeout=3600s
+    ;;
+
   local-centroid)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       ENABLE_MODULES="ref2vec-centroid" \

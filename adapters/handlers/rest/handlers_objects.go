@@ -87,7 +87,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsCreateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -134,7 +134,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsValidateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -178,7 +178,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	var additional additional.Properties
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -263,7 +263,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		return h.query(params, principal)
 	}
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -323,7 +323,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -397,7 +397,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -443,7 +443,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassPutUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -501,7 +501,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassHeadUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -550,7 +550,7 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 		return objects.NewObjectsClassPatchBadRequest()
 	}
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassPatchUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -600,7 +600,7 @@ func (h *objectHandlers) addObjectReference(
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -654,7 +654,7 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -709,7 +709,7 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))

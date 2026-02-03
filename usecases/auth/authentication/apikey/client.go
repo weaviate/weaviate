@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -79,15 +80,16 @@ func (c *StaticApiKey) validateConfig() error {
 	return nil
 }
 
-func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
+func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*authentication.AuthResult, error) {
 	tokenPos, ok := c.isTokenAllowed(token)
 	if !ok {
 		return nil, fmt.Errorf("invalid api key")
 	}
 
-	return &models.Principal{
-		Username: c.getUser(tokenPos), UserType: models.UserTypeInputDb,
-	}, nil
+	return authentication.NewAuthResultWithNamespace(
+		c.getPrincipal(tokenPos),
+		c.getNamespace(tokenPos),
+	), nil
 }
 
 func (c *StaticApiKey) isTokenAllowed(token string) (int, bool) {
@@ -109,4 +111,23 @@ func (c *StaticApiKey) getUser(pos int) string {
 	}
 
 	return c.config.Users[pos]
+}
+
+func (c *StaticApiKey) getPrincipal(pos int) *models.Principal {
+	return &models.Principal{
+		Username: c.getUser(pos),
+		UserType: models.UserTypeInputDb,
+	}
+}
+
+func (c *StaticApiKey) getNamespace(pos int) string {
+	// If no namespaces configured, return empty string (default namespace)
+	if len(c.config.Namespaces) == 0 {
+		return ""
+	}
+	// If single namespace for all keys
+	if pos >= len(c.config.Namespaces) {
+		return c.config.Namespaces[0]
+	}
+	return c.config.Namespaces[pos]
 }

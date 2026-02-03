@@ -917,9 +917,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = composer.New(
+	api.OidcAuth = WrapAuthWithNamespace(
+		composer.New(
+			appState.ServerConfig.Config.Authentication,
+			appState.APIKey, appState.OIDC),
 		appState.ServerConfig.Config.Authentication,
-		appState.APIKey, appState.OIDC)
+		appState.ServerConfig.Config.Authorization.Rbac,
+	)
 
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "version": build.Version}).Infof(msg, args...)

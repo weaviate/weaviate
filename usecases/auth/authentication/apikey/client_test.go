@@ -87,7 +87,7 @@ func Test_APIKeyClient(t *testing.T) {
 			validate: func(t *testing.T, c *StaticApiKey) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
-				assert.Equal(t, "mrRoboto", p.Username)
+				assert.Equal(t, "mrRoboto", p.Principal.Username)
 
 				_, err = c.ValidateAndExtract("", nil)
 				require.NotNil(t, err)
@@ -108,15 +108,15 @@ func Test_APIKeyClient(t *testing.T) {
 			validate: func(t *testing.T, c *StaticApiKey) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
-				assert.Equal(t, "jane", p.Username)
+				assert.Equal(t, "jane", p.Principal.Username)
 
 				p, err = c.ValidateAndExtract("another-secret-key", nil)
 				require.Nil(t, err)
-				assert.Equal(t, "jane", p.Username)
+				assert.Equal(t, "jane", p.Principal.Username)
 
 				p, err = c.ValidateAndExtract("third-key", nil)
 				require.Nil(t, err)
-				assert.Equal(t, "jane", p.Username)
+				assert.Equal(t, "jane", p.Principal.Username)
 
 				_, err = c.ValidateAndExtract("", nil)
 				require.NotNil(t, err)
@@ -137,15 +137,15 @@ func Test_APIKeyClient(t *testing.T) {
 			validate: func(t *testing.T, c *StaticApiKey) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
-				assert.Equal(t, "jane", p.Username)
+				assert.Equal(t, "jane", p.Principal.Username)
 
 				p, err = c.ValidateAndExtract("another-secret-key", nil)
 				require.Nil(t, err)
-				assert.Equal(t, "jessica", p.Username)
+				assert.Equal(t, "jessica", p.Principal.Username)
 
 				p, err = c.ValidateAndExtract("third-key", nil)
 				require.Nil(t, err)
-				assert.Equal(t, "jennifer", p.Username)
+				assert.Equal(t, "jennifer", p.Principal.Username)
 
 				_, err = c.ValidateAndExtract("", nil)
 				require.NotNil(t, err)

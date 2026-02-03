@@ -41,7 +41,7 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.CreatedAt)
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
 }
 
 func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
@@ -53,7 +53,7 @@ func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.CreateUserWithKey(req.UserId, req.ApiKeyFirstLetters, req.WeakHash, req.CreatedAt)
+	return m.dynUser.CreateUserWithKey(req.UserId, req.ApiKeyFirstLetters, req.Namespace, req.WeakHash, req.CreatedAt)
 }
 
 func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {

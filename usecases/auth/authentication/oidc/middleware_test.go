@@ -91,9 +91,9 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		authResult, err := client.ValidateAndExtract(token, []string{})
 		require.Nil(t, err)
-		assert.Equal(t, "best-user", principal.Username)
+		assert.Equal(t, "best-user", authResult.Principal.Username)
 	})
 
 	t.Run("with a non-standard username claim", func(t *testing.T) {
@@ -118,9 +118,9 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		authResult, err := client.ValidateAndExtract(token, []string{})
 		require.Nil(t, err)
-		assert.Equal(t, "foo@bar.com", principal.Username)
+		assert.Equal(t, "foo@bar.com", authResult.Principal.Username)
 	})
 
 	t.Run("with groups claim", func(t *testing.T) {
@@ -145,10 +145,10 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		authResult, err := client.ValidateAndExtract(token, []string{})
 		require.Nil(t, err)
-		assert.Equal(t, "best-user", principal.Username)
-		assert.Equal(t, []string{"group1", "group2"}, principal.Groups)
+		assert.Equal(t, "best-user", authResult.Principal.Username)
+		assert.Equal(t, []string{"group1", "group2"}, authResult.Principal.Groups)
 	})
 
 	t.Run("with a string groups claim", func(t *testing.T) {
@@ -173,10 +173,10 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		authResult, err := client.ValidateAndExtract(token, []string{})
 		require.Nil(t, err)
-		assert.Equal(t, "best-user", principal.Username)
-		assert.Equal(t, []string{"group1"}, principal.Groups)
+		assert.Equal(t, "best-user", authResult.Principal.Username)
+		assert.Equal(t, []string{"group1"}, authResult.Principal.Groups)
 	})
 }
 

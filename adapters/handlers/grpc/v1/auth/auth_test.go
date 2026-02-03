@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -105,14 +106,14 @@ func TestAuth(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			a := &Handler{
 				allowAnonymousAccess: test.allowAnon,
-				authComposer: func(token string, scopes []string) (*models.Principal, error) {
+				authComposer: func(token string, scopes []string) (*authentication.AuthResult, error) {
 					if token == "" {
 						return nil, fmt.Errorf("not allowed")
 					}
 					if token == "err" {
 						return nil, fmt.Errorf("other error")
 					}
-					return &models.Principal{Username: token}, nil
+					return &authentication.AuthResult{Principal: &models.Principal{Username: token}}, nil
 				},
 			}
 

@@ -70,12 +70,20 @@ type OIDC struct {
 	Scopes            *runtime.DynamicValue[[]string] `yaml:"scopes" json:"scopes"`
 	Certificate       *runtime.DynamicValue[string]   `yaml:"certificate" json:"certificate"`
 	JWKSUrl           *runtime.DynamicValue[string]   `yaml:"jwks_url" json:"jwks_url"`
+	// NamespaceClaim is the JWT claim containing the namespace this user is bound to.
+	// If not set or claim is not present, the default namespace is used.
+	NamespaceClaim *runtime.DynamicValue[string] `yaml:"namespace_claim" json:"namespace_claim"`
 }
 
 type StaticAPIKey struct {
 	Enabled     bool     `json:"enabled" yaml:"enabled"`
 	Users       []string `json:"users" yaml:"users"`
 	AllowedKeys []string `json:"allowed_keys" yaml:"allowed_keys"`
+	// Namespaces is a parallel array mapping each key to a namespace.
+	// If not specified, the default namespace is used.
+	// If a single namespace is specified, it applies to all keys.
+	// Otherwise, must have the same length as AllowedKeys.
+	Namespaces []string `json:"namespaces" yaml:"namespaces"`
 }
 
 type DbUsers struct {

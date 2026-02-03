@@ -326,6 +326,12 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
+	// Get namespace from header - only root users can assign users to namespaces
+	namespace := params.HTTPRequest.Header.Get("X-Weaviate-Namespace")
+	if namespace != "" && !h.principalIsRootUser(principal.Username) {
+		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("only root users can assign users to namespaces")))
+	}
+
 	if params.Body.Import != nil && *params.Body.Import {
 		if !h.principalIsRootUser(principal.Username) {
 			return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("only root users can import static api keys")))
@@ -347,7 +353,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 			createdAt = time.Time(params.Body.CreateTime).UTC()
 		}
 
-		if err := h.dbUsers.CreateUserWithKey(params.UserID, apiKey[:3], sha256.Sum256([]byte(apiKey)), createdAt); err != nil {
+		if err := h.dbUsers.CreateUserWithKey(params.UserID, apiKey[:3], namespace, sha256.Sum256([]byte(apiKey)), createdAt); err != nil {
 			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 		}
 
@@ -378,7 +384,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, apiKey[:3], time.Now()); err != nil {
+	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, apiKey[:3], namespace, time.Now()); err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 	}
 

@@ -39,7 +39,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return batch.NewBatchObjectsCreateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -176,7 +176,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return batch.NewBatchObjectsDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))

@@ -28,6 +28,7 @@ type CreateUsersRequest struct {
 	SecureHash         string
 	UserIdentifier     string
 	ApiKeyFirstLetters string
+	Namespace          string
 	CreatedAt          time.Time
 	Version            int
 }
@@ -35,6 +36,7 @@ type CreateUsersRequest struct {
 type CreateUserWithKeyRequest struct {
 	UserId             string
 	ApiKeyFirstLetters string
+	Namespace          string
 	WeakHash           [sha256.Size]byte
 	CreatedAt          time.Time
 	Version            int
@@ -79,4 +81,10 @@ type QueryUserIdentifierExistsRequest struct {
 
 type QueryUserIdentifierExistsResponse struct {
 	Exists bool
+}
+
+type UpdateUserNamespaceRequest struct {
+	UserId    string
+	Namespace string
+	Version   int
 }

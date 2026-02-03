@@ -28,6 +28,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 )
 
 const (
@@ -38,8 +39,8 @@ const (
 )
 
 type DBUsers interface {
-	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error
-	CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
+	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
+	CreateUserWithKey(userId, apiKeyFirstLetters, namespace string, weakHash [sha256.Size]byte, createdAt time.Time) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
@@ -57,6 +58,9 @@ type User struct {
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
 	ImportedWithKey    bool
+	// Namespace is the namespace this user is bound to.
+	// Empty string means the default namespace.
+	Namespace string
 }
 
 type DBUser struct {
@@ -176,7 +180,7 @@ func restoreAllFields(data dbUserdata) dbUserdata {
 	return data
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -187,11 +191,11 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
-	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt, ApiKeyFirstLetters: apiKeyFirstLetters}
+	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt, ApiKeyFirstLetters: apiKeyFirstLetters, Namespace: namespace}
 	return c.storeToFile()
 }
 
-func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
+func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters, namespace string, weakHash [sha256.Size]byte, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -208,6 +212,7 @@ func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
 		ImportedWithKey:    true,
+		Namespace:          namespace,
 	}
 	return c.storeToFile()
 }
@@ -310,6 +315,18 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 	return ok, nil
 }
 
+func (c *DBUser) UpdateUserNamespace(userId, namespace string) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
+
+	c.data.Users[userId].Namespace = namespace
+	return c.storeToFile()
+}
+
 func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 	// RLock is fine here, we only want to avoid that c.data.Users is being changed. LastUsed has its own
 	// locking mechanism
@@ -325,7 +342,7 @@ func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 	}
 }
 
-func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
+func (c *DBUser) ValidateImportedKey(token string) (*authentication.AuthResult, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -334,7 +351,8 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
 			continue
 		}
-		if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+		user := c.data.Users[userId]
+		if user != nil && !user.Active {
 			return nil, fmt.Errorf("user deactivated")
 		}
 
@@ -344,12 +362,15 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 
 		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 		// user, only recording one of them is good enough
-		if c.data.Users[userId].TryLock() {
-			c.data.Users[userId].LastUsedAt = time.Now()
-			c.data.Users[userId].Unlock()
+		if user.TryLock() {
+			user.LastUsedAt = time.Now()
+			user.Unlock()
 		}
 
-		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+		return authentication.NewAuthResultWithNamespace(
+			&models.Principal{Username: userId, UserType: models.UserTypeInputDb},
+			user.Namespace,
+		), nil
 	}
 
 	return nil, nil
@@ -365,7 +386,7 @@ func (c *DBUser) IsBlockedKey(token string) bool {
 	return false
 }
 
-func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
+func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*authentication.AuthResult, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -394,7 +415,8 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, err
 	}
 
-	if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+	user := c.data.Users[userId]
+	if user != nil && !user.Active {
 		return nil, fmt.Errorf("user deactivated")
 	}
 	if _, ok := c.data.UserKeyRevoked[userId]; ok {
@@ -403,12 +425,15 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 
 	// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 	// user, only recording one of them is good enough
-	if c.data.Users[userId].TryLock() {
-		c.data.Users[userId].LastUsedAt = time.Now()
-		c.data.Users[userId].Unlock()
+	if user.TryLock() {
+		user.LastUsedAt = time.Now()
+		user.Unlock()
 	}
 
-	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+	return authentication.NewAuthResultWithNamespace(
+		&models.Principal{Username: userId, UserType: models.UserTypeInputDb},
+		user.Namespace,
+	), nil
 }
 
 func (c *DBUser) validateWeakHash(key []byte, weakHash [32]byte) error {

@@ -17,7 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -44,10 +44,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				// We panic here to verify that the OIDC validator isnot called
 				panic("i should never be called")
 			},
@@ -67,10 +67,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "some-token",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
 			expectErr:    true,
@@ -87,10 +87,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				return nil, nil
 			},
 			expectErr: false,
@@ -106,10 +106,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				return nil, fmt.Errorf("thou shalt not pass")
 			},
 			expectErr:    true,
@@ -126,10 +126,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				return nil, nil
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
 			expectErr: false,
@@ -145,10 +145,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				return nil, fmt.Errorf("you think I let anyone through?")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
 			expectErr:    true,
@@ -165,10 +165,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "does not matter",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				return nil, fmt.Errorf("it's a pretty key, but not good enough")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
 			expectErr:    true,
@@ -185,10 +185,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				return nil, fmt.Errorf("really? an empty one?")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
 			expectErr:    true,
@@ -205,10 +205,10 @@ func Test_TokenAuthComposer(t *testing.T) {
 				},
 			},
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
-			apiKey: func(t string, s []string) (*models.Principal, error) {
+			apiKey: func(t string, s []string) (*authentication.AuthResult, error) {
 				panic("i should never be called")
 			},
-			oidc: func(t string, s []string) (*models.Principal, error) {
+			oidc: func(t string, s []string) (*authentication.AuthResult, error) {
 				return nil, fmt.Errorf("john doe ... that sounds like a fake name!")
 			},
 			expectErr:    true,
@@ -239,6 +239,6 @@ type fakeValidator struct {
 	v TokenFunc
 }
 
-func (v fakeValidator) ValidateAndExtract(t string, s []string) (*models.Principal, error) {
+func (v fakeValidator) ValidateAndExtract(t string, s []string) (*authentication.AuthResult, error) {
 	return v.v(t, s)
 }

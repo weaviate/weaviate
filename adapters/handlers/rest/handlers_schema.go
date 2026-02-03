@@ -35,15 +35,22 @@ type schemaHandlers struct {
 	metricRequestsTotal restApiRequestsTotal
 }
 
-// getNamespaceFromRequest extracts and validates the namespace from the HTTP request header.
-// Returns the default namespace if the header is not present.
-func getNamespaceFromRequest(r *http.Request) (string, error) {
-	ns := r.Header.Get(namespace.HeaderName)
-	if ns == "" {
-		return namespace.DefaultNamespace, nil
-	}
-	if err := namespace.ValidateNamespace(ns); err != nil {
-		return "", err
+// getNamespaceFromRequest extracts the namespace for the request.
+// The namespace comes from:
+// 1. The authenticated principal's bound namespace (for non-admin users)
+// 2. The X-Weaviate-Namespace header (only for admin users or anonymous access)
+// Returns the default namespace if neither is set.
+func getNamespaceFromRequest(r *http.Request, principal *models.Principal) (string, error) {
+	headerNs := r.Header.Get(namespace.HeaderName)
+
+	// Get namespace from auth principal (may allow header override if admin)
+	ns := GetNamespaceForPrincipal(principal, headerNs)
+
+	// Validate the final namespace
+	if ns != namespace.DefaultNamespace {
+		if err := namespace.ValidateNamespace(ns); err != nil {
+			return "", err
+		}
 	}
 	return ns, nil
 }
@@ -53,7 +60,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaObjectsCreateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -88,7 +95,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaObjectsUpdateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -130,7 +137,7 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaObjectsGetInternalServerError().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -164,7 +171,7 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 }
 
 func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaObjectsDeleteBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -194,7 +201,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -223,7 +230,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaDumpForbidden().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -268,7 +275,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaObjectsShardsGetNotFound().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -308,7 +315,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -342,7 +349,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewTenantsCreateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -374,7 +381,7 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewTenantsUpdateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -406,7 +413,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewTenantsDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -438,7 +445,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewTenantsGetUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -470,7 +477,7 @@ func (s *schemaHandlers) getTenant(
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewTenantsGetOneUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -510,7 +517,7 @@ func (s *schemaHandlers) getTenant(
 func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	ns, err := getNamespaceFromRequest(params.HTTPRequest)
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
 	if err != nil {
 		return schema.NewTenantExistsUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(err))

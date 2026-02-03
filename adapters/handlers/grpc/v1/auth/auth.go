@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"google.golang.org/grpc/metadata"
 )
@@ -59,7 +60,7 @@ func (h *Handler) PrincipalFromContext(ctx context.Context) (*models.Principal, 
 	}
 
 	token := strings.TrimPrefix(authValue[0], "Bearer ")
-	return h.authComposer(token, nil)
+	return h.extractPrincipal(h.authComposer(token, nil))
 }
 
 func (h *Handler) tryAnonymous() (*models.Principal, error) {
@@ -67,5 +68,15 @@ func (h *Handler) tryAnonymous() (*models.Principal, error) {
 		return nil, nil
 	}
 
-	return h.authComposer("", nil)
+	return h.extractPrincipal(h.authComposer("", nil))
+}
+
+func (h *Handler) extractPrincipal(result *authentication.AuthResult, err error) (*models.Principal, error) {
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, nil
+	}
+	return result.Principal, nil
 }
