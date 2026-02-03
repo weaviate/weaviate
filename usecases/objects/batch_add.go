@@ -15,15 +15,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -96,6 +97,26 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 	if schemaVersion > maxSchemaVersion {
 		maxSchemaVersion = schemaVersion
+	}
+
+	// ensure tenants are active when AutoTenantActivation is enabled
+	classTenants := make(map[string][]string)
+	for _, obj := range objects {
+		if obj.Tenant == "" {
+			continue
+		}
+		classTenants[obj.Class] = append(classTenants[obj.Class], obj.Tenant)
+	}
+	for className, tenants := range classTenants {
+		slices.Sort(tenants)
+		tenants = slices.Compact(tenants)
+		activationVersion, err := b.schemaManager.EnsureTenantActiveForWrite(ctx, className, tenants...)
+		if err != nil {
+			return nil, fmt.Errorf("ensure tenant active: %w", err)
+		}
+		if activationVersion > maxSchemaVersion {
+			maxSchemaVersion = activationVersion
+		}
 	}
 
 	b.metrics.BatchTenants(tenantCount)

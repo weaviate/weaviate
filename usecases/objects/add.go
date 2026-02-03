@@ -91,6 +91,17 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		maxSchemaVersion = autoTenantSchemaVersion
 	}
 
+	// ensure tenant is active when AutoTenantActivation is enabled, and wait for that schema version
+	if object.Tenant != "" {
+		activationVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, object.Class, object.Tenant)
+		if err != nil {
+			return nil, err
+		}
+		if activationVersion > maxSchemaVersion {
+			maxSchemaVersion = activationVersion
+		}
+	}
+
 	class := fetchedClasses[object.Class].Class
 
 	err = m.validateObjectAndNormalizeNames(ctx, repl, object, nil, fetchedClasses)
