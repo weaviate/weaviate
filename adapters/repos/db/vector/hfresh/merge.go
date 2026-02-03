@@ -59,6 +59,12 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 	initialLen := len(p)
 
+	if initialLen == 0 {
+		h.logger.WithField("postingID", postingID).
+			Debug("posting is empty, skipping merge operation")
+		return nil
+	}
+
 	// garbage collect the deleted vectors
 	newPosting, err := p.GarbageCollect(h.VersionMap)
 	if err != nil {

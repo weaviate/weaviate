@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Merge a posting that does not exist
-func TestMergePostingThatDoesNotExist(t *testing.T) {
+// Merge a centroid that does not exist
+func TestMergeCentroidThatDoesNotExist(t *testing.T) {
 	tf := createHFreshIndex(t)
 
 	err := tf.Index.doMerge(t.Context(), 0)
@@ -35,6 +35,32 @@ func TestMergePostingThatDoesNotExist(t *testing.T) {
 		entry.Message,
 	)
 	require.Equal(t, uint64(0), entry.Data["postingID"])
+}
+
+// Merge a posting that doesn't exist
+func TestMergePostingThatDoesNotExist(t *testing.T) {
+	tf := createHFreshIndex(t)
+
+	postingID := uint64(999)
+	centroid := []float32{5.0, 5.0, 5.0, 5.0}
+	initializeDimensions(t, &tf, centroid)
+	compressed := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(centroid))
+
+	err := tf.Index.Centroids.Insert(postingID, &Centroid{
+		Uncompressed: centroid,
+		Compressed:   compressed,
+		Deleted:      false,
+	})
+	require.NoError(t, err)
+
+	err = tf.Index.doMerge(t.Context(), postingID)
+	require.NoError(t, err)
+
+	require.Len(t, tf.Logs.Entries, 3)
+	entry := tf.Logs.Entries[2]
+	require.Equal(t, logrus.DebugLevel, entry.Level)
+	require.Equal(t, "posting is empty, skipping merge operation", entry.Message)
+	require.Equal(t, uint64(999), entry.Data["postingID"])
 }
 
 // Merge a posting with length above minPostingSize is not merged
