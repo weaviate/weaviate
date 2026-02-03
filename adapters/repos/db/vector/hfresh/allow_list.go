@@ -29,15 +29,24 @@ func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helper
 }
 
 func (h *HFresh) NewAllowListIterator(al helpers.AllowList) helpers.AllowListIterator {
+	all := h.PostingMap.cache.All() // snapshot de lo que está en cache ahora
+
+	ids := make([]uint64, 0)
+	for id := range all {
+		ids = append(ids, id)
+	}
 	return &AllowListIterator{
-		len:       int(h.Centroids.GetMaxID()),
 		allowList: al,
+		ids:       ids,
+		idx:       0,
+		len:       int(h.Centroids.GetMaxID()),
 	}
 }
 
 type AllowListIterator struct {
 	len       int
-	current   uint64
+	ids       []uint64
+	idx       int
 	allowList helpers.AllowList
 }
 
@@ -46,15 +55,13 @@ func (i *AllowListIterator) Len() int {
 }
 
 func (i *AllowListIterator) Next() (uint64, bool) {
-	if i.current >= uint64(i.len) {
-		return 0, false
-	}
-	for i.current < uint64(i.len) {
-		if i.allowList.Contains(i.current) {
-			i.current++
-			return i.current - 1, true
+	for i.idx < len(i.ids) {
+		id := i.ids[i.idx]
+		i.idx++
+
+		if i.allowList.Contains(id) {
+			return id, true
 		}
-		i.current++
 	}
 	return 0, false
 }
