@@ -67,6 +67,33 @@ func testText2VecVoyageAI(rest, grpc string) func(t *testing.T) {
 				model:      "voyage-context-3",
 				dimensions: 256,
 			},
+			{
+				name:  "voyage-4",
+				model: "voyage-4",
+			},
+			{
+				name:       "voyage-4 512 dimensions",
+				model:      "voyage-4",
+				dimensions: 512,
+			},
+			{
+				name:  "voyage-4-lite",
+				model: "voyage-4-lite",
+			},
+			{
+				name:       "voyage-4-lite 256 dimensions",
+				model:      "voyage-4-lite",
+				dimensions: 256,
+			},
+			{
+				name:  "voyage-4-large",
+				model: "voyage-4-large",
+			},
+			{
+				name:       "voyage-4-large 2048 dimensions",
+				model:      "voyage-4-large",
+				dimensions: 2048,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
