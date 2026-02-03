@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -337,8 +338,10 @@ func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) er
 	defer s.vectorIndexMu.Unlock()
 
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
-		s.index.logger.WithField("action", "init_target_vectors").
-			Errorf("failed to migrate vectors compressed folder: %v", err)
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_target_vectors",
+			"shard_id": s.ID(),
+		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
