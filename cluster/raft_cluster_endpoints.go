@@ -20,6 +20,8 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // LeaderWithID is used to return the current leader address and ID of the cluster.
@@ -125,7 +127,12 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 	}
 
 	for _, className := range classNames {
-		shardingStateCopy := schemaReader.CopyShardingState(className)
+		var shardingStateCopy *sharding.State
+		schemaReader.Read(className, false, func(c *models.Class, s *sharding.State) error {
+			shardingStateCopy = s
+			return nil
+		})
+
 		if shardingStateCopy == nil {
 			continue
 		}
