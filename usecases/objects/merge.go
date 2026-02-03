@@ -107,11 +107,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	maxSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
-	maxSchemaVersion = max(fetchedClass[cls].Version, activationVersion)
+	maxSchemaVersion := max(max(fetchedClass[cls].Version, activationVersion), schemaVersion)
 
 	var propertiesToDelete []string
 	if updates.Properties != nil {
