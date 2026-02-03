@@ -636,5 +636,177 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 		Enabled: true,
 	}
 
-	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, logger)
+	// Pass nil for namespace lookup in tests (no namespace-scoped permissions)
+	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, logger, nil)
+}
+
+func TestHasNamespaceAccess(t *testing.T) {
+	tests := []struct {
+		name            string
+		principal       *models.Principal
+		resource        string
+		namespaceLookup authorization.NamespaceLookup
+		expected        bool
+	}{
+		{
+			name:            "nil principal returns false",
+			principal:       nil,
+			resource:        "schema/collections/tenanta__Article/shards/#",
+			namespaceLookup: func(username string) (string, bool) { return "tenanta", false },
+			expected:        false,
+		},
+		{
+			name:            "nil namespace lookup returns false",
+			principal:       &models.Principal{Username: "user1"},
+			resource:        "schema/collections/tenanta__Article/shards/#",
+			namespaceLookup: nil,
+			expected:        false,
+		},
+		{
+			name:      "admin user returns false (use RBAC)",
+			principal: &models.Principal{Username: "admin"},
+			resource:  "schema/collections/tenanta__Article/shards/#",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", true // isAdmin = true
+			},
+			expected: false,
+		},
+		{
+			name:      "user in default namespace returns false (use RBAC)",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "schema/collections/default__Article/shards/#",
+			namespaceLookup: func(username string) (string, bool) {
+				return "default", false
+			},
+			expected: false,
+		},
+		{
+			name:      "user with empty namespace returns false",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "schema/collections/tenanta__Article/shards/#",
+			namespaceLookup: func(username string) (string, bool) {
+				return "", false
+			},
+			expected: false,
+		},
+		{
+			name:      "user bound to namespace can access their namespace collection (schema)",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "schema/collections/Tenanta__Article/shards/#",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: true,
+		},
+		{
+			name:      "user bound to namespace can access their namespace collection (data)",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "data/collections/Tenanta__Article/shards/shard1/objects/123",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: true,
+		},
+		{
+			name:      "user bound to namespace can access their namespace collection (backups)",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "backups/collections/Tenanta__Article",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: true,
+		},
+		{
+			name:      "user cannot access different namespace",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "schema/collections/Tenantb__Article/shards/#",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: false,
+		},
+		{
+			name:      "user cannot access non-namespaced domains (roles)",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "roles/myrole",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: false,
+		},
+		{
+			name:      "user cannot access non-namespaced domains (users)",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "users/someuser",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: false,
+		},
+		{
+			name:      "user cannot access non-namespaced domains (cluster)",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "cluster/*",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: false,
+		},
+		{
+			name:      "wildcard class returns false",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "schema/collections/*/shards/#",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: false,
+		},
+		{
+			name:      "invalid resource format returns false",
+			principal: &models.Principal{Username: "user1"},
+			resource:  "invalid",
+			namespaceLookup: func(username string) (string, bool) {
+				return "tenanta", false
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Manager{
+				namespaceLookup: tt.namespaceLookup,
+			}
+			result := m.hasNamespaceAccess(tt.principal, tt.resource)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractClassFromResource(t *testing.T) {
+	tests := []struct {
+		resource string
+		expected string
+	}{
+		{"schema/collections/MyClass/shards/#", "MyClass"},
+		{"schema/collections/tenanta__Article/shards/#", "tenanta__Article"},
+		{"data/collections/MyClass/shards/shard1/objects/123", "MyClass"},
+		{"backups/collections/MyClass", "MyClass"},
+		{"aliases/collections/MyClass/aliases/myalias", "MyClass"},
+		{"replicate/collections/MyClass/shards/shard1", "MyClass"},
+		{"tenants/collections/MyClass/tenants/t1", "MyClass"},
+		{"roles/myrole", ""},            // not namespace-scoped
+		{"users/myuser", ""},            // not namespace-scoped
+		{"cluster/*", ""},               // not namespace-scoped
+		{"nodes/verbosity/minimal", ""}, // not namespace-scoped
+		{"invalid", ""},                 // too short
+		{"schema/invalid/MyClass", ""},  // not "collections"
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.resource, func(t *testing.T) {
+			result := extractClassFromResource(tt.resource)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

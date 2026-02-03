@@ -232,6 +232,12 @@ type Policy struct {
 	Domain   string
 }
 
+// NamespaceLookup is a function type that returns a user's bound namespace.
+// Returns (namespace, isAdmin) where:
+// - namespace is the namespace the user is bound to (empty string if not bound)
+// - isAdmin is true if the user is a root/admin user
+type NamespaceLookup func(username string) (namespace string, isAdmin bool)
+
 // Cluster returns a string representing the cluster authorization scope.
 // The returned string is "cluster/*", which can be used to specify that
 // the authorization applies to all resources within the cluster.

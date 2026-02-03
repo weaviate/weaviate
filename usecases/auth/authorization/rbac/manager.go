@@ -38,20 +38,28 @@ const (
 )
 
 type Manager struct {
-	casbin     *casbin.SyncedCachedEnforcer
-	logger     logrus.FieldLogger
-	authNconf  config.Authentication
-	rbacConf   rbacconf.Config
-	backupLock sync.RWMutex
+	casbin          *casbin.SyncedCachedEnforcer
+	logger          logrus.FieldLogger
+	authNconf       config.Authentication
+	rbacConf        rbacconf.Config
+	backupLock      sync.RWMutex
+	namespaceLookup authorization.NamespaceLookup
 }
 
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
+func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger, namespaceLookup authorization.NamespaceLookup) (*Manager, error) {
 	csbin, err := Init(rbacConf, rbacStoragePath, authNconf)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Manager{csbin, logger, authNconf, rbacConf, sync.RWMutex{}}, nil
+	return &Manager{
+		casbin:          csbin,
+		logger:          logger,
+		authNconf:       authNconf,
+		rbacConf:        rbacConf,
+		backupLock:      sync.RWMutex{},
+		namespaceLookup: namespaceLookup,
+	}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface

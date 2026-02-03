@@ -413,7 +413,8 @@ def show_summary():
             "  [green]•[/green] Users are created with namespace binding via [cyan]X-Weaviate-Namespace[/cyan] header\n"
             "  [green]•[/green] Each user's API key is [bold]permanently bound[/bold] to their assigned namespace\n"
             "  [green]•[/green] All operations automatically use the bound namespace\n"
-            "  [green]•[/green] No need for clients to specify namespace in every request\n"
+            "  [green]•[/green] [bold yellow]Namespace-bound users get FULL permissions in their namespace[/bold yellow]\n"
+            "  [green]•[/green] No explicit RBAC roles needed for namespace-scoped operations\n"
             "  [green]•[/green] Admin users can override namespace for management operations",
             border_style="dim",
             padding=(1, 2),
@@ -459,7 +460,8 @@ Headers:
         print("• Users are created with namespace binding via X-Weaviate-Namespace header")
         print("• Each user's API key is permanently bound to their assigned namespace")
         print("• All operations automatically use the bound namespace")
-        print("• No need for clients to specify namespace in every request")
+        print("• Namespace-bound users get FULL permissions in their namespace")
+        print("• No explicit RBAC roles needed for namespace-scoped operations")
         print("• Admin users can override namespace for management operations")
         print()
 
@@ -581,42 +583,50 @@ def main():
     tenant_b = WeaviateClient(WEAVIATE_URL, tenant_b_key, "tenant-b")
 
     # =========================================================================
-    # Step 4: Admin creates collections in each namespace
+    # Step 4: Tenant users create their own collections
     # =========================================================================
     show_step_header(
         4,
-        "Admin Creates Collections in Each Namespace",
-        "Admin creates an '[cyan]Articles[/cyan]' collection in [bold]EACH[/bold] namespace.\n"
-        "Admin uses the [cyan]X-Weaviate-Namespace[/cyan] header to specify the target.\n\n"
+        "Tenant Users Create Their Own Collections",
+        "[bold yellow]NAMESPACE-SCOPED PERMISSIONS IN ACTION![/bold yellow]\n\n"
+        "Each tenant user creates an '[cyan]Articles[/cyan]' collection.\n\n"
+        "[bold]Key point:[/bold] The users only have the '[cyan]viewer[/cyan]' RBAC role,\n"
+        "which normally only grants READ permissions!\n\n"
+        "But because they're bound to a namespace, they get [bold]implicit[/bold]\n"
+        "[bold]full permissions[/bold] for resources in their own namespace.\n\n"
         "Internally, these become:\n"
         "  [green]•[/green] [dim]Tenanta__Articles[/dim] (in tenanta namespace)\n"
         "  [green]•[/green] [dim]Tenantb__Articles[/dim] (in tenantb namespace)\n\n"
         "These are [bold]completely separate[/bold] collections!"
     )
 
-    show_next_action("Admin creates 'Articles' in namespace 'tenanta'")
+    show_next_action("Tenant A creates 'Articles' in their namespace")
 
-    show_info("Admin creating 'Articles' in namespace 'tenanta'...")
-    ok, result = admin.create_collection("Articles", namespace="tenanta", show_api=True)
+    show_info("Tenant A creating 'Articles' (using their API key)...")
+    show_highlight("(Note: Tenant A only has 'viewer' role - but can CREATE in their namespace!)")
+    ok, result = tenant_a.create_collection("Articles", show_api=True)
     if not ok:
         if "already exists" in str(result):
             show_info("Collection already exists (from previous run)")
         else:
             show_error(f"Failed to create collection: {result}")
+            show_info("This is expected if namespace-scoped permissions are not yet enabled")
     else:
-        show_success("Admin created Articles in namespace 'tenanta'")
+        show_success("Tenant A created Articles in their namespace")
 
-    show_next_action("Admin creates 'Articles' in namespace 'tenantb'")
+    show_next_action("Tenant B creates 'Articles' in their namespace")
 
-    show_info("Admin creating 'Articles' in namespace 'tenantb'...")
-    ok, result = admin.create_collection("Articles", namespace="tenantb", show_api=True)
+    show_info("Tenant B creating 'Articles' (using their API key)...")
+    show_highlight("(Note: Tenant B only has 'viewer' role - but can CREATE in their namespace!)")
+    ok, result = tenant_b.create_collection("Articles", show_api=True)
     if not ok:
         if "already exists" in str(result):
             show_info("Collection already exists (from previous run)")
         else:
             show_error(f"Failed to create collection: {result}")
+            show_info("This is expected if namespace-scoped permissions are not yet enabled")
     else:
-        show_success("Admin created Articles in namespace 'tenantb'")
+        show_success("Tenant B created Articles in their namespace")
 
     # =========================================================================
     # Step 5: Verify namespace isolation

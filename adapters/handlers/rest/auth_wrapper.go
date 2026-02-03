@@ -57,6 +57,15 @@ func (s *AuthNamespaceStore) Get(username string) (string, bool) {
 // This is set during API configuration.
 var authNamespaceStore = NewAuthNamespaceStore()
 
+// GetBoundNamespace returns a user's bound namespace from authentication.
+// Returns (namespace, isAdmin) where:
+// - namespace is the namespace the user is bound to (empty string if not bound)
+// - isAdmin is true if the user is a root/admin user
+// This function implements the authorization.NamespaceLookup interface.
+func GetBoundNamespace(username string) (string, bool) {
+	return authNamespaceStore.Get(username)
+}
+
 // WrapAuthWithNamespace wraps the TokenFunc to extract and store namespace information,
 // while returning the expected *models.Principal for the go-swagger API.
 func WrapAuthWithNamespace(
