@@ -443,9 +443,12 @@ func (q *DiskQueue) Size() int64 {
 	return int64(q.recordCount)
 }
 
-func (q *DiskQueue) Pause() {
+func (q *DiskQueue) Pause(nowait ...bool) {
 	q.scheduler.PauseQueue(q.id)
 	q.metrics.Paused(q.id)
+	if len(nowait) == 0 || !nowait[0] {
+		q.scheduler.Wait(q.id)
+	}
 }
 
 func (q *DiskQueue) Resume() {
