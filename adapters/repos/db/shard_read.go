@@ -713,11 +713,13 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 		}
 		obj, err := storobj.FromBinary(val)
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
+			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}
 
 		out[i] = obj
-		*nextIteratorUuid = obj.ID().String()
+		if nextIteratorUuid != nil {
+			*nextIteratorUuid = obj.ID().String()
+		}
 		i++
 		scanLimit += c.Limit * 10 // reset scan limit each time we find a match
 	}
