@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -531,6 +533,10 @@ func (sg *SegmentGroup) add(path string) error {
 }
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
+	startTime := time.Now()
+	bucketName := filepath.Base(sg.dir)
+	isObjects := bucketName == helpers.ObjectsBucketLSM
+
 	sg.maintenanceLock.RLock()
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
@@ -552,6 +558,21 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 			}
 		}
 		sg.segmentRefCounterLock.Unlock()
+
+		// Only log for objects bucket to avoid spam
+		if isObjects {
+			if held := time.Since(startTime); held > 5*time.Second {
+				sg.logger.WithFields(logrus.Fields{
+					"action":             "hfresh_segment_view_held_long",
+					"hfresh_flush_debug": "true",
+					"bucket":             bucketName,
+					"path":               sg.dir,
+					"held_duration":      held.String(),
+					"segment_count":      len(segments),
+					"stack_trace":        string(debug.Stack()),
+				}).Info("segment consistent view held for more than 5s before release")
+			}
+		}
 	}
 }
 

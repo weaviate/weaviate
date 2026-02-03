@@ -329,6 +329,16 @@ func (b *Bucket) GetDir() string {
 	return b.dir
 }
 
+// GetBucketName returns the bucket name (basename of the directory).
+func (b *Bucket) GetBucketName() string {
+	return filepath.Base(b.dir)
+}
+
+// isObjectsBucket returns true if this bucket is the objects bucket.
+func (b *Bucket) isObjectsBucket() bool {
+	return b.GetBucketName() == helpers.ObjectsBucketLSM
+}
+
 func (b *Bucket) GetRootDir() string {
 	return b.rootDir
 }
@@ -506,26 +516,41 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 }
 
 type BucketConsistentView struct {
-	Active   memtable
-	Flushing memtable
-	Disk     []Segment
-	release  func()
-	Bucket   *Bucket
+	Active    memtable
+	Flushing  memtable
+	Disk      []Segment
+	release   func()
+	Bucket    *Bucket
+	startTime time.Time
 }
 
 func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
+
+	// Only log for objects bucket to avoid spam
+	if cv.Bucket.isObjectsBucket() {
+		if held := time.Since(cv.startTime); held > 5*time.Second {
+			cv.Bucket.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_consistent_view_held_long",
+				"hfresh_flush_debug": "true",
+				"bucket":             cv.Bucket.GetBucketName(),
+				"path":               cv.Bucket.dir,
+				"held_duration":      held.String(),
+				"stack_trace":        string(debug.Stack()),
+			}).Info("consistent view held for more than 5s before release")
+		}
+	}
 }
 
 // GetConsistentView returns a consistent view of the bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
 // call ReleaseView() on the returned view when done to avoid blocking compactions.
 func (b *Bucket) GetConsistentView() BucketConsistentView {
-	beforeFlushLock := time.Now()
+	startTime := time.Now()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+	if duration := time.Since(startTime); duration > 100*time.Millisecond {
 		b.logger.WithFields(logrus.Fields{
 			"duration": duration,
 			"action":   "lsm_bucket_get_acquire_flush_lock",
@@ -534,11 +559,12 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 
 	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
 	return BucketConsistentView{
-		Active:   b.active,
-		Flushing: b.flushing,
-		Disk:     diskSegments,
-		release:  releaseDiskSegments,
-		Bucket:   b,
+		Active:    b.active,
+		Flushing:  b.flushing,
+		Disk:      diskSegments,
+		release:   releaseDiskSegments,
+		Bucket:    b,
+		startTime: startTime,
 	}
 }
 
@@ -920,6 +946,9 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
 func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
+	startTime := time.Now()
+	isObjects := b.isObjectsBucket()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -928,6 +957,20 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 
 	release = func() {
 		active.decWriterCount()
+
+		// Only log for objects bucket to avoid spam
+		if isObjects {
+			if held := time.Since(startTime); held > 5*time.Second {
+				b.logger.WithFields(logrus.Fields{
+					"action":             "hfresh_writer_ref_held_long",
+					"hfresh_flush_debug": "true",
+					"bucket":             b.GetBucketName(),
+					"path":               b.dir,
+					"held_duration":      held.String(),
+					"stack_trace":        string(debug.Stack()),
+				}).Info("writer ref held for more than 5s before release")
+			}
+		}
 	}
 
 	return active, release
@@ -1489,12 +1532,37 @@ func (b *Bucket) shouldReuseWAL() bool {
 
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	isObjects := b.isObjectsBucket()
+
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlogSize()
-	memtableTooLarge := b.active.Size() >= b.memtableThreshold
+	memtableSize := b.active.Size()
+	memtableTooLarge := memtableSize >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
-	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
+	dirtyDuration := b.active.DirtyDuration()
+	dirtyTooLong := dirtyDuration >= b.flushDirtyAfter
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	hasFlushing := b.flushing != nil
+
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_check_thresholds",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"memtable_size":      memtableSize,
+			"memtable_threshold": b.memtableThreshold,
+			"memtable_too_large": memtableTooLarge,
+			"commitlog_size":     commitLogSize,
+			"wal_threshold":      b.walThreshold,
+			"wal_too_large":      walTooLarge,
+			"dirty_duration":     dirtyDuration.String(),
+			"flush_dirty_after":  b.flushDirtyAfter.String(),
+			"dirty_too_long":     dirtyTooLong,
+			"should_switch":      shouldSwitch,
+			"has_flushing":       hasFlushing,
+		}).Info("checking flush thresholds for objects bucket")
+	}
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
@@ -1508,17 +1576,48 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 			b.haltedFlushTimer.IncreaseInterval()
 		}
 
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_skipped_readonly",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+			}).Info("flush skipped: shard is readonly")
+		}
+
 		b.flushLock.RUnlock()
 		return false
 	}
 
 	if b.shouldReuseWAL() {
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_reuse_wal",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"commitlog_size":     commitLogSize,
+				"min_wal_threshold":  b.minWalThreshold,
+			}).Info("flush skipped: reusing WAL (commitlog below min threshold)")
+		}
 		defer b.flushLock.RUnlock()
 		return b.getAndUpdateWritesSinceLastSync()
 	}
 
 	b.flushLock.RUnlock()
 	if shouldSwitch {
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_starting",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"memtable_size":      memtableSize,
+				"commitlog_size":     commitLogSize,
+				"dirty_duration":     dirtyDuration.String(),
+			}).Info("starting flush and switch")
+		}
+
 		b.haltedFlushTimer.Reset()
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
@@ -1526,7 +1625,27 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 				WithField("path", b.GetDir()).
 				WithError(err).
 				Errorf("flush and switch failed")
+
+			if isObjects {
+				b.logger.WithFields(logrus.Fields{
+					"action":             "hfresh_flush_failed",
+					"hfresh_flush_debug": "true",
+					"bucket":             b.GetBucketName(),
+					"path":               b.dir,
+					"error":              err.Error(),
+				}).Info("flush and switch failed")
+			}
 			return false
+		}
+
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_completed",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"cycle_length":       cycleLength.String(),
+			}).Info("flush and switch completed successfully")
 		}
 
 		if b.memtableResizer != nil {
@@ -1536,6 +1655,18 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 			}
 		}
 		return true
+	}
+
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_not_needed",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"memtable_size":      memtableSize,
+			"commitlog_size":     commitLogSize,
+			"dirty_duration":     dirtyDuration.String(),
+		}).Info("flush not needed: no thresholds met")
 	}
 	return false
 }
@@ -1612,6 +1743,7 @@ func (b *Bucket) isReadOnly() bool {
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
 	var err error
+	isObjects := b.isObjectsBucket()
 
 	bucketPath := b.GetDir()
 
@@ -1619,18 +1751,59 @@ func (b *Bucket) FlushAndSwitch() error {
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
 
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_switch_step1_start",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+		}).Info("step 1: starting atomic memtable switch")
+	}
+
+	switchStart := time.Now()
 	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	switchDuration := time.Since(switchStart)
+
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
 			WithField("path", bucketPath).
 			Error(err)
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_switch_step1_failed",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"error":              err.Error(),
+				"duration":           switchDuration.String(),
+			}).Info("step 1 failed: atomic memtable switch error")
+		}
 		return fmt.Errorf("flush and switch: %w", err)
 	}
 	if !switched {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
 			WithField("path", bucketPath).
 			Trace("flush and switch not needed")
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_switch_not_needed",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"duration":           switchDuration.String(),
+			}).Info("flush not needed: memtable is empty")
+		}
 		return nil
+	}
+
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_switch_step1_done",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"duration":           switchDuration.String(),
+		}).Info("step 1 done: atomic memtable switch completed")
 	}
 
 	// Before we can start the actual flush, we need to make sure that all
@@ -1641,15 +1814,73 @@ func (b *Bucket) FlushAndSwitch() error {
 	// switched the active memtable already, new writers will go into the
 	// currently active memtable, and existing writers will eventually finish
 	// their work
-	b.waitForZeroWriters(b.flushing)
+	if isObjects {
+		writerCount := b.flushing.getWriterCount()
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_waiting_writers_start",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"writer_count":       writerCount,
+		}).Info("waiting for writers to finish before flush")
+	}
 
+	waitWritersStart := time.Now()
+	b.waitForZeroWriters(b.flushing)
+	waitWritersDuration := time.Since(waitWritersStart)
+
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_waiting_writers_done",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"duration":           waitWritersDuration.String(),
+		}).Info("done waiting for writers")
+	}
+
+	if isObjects {
+		flushingSize := b.flushing.Size()
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_step2_start",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"flushing_size":      flushingSize,
+		}).Info("step 2: starting memtable flush to disk")
+	}
+
+	flushStart := time.Now()
 	if b.flushing.getStrategy() == StrategyInverted {
 		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
 		b.flushing.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
 	segmentPath, err := b.flushing.flush()
+	flushDuration := time.Since(flushStart)
+
 	if err != nil {
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_step2_failed",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"error":              err.Error(),
+				"duration":           flushDuration.String(),
+			}).Info("step 2 failed: memtable flush error")
+		}
 		return fmt.Errorf("flush: %w", err)
+	}
+
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_step2_done",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"segment_path":       segmentPath,
+			"duration":           flushDuration.String(),
+		}).Info("step 2 done: memtable flushed to disk")
 	}
 
 	var tombstones *sroar.Bitmap
@@ -1659,13 +1890,78 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_step3_start",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"segment_path":       segmentPath,
+		}).Info("step 3: starting segment initialization and metadata precompute")
+	}
+
+	precomputeStart := time.Now()
 	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
+	precomputeDuration := time.Since(precomputeStart)
+
 	if err != nil {
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_step3_failed",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"error":              err.Error(),
+				"duration":           precomputeDuration.String(),
+			}).Info("step 3 failed: segment precompute error")
+		}
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
 
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_step3_done",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"duration":           precomputeDuration.String(),
+		}).Info("step 3 done: segment initialized and metadata precomputed")
+	}
+
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_step4_start",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+		}).Info("step 4: starting atomic add segment and remove flushing")
+	}
+
+	addSegmentStart := time.Now()
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
+		addSegmentDuration := time.Since(addSegmentStart)
+		if isObjects {
+			b.logger.WithFields(logrus.Fields{
+				"action":             "hfresh_flush_step4_failed",
+				"hfresh_flush_debug": "true",
+				"bucket":             b.GetBucketName(),
+				"path":               b.dir,
+				"error":              err.Error(),
+				"duration":           addSegmentDuration.String(),
+			}).Info("step 4 failed: add segment error")
+		}
 		return fmt.Errorf("add segment and remove flushing: %w", err)
+	}
+	addSegmentDuration := time.Since(addSegmentStart)
+
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":             "hfresh_flush_step4_done",
+			"hfresh_flush_debug": "true",
+			"bucket":             b.GetBucketName(),
+			"path":               b.dir,
+			"duration":           addSegmentDuration.String(),
+		}).Info("step 4 done: segment added and flushing memtable removed")
 	}
 
 	switch b.strategy {
@@ -1723,6 +2019,21 @@ func (b *Bucket) FlushAndSwitch() error {
 		WithField("took", took).
 		Debugf("flush and switch took %s\n", took)
 
+	if isObjects {
+		b.logger.WithFields(logrus.Fields{
+			"action":               "hfresh_flush_all_steps_done",
+			"hfresh_flush_debug":   "true",
+			"bucket":               b.GetBucketName(),
+			"path":                 b.dir,
+			"total_duration":       took.String(),
+			"switch_duration":      switchDuration.String(),
+			"wait_writers_dur":     waitWritersDuration.String(),
+			"flush_duration":       flushDuration.String(),
+			"precompute_duration":  precomputeDuration.String(),
+			"add_segment_duration": addSegmentDuration.String(),
+		}).Info("all flush steps completed")
+	}
+
 	return nil
 }
 
@@ -1757,6 +2068,7 @@ func (b *Bucket) waitForZeroWriters(mt memtable) {
 		warnInterval   = 1 * time.Second
 	)
 
+	isObjects := b.isObjectsBucket()
 	start := time.Now()
 	var lastWarn time.Time
 	t := time.NewTicker(tickerInterval)
@@ -1769,12 +2081,17 @@ func (b *Bucket) waitForZeroWriters(mt memtable) {
 		now := time.Now()
 		if sinceStart := now.Sub(start); sinceStart >= warnThreshold {
 			if lastWarn.IsZero() || now.Sub(lastWarn) >= warnInterval {
-				b.logger.WithFields(logrus.Fields{
+				fields := logrus.Fields{
 					"action":     "lsm_flush_wait_writers_refcount",
 					"path":       b.dir,
+					"bucket":     b.GetBucketName(),
 					"refcount":   writers,
 					"total_wait": sinceStart,
-				}).Warnf("still delaying flush to wait for writers to finish (waited %.2fs so far)", sinceStart.Seconds())
+				}
+				if isObjects {
+					fields["hfresh_flush_debug"] = "true"
+				}
+				b.logger.WithFields(fields).Warnf("still delaying flush to wait for writers to finish (waited %.2fs so far)", sinceStart.Seconds())
 				lastWarn = now
 			}
 		}

@@ -521,6 +521,9 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 		warnInterval   = 10 * time.Second
 	)
 
+	bucketName := path.Base(sg.dir)
+	isObjects := bucketName == helpers.ObjectsBucketLSM
+
 	start := time.Now()
 	var lastWarn time.Time
 	t := time.NewTicker(tickerInterval)
@@ -547,13 +550,18 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 		now := time.Now()
 		if sinceStart := now.Sub(start); sinceStart >= warnThreshold {
 			if lastWarn.IsZero() || now.Sub(lastWarn) >= warnInterval {
-				sg.logger.WithFields(logrus.Fields{
+				fields := logrus.Fields{
 					"action":           "lsm_compaction_wait_refcount",
 					"path":             sg.dir,
+					"bucket":           bucketName,
 					"segment_position": pos,
 					"refcount":         count,
 					"total_wait":       sinceStart,
-				}).Warnf("still waiting for segments to reach refcount=0 (waited %.2fs so far)", sinceStart.Seconds())
+				}
+				if isObjects {
+					fields["hfresh_flush_debug"] = "true"
+				}
+				sg.logger.WithFields(fields).Warnf("still waiting for segments to reach refcount=0 (waited %.2fs so far)", sinceStart.Seconds())
 				lastWarn = now
 			}
 		}
