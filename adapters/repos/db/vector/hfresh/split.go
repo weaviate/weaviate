@@ -146,7 +146,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		return nil
 	}
 
-	err = h.enqueueReassignAfterSplit(ctx, postingID, newPostingIDs, result)
+	err = h.enqueueReassignAfterSplit(ctx, postingID, newPostingIDs)
 	if err != nil {
 		return errors.Wrapf(err, "failed to enqueue reassign after split for posting %d", postingID)
 	}
@@ -187,7 +187,13 @@ type SplitResult struct {
 	Posting      Posting
 }
 
-func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64, newPostings []SplitResult) error {
+func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64) error {
+	// Skip reassignment check for vectors in new postings - KMeans already placed them optimally.
+	// Only check neighbor postings for vectors that might benefit from moving to the new centroids.
+	if h.config.ReassignNeighbors <= 0 {
+		return nil
+	}
+
 	oldCentroid, err := h.Centroids.Get(oldPostingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get centroid for posting %d", oldPostingID)
@@ -202,50 +208,6 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 	newPostingCentroid1, err := h.Centroids.Get(newPostingIDs[1])
 	if err != nil {
 		return errors.Wrapf(err, "failed to get centroid for posting %d", newPostingIDs[1])
-	}
-	newPostingCentroids := [2]*Centroid{newPostingCentroid0, newPostingCentroid1}
-
-	// first check: if a vector is closer to one of the new posting centroid than the old centroid,
-	// neighboring centroids cannot be better.
-	for i := range newPostings {
-		// test each vector
-		for _, v := range newPostings[i].Posting {
-			vid := v.ID()
-			_, exists := reassignedVectors[vid]
-			version, err := h.VersionMap.Get(ctx, vid)
-			if err != nil {
-				return errors.Wrapf(err, "failed to get version for vector %d", vid)
-			}
-			if !exists && !v.Version().Deleted() && version == v.Version() {
-				// compute distance from v to its new centroid
-				newDist, err := newPostingCentroids[i].Distance(h.distancer, v)
-				if err != nil {
-					return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[i])
-				}
-
-				// compute distance from v to the old centroid
-				oldDist, err := oldCentroid.Distance(h.distancer, v)
-				if err != nil {
-					return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
-				}
-
-				if newDist >= oldDist {
-					// the vector is closer to the old centroid, which means it may be also closer to a neighboring centroid,
-					// we need to reassign it
-					err = h.taskQueue.EnqueueReassign(newPostingIDs[i], v.ID(), v.Version())
-					if err != nil {
-						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
-					}
-					reassignedVectors[vid] = struct{}{}
-				}
-			}
-		}
-	}
-
-	// second check: if a vector from a neighboring centroid is closer to one of the new posting centroids than the old centroid,
-	// we need to reassign it.
-	if h.config.ReassignNeighbors <= 0 {
-		return nil
 	}
 
 	// search for neighboring centroids
@@ -312,8 +274,9 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[1])
 			}
 
-			if distOld <= distA0 && distOld <= distA1 {
-				// the vector is closer to the old centroid, which means the new postings are not better than its current posting
+			// SPFresh Condition 2: at least one new centroid must be closer than the old centroid
+			// for this vector to potentially benefit from reassignment
+			if distA0 > distOld && distA1 > distOld {
 				continue
 			}
 
@@ -323,7 +286,21 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 				continue
 			}
 
-			// the vector is closer to one of the new centroids, it needs to be reassigned
+			// the vector is closer to one of the new centroids, run RNGSelect to confirm reassignment is needed
+			q, err := h.config.VectorForIDThunk(ctx, vid)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get vector %d for RNGSelect", vid)
+			}
+
+			_, needsReassign, err := h.RNGSelect(q, neighborID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to run RNGSelect for vector %d", vid)
+			}
+
+			if !needsReassign {
+				continue
+			}
+
 			err = h.taskQueue.EnqueueReassign(neighborID, v.ID(), v.Version())
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
