@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -137,6 +138,11 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	ttlTime, deletionTime time.Time,
 ) (err error) {
 	started := time.Now()
+
+	metrics := monitoring.GetMetrics()
+	metrics.IncObjectsTtlCount()
+	metrics.IncObjectsTtlRunning()
+
 	// count objects deleted per collection
 	objsDeletedCounters := make(DeletedCounters, len(classesWithTTL))
 	colNames := make([]string, 0, len(classesWithTTL))
@@ -150,12 +156,20 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		"collections_count": len(colNames),
 	}).Info("ttl deletion on local node started")
 	defer func() {
+		took := time.Since(started)
+
 		// add fields c_{collection_name}=>{count_deleted} and total_deleted=>{total_deleted}
-		fields := objsDeletedCounters.ToLogFields(16)
-		fields["took"] = time.Since(started).String()
+		fields, total := objsDeletedCounters.ToLogFields(16)
+		fields["took"] = took.String()
 		logger = logger.WithFields(fields)
 
+		metrics.DecObjectsTtlRunning()
+		metrics.ObserveObjectsTtlDuration(took)
+		metrics.AddObjectsTtlObjectsDeleted(float64(total))
+
 		if err != nil {
+			metrics.IncObjectsTtlFailureCount()
+
 			logger.WithError(err).Error("ttl deletion on local node failed")
 			return
 		}
@@ -322,7 +336,7 @@ func (c *remoteObjectTTL) StartRemoteDelete(ctx context.Context, nodeName string
 
 type DeletedCounters map[string]*atomic.Int32
 
-func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) logrus.Fields {
+func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.Fields, total int32) {
 	prefixLen := maxCollectionNameLen / 2
 	suffixLen := maxCollectionNameLen - 1 - prefixLen
 	shorten := func(name string) string {
@@ -332,8 +346,8 @@ func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) logrus.Fields {
 		return name
 	}
 
-	fields := logrus.Fields{}
-	total := int32(0)
+	fields = logrus.Fields{}
+	total = int32(0)
 	for name, counter := range dc {
 		if del := counter.Load(); del > 0 {
 			fields["c_"+shorten(name)] = del
@@ -341,5 +355,5 @@ func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) logrus.Fields {
 		}
 	}
 	fields["total_deleted"] = total
-	return fields
+	return fields, total
 }
