@@ -42,6 +42,18 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+const (
+	// iteratorScanLimitMultiplier defines how many objects to scan beyond the last match
+	// when searching for filtered results. A multiplier of 10 means we scan up to 10x the
+	// requested limit past each match, balancing between finding sparse filtered results
+	// and avoiding excessive scanning.
+	iteratorScanLimitMultiplier = 10
+
+	// iteratorMaxScanLimit is the maximum scan limit to prevent integer overflow.
+	// This caps the total objects scanned in a single iteration.
+	iteratorMaxScanLimit = 1 << 62 // ~4.6 quintillion, safe from overflow when adding limit*multiplier
+)
+
 func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -265,7 +277,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties, properties []string,
+	additional additional.Properties, properties []string, iteratorState *dto.IteratorState,
 ) ([]*storobj.Object, []float32, error) {
 	var err error
 
@@ -342,13 +354,24 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		defer filterDocIds.Close()
 
+		// For filtered iterator mode, track where this shard's scan stopped
+		var nextIteratorUUID string
 		objs, err := s.ObjectList(ctx, limit, sort,
-			cursor, additional, s.index.Config.ClassName, filterDocIds)
+			cursor, additional, s.index.Config.ClassName, filterDocIds, &nextIteratorUUID)
+
+		// Write to ShardCursors if iteratorState is provided
+		if iteratorState != nil && nextIteratorUUID != "" {
+			if iteratorState.ShardCursors == nil {
+				iteratorState.ShardCursors = make(map[string]string)
+			}
+			iteratorState.ShardCursors[s.name] = nextIteratorUUID
+		}
+
 		return objs, nil, err
 	}
 
 	if filters == nil {
-		objs, err := s.ObjectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName, nil)
+		objs, err := s.ObjectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName, nil, nil)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
@@ -574,7 +597,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	return objs, distCombined, nil
 }
 
-func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, allowlist helpers.AllowList) ([]*storobj.Object, error) {
+func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, allowlist helpers.AllowList, nextIteratorUUID *string) ([]*storobj.Object, error) {
 	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
 		beforeSort := time.Now()
@@ -596,10 +619,10 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 	if cursor == nil {
 		cursor = &filters.Cursor{After: "", Limit: limit}
 	}
-	return s.cursorObjectList(ctx, cursor, allowlist)
+	return s.cursorObjectList(ctx, cursor, allowlist, nextIteratorUUID)
 }
 
-func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowlist helpers.AllowList) ([]*storobj.Object, error) {
+func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowlist helpers.AllowList, nextIteratorUUID *string) ([]*storobj.Object, error) {
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
 
@@ -619,17 +642,44 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 	}
 
 	i := 0
-	out := make([]*storobj.Object, c.Limit)
+	j := 0
 
-	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
+	scanLimit := iteratorMaxScanLimit
+
+	if c != nil && c.Limit > 0 {
+		scanLimit = c.Limit * iteratorScanLimitMultiplier
+	}
+
+	out := make([]*storobj.Object, c.Limit)
+	if nextIteratorUUID != nil {
+		*nextIteratorUUID = uuid.Nil.String()
+	}
+
+	// 1. This loop has to move ahead iteratorScanLimitMultiplier * Limit searching for allowed IDs
+	// 2. Happy path finds {Limit} amount of results and returns
+	// 3. Worst case it scans iteratorScanLimitMultiplier * Limit past the last match found and does not find enough results to return Limit objects.
+	// 4. Populate the UUID from the last seen docID to restore the starting point on the next iteration.
+	for ; key != nil && i < c.Limit && j < scanLimit; key, val = cursor.Next() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+
+		j++
+
+		if j == scanLimit && nextIteratorUUID != nil {
+			parsedUUID, err := storobj.FromBinaryUUIDOnly(val)
+			if err != nil {
+				return nil, errors.Wrapf(err, "unmarshal uuid from item")
+			}
+			*nextIteratorUUID = parsedUUID.ID().String()
+		}
+
 		if allowlist != nil {
 			docId, err := storobj.DocIDFromBinary(val)
 			if err != nil {
 				return nil, errors.Wrapf(err, "unmarshal doc id from item")
 			}
+
 			if !allowlist.Contains(docId) {
 				// skip this object, it does not match the filter
 				continue
@@ -637,11 +687,18 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 		}
 		obj, err := storobj.FromBinary(val)
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
+			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}
 
 		out[i] = obj
+		if nextIteratorUUID != nil {
+			*nextIteratorUUID = obj.ID().String()
+		}
 		i++
+		// Reset scan limit on each match, capped to prevent overflow
+		if scanLimit < iteratorMaxScanLimit-c.Limit*iteratorScanLimitMultiplier {
+			scanLimit += c.Limit * iteratorScanLimitMultiplier
+		}
 	}
 
 	return out[:i], nil

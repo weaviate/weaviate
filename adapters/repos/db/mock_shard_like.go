@@ -2082,9 +2082,9 @@ func (_c *MockShardLike_ObjectList_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// ObjectSearch provides a mock function with given fields: ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties
-func (_m *MockShardLike) ObjectSearch(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string) ([]*storobj.Object, []float32, error) {
-	ret := _m.Called(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+// ObjectSearch provides a mock function with given fields: ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState
+func (_m *MockShardLike) ObjectSearch(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string, iteratorState *dto.IteratorState) ([]*storobj.Object, []float32, error) {
+	ret := _m.Called(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectSearch")
@@ -2093,27 +2093,27 @@ func (_m *MockShardLike) ObjectSearch(ctx context.Context, limit int, _a2 *filte
 	var r0 []*storobj.Object
 	var r1 []float32
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) ([]*storobj.Object, []float32, error)); ok {
-		return rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) ([]*storobj.Object, []float32, error)); ok {
+		return rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) []*storobj.Object); ok {
-		r0 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) []*storobj.Object); ok {
+		r0 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*storobj.Object)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) []float32); ok {
-		r1 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(1).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) []float32); ok {
+		r1 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).([]float32)
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) error); ok {
-		r2 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(2).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) error); ok {
+		r2 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -2135,13 +2135,14 @@ type MockShardLike_ObjectSearch_Call struct {
 //   - cursor *filters.Cursor
 //   - _a6 additional.Properties
 //   - properties []string
-func (_e *MockShardLike_Expecter) ObjectSearch(ctx interface{}, limit interface{}, _a2 interface{}, keywordRanking interface{}, sort interface{}, cursor interface{}, _a6 interface{}, properties interface{}) *MockShardLike_ObjectSearch_Call {
-	return &MockShardLike_ObjectSearch_Call{Call: _e.mock.On("ObjectSearch", ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)}
+//   - iteratorState *dto.IteratorState
+func (_e *MockShardLike_Expecter) ObjectSearch(ctx interface{}, limit interface{}, _a2 interface{}, keywordRanking interface{}, sort interface{}, cursor interface{}, _a6 interface{}, properties interface{}, iteratorState interface{}) *MockShardLike_ObjectSearch_Call {
+	return &MockShardLike_ObjectSearch_Call{Call: _e.mock.On("ObjectSearch", ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)}
 }
 
-func (_c *MockShardLike_ObjectSearch_Call) Run(run func(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string)) *MockShardLike_ObjectSearch_Call {
+func (_c *MockShardLike_ObjectSearch_Call) Run(run func(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string, iteratorState *dto.IteratorState)) *MockShardLike_ObjectSearch_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int), args[2].(*filters.LocalFilter), args[3].(*searchparams.KeywordRanking), args[4].([]filters.Sort), args[5].(*filters.Cursor), args[6].(additional.Properties), args[7].([]string))
+		run(args[0].(context.Context), args[1].(int), args[2].(*filters.LocalFilter), args[3].(*searchparams.KeywordRanking), args[4].([]filters.Sort), args[5].(*filters.Cursor), args[6].(additional.Properties), args[7].([]string), args[8].(*dto.IteratorState))
 	})
 	return _c
 }
@@ -2151,7 +2152,7 @@ func (_c *MockShardLike_ObjectSearch_Call) Return(_a0 []*storobj.Object, _a1 []f
 	return _c
 }
 
-func (_c *MockShardLike_ObjectSearch_Call) RunAndReturn(run func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) ([]*storobj.Object, []float32, error)) *MockShardLike_ObjectSearch_Call {
+func (_c *MockShardLike_ObjectSearch_Call) RunAndReturn(run func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) ([]*storobj.Object, []float32, error)) *MockShardLike_ObjectSearch_Call {
 	_c.Call.Return(run)
 	return _c
 }

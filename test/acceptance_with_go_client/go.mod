@@ -11,8 +11,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/tailor-platform/graphql v0.6.0
-	github.com/weaviate/weaviate v1.32.4-0.20250821224425-5469448cc83a
-	github.com/weaviate/weaviate-go-client/v5 v5.4.2-0.20250822111337-d751da280fa2
+	github.com/weaviate/weaviate v1.35.4
+	github.com/weaviate/weaviate-go-client/v5 v5.4.2-0.20250905133619-5b1e091b2517
 	golang.org/x/sync v0.18.0
 	google.golang.org/grpc v1.78.0
 )

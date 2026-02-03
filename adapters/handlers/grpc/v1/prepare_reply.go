@@ -98,6 +98,12 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.GenerativeGroupedResults = generativeGroupedResults
 		out.Results = objects
 	}
+
+	// Populate per-shard cursors for filtered iterator mode
+	if searchParams.IteratorState != nil && len(searchParams.IteratorState.ShardCursors) > 0 {
+		out.ShardCursors = searchParams.IteratorState.ShardCursors
+	}
+
 	return out, nil
 }
 

@@ -88,7 +88,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 				Operator: filters.ContainsAny,
 			},
 		}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Nil(t, err)
 		t.Log("--- Start results for singleprop search ---")
 		for _, r := range res {
@@ -111,7 +111,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 				Operator: filters.ContainsAny,
 			},
 		}
-		_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Error(t, err)
 	})
 
@@ -129,7 +129,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 				Operator: filters.ContainsAny,
 			},
 		}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Nil(t, err)
 		// all results contain "journey", "a" is a stopword and ignored
 		require.Equal(t, len(res), 5)
@@ -163,7 +163,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now an error, as "journey" was added to stopwords, and we are searching only for stopwords
 			require.Error(t, err)
 		})
@@ -182,7 +182,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now no error, as "a" was removed from stopwords
 			require.Nil(t, err)
 			// all results contain "a"
@@ -203,7 +203,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			require.Nil(t, err)
 			// all results contain "a", "journey" is now a stopword and ignored
 			require.Equal(t, len(res), 2)
@@ -268,7 +268,7 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 	}
 
 	t.Run("initial preset word is stopword", func(t *testing.T) {
-		_, _, err := idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		_, _, err := idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Error(t, err)
 	})
 
@@ -301,11 +301,11 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 		err := migrator.UpdateInvertedIndexConfig(context.Background(), string(className), class.InvertedIndexConfig)
 		require.Nil(t, err)
 
-		_, _, err = idx.objectSearch(context.TODO(), 1000, filterAddition, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		_, _, err = idx.objectSearch(context.TODO(), 1000, filterAddition, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Error(t, err)
 
 		// "the" is still a stopword, as the preset was recreated from default config
-		_, _, err = idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		_, _, err = idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Error(t, err)
 	})
 
@@ -323,11 +323,11 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 		err := migrator.UpdateInvertedIndexConfig(context.Background(), string(className), class.InvertedIndexConfig)
 		require.Nil(t, err)
 
-		res, _, err := idx.objectSearch(context.TODO(), 1000, filterAddition, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, filterAddition, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Nil(t, err)
 		require.Greater(t, len(res), 0)
 
-		res, _, err = idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		res, _, err = idx.objectSearch(context.TODO(), 1000, filterPresetWord, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Nil(t, err)
 		require.Greater(t, len(res), 0)
 
@@ -345,7 +345,7 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 			},
 		}
 
-		_, _, err = idx.objectSearch(context.TODO(), 1000, filterCustom, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+		_, _, err = idx.objectSearch(context.TODO(), 1000, filterCustom, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 		require.Error(t, err)
 	})
 }
@@ -432,7 +432,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now an error, as "journey" was added to stopwords, and we are searching only for stopwords
 			require.Error(t, err)
 		})
@@ -451,7 +451,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now error, as the "journey" update overwrote the previous removal of "a"
 			require.Error(t, err)
 		})
@@ -470,7 +470,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now error, as the "journey" update overwrote the previous removal of "a", and they are both stopwords again
 			require.Error(t, err)
 		})
@@ -510,7 +510,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now an error, as "journey" was added to stopwords, and we are searching only for stopwords
 			require.Error(t, err)
 		})
@@ -529,7 +529,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now error, as the "journey" update overwrote the previous removal of "a"
 			require.Error(t, err)
 		})
@@ -548,7 +548,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 					Operator: filters.ContainsAny,
 				},
 			}
-			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props)
+			_, _, err := idx.objectSearch(context.TODO(), 1000, filter, nil, nil, nil, additional.Properties{}, nil, "", 0, props, nil)
 			// now error, as the "journey" update overwrote the previous removal of "a", and they are both stopwords again
 			require.Error(t, err)
 		})

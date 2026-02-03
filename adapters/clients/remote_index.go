@@ -376,10 +376,11 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
+	iteratorState *dto.IteratorState,
 ) ([]*storobj.Object, []float32, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties, iteratorState)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
@@ -394,16 +395,28 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	// send request
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+
+	// Populate iterator state from response
+	if iteratorState != nil && resp.IteratorState != nil {
+		if iteratorState.ShardCursors == nil {
+			iteratorState.ShardCursors = make(map[string]string)
+		}
+		for k, v := range resp.IteratorState.ShardCursors {
+			iteratorState.ShardCursors[k] = v
+		}
+	}
+
 	return resp.Objects, resp.Distributions, err
 }
 
 type searchShardResp struct {
 	Objects       []*storobj.Object
 	Distributions []float32
+	IteratorState *dto.IteratorState
 }
 
 func (r *searchShardResp) decode(data []byte) (err error) {
-	r.Objects, r.Distributions, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
+	r.Objects, r.Distributions, r.IteratorState, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
 	return err
 }
 
