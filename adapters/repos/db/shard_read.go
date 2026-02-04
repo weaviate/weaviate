@@ -399,6 +399,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	s.activityTrackerRead.Add(1)
 
 	var allowList helpers.AllowList
+
+	if allowList.Contains(0) {
+		// should panic here :)
+	}
+
 	if filters != nil {
 		beforeFilter := time.Now()
 		list, err := s.buildAllowList(ctx, filters, additional)
@@ -410,6 +415,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		s.metrics.FilteredVectorFilter(took)
 		helpers.AnnotateSlowQueryLog(ctx, "filters_build_allow_list_took", took)
 		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Len())
+	} else if filters.Root != nil {
+		// should panic here too :)
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
