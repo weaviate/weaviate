@@ -94,10 +94,31 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 }
 
 func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
+	if len(p) == 0 {
+		return nil
+	}
+
 	data := make([][]float32, 0, len(p))
 
+	l := len(p[0].Data()) / 8
+	if len(p[0].Data())%8 != 0 {
+		l++
+	}
+
+	buf := make([]uint64, l)
+
 	for _, v := range p {
-		data = append(data, quantizer.Decode(quantizer.FromCompressedBytes(v.Data())))
+		compressed := v.Data()
+
+		for i := range buf {
+			buf[i] = binary.LittleEndian.Uint64(compressed[i*8:])
+		}
+
+		x := make([]float32, 64*(len(buf)-1 /* oneBitFieldWords */))
+		x = quantizer.RestoreInto(buf, x)
+		x = quantizer.UnRotateInPlace(x)
+		x = x[:quantizer.OriginalDim()]
+		data = append(data, x)
 	}
 
 	return data

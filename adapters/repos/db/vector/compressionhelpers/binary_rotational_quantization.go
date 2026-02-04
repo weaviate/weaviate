@@ -213,6 +213,14 @@ func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
 	return unrotated[:rq.originalDim]
 }
 
+func (rq *BinaryRotationalQuantizer) UnRotateInPlace(b []float32) []float32 {
+	return rq.rotation.UnRotateInPlace(b)
+}
+
+func (rq *BinaryRotationalQuantizer) OriginalDim() uint32 {
+	return rq.originalDim
+}
+
 // Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting
 // distancer for PQ,SQ etc. use the compressed vector, in this case we can't use it because we have different encoding for the query and the data.
 func (rq *BinaryRotationalQuantizer) Restore(b []uint64) []float32 {
@@ -223,6 +231,28 @@ func (rq *BinaryRotationalQuantizer) Restore(b []uint64) []float32 {
 	dim := code.Dimension()
 	avgNorm := code.Norm() / float32(math.Sqrt(float64(dim)))
 	x := make([]float32, dim)
+	bits := code.Bits()
+	for i := range dim {
+		block := i / 64
+		bit := uint(i) % 64
+		if (bits[block] & (1 << bit)) != 0 {
+			x[i] = avgNorm
+		} else {
+			x[i] = -avgNorm
+		}
+	}
+	return x
+}
+
+// Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting
+// distancer for PQ,SQ etc. use the compressed vector, in this case we can't use it because we have different encoding for the query and the data.
+func (rq *BinaryRotationalQuantizer) RestoreInto(b []uint64, x []float32) []float32 {
+	// When restoring a float32 from the binary encoding we use the mapping:
+	// 0: -||x||/sqrt(D)
+	// 1:  ||x||/sqrt(D)
+	code := RQOneBitCode(b)
+	dim := code.Dimension()
+	avgNorm := code.Norm() / float32(math.Sqrt(float64(dim)))
 	bits := code.Bits()
 	for i := range dim {
 		block := i / 64
