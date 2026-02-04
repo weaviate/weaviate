@@ -367,7 +367,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	}
 
 	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, updated); err != nil {
-		s.index.logger.WithField("action", "update_vector_index_configs").
+		s.index.logger.WithField("action", "update_vector_index_configs").WithField("shard_id", s.ID()).
 			Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 

@@ -329,7 +329,7 @@ func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) er
 	defer s.vectorIndexMu.Unlock()
 
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
-		s.index.logger.WithField("action", "init_target_vectors").
+		s.index.logger.WithField("action", "init_target_vectors").WithField("shard_id", s.ID()).
 			Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
