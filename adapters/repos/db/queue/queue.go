@@ -464,10 +464,6 @@ func (q *DiskQueue) ForceSwitch(ctx context.Context, basePath string) ([]string,
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	if !q.scheduler.IsQueuePaused(q.id) {
-		return nil, errors.New("queue must be paused before forcing a switch")
-	}
-
 	// promote the current partial chunk
 	err := q.w.Promote()
 	if err != nil {
