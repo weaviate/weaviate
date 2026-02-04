@@ -160,10 +160,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
-		RootPath:          dirName,
-		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: 1,
-		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		EnableLazyLoadShards: true,
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(class.Class),
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
@@ -217,10 +218,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 	// recreate the index
 	index, err = NewIndex(testCtx(), IndexConfig{
-		RootPath:          dirName,
-		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: 1,
-		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		EnableLazyLoadShards: true,
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(class.Class),
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
@@ -403,10 +405,11 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(ctx, IndexConfig{
-		RootPath:          dirName,
-		ClassName:         schema.ClassName(class.Class),
-		ReplicationFactor: 1,
-		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		EnableLazyLoadShards: true,
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(class.Class),
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
@@ -501,8 +504,9 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
-		RootPath:  dirName,
-		ClassName: schema.ClassName(class.Class),
+		EnableLazyLoadShards: true,
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(class.Class),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), true)
@@ -599,6 +603,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
+		EnableLazyLoadShards:    true,
 		RootPath:                dirName,
 		ClassName:               schema.ClassName(class.Class),
 		ReplicationFactor:       1,

@@ -260,6 +260,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
+		EnableLazyLoadShards:      true,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -338,6 +339,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
+		EnableLazyLoadShards:      true,
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
@@ -369,10 +371,11 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
-			RootPath:            tmpDir,
-			ClassName:           schema.ClassName(class.Class),
-			QueryMaximumResults: maxResults,
-			ReplicationFactor:   1,
+			EnableLazyLoadShards: true,
+			RootPath:             tmpDir,
+			ClassName:            schema.ClassName(class.Class),
+			QueryMaximumResults:  maxResults,
+			ReplicationFactor:    1,
 		},
 		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,

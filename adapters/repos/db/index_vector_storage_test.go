@@ -224,6 +224,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
+				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
@@ -517,6 +518,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, IndexConfig{
+				EnableLazyLoadShards:  true,
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
