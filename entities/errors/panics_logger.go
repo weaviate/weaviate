@@ -13,10 +13,13 @@ package errors
 
 import (
 	"runtime/debug"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
 
 func PrintStack(logger logrus.FieldLogger) {
-	logger.WithField("action", "print_stack").Error(string(debug.Stack()))
+	for _, line := range strings.Split(strings.TrimSuffix(string(debug.Stack()), "\n"), "\n") {
+		logger.WithField("action", "print_stack").Errorf("  %s", line)
+	}
 }
