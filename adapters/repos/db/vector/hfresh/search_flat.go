@@ -46,8 +46,14 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 	for workerID := 0; workerID < flatSearchConcurrency; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			localResults := priorityqueue.NewMax[any](k)
 			for idPos := workerID; idPos < len(candidates); idPos += flatSearchConcurrency {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
 				candidate := candidates[idPos]
 
 				dist, err := h.distToNode(candidate, queryVector)
@@ -56,6 +62,9 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 				}
 
 				addResult(localResults, candidate, dist, k)
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 
 			aggregateMu.Lock()
