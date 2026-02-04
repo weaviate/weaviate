@@ -213,10 +213,8 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 			})
 
 			t.Run("retrieve by secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, secKey)
-				assert.NoError(t, err)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
 				assert.Nil(t, val)
 			})
 
@@ -279,16 +277,12 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 			})
 
 			t.Run("retrieve by secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, secKey)
 				assert.ErrorIs(t, err, lsmkv.NotFound)
 				assert.Nil(t, val)
 			})
 
 			t.Run("retrieve by other secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, otherSecKey)
 				assert.ErrorIs(t, err, lsmkv.Deleted)
 				assert.Nil(t, val)
@@ -323,16 +317,12 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 			})
 
 			t.Run("retrieve by secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, secKey)
 				assert.ErrorIs(t, err, lsmkv.NotFound)
 				assert.Nil(t, val)
 			})
 
 			t.Run("retrieve by other secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, otherSecKey)
 				assert.ErrorIs(t, err, lsmkv.Deleted)
 				assert.Nil(t, val)
@@ -437,8 +427,6 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 			})
 
 			t.Run("retrieve by secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, secKey)
 				assert.ErrorIs(t, err, lsmkv.Deleted)
 				assert.Nil(t, val)
@@ -476,8 +464,6 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 			})
 
 			t.Run("retrieve by other secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, otherSecKey)
 				assert.ErrorIs(t, err, lsmkv.Deleted)
 				assert.Nil(t, val)
@@ -517,8 +503,6 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 			})
 
 			t.Run("retrieve by other secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, otherSecKey)
 				assert.ErrorIs(t, err, lsmkv.Deleted)
 				assert.Nil(t, val)
@@ -552,8 +536,6 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 			})
 
 			t.Run("retrieve by secondary", func(t *testing.T) {
-				t.Skip()
-
 				val, err := memtable.getBySecondary(0, secKey)
 				assert.ErrorIs(t, err, lsmkv.Deleted)
 				assert.Nil(t, val)
