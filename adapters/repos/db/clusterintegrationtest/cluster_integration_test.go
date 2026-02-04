@@ -767,15 +767,11 @@ func TestDistributedVectorDistance(t *testing.T) {
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, []models.Vector{vectors[1], vectors[2]})
-					if !assert.Nil(collect, err) {
-						return
-					}
-					if !assert.Equal(collect, res[0].ID, obj.ID) {
-						return
-					}
-					if !assert.Equal(collect, res[0].Dist, float32(1)) {
-						return
-					}
+
+					require.NoError(collect, err)
+					require.Len(collect, res, 1)
+					assert.Equal(collect, res[0].ID, obj.ID)
+					assert.Equal(collect, res[0].Dist, float32(1))
 
 					assert.Nil(collect, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
 				}, 20*time.Second, 1*time.Second)
