@@ -666,11 +666,11 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	idx, err := NewIndex(testCtx(), IndexConfig{
-		RootPath:              rootDir,
-		ClassName:             schema.ClassName(class.Class),
-		DisableLazyLoadShards: true,
-		ReplicationFactor:     1,
-		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		RootPath:             rootDir,
+		ClassName:            schema.ClassName(class.Class),
+		EnableLazyLoadShards: false,
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
