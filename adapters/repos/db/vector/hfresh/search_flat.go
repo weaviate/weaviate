@@ -51,12 +51,9 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 			}
 			localResults := priorityqueue.NewMax[any](k)
 			for idPos := workerID; idPos < len(candidates); idPos += flatSearchConcurrency {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
 				candidate := candidates[idPos]
 
-				dist, err := h.distToNode(candidate, queryVector)
+				dist, err := h.distToNode(ctx, candidate, queryVector)
 				if err != nil {
 					return err
 				}
@@ -100,12 +97,10 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 	return ids, dists, nil
 }
 
-func (h *HFresh) distToNode(node uint64, vecB []float32) (float32, error) {
-	// TODO: introduce single search/transaction context instead of spawning new
-	// ones
+func (h *HFresh) distToNode(ctx context.Context, node uint64, vecB []float32) (float32, error) {
 	var vecA []float32
 	var err error
-	vecA, err = h.vectorForId(context.Background(), node)
+	vecA, err = h.vectorForId(ctx, node)
 	if err != nil {
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,
