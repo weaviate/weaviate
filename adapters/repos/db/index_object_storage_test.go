@@ -169,6 +169,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
+				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
