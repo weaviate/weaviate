@@ -176,6 +176,9 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	segmentAveragePropLength float64
+	segmentPropCount         uint64
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -278,6 +281,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	}
 
 	b.disk = sg
+
+	if b.strategy == StrategyInverted {
+		b.segmentAveragePropLength, b.segmentPropCount = sg.GetAveragePropertyLength()
+	}
 
 	if b.active == nil {
 		b.active, err = b.createNewActiveMemtable()
@@ -1166,7 +1173,8 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 
 	if active.getStrategy() == StrategyInverted {
 		docID := binary.BigEndian.Uint64(mapKey)
-		if err := active.SetTombstone(docID); err != nil {
+		err := b.InvertedDeleteDocs([]uint64{docID})
+		if err != nil {
 			return err
 		}
 	}
@@ -1372,8 +1380,13 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 
 	b.flushLock.Lock()
 	if b.active.getStrategy() == StrategyInverted {
-		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
+		avgPropLength, propLengthCount, err2 := b.GetAveragePropertyLength()
+		if err2 != nil {
+			b.flushLock.Unlock()
+			return err2
+		}
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
+
 	}
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
@@ -1578,13 +1591,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	var tombstones *sroar.Bitmap
-	if b.strategy == StrategyInverted {
-		if tombstones, err = b.flushing.ReadOnlyTombstones(); err != nil {
-			return fmt.Errorf("get tombstones: %w", err)
-		}
-	}
-
 	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
@@ -1592,51 +1598,6 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
-	}
-
-	switch b.strategy {
-	case StrategyInverted:
-		if !tombstones.IsEmpty() {
-			if err = func() error {
-				// As part of the discussions for
-				// https://github.com/weaviate/weaviate/pull/9104 we disocvered that
-				// there is a potential, non-critical bug in this logic. There can
-				// essentially be a race:
-				//
-				//   1. Imagine two segments A+B.
-				//   2. A compaction is started which merges A+B into AB
-				//   3. A flush happens while the compaction is ongoing, we extend A+B
-				//      with tombstones
-				//   4. The compaction finishes, A+B are replaced with AB, which does
-				//      not have the tombstones
-				//
-				// However, we deem the situation non-critical because any deleted
-				// object would be filtered out at the end of the search, so we're
-				// "only" wasting some CPU cycles on scoring objects that are already
-				// deleted. In addition, on the next restart the tombstones would be
-				// applied in a consistent fashion again, so this does not lead to
-				// permanent data loss; only a temporary non-critical divergence of
-				// in-memory vs on-disk state.
-				//
-				// As part of #9104, we have accepted this bug (as it is independent of
-				// the work done in 9104) and may revisit this logic at a a later
-				// point. #9104 simply changes from a maintenance RLock to a segment
-				// view which does not alter the behavior, but does help reduce lock
-				// contention.
-				segments, release := b.disk.getConsistentViewOfSegments()
-				defer release()
-
-				// add flushing memtable tombstones to all segments
-				for _, seg := range segments {
-					if _, err := seg.MergeTombstones(tombstones); err != nil {
-						return fmt.Errorf("merge tombstones: %w", err)
-					}
-				}
-				return nil
-			}(); err != nil {
-				return fmt.Errorf("add tombstones: %w", err)
-			}
-		}
 	}
 
 	took := time.Since(before)
@@ -1881,7 +1842,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 	}()
 
-	averagePropLength, err := b.GetAveragePropertyLength()
+	averagePropLength, _, err := b.GetAveragePropertyLength()
 	if err != nil {
 		view.Release()
 		return nil, nil, func() {}, err
@@ -1979,27 +1940,29 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		idfCounts[queryTerm] = n
 	}
 
-	if ctx.Err() != nil {
-		view.Release()
-		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
-	}
-
-	for j := len(view.Disk) - 1; j >= 0; j-- {
+	for j := 0; j < len(view.Disk); j++ {
+		if ctx.Err() != nil {
+			view.Release()
+			return nil, nil, func() {}, fmt.Errorf("before segment %d: %w", j, ctx.Err())
+		}
 		segment := view.Disk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-
-		allTombstones := memTombstones.Clone()
-		if j != len(view.Disk)-1 {
-			segTombstones, err := view.Disk[j+1].ReadOnlyTombstones()
+		var tombstones *sroar.Bitmap
+		if j < len(view.Disk)-1 {
+			tombstones, err = view.Disk[j+1].ReadOnlyTombstones()
 			if err != nil {
 				view.Release()
-				return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", err)
+				return nil, nil, func() {}, fmt.Errorf("segment tombstones: %w", err)
 			}
-			allTombstones.Or(segTombstones)
+			if memTombstones != nil && !memTombstones.IsEmpty() {
+				tombstones = tombstones.Or(memTombstones)
+			}
+		} else {
+			tombstones = memTombstones
 		}
 
 		for i, key := range query {
-			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, tombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
@@ -2070,26 +2033,19 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	return n, nil
 }
 
-func (b *Bucket) GetAveragePropertyLength() (float64, error) {
+func (b *Bucket) GetAveragePropertyLength() (float64, uint64, error) {
 	if b.strategy != StrategyInverted {
-		return 0, fmt.Errorf("active memtable is not inverted")
+		return 0, 0, fmt.Errorf("active memtable is not inverted")
 	}
 
-	var err error
 	propLengthCount := uint64(0)
 	propLengthSum := uint64(0)
 	if b.flushing != nil {
-		propLengthSum, propLengthCount, err = b.flushing.GetPropLengths()
-		if err != nil {
-			return 0, err
-		}
+		propLengthSum, propLengthCount = b.flushing.GetPropLengths()
 	}
 	// if the active memtable is inverted, we need to get the average property
 	if b.active != nil {
-		propLengthSum2, propLengthCount2, err := b.active.GetPropLengths()
-		if err != nil {
-			return 0, err
-		}
+		propLengthSum2, propLengthCount2 := b.active.GetPropLengths()
 		propLengthCount += propLengthCount2
 		propLengthSum += propLengthSum2
 	}
@@ -2103,9 +2059,9 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		propLengthCount += segmentPropCount
 	}
 	if propLengthCount == 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
-	return float64(propLengthSum) / float64(propLengthCount), nil
+	return float64(propLengthSum) / float64(propLengthCount), propLengthCount, nil
 }
 
 func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
@@ -2218,4 +2174,28 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 		return "", err
 	}
 	return defaultStrategy, nil
+}
+
+func (b *Bucket) InvertedDeleteDocs(docIDs []uint64) error {
+	if err := b.active.SetTombstones(docIDs); err != nil {
+		return err
+	}
+
+	// TODO: confirm if needed
+	// consistent view
+	view := b.getConsistentView()
+	defer view.Release()
+
+	// add flushing memtable tombstones to all segments
+	for _, seg := range view.Disk {
+		seg.getInvertedData().tombstones.SetMany(docIDs)
+	}
+
+	if view.Flushing != nil {
+		if err := view.Flushing.SetTombstones(docIDs); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

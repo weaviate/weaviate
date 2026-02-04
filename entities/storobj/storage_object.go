@@ -313,14 +313,31 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequential(bucket, ids, additional, properties)
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
 	}
 
-	return objectsByDocIDParallel(bucket, ids, additional, properties, logger)
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
+}
+
+func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
+	}
+
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
+}
+
+func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
+	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+	includeEmpty bool,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
@@ -346,7 +363,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties)
+			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty)
 			if err != nil {
 				return err
 			}
@@ -373,6 +390,13 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
+) ([]*Object, error) {
+	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+}
+
+func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string,
+	includeEmpty bool,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -418,6 +442,9 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 		// The user has already been alerted about ppossible data loss when the WAL recovery happened.
 		// TODO: consider deleting these entries from the inverted index and alerting the user
 		if res == nil {
+			if includeEmpty {
+				i++
+			}
 			continue
 		}
 
