@@ -34,7 +34,7 @@ const (
 // limit the size of each task chunk to
 // to avoid sending too many tasks at once.
 const (
-	analyzeTaskQueueChunkSize  = 16 * 1024 // 16KB
+	analyzeTaskQueueChunkSize  = 64 * 1024 // 64KB
 	splitTaskQueueChunkSize    = 16 * 1024 // 16KB
 	reassignTaskQueueChunkSize = 16 * 1024 // 16KB
 	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
