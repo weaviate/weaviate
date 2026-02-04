@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"iter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -28,25 +29,20 @@ func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helper
 	}
 }
 
-func (h *HFresh) NewAllowListIterator(al helpers.AllowList) helpers.AllowListIterator {
+func (h *HFresh) NewAllowListIterator(al helpers.AllowList) (helpers.AllowListIterator, func()) {
 	all := h.PostingMap.cache.All() // snapshot de lo que está en cache ahora
+	next, stop := iter.Pull2(all)
 
-	ids := make([]uint64, 0)
-	for id := range all {
-		ids = append(ids, id)
-	}
 	return &AllowListIterator{
 		allowList: al,
-		ids:       ids,
-		idx:       0,
+		next:      next,
 		len:       int(h.Centroids.GetMaxID()),
-	}
+	}, stop
 }
 
 type AllowListIterator struct {
 	len       int
-	ids       []uint64
-	idx       int
+	next      func() (uint64, *PostingMetadata, bool)
 	allowList helpers.AllowList
 }
 
@@ -55,15 +51,15 @@ func (i *AllowListIterator) Len() int {
 }
 
 func (i *AllowListIterator) Next() (uint64, bool) {
-	for i.idx < len(i.ids) {
-		id := i.ids[i.idx]
-		i.idx++
-
-		if i.allowList.Contains(id) {
-			return id, true
-		}
+	id, _, ok := i.next()
+	for ok && !i.allowList.Contains(id) {
+		id, _, ok = i.next()
 	}
-	return 0, false
+	if !ok {
+		return id, ok
+	}
+
+	return id, i.allowList.Contains(id)
 }
 
 type allowList struct {
@@ -98,7 +94,7 @@ func (a *allowList) Contains(id uint64) bool {
 }
 
 // Iterator implements [helpers.AllowList].
-func (a *allowList) Iterator() helpers.AllowListIterator {
+func (a *allowList) Iterator() (helpers.AllowListIterator, func()) {
 	return a.h.NewAllowListIterator(a)
 }
 

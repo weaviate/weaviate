@@ -395,7 +395,8 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 		return false, nil
 	}
 
-	it := deleteList.Iterator()
+	it, stop := deleteList.Iterator()
+	defer stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if h.getEntrypoint() == id {
 			// this a special case because:
@@ -853,7 +854,8 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 }
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
-	it := deleteList.Iterator()
+	it, stop := deleteList.Iterator()
+	defer stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if breakCleanUpTombstonedNodes() {
 			return false, nil

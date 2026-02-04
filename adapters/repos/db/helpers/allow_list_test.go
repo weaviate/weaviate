@@ -134,7 +134,7 @@ func TestAllowList(t *testing.T) {
 
 func TestAllowList_Iterator(t *testing.T) {
 	t.Run("empty bitmap iterator", func(t *testing.T) {
-		it := NewAllowList().Iterator()
+		it, _ := NewAllowList().Iterator()
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -147,7 +147,7 @@ func TestAllowList_Iterator(t *testing.T) {
 	})
 
 	t.Run("iterating step by step", func(t *testing.T) {
-		it := NewAllowList(3, 2, 1).Iterator()
+		it, _ := NewAllowList(3, 2, 1).Iterator()
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -166,7 +166,7 @@ func TestAllowList_Iterator(t *testing.T) {
 	})
 
 	t.Run("iterating in loop", func(t *testing.T) {
-		it := NewAllowList(3, 2, 1).Iterator()
+		it, _ := NewAllowList(3, 2, 1).Iterator()
 		ids := []uint64{}
 
 		for id, ok := it.Next(); ok; id, ok = it.Next() {

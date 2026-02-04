@@ -32,7 +32,7 @@ type AllowList interface {
 	Size() uint64
 	Truncate(uint64) AllowList
 
-	Iterator() AllowListIterator
+	Iterator() (iterator AllowListIterator, Close func())
 	LimitedIterator(limit int) AllowListIterator
 }
 
@@ -118,8 +118,8 @@ func (al *BitmapAllowList) Truncate(upTo uint64) AllowList {
 	return al
 }
 
-func (al *BitmapAllowList) Iterator() AllowListIterator {
-	return al.LimitedIterator(0)
+func (al *BitmapAllowList) Iterator() (AllowListIterator, func()) {
+	return al.LimitedIterator(0), func() {}
 }
 
 func (al *BitmapAllowList) LimitedIterator(limit int) AllowListIterator {

@@ -139,8 +139,8 @@ func (al *wrappedAllowList) Truncate(upTo uint64) AllowList {
 	return al
 }
 
-func (al *wrappedAllowList) Iterator() AllowListIterator {
-	return al.LimitedIterator(0)
+func (al *wrappedAllowList) Iterator() (AllowListIterator, func()) {
+	return al.LimitedIterator(0), func() {}
 }
 
 func (al *wrappedAllowList) LimitedIterator(limit int) AllowListIterator {

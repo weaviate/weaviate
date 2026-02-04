@@ -107,7 +107,9 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		helpers.AnnotateSlowQueryLog(ctx, "sort_doc_ids_took", time.Since(beforeSort))
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
-		it = allowList.Iterator()
+		var stop func()
+		it, stop = allowList.Iterator()
+		defer stop()
 	}
 
 	beforeObjects := time.Now()
