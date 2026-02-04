@@ -3925,9 +3925,9 @@ func (_c *MockShardLike_mayUpsertObjectHashTree_Call) RunAndReturn(run func(*sto
 	return _c
 }
 
-// mutableMergeObjectLSM provides a mock function with given fields: merge, idBytes
-func (_m *MockShardLike) mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
-	ret := _m.Called(merge, idBytes)
+// mutableMergeObjectLSM provides a mock function with given fields: ctx, merge, idBytes
+func (_m *MockShardLike) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
+	ret := _m.Called(ctx, merge, idBytes)
 
 	if len(ret) == 0 {
 		panic("no return value specified for mutableMergeObjectLSM")
@@ -3935,17 +3935,17 @@ func (_m *MockShardLike) mutableMergeObjectLSM(merge objects.MergeDocument, idBy
 
 	var r0 mutableMergeResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(objects.MergeDocument, []byte) (mutableMergeResult, error)); ok {
-		return rf(merge, idBytes)
+	if rf, ok := ret.Get(0).(func(context.Context, objects.MergeDocument, []byte) (mutableMergeResult, error)); ok {
+		return rf(ctx, merge, idBytes)
 	}
-	if rf, ok := ret.Get(0).(func(objects.MergeDocument, []byte) mutableMergeResult); ok {
-		r0 = rf(merge, idBytes)
+	if rf, ok := ret.Get(0).(func(context.Context, objects.MergeDocument, []byte) mutableMergeResult); ok {
+		r0 = rf(ctx, merge, idBytes)
 	} else {
 		r0 = ret.Get(0).(mutableMergeResult)
 	}
 
-	if rf, ok := ret.Get(1).(func(objects.MergeDocument, []byte) error); ok {
-		r1 = rf(merge, idBytes)
+	if rf, ok := ret.Get(1).(func(context.Context, objects.MergeDocument, []byte) error); ok {
+		r1 = rf(ctx, merge, idBytes)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -3959,15 +3959,16 @@ type MockShardLike_mutableMergeObjectLSM_Call struct {
 }
 
 // mutableMergeObjectLSM is a helper method to define mock.On call
+//   - ctx context.Context
 //   - merge objects.MergeDocument
 //   - idBytes []byte
-func (_e *MockShardLike_Expecter) mutableMergeObjectLSM(merge interface{}, idBytes interface{}) *MockShardLike_mutableMergeObjectLSM_Call {
-	return &MockShardLike_mutableMergeObjectLSM_Call{Call: _e.mock.On("mutableMergeObjectLSM", merge, idBytes)}
+func (_e *MockShardLike_Expecter) mutableMergeObjectLSM(ctx interface{}, merge interface{}, idBytes interface{}) *MockShardLike_mutableMergeObjectLSM_Call {
+	return &MockShardLike_mutableMergeObjectLSM_Call{Call: _e.mock.On("mutableMergeObjectLSM", ctx, merge, idBytes)}
 }
 
-func (_c *MockShardLike_mutableMergeObjectLSM_Call) Run(run func(merge objects.MergeDocument, idBytes []byte)) *MockShardLike_mutableMergeObjectLSM_Call {
+func (_c *MockShardLike_mutableMergeObjectLSM_Call) Run(run func(ctx context.Context, merge objects.MergeDocument, idBytes []byte)) *MockShardLike_mutableMergeObjectLSM_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(objects.MergeDocument), args[1].([]byte))
+		run(args[0].(context.Context), args[1].(objects.MergeDocument), args[2].([]byte))
 	})
 	return _c
 }
@@ -3977,7 +3978,7 @@ func (_c *MockShardLike_mutableMergeObjectLSM_Call) Return(_a0 mutableMergeResul
 	return _c
 }
 
-func (_c *MockShardLike_mutableMergeObjectLSM_Call) RunAndReturn(run func(objects.MergeDocument, []byte) (mutableMergeResult, error)) *MockShardLike_mutableMergeObjectLSM_Call {
+func (_c *MockShardLike_mutableMergeObjectLSM_Call) RunAndReturn(run func(context.Context, objects.MergeDocument, []byte) (mutableMergeResult, error)) *MockShardLike_mutableMergeObjectLSM_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4423,9 +4424,9 @@ func (_c *MockShardLike_preventShutdown_Call) RunAndReturn(run func() (func(), e
 	return _c
 }
 
-// putObjectLSM provides a mock function with given fields: object, idBytes
-func (_m *MockShardLike) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
-	ret := _m.Called(object, idBytes)
+// putObjectLSM provides a mock function with given fields: ctx, object, idBytes
+func (_m *MockShardLike) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
+	ret := _m.Called(ctx, object, idBytes)
 
 	if len(ret) == 0 {
 		panic("no return value specified for putObjectLSM")
@@ -4433,17 +4434,17 @@ func (_m *MockShardLike) putObjectLSM(object *storobj.Object, idBytes []byte) (o
 
 	var r0 objectInsertStatus
 	var r1 error
-	if rf, ok := ret.Get(0).(func(*storobj.Object, []byte) (objectInsertStatus, error)); ok {
-		return rf(object, idBytes)
+	if rf, ok := ret.Get(0).(func(context.Context, *storobj.Object, []byte) (objectInsertStatus, error)); ok {
+		return rf(ctx, object, idBytes)
 	}
-	if rf, ok := ret.Get(0).(func(*storobj.Object, []byte) objectInsertStatus); ok {
-		r0 = rf(object, idBytes)
+	if rf, ok := ret.Get(0).(func(context.Context, *storobj.Object, []byte) objectInsertStatus); ok {
+		r0 = rf(ctx, object, idBytes)
 	} else {
 		r0 = ret.Get(0).(objectInsertStatus)
 	}
 
-	if rf, ok := ret.Get(1).(func(*storobj.Object, []byte) error); ok {
-		r1 = rf(object, idBytes)
+	if rf, ok := ret.Get(1).(func(context.Context, *storobj.Object, []byte) error); ok {
+		r1 = rf(ctx, object, idBytes)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4457,15 +4458,16 @@ type MockShardLike_putObjectLSM_Call struct {
 }
 
 // putObjectLSM is a helper method to define mock.On call
+//   - ctx context.Context
 //   - object *storobj.Object
 //   - idBytes []byte
-func (_e *MockShardLike_Expecter) putObjectLSM(object interface{}, idBytes interface{}) *MockShardLike_putObjectLSM_Call {
-	return &MockShardLike_putObjectLSM_Call{Call: _e.mock.On("putObjectLSM", object, idBytes)}
+func (_e *MockShardLike_Expecter) putObjectLSM(ctx interface{}, object interface{}, idBytes interface{}) *MockShardLike_putObjectLSM_Call {
+	return &MockShardLike_putObjectLSM_Call{Call: _e.mock.On("putObjectLSM", ctx, object, idBytes)}
 }
 
-func (_c *MockShardLike_putObjectLSM_Call) Run(run func(object *storobj.Object, idBytes []byte)) *MockShardLike_putObjectLSM_Call {
+func (_c *MockShardLike_putObjectLSM_Call) Run(run func(ctx context.Context, object *storobj.Object, idBytes []byte)) *MockShardLike_putObjectLSM_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*storobj.Object), args[1].([]byte))
+		run(args[0].(context.Context), args[1].(*storobj.Object), args[2].([]byte))
 	})
 	return _c
 }
@@ -4475,7 +4477,7 @@ func (_c *MockShardLike_putObjectLSM_Call) Return(_a0 objectInsertStatus, _a1 er
 	return _c
 }
 
-func (_c *MockShardLike_putObjectLSM_Call) RunAndReturn(run func(*storobj.Object, []byte) (objectInsertStatus, error)) *MockShardLike_putObjectLSM_Call {
+func (_c *MockShardLike_putObjectLSM_Call) RunAndReturn(run func(context.Context, *storobj.Object, []byte) (objectInsertStatus, error)) *MockShardLike_putObjectLSM_Call {
 	_c.Call.Return(run)
 	return _c
 }
