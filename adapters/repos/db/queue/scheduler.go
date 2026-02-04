@@ -241,6 +241,21 @@ func (s *Scheduler) PauseQueue(id string) {
 	s.Logger.WithField("id", id).Debug("queue paused")
 }
 
+// IsQueuePaused returns true if the queue is paused.
+func (s *Scheduler) IsQueuePaused(id string) bool {
+	if s.ctx == nil {
+		// scheduler not started
+		return false
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return false
+	}
+
+	return q.Paused()
+}
+
 func (s *Scheduler) ResumeQueue(id string) {
 	if s.ctx == nil {
 		// scheduler not started
