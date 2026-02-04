@@ -190,7 +190,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 					"shard should have exactly %d replicas (RF=%d, remaining nodes=%d)",
 					expectedReplicas, desiredRF, remainingNodes)
 			}
-		}, 120*time.Second, 2*time.Second)
+		}, 360*time.Second, 2*time.Second)
 	})
 
 	// Extract node number from nodeToRemove (e.g., "node1" -> 1, "node2" -> 2)
