@@ -89,11 +89,11 @@ func TestPostingMetadataStore(t *testing.T) {
 
 	t.Run("FastAddVectorID", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
-		count, err := store.FastAddVectorID(ctx, 42, 100, 1)
+		count, err := store.FastAddVectorID(ctx, 42, 100, 1, 10)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, count)
 
-		count, err = store.FastAddVectorID(ctx, 42, 200, 1)
+		count, err = store.FastAddVectorID(ctx, 42, 200, 1, 10)
 		require.NoError(t, err)
 		require.EqualValues(t, 2, count)
 

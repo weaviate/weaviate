@@ -184,7 +184,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 // The store is updated asynchronously by an analyze, split, or merge operation.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
-func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vectorID uint64, version VectorVersion) (uint32, error) {
+func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vectorID uint64, version VectorVersion, maxPostingSize uint32) (uint32, error) {
 	m, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
@@ -197,9 +197,11 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
-			vectors: []uint64{vectorID},
-			version: []VectorVersion{version},
+			vectors: make([]uint64, 0, maxPostingSize),
+			version: make([]VectorVersion, 0, maxPostingSize),
 		}
+		m.vectors = append(m.vectors, vectorID)
+		m.version = append(m.version, version)
 		v.cache.Set(postingID, m)
 	}
 

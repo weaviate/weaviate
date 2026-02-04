@@ -30,10 +30,10 @@ func TestPostingPassesFilterSlice_PassesIfAddsNewVector(t *testing.T) {
 	ctx := t.Context()
 
 	// posting 0 has allowed vector 0
-	pm.FastAddVectorID(ctx, 0, 0, 0)
+	pm.FastAddVectorID(ctx, 0, 0, 0, 10)
 
 	// posting 1 has allowed vector 1 (different allowed vector)
-	pm.FastAddVectorID(ctx, 1, 1, 0)
+	pm.FastAddVectorID(ctx, 1, 1, 0, 10)
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10, 10, 10),
@@ -60,9 +60,9 @@ func TestPostingPassesFilterSlice_IgnoresDisallowedVectors(t *testing.T) {
 	ctx := t.Context()
 
 	// postings only have vectors that are NOT in allowList
-	pm.FastAddVectorID(ctx, 0, 10, 0)
-	pm.FastAddVectorID(ctx, 0, 11, 0)
-	pm.FastAddVectorID(ctx, 1, 12, 0)
+	pm.FastAddVectorID(ctx, 0, 10, 0, 10)
+	pm.FastAddVectorID(ctx, 0, 11, 0, 10)
+	pm.FastAddVectorID(ctx, 1, 12, 0, 10)
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10, 10, 10),
@@ -89,12 +89,11 @@ func TestPostingPassesFilterSlice_SkipsAlreadyUsedAndFindsLaterNewOne(t *testing
 	ctx := t.Context()
 
 	// posting 0 consumes vector 0
-	pm.FastAddVectorID(ctx, 0, 0, 0)
+	pm.FastAddVectorID(ctx, 0, 0, 0, 10)
 
 	// posting 1 has [0, 1], where 0 will be already used after checking posting 0
-	pm.FastAddVectorID(ctx, 1, 0, 0)
-	pm.FastAddVectorID(ctx, 1, 1, 0)
-
+	pm.FastAddVectorID(ctx, 1, 0, 0, 10)
+	pm.FastAddVectorID(ctx, 1, 1, 0, 10)
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10, 10, 10),
 		PostingMap:  pm,
@@ -120,12 +119,11 @@ func TestPostingPassesFilterSlice_StopsOnFirstNewContribution(t *testing.T) {
 	ctx := t.Context()
 
 	// posting 0 has [0, 1]. It should consume ONLY 0 (first new allowed) and stop.
-	pm.FastAddVectorID(ctx, 0, 0, 0)
-	pm.FastAddVectorID(ctx, 0, 1, 0)
+	pm.FastAddVectorID(ctx, 0, 0, 0, 10)
+	pm.FastAddVectorID(ctx, 0, 1, 0, 10)
 
 	// posting 1 has only [1]. If posting 0 incorrectly consumed both 0 and 1, this would fail.
-	pm.FastAddVectorID(ctx, 1, 1, 0)
-
+	pm.FastAddVectorID(ctx, 1, 1, 0, 10)
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10, 10, 10),
 		PostingMap:  pm,
@@ -151,7 +149,7 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 	ctx := t.Context()
 
 	// posting 0 has allowed vector 0
-	pm.FastAddVectorID(ctx, 0, 0, 0)
+	pm.FastAddVectorID(ctx, 0, 0, 0, 10)
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10, 10, 10),
