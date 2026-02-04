@@ -48,9 +48,10 @@ func TestPostingMetadataStore(t *testing.T) {
 
 	t.Run("Get on empty store", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
-		m, err := store.Get(ctx, 42)
+		m, release, err := store.Get(ctx, 42)
 		require.Equal(t, ErrPostingNotFound, err)
 		require.Nil(t, m)
+		release()
 	})
 
 	t.Run("SetVectorIDs and Get", func(t *testing.T) {
@@ -59,12 +60,13 @@ func TestPostingMetadataStore(t *testing.T) {
 		err := store.SetVectorIDs(ctx, 42, posting)
 		require.NoError(t, err)
 
-		m, err := store.Get(ctx, 42)
+		m, release, err := store.Get(ctx, 42)
 		require.NoError(t, err)
 		for i, v := range posting {
 			require.Equal(t, v.ID(), m.vectors[i])
 			require.Equal(t, v.Version(), m.version[i])
 		}
+		release()
 
 		count, err := store.CountVectorIDs(ctx, 42)
 		require.NoError(t, err)
@@ -72,12 +74,13 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		store.cache.Invalidate(42)
 
-		m, err = store.Get(ctx, 42)
+		m, release, err = store.Get(ctx, 42)
 		require.NoError(t, err)
 		for i, v := range posting {
 			require.Equal(t, v.ID(), m.vectors[i])
 			require.Equal(t, v.Version(), m.version[i])
 		}
+		release()
 	})
 
 	t.Run("CountVectorIDs on non-existing posting", func(t *testing.T) {
@@ -97,11 +100,12 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 2, count)
 
-		m, err := store.Get(ctx, 42)
+		m, release, err := store.Get(ctx, 42)
 		require.NoError(t, err)
 		require.Equal(t, uint64(100), m.vectors[0])
 		require.Equal(t, VectorVersion(1), m.version[0])
 		require.Equal(t, uint64(200), m.vectors[1])
 		require.Equal(t, VectorVersion(1), m.version[1])
+		release()
 	})
 }

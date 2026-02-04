@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"iter"
 	"sync"
+	"sync/atomic"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
@@ -32,6 +33,8 @@ type PostingMetadata struct {
 	// whether this cached entry has been loaded from disk
 	// or has been refreshed by a background operation.
 	fromDisk bool
+	ref      atomic.Int32
+	deleted  atomic.Bool
 }
 
 // Iter returns an iterator over the vector metadata in the posting.
@@ -92,6 +95,8 @@ type PostingMap struct {
 	metrics *Metrics
 	cache   *otter.Cache[uint64, *PostingMetadata]
 	bucket  *PostingMapStore
+
+	recordPool sync.Pool
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
@@ -99,15 +104,42 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 
 	cache, _ := otter.New[uint64, *PostingMetadata](nil)
 
-	return &PostingMap{
+	m := PostingMap{
 		cache:   cache,
 		metrics: metrics,
 		bucket:  b,
+		recordPool: sync.Pool{
+			New: func() any {
+				return &PostingMetadata{}
+			},
+		},
 	}
+
+	return &m
+}
+
+func (v *PostingMap) getRecordFromPool(size int) *PostingMetadata {
+	rec := v.recordPool.Get().(*PostingMetadata)
+	rec.deleted.Store(false)
+	rec.ref.Store(0)
+
+	if cap(rec.vectors) < size {
+		rec.vectors = make([]uint64, size)
+	} else {
+		rec.vectors = rec.vectors[:size]
+	}
+
+	if cap(rec.version) < size {
+		rec.version = make([]VectorVersion, size)
+	} else {
+		rec.version = rec.version[:size]
+	}
+
+	return rec
 }
 
 // Get returns the vector IDs associated with this posting.
-func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
+func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, func(), error) {
 	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
 		vids, vvers, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
@@ -118,25 +150,38 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadat
 			return nil, err
 		}
 
-		return &PostingMetadata{vectors: vids, version: vvers, fromDisk: true}, nil
+		m := v.getRecordFromPool(len(vids))
+		copy(m.vectors, vids)
+		copy(m.version, vvers)
+
+		m.fromDisk = true
+
+		return m, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
-		return nil, ErrPostingNotFound
+		return nil, func() {}, ErrPostingNotFound
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return m, err
+	m.ref.Add(1)
+
+	return m, func() {
+		if m.ref.Add(-1) == 0 && m.deleted.Load() {
+			v.recordPool.Put(m)
+		}
+	}, err
 }
 
 // CountVectorIDs returns the number of vector IDs in the posting with the given ID.
 // If the posting does not exist, it returns 0.
 func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
-	m, err := v.Get(ctx, postingID)
+	m, release, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
+	defer release()
 
 	if m == nil {
 		return 0, nil
@@ -158,23 +203,26 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		if err != nil {
 			return err
 		}
-		v.cache.Invalidate(postingID)
+		v, invalidated := v.cache.Invalidate(postingID)
+		if invalidated && v != nil {
+			v.deleted.Store(true)
+		}
 		return nil
 	}
 
-	vectorIDs := make([]uint64, len(posting))
-	vectorVersions := make([]VectorVersion, len(posting))
+	m := v.getRecordFromPool(len(posting))
+	m.fromDisk = false
 	for i, vector := range posting {
-		vectorIDs[i] = vector.ID()
-		vectorVersions[i] = vector.Version()
+		m.vectors[i] = vector.ID()
+		m.version[i] = vector.Version()
 	}
 
-	err := v.bucket.Set(ctx, postingID, vectorIDs, vectorVersions)
+	err := v.bucket.Set(ctx, postingID, m.vectors, m.version)
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, &PostingMetadata{vectors: vectorIDs, version: vectorVersions})
-	v.metrics.ObservePostingSize(float64(len(vectorIDs)))
+	v.cache.Set(postingID, m)
+	v.metrics.ObservePostingSize(float64(len(m.vectors)))
 
 	return nil
 }
@@ -185,10 +233,11 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vectorID uint64, version VectorVersion, maxPostingSize uint32) (uint32, error) {
-	m, err := v.Get(ctx, postingID)
+	m, release, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
 	}
+	defer release()
 
 	if m != nil {
 		m.Lock()
@@ -196,10 +245,10 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		m.version = append(m.version, version)
 		m.Unlock()
 	} else {
-		m = &PostingMetadata{
-			vectors: make([]uint64, 0, maxPostingSize),
-			version: make([]VectorVersion, 0, maxPostingSize),
-		}
+		m = v.getRecordFromPool(int(maxPostingSize))
+		m.fromDisk = false
+		m.vectors = m.vectors[:0]
+		m.version = m.version[:0]
 		m.vectors = append(m.vectors, vectorID)
 		m.version = append(m.version, version)
 		v.cache.Set(postingID, m)
@@ -211,10 +260,11 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 
 // Persist the vector IDs for the posting with the given ID to disk.
 func (v *PostingMap) Persist(ctx context.Context, postingID uint64) error {
-	m, err := v.Get(ctx, postingID)
+	m, release, err := v.Get(ctx, postingID)
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	m.RLock()
 	defer m.RUnlock()

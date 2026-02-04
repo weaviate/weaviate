@@ -72,10 +72,11 @@ func (a *allowList) Contains(id uint64) bool {
 		return true
 	}
 
-	p, err := a.h.PostingMap.Get(a.ctx, id)
+	p, release, err := a.h.PostingMap.Get(a.ctx, id)
 	if err != nil {
 		return false
 	}
+	defer release()
 
 	p.RLock()
 	defer p.RUnlock()

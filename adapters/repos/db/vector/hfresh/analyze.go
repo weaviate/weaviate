@@ -38,10 +38,11 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	}
 
 	// load the posting metadata
-	meta, err := h.PostingMap.Get(ctx, postingID)
+	meta, release, err := h.PostingMap.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
 	}
+	defer release()
 
 	// if the metadata was loaded from disk or the posting doesn't have a mapping entry yet, it might not be in sync with
 	// the posting store. load the posting from disk to do the analysis.
