@@ -138,6 +138,8 @@ func Test_CompressAndInsertDoNotRace(t *testing.T) {
 		GetViewThunk: func() common.BucketView {
 			return &noopBucketView{}
 		},
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	t.Cleanup(func() {
 		_ = index.Shutdown(context.Background())
