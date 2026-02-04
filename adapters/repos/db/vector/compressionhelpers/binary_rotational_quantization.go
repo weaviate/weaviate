@@ -209,7 +209,7 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
 	restored := rq.Restore(compressed)
-	unrotated := rq.rotation.UnRotate(restored)
+	unrotated := rq.rotation.UnRotateInPlace(restored)
 	return unrotated[:rq.originalDim]
 }
 
