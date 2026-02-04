@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -35,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -202,21 +202,21 @@ type onDeleteFromPropertyValueIndex func(shard *Shard, docID uint64, property *i
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
-	type Shard struct {
-		index            *Index // a reference to the underlying index, which in turn contains schema information
-		class            *models.Class
-		scheduler        *queue.Scheduler
-		name             string
-		store            *lsmkv.Store
-		counter          *indexcounter.Counter
-		indexCheckpoints *indexcheckpoint.Checkpoints
-		metrics          *Metrics
-		promMetrics      *monitoring.PrometheusMetrics
-		slowQueryReporter helpers.SlowQueryReporter
-		propertyIndices    propertyspecific.Indices
-		propLenTracker     *inverted.JsonShardMetaData
-		propLenTrackerMu   sync.RWMutex
-		versioner          *shardVersioner
+type Shard struct {
+	index             *Index // a reference to the underlying index, which in turn contains schema information
+	class             *models.Class
+	scheduler         *queue.Scheduler
+	name              string
+	store             *lsmkv.Store
+	counter           *indexcounter.Counter
+	indexCheckpoints  *indexcheckpoint.Checkpoints
+	metrics           *Metrics
+	promMetrics       *monitoring.PrometheusMetrics
+	slowQueryReporter helpers.SlowQueryReporter
+	propertyIndices   propertyspecific.Indices
+	propLenTracker    *inverted.JsonShardMetaData
+	propLenTrackerMu  sync.RWMutex
+	versioner         *shardVersioner
 
 	vectorIndexMu sync.RWMutex
 	vectorIndex   VectorIndex
