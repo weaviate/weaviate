@@ -446,15 +446,20 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 	if seg.strategy == segmentindex.StrategyInverted && len(oldPos) > 0 {
 		rightPos := oldPos[len(oldPos)-1]
 		func() {
+			sg.maintenanceLock.RLock()
+			defer sg.maintenanceLock.RUnlock()
+
 			seg.invertedData.lockInvertedData.Lock()
 			defer seg.invertedData.lockInvertedData.Unlock()
 			for i := rightPos + 1; i < len(sg.segments); i++ {
 				// avoid crashing if segment has no tombstones
-				tombstonesNext, err := sg.segments[i].ReadOnlyTombstones()
-				if err != nil {
-					continue
+				if sg.segments[i] != nil {
+					tombstonesNext, err := sg.segments[i].ReadOnlyTombstones()
+					if err != nil {
+						continue
+					}
+					seg.invertedData.tombstones = sroar.Or(seg.invertedData.tombstones, tombstonesNext)
 				}
-				seg.invertedData.tombstones = sroar.Or(seg.invertedData.tombstones, tombstonesNext)
 			}
 		}()
 	}
