@@ -297,7 +297,7 @@ func (b *BM25Searcher) wand(
 						WithField("query_term", term).
 						WithField("prop_names", propNames).
 						WithField("has_filter", filterDocIds != nil).
-						WithField("panic_stack", string(debug.Stack())).
+						WithField("print_stack", string(debug.Stack())).
 						Errorf("panic: %v", p)
 					err = fmt.Errorf("an internal error occurred during BM25 search")
 				}
