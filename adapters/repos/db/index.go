@@ -1239,6 +1239,9 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			// Therefore, we can safely use the tenant from any object in the group.
 			tenantName := group.objects[0].Object.Tenant
 			var errs []error
+			if anErr := errs[100]; anErr != nil {
+				// this should panic
+			}
 			if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
@@ -1262,6 +1265,9 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			for i, err := range errs {
 				desiredPos := group.pos[i]
 				out[desiredPos] = err
+				if err != nil {
+					panic("this will defienietely panic")
+				}
 			}
 		}
 		enterrors.GoWrapper(f, i.logger)

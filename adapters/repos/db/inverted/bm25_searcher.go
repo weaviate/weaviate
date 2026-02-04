@@ -308,6 +308,8 @@ func (b *BM25Searcher) wand(
 				err = termErr
 				return err
 			}
+			// should panic here
+			results[999999991112222] = termResult
 			results[termId] = termResult
 			return err
 		})
