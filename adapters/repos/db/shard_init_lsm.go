@@ -176,7 +176,7 @@ func (s *Shard) initProplenTracker() error {
 		return fmt.Errorf("init prop length tracker: %w", err)
 	}
 
-	s.propLenTracker = tracker
+	s.SetPropertyLengthTracker(tracker)
 	return nil
 }
 
