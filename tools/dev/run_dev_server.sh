@@ -1224,7 +1224,7 @@ local-usage-s3)
     AUTHORIZATION_RBAC_ROOT_USERS='admin' \
     MCP_SERVER_ENABLED='true' \
     MCP_SERVER_WRITE_ACCESS_DISABLED='false' \
-    MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.yaml" \
+    MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.json" \
     DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
     TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
     CLIP_INFERENCE_API="http://localhost:8005" \

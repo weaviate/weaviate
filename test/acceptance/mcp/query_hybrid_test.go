@@ -26,6 +26,12 @@ import (
 
 const (
 	toolNameQueryHybrid = "weaviate-query-hybrid"
+
+	// Test data constants
+	authorJohnDoe   = "John Doe"
+	authorJaneSmith = "Jane Smith"
+	tenantA         = "tenant-a"
+	tenantB         = "tenant-b"
 )
 
 // setupQueryHybridTest handles the boilerplate setup: client init, class creation, and context generation.
@@ -132,7 +138,7 @@ func insertTestArticles(t *testing.T, className string) {
 			Properties: map[string]interface{}{
 				"title":       "Machine Learning Basics",
 				"contents":    "An introduction to machine learning concepts and algorithms",
-				"author":      "John Doe",
+				"author":      authorJohnDoe,
 				"year":        2020,
 				"status":      "published",
 				"publishDate": "2020-01-15T10:00:00Z",
@@ -143,7 +149,7 @@ func insertTestArticles(t *testing.T, className string) {
 			Properties: map[string]interface{}{
 				"title":       "Deep Learning Advanced",
 				"contents":    "Advanced deep learning techniques for neural networks",
-				"author":      "Jane Smith",
+				"author":      authorJaneSmith,
 				"year":        2022,
 				"status":      "published",
 				"publishDate": "2022-06-20T14:30:00Z",
@@ -176,7 +182,7 @@ func insertTestArticles(t *testing.T, className string) {
 			Properties: map[string]interface{}{
 				"title":       "Neural Networks Explained",
 				"contents":    "Understanding neural networks and their applications",
-				"author":      "John Doe",
+				"author":      authorJohnDoe,
 				"year":        2021,
 				"status":      "published",
 				"publishDate": "2021-11-30T16:45:00Z",
@@ -258,14 +264,11 @@ func TestQueryHybridReturnSpecificProperties(t *testing.T) {
 	require.Greater(t, len(results.Results), 0)
 
 	// Verify requested properties are returned
-	// NOTE: Currently the MCP implementation returns all properties regardless of ReturnProperties
-	// This test just verifies the requested properties are present
 	result := results.Results[0].(map[string]any)
 	assert.Contains(t, result, "title")
 	assert.Contains(t, result, "author")
-	// TODO: Once MCP properly implements property filtering, add these assertions:
-	// assert.NotContains(t, result, "contents", "contents should not be returned")
-	// assert.NotContains(t, result, "year", "year should not be returned")
+	assert.NotContains(t, result, "contents", "contents should not be returned")
+	assert.NotContains(t, result, "year", "year should not be returned")
 }
 
 // Test 4: Return all properties (default behavior)
@@ -546,13 +549,13 @@ func TestQueryHybridWithTenant(t *testing.T) {
 	helper.SetupClient("localhost:8080")
 	apiKey := "admin-key"
 
-	cls, ctx, cleanup := setupQueryHybridMultiTenantTest(t, []string{"tenant-a", "tenant-b"})
+	cls, ctx, cleanup := setupQueryHybridMultiTenantTest(t, []string{tenantA, tenantB})
 	defer cleanup()
 
 	// Tenants already created in setup
 	tenants := []*models.Tenant{
-		{Name: "tenant-a"},
-		{Name: "tenant-b"},
+		{Name: tenantA},
+		{Name: tenantB},
 	}
 	helper.CreateTenantsAuth(t, cls.Class, tenants, apiKey)
 
@@ -560,7 +563,7 @@ func TestQueryHybridWithTenant(t *testing.T) {
 	objectsA := []*models.Object{
 		{
 			Class:  cls.Class,
-			Tenant: "tenant-a",
+			Tenant: tenantA,
 			Properties: map[string]interface{}{
 				"title":    "Tenant A Article 1",
 				"contents": "Machine learning for tenant A",
@@ -568,7 +571,7 @@ func TestQueryHybridWithTenant(t *testing.T) {
 		},
 		{
 			Class:  cls.Class,
-			Tenant: "tenant-a",
+			Tenant: tenantA,
 			Properties: map[string]interface{}{
 				"title":    "Tenant A Article 2",
 				"contents": "Deep learning algorithms",
@@ -581,7 +584,7 @@ func TestQueryHybridWithTenant(t *testing.T) {
 	objectsB := []*models.Object{
 		{
 			Class:  cls.Class,
-			Tenant: "tenant-b",
+			Tenant: tenantB,
 			Properties: map[string]interface{}{
 				"title":    "Tenant B Article 1",
 				"contents": "Data science basics",
@@ -597,7 +600,7 @@ func TestQueryHybridWithTenant(t *testing.T) {
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-		TenantName:     "tenant-a",
+		TenantName:     tenantA,
 	}, &results, testAPIKey)
 	require.Nil(t, err)
 
@@ -661,10 +664,8 @@ func TestQueryHybridComplexQuery(t *testing.T) {
 		// Check requested properties are returned
 		assert.Contains(t, result, "title")
 		assert.Contains(t, result, "year")
-		// NOTE: Property filtering not yet implemented in MCP
-		// TODO: Uncomment once implemented:
-		// assert.NotContains(t, result, "contents")
-		// assert.NotContains(t, result, "author")
+		assert.NotContains(t, result, "contents")
+		assert.NotContains(t, result, "author")
 
 		// Verify filter constraints
 		year := int(result["year"].(float64))

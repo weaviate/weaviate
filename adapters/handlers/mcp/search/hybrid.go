@@ -112,6 +112,11 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		res = []any{}
 	}
 
+	// Filter properties if specific properties were requested
+	if len(selectProps) > 0 {
+		res = filterResultProperties(res, selectProps)
+	}
+
 	return &QueryHybridResp{Results: res}, nil
 }
 
@@ -140,4 +145,46 @@ func buildAdditionalProperties(metadata []string) additional.Properties {
 	}
 
 	return props
+}
+
+// filterResultProperties filters each result to only include requested properties
+// while preserving _additional metadata and id fields. This follows a similar pattern
+// to the gRPC handler's extractPropertiesAnswer, but for generic JSON results.
+func filterResultProperties(results []any, selectProps search.SelectProperties) []any {
+	if len(results) == 0 {
+		return results
+	}
+
+	// Build a set of requested property names for fast lookup
+	propSet := make(map[string]bool, len(selectProps))
+	for _, prop := range selectProps {
+		propSet[prop.Name] = true
+	}
+
+	// Filter each result
+	filtered := make([]any, len(results))
+	for i, result := range results {
+		resultMap, ok := result.(map[string]any)
+		if !ok {
+			// Not a map, keep as-is
+			filtered[i] = result
+			continue
+		}
+
+		// Create new map with only requested properties
+		newResult := make(map[string]any)
+		for key, value := range resultMap {
+			// Always preserve _additional metadata and id
+			if key == "_additional" || key == "id" {
+				newResult[key] = value
+			} else if propSet[key] {
+				// Include if in requested properties
+				newResult[key] = value
+			}
+			// Otherwise skip this property
+		}
+		filtered[i] = newResult
+	}
+
+	return filtered
 }
