@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	testServerAddr = "localhost:8080"
+	testServerAddr = "localhost:8082"
 	testAPIKey     = "admin-key"
 )
 

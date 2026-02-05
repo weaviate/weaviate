@@ -7,12 +7,12 @@ services:
       target: weaviate
     restart: on-failure:0
     ports:
-      - "8080:8080"
-      - "6060:6060"
-      - "9000:9000"
-      - "2112:2112"
-      - "7101:7101"
-      - "50051:50051"
+      - "8082:8080"
+      - "6062:6060"
+      - "9002:9000"
+      - "2114:2112"
+      - "7104:7101"
+      - "50053:50051"
     environment:
       LOG_LEVEL: "debug"
       QUERY_DEFAULTS_LIMIT: 20
@@ -20,8 +20,8 @@ services:
       ENABLE_MODULES: backup-filesystem,generative-dummy,reranker-dummy
       API_BASED_MODULES_DISABLED: "true"
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
-      CLUSTER_GOSSIP_BIND_PORT: "7102"
-      CLUSTER_DATA_BIND_PORT: "7103"
+      CLUSTER_GOSSIP_BIND_PORT: "7104"
+      CLUSTER_DATA_BIND_PORT: "7105"
       CLUSTER_HOSTNAME: "weaviate-mcp-test"
       RAFT_JOIN: "weaviate-mcp-test"
       RAFT_BOOTSTRAP_EXPECT: "1"
