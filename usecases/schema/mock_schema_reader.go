@@ -402,6 +402,62 @@ func (_c *MockSchemaReader_LocalShards_Call) RunAndReturn(run func(string) ([]st
 	return _c
 }
 
+// LocalShardsCount provides a mock function with given fields: class
+func (_m *MockSchemaReader) LocalShardsCount(class string) (int, error) {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LocalShardsCount")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (int, error)); ok {
+		return rf(class)
+	}
+	if rf, ok := ret.Get(0).(func(string) int); ok {
+		r0 = rf(class)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(class)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSchemaReader_LocalShardsCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LocalShardsCount'
+type MockSchemaReader_LocalShardsCount_Call struct {
+	*mock.Call
+}
+
+// LocalShardsCount is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaReader_Expecter) LocalShardsCount(class interface{}) *MockSchemaReader_LocalShardsCount_Call {
+	return &MockSchemaReader_LocalShardsCount_Call{Call: _e.mock.On("LocalShardsCount", class)}
+}
+
+func (_c *MockSchemaReader_LocalShardsCount_Call) Run(run func(class string)) *MockSchemaReader_LocalShardsCount_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_LocalShardsCount_Call) Return(_a0 int, _a1 error) *MockSchemaReader_LocalShardsCount_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSchemaReader_LocalShardsCount_Call) RunAndReturn(run func(string) (int, error)) *MockSchemaReader_LocalShardsCount_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MultiTenancy provides a mock function with given fields: class
 func (_m *MockSchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
 	ret := _m.Called(class)

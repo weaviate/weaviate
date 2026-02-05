@@ -101,6 +101,7 @@ type SchemaReader interface {
 	ReadSchema(reader func(models.Class, uint64)) error
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
+	LocalShardsCount(class string) (int, error)
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias

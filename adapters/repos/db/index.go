@@ -461,55 +461,50 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
-	if !i.Config.EnableLazyLoadShards {
-		eg := enterrors.NewErrorGroupWrapper(i.logger)
-		eg.SetLimit(_NUMCPU)
-
-		for _, shard := range localShards {
-			if shard.activityStatus != models.TenantActivityStatusHOT {
-				continue
-			}
-
-			shardName := shard.name
-			eg.Go(func() error {
-				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
-					return fmt.Errorf("acquiring permit to load shard: %w", err)
-				}
-				defer i.shardLoadLimiter.Release()
-
-				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
-				if err != nil {
-					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
-				}
-
-				promMetrics.NewLoadedShard()
-				newShard.metricsRegistered.Store(true)
-				i.shards.Store(shardName, newShard)
-				return nil
-			}, shardName)
-		}
-
-		if err := eg.Wait(); err != nil {
-			return err
-		}
-
-		i.allShardsReady.Store(true)
-		return nil
-	}
-
-	activeShardNames := make([]string, 0, len(localShards))
+	hotShardNames := make([]string, 0, len(localShards))
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
 
 	for _, shard := range localShards {
 		if shard.activityStatus != models.TenantActivityStatusHOT {
 			continue
 		}
+		hotShardNames = append(hotShardNames, shard.name)
 
-		activeShardNames = append(activeShardNames, shard.name)
+		eg.Go(func() error {
+			switch {
+			case i.Config.EnableLazyLoadShards:
+				lazyShard := NewLazyLoadShard(ctx, promMetrics, shard.name, i, class, i.centralJobQueue, i.indexCheckpoints,
+					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
+				i.shards.Store(shard.name, lazyShard)
+				return nil
+			default:
+				// default behavior is to load all shards immediately
+				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+					return fmt.Errorf("acquiring permit to load shard: %w", err)
+				}
+				defer i.shardLoadLimiter.Release()
 
-		lazyShard := NewLazyLoadShard(ctx, promMetrics, shard.name, i, class, i.centralJobQueue, i.indexCheckpoints,
-			i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
-		i.shards.Store(shard.name, lazyShard)
+				newShard, err := NewShard(ctx, promMetrics, shard.name, i, class, i.centralJobQueue, i.scheduler,
+					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
+				if err != nil {
+					return fmt.Errorf("init shard %s of index %s: %w", shard.name, i.ID(), err)
+				}
+
+				i.shards.Store(shard.name, newShard)
+				return nil
+			}
+		}, shard.name)
+
+	}
+
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	if !i.Config.EnableLazyLoadShards {
+		i.allShardsReady.Store(true)
+		return nil
 	}
 
 	// NOTE(dyma):
@@ -523,7 +518,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		now := time.Now()
 
-		for _, shardName := range activeShardNames {
+		for _, shardName := range hotShardNames {
 			select {
 			case <-i.closingCtx.Done():
 				i.logger.
