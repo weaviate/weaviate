@@ -117,37 +117,25 @@ func NewDistancer(quantizer *compressionhelpers.BinaryRotationalQuantizer, dista
 		distancer: distancer,
 		pool: sync.Pool{
 			New: func() any {
-				s := make([]uint64, dims)
+				var s []uint64
 				return &s
 			},
 		},
 	}
 }
 
-func (d *Distancer) getBuffer(compressedSize int) *[]uint64 {
-	targetSize := compressedSize / 8
-	if targetSize%8 != 0 {
-		targetSize++
-	}
-	buf := d.pool.Get().(*[]uint64)
-	if cap(*buf) < targetSize {
-		*buf = make([]uint64, targetSize)
-	} else {
-		*buf = (*buf)[:targetSize]
-	}
-	return buf
-}
-
 func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, error) {
-	bufA := d.getBuffer(len(a))
-	bufB := d.getBuffer(len(b))
-	defer d.pool.Put(bufA)
-	defer d.pool.Put(bufB)
+	bufA := d.pool.Get().(*[]uint64)
+	bufB := d.pool.Get().(*[]uint64)
 
 	*bufA = d.quantizer.FromCompressedBytesWithSubsliceBuffer(a, bufA)
 	*bufB = d.quantizer.FromCompressedBytesWithSubsliceBuffer(b, bufB)
 
-	return d.quantizer.DistanceBetweenCompressedVectors(*bufA, *bufB)
+	distance, err := d.quantizer.DistanceBetweenCompressedVectors(*bufA, *bufB)
+	d.pool.Put(bufA)
+	d.pool.Put(bufB)
+
+	return distance, err
 }
 
 func (d *Distancer) DistanceBetweenVectors(a, b []float32) (float32, error) {
