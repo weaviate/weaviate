@@ -503,12 +503,12 @@ func TestQueryHybridWithOrFilter(t *testing.T) {
 				{
 					"path":      []string{"author"},
 					"operator":  "Equal",
-					"valueText": "John Doe",
+					"valueText": authorJohnDoe,
 				},
 				{
 					"path":      []string{"author"},
 					"operator":  "Equal",
-					"valueText": "Jane Smith",
+					"valueText": authorJaneSmith,
 				},
 			},
 		},
@@ -522,7 +522,7 @@ func TestQueryHybridWithOrFilter(t *testing.T) {
 	for _, r := range results.Results {
 		result := r.(map[string]any)
 		author := result["author"].(string)
-		assert.True(t, author == "John Doe" || author == "Jane Smith")
+		assert.True(t, author == authorJohnDoe || author == authorJaneSmith)
 	}
 }
 
