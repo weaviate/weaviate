@@ -18,7 +18,6 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -307,7 +306,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		if err != nil {
 			entsentry.Recover(err)
 			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
-			debug.PrintStack()
+			enterrors.PrintStack(h.logger)
 		}
 	}()
 
