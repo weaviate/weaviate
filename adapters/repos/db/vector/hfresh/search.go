@@ -24,9 +24,14 @@ import (
 const (
 	// minimum max distance to use when pruning
 	pruningMinMaxDistance = 0.1
+	flatSearchCutoff      = 5_000
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	if allowList != nil && allowList.Len() < flatSearchCutoff {
+		return h.flatSearch(ctx, vector, k, allowList)
+	}
+
 	rescoreLimit := int(h.rescoreLimit)
 	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
