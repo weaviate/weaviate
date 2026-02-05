@@ -76,7 +76,7 @@ func TestShards(t *testing.T) {
 		loadingCount := testutil.ToFloat64(m.ShardsLoading)
 		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
 
-		assert.Equal(t, float64(0), loadingCount) // dec
+		assert.Equal(t, float64(0), loadingCount)  // dec
 		assert.Equal(t, float64(2), unloadedCount) // inc
 	})
 
