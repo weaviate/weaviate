@@ -64,6 +64,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/shardlocallimit"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
@@ -653,6 +654,16 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 	})
 }
 
+// GetShardCount returns the number of shards in this index.
+func (i *Index) GetShardCount() int {
+	className := i.Config.ClassName.String()
+	shardNames, err := i.schemaReader.Shards(className)
+	if err != nil {
+		return 0
+	}
+	return len(shardNames)
+}
+
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
 	if i.closingCtx.Err() != nil {
@@ -881,6 +892,12 @@ type IndexConfig struct {
 	MaintenanceModeEnabled func() bool
 
 	SPFreshEnabled bool
+
+	// Shard-local limit optimization (experimental)
+	ShardLocalLimitVectorSearchEnabled *configRuntime.DynamicValue[bool]
+	ShardLocalLimitObjectListEnabled   *configRuntime.DynamicValue[bool]
+	ShardLocalLimitHybridBM25Enabled   *configRuntime.DynamicValue[bool]
+	ShardLocalLimitSafetyMargin        *configRuntime.DynamicValue[float64]
 }
 
 func indexID(class schema.ClassName) string {
@@ -1730,7 +1747,33 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	resultObjects, resultScores := objectSearchPreallocate(limit, readPlan.Shards())
+	// Calculate effective limit for shard queries (shard-local limit optimization)
+	effectiveLimit := limit
+	shardCount := len(readPlan.Shards())
+
+	// Check appropriate feature flag based on query type
+	var featureEnabled bool
+	if keywordRanking != nil {
+		featureEnabled = i.Config.ShardLocalLimitHybridBM25Enabled != nil &&
+			i.Config.ShardLocalLimitHybridBM25Enabled.Get()
+	} else {
+		featureEnabled = i.Config.ShardLocalLimitObjectListEnabled != nil &&
+			i.Config.ShardLocalLimitObjectListEnabled.Get()
+	}
+
+	// Skip optimization for:
+	// - Multi-tenant collections (tenant maps to single shard)
+	// - Cursor pagination (requires deterministic positioning)
+	// - Single shard (no benefit)
+	if limit > 0 && shardCount > 1 && !i.partitioningEnabled && featureEnabled && cursor == nil {
+		safetyMargin := shardlocallimit.DefaultSafetyMargin
+		if i.Config.ShardLocalLimitSafetyMargin != nil {
+			safetyMargin = i.Config.ShardLocalLimitSafetyMargin.Get()
+		}
+		effectiveLimit, _ = shardlocallimit.CalculateLocalLimit(shardCount, limit, safetyMargin)
+	}
+
+	resultObjects, resultScores := objectSearchPreallocate(effectiveLimit, readPlan.Shards())
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
 	// When running in fractional CPU environments, _NUMCPU will be 1
@@ -1742,7 +1785,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	shardResultLock := sync.Mutex{}
 
 	remoteSearch := func(shardName string) error {
-		objs, scores, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties)
+		objs, scores, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, effectiveLimit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties)
 		if err != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err)
@@ -1776,7 +1819,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		localCtx := helpers.InitSlowQueryDetails(ctx)
 		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
+		objs, scores, err := shard.ObjectSearch(localCtx, effectiveLimit, filters, keywordRanking, sort, cursor, addlProps, properties)
 		if err != nil {
 			return fmt.Errorf(
 				"local shard object search %s: %w", shard.ID(), err)
@@ -1998,13 +2041,29 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
+	// Calculate effective limit for shard queries (shard-local limit optimization)
+	effectiveLimit := limit
+	shardCount := len(readPlan.Shards())
+
+	// Skip optimization for multi-tenant collections (tenant maps to single shard)
+	// and for search by distance (limit < 0)
+	if limit > 0 && shardCount > 1 && !i.partitioningEnabled &&
+		i.Config.ShardLocalLimitVectorSearchEnabled != nil &&
+		i.Config.ShardLocalLimitVectorSearchEnabled.Get() {
+		safetyMargin := shardlocallimit.DefaultSafetyMargin
+		if i.Config.ShardLocalLimitSafetyMargin != nil {
+			safetyMargin = i.Config.ShardLocalLimitSafetyMargin.Get()
+		}
+		effectiveLimit, _ = shardlocallimit.CalculateLocalLimit(shardCount, limit, safetyMargin)
+	}
+
 	// a limit of -1 is used to signal a search by distance. if that is
 	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
 	if limit < 0 {
 		shardCap = len(readPlan.Shards()) * hnsw.DefaultSearchByDistInitialLimit
 	} else {
-		shardCap = len(readPlan.Shards()) * limit
+		shardCap = len(readPlan.Shards()) * effectiveLimit
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
@@ -2025,7 +2084,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	remoteSearch := func(shardName string) error {
 		// If we have no local shard or if we force the query to reach all replicas
-		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
+		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, effectiveLimit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
 		if err2 != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err2)
@@ -2044,7 +2103,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			return err
 		}
 		if shard != nil {
-			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
+			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, effectiveLimit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
 			if err1 != nil {
 				return fmt.Errorf(
 					"local shard object search %s: %w", shard.ID(), err1)

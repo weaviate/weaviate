@@ -233,6 +233,13 @@ type Config struct {
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	// Shard-local limit optimization (experimental)
+	// These settings enable statistically optimal per-shard limits to reduce over-fetching in multi-shard queries
+	ShardLocalLimitVectorSearchEnabled *runtime.DynamicValue[bool]    `json:"shard_local_limit_vector_search_enabled" yaml:"shard_local_limit_vector_search_enabled"`
+	ShardLocalLimitObjectListEnabled   *runtime.DynamicValue[bool]    `json:"shard_local_limit_object_list_enabled" yaml:"shard_local_limit_object_list_enabled"`
+	ShardLocalLimitHybridBM25Enabled   *runtime.DynamicValue[bool]    `json:"shard_local_limit_hybrid_bm25_enabled" yaml:"shard_local_limit_hybrid_bm25_enabled"`
+	ShardLocalLimitSafetyMargin        *runtime.DynamicValue[float64] `json:"shard_local_limit_safety_margin" yaml:"shard_local_limit_safety_margin"`
 }
 
 type MapToBlockamaxConfig struct {

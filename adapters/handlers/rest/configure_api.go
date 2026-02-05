@@ -431,6 +431,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		SPFreshEnabled:                               appState.ServerConfig.Config.SPFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		ShardLocalLimitVectorSearchEnabled:           appState.ServerConfig.Config.ShardLocalLimitVectorSearchEnabled,
+		ShardLocalLimitObjectListEnabled:             appState.ServerConfig.Config.ShardLocalLimitObjectListEnabled,
+		ShardLocalLimitHybridBM25Enabled:             appState.ServerConfig.Config.ShardLocalLimitHybridBM25Enabled,
+		ShardLocalLimitSafetyMargin:                  appState.ServerConfig.Config.ShardLocalLimitSafetyMargin,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -1965,6 +1969,10 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
+		registered.ShardLocalLimitVectorSearchEnabled = appState.ServerConfig.Config.ShardLocalLimitVectorSearchEnabled
+		registered.ShardLocalLimitObjectListEnabled = appState.ServerConfig.Config.ShardLocalLimitObjectListEnabled
+		registered.ShardLocalLimitHybridBM25Enabled = appState.ServerConfig.Config.ShardLocalLimitHybridBM25Enabled
+		registered.ShardLocalLimitSafetyMargin = appState.ServerConfig.Config.ShardLocalLimitSafetyMargin
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
