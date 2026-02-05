@@ -19,6 +19,7 @@ services:
       PERSISTENCE_DATA_PATH: "./data-mcp"
       ENABLE_MODULES: backup-filesystem,generative-dummy,reranker-dummy
       API_BASED_MODULES_DISABLED: "true"
+      AUTOSCHEMA_ENABLED: "false"
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
       CLUSTER_GOSSIP_BIND_PORT: "7104"
       CLUSTER_DATA_BIND_PORT: "7105"
