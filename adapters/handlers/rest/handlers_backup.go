@@ -25,6 +25,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespace"
 )
 
 type backupHandlers struct {
@@ -96,19 +97,29 @@ func parseCompressionLevel(l string) ubak.CompressionLevel {
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
+	if err != nil {
+		return backups.NewBackupsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	overrideBucket := ""
 	overridePath := ""
 	if params.Body.Config != nil {
 		overrideBucket = params.Body.Config.Bucket
 		overridePath = params.Body.Config.Path
 	}
+
+	include := prefixBackupClassNames(params.Body.Include, ns)
+	exclude := prefixBackupClassNames(params.Body.Exclude, ns)
+
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.Body.ID,
 		Backend:     params.Backend,
 		Bucket:      overrideBucket,
 		Path:        overridePath,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
+		Include:     include,
+		Exclude:     exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
 	})
 	if err != nil {
@@ -126,6 +137,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		}
 	}
 
+	stripBackupResponseClasses(meta, ns)
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateOK().WithPayload(meta)
 }
@@ -178,6 +190,12 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
+	if err != nil {
+		return backups.NewBackupsRestoreUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	bucket := ""
 	path := ""
 	roleOption := models.RestoreConfigRolesOptionsNoRestore
@@ -192,11 +210,15 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 			userOption = *params.Body.Config.UsersOptions
 		}
 	}
+
+	include := prefixBackupClassNames(params.Body.Include, ns)
+	exclude := prefixBackupClassNames(params.Body.Exclude, ns)
+
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:                params.ID,
 		Backend:           params.Backend,
-		Include:           params.Body.Include,
-		Exclude:           params.Body.Exclude,
+		Include:           include,
+		Exclude:           exclude,
 		NodeMapping:       params.Body.NodeMapping,
 		Compression:       compressionFromRCfg(params.Body.Config),
 		Bucket:            bucket,
@@ -226,6 +248,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		}
 	}
 
+	stripBackupRestoreResponseClasses(meta, ns)
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsRestoreOK().WithPayload(meta)
 }
@@ -337,6 +360,12 @@ func (s *backupHandlers) cancelRestore(params backups.BackupsRestoreCancelParams
 func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
+	if err != nil {
+		return backups.NewBackupsRestoreUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	payload, err := s.manager.List(
 		params.HTTPRequest.Context(), principal, params.Backend, params.Order,
 	)
@@ -353,6 +382,15 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 		default:
 			return backups.NewBackupsRestoreInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	// Strip namespace prefix from class names in list response
+	if ns != namespace.DefaultNamespace && payload != nil {
+		for _, item := range *payload {
+			if item != nil {
+				item.Classes = stripNamespacePrefixFromClassList(item.Classes, ns)
+			}
 		}
 	}
 
@@ -396,4 +434,53 @@ func (e *backupRequestsTotal) logError(className string, err error) {
 	default:
 		e.logServerError(className, err)
 	}
+}
+
+// prefixBackupClassNames prefixes class names with the namespace for backup operations.
+// For the default namespace, names are returned unchanged.
+func prefixBackupClassNames(classes []string, ns string) []string {
+	if ns == namespace.DefaultNamespace || len(classes) == 0 {
+		return classes
+	}
+	prefixed := make([]string, len(classes))
+	for i, c := range classes {
+		if namespace.HasNamespacePrefix(c) {
+			prefixed[i] = c
+		} else {
+			prefixed[i] = namespace.PrefixClassName(ns, c)
+		}
+	}
+	return prefixed
+}
+
+// stripNamespacePrefixFromClassList strips the namespace prefix from a list of class names.
+func stripNamespacePrefixFromClassList(classes []string, ns string) []string {
+	if ns == namespace.DefaultNamespace || len(classes) == 0 {
+		return classes
+	}
+	stripped := make([]string, len(classes))
+	for i, c := range classes {
+		if namespace.BelongsToNamespace(c, ns) {
+			stripped[i] = namespace.StripNamespacePrefix(c)
+		} else {
+			stripped[i] = c
+		}
+	}
+	return stripped
+}
+
+// stripBackupResponseClasses strips namespace prefixes from backup create response classes.
+func stripBackupResponseClasses(resp *models.BackupCreateResponse, ns string) {
+	if resp == nil || ns == namespace.DefaultNamespace {
+		return
+	}
+	resp.Classes = stripNamespacePrefixFromClassList(resp.Classes, ns)
+}
+
+// stripBackupRestoreResponseClasses strips namespace prefixes from backup restore response classes.
+func stripBackupRestoreResponseClasses(resp *models.BackupRestoreResponse, ns string) {
+	if resp == nil || ns == namespace.DefaultNamespace {
+		return
+	}
+	resp.Classes = stripNamespacePrefixFromClassList(resp.Classes, ns)
 }

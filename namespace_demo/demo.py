@@ -408,6 +408,54 @@ class WeaviateClient:
             return True, result
         return False, {"status": resp.status_code, "error": resp.text}
 
+    def add_object(self, class_name: str, properties: dict, show_api: bool = False) -> Tuple[bool, dict]:
+        """Add an object to a collection."""
+        endpoint = f"{self.url}/v1/objects"
+        headers = self._headers()
+        payload = {
+            "class": class_name,
+            "properties": properties,
+        }
+
+        if show_api:
+            show_api_call("POST", endpoint, headers, {"class": class_name, "properties": properties})
+
+        resp = requests.post(endpoint, headers=headers, json=payload)
+        if resp.status_code in [200, 201]:
+            result = resp.json()
+            if show_api and INTERACTIVE:
+                show_result({"id": result.get("id"), "class": result.get("class")}, True)
+                wait_for_key()
+            return True, result
+        result = {"status": resp.status_code, "error": resp.text}
+        if show_api and INTERACTIVE:
+            show_result(result, False)
+            wait_for_key()
+        return False, result
+
+    def graphql_query(self, query: str, show_api: bool = False) -> Tuple[bool, dict]:
+        """Execute a GraphQL query."""
+        import json
+        endpoint = f"{self.url}/v1/graphql"
+        headers = self._headers()
+        payload = {"query": query}
+
+        if show_api:
+            show_api_call("POST", endpoint, headers, {"query": query})
+
+        resp = requests.post(endpoint, headers=headers, json=payload)
+        if resp.status_code == 200:
+            result = resp.json()
+            if show_api and INTERACTIVE:
+                show_result(result, True)
+                wait_for_key()
+            return True, result
+        result = {"status": resp.status_code, "error": resp.text}
+        if show_api and INTERACTIVE:
+            show_result(result, False)
+            wait_for_key()
+        return False, result
+
 
 def cleanup(admin: WeaviateClient):
     """Clean up test users and collections."""
@@ -734,10 +782,156 @@ def main():
         show_error(f"Tenant B schema response: {schema}")
 
     # =========================================================================
-    # Step 6: Namespace-Aware User Listing
+    # Step 6: Add test data for GraphQL verification
     # =========================================================================
     show_step_header(
         6,
+        "Adding Test Data for GraphQL Queries",
+        "We'll add objects to each namespace's collection so we can\n"
+        "test that GraphQL queries work with clean (unprefixed) names."
+    )
+
+    show_next_action("Add objects to Tenant A's NewsArticles")
+
+    show_info("Tenant A adding objects to 'NewsArticles'...")
+    for i, title in enumerate(["Breaking News", "Tech Update", "Sports Report"]):
+        ok, result = tenant_a.add_object("NewsArticles", {"title": title}, show_api=(i == 0))
+        if ok:
+            show_success(f"Added article: {title}")
+        else:
+            show_error(f"Failed to add article '{title}': {result}")
+
+    show_next_action("Add objects to Tenant B's BlogPosts")
+
+    show_info("Tenant B adding objects to 'BlogPosts'...")
+    for i, title in enumerate(["My First Post", "Coding Tips"]):
+        ok, result = tenant_b.add_object("BlogPosts", {"title": title}, show_api=(i == 0))
+        if ok:
+            show_success(f"Added blog post: {title}")
+        else:
+            show_error(f"Failed to add blog post '{title}': {result}")
+
+    if INTERACTIVE:
+        wait_for_key()
+
+    # =========================================================================
+    # Step 7: GraphQL queries with clean names (NEW FEATURE)
+    # =========================================================================
+    show_step_header(
+        7,
+        "GraphQL Queries with Clean Collection Names",
+        "[bold yellow]NEW FEATURE: Namespace-aware GraphQL![/bold yellow]\n\n"
+        "Previously, namespace users had to use internal prefixed names\n"
+        "like [cyan]Tenanta__NewsArticles[/cyan] in GraphQL queries.\n\n"
+        "Now users can query using clean names like [cyan]NewsArticles[/cyan]!\n\n"
+        "The server automatically:\n"
+        "  [green]1.[/green] Detects the user's namespace\n"
+        "  [green]2.[/green] Prefixes class names in the query\n"
+        "  [green]3.[/green] Strips namespace prefixes from the response"
+    )
+
+    show_next_action("Tenant A queries NewsArticles using clean name")
+
+    show_info("Tenant A running GraphQL Get query with clean name 'NewsArticles'...")
+    ok, result = tenant_a.graphql_query('{ Get { NewsArticles { title } } }', show_api=True)
+    if ok:
+        data = result.get("data", {})
+        get_data = data.get("Get", {})
+        # Check that the response uses clean names (no Tenanta__ prefix)
+        if "NewsArticles" in get_data:
+            articles = get_data["NewsArticles"]
+            show_success(f"GraphQL response uses clean name 'NewsArticles' (not 'Tenanta__NewsArticles')")
+            show_success(f"Found {len(articles)} articles")
+            for a in articles:
+                show_info(f"  - {a.get('title')}")
+        elif "Tenanta__NewsArticles" in get_data:
+            show_error("Response still uses prefixed name 'Tenanta__NewsArticles' - namespace stripping not working!")
+        else:
+            show_error(f"Unexpected response structure: {get_data}")
+    else:
+        show_error(f"GraphQL query failed: {result}")
+
+    show_next_action("Tenant B queries BlogPosts using clean name")
+
+    show_info("Tenant B running GraphQL Get query with clean name 'BlogPosts'...")
+    ok, result = tenant_b.graphql_query('{ Get { BlogPosts { title } } }', show_api=True)
+    if ok:
+        data = result.get("data", {})
+        get_data = data.get("Get", {})
+        if "BlogPosts" in get_data:
+            posts = get_data["BlogPosts"]
+            show_success(f"GraphQL response uses clean name 'BlogPosts' (not 'Tenantb__BlogPosts')")
+            show_success(f"Found {len(posts)} blog posts")
+            for p in posts:
+                show_info(f"  - {p.get('title')}")
+        elif "Tenantb__BlogPosts" in get_data:
+            show_error("Response still uses prefixed name 'Tenantb__BlogPosts' - namespace stripping not working!")
+        else:
+            show_error(f"Unexpected response structure: {get_data}")
+    else:
+        show_error(f"GraphQL query failed: {result}")
+
+    show_next_action("Verify cross-namespace isolation via GraphQL")
+
+    show_info("Tenant A trying to query Tenant B's BlogPosts (should fail or return no data)...")
+    ok, result = tenant_a.graphql_query('{ Get { BlogPosts { title } } }', show_api=True)
+    if ok:
+        data = result.get("data", {})
+        get_data = data.get("Get", {})
+        errors = result.get("errors", [])
+        if errors:
+            show_success(f"Cross-namespace query correctly failed with errors: {[e.get('message', '') for e in errors]}")
+        elif "BlogPosts" in get_data and not get_data["BlogPosts"]:
+            show_success("Cross-namespace query returned empty result (correct - isolation enforced)")
+        elif "BlogPosts" not in get_data:
+            show_success("Cross-namespace query returned no BlogPosts data (correct - isolation enforced)")
+        else:
+            show_error(f"Cross-namespace query returned data! Isolation may be broken: {get_data}")
+    else:
+        show_success(f"Cross-namespace query correctly rejected: {result}")
+
+    show_next_action("Verify introspection is blocked for namespace users")
+
+    show_info("Tenant A trying introspection query (should be blocked)...")
+    ok, result = tenant_a.graphql_query('{ __schema { types { name } } }', show_api=True)
+    if not ok:
+        error_text = result.get("error", "")
+        if "introspection" in error_text.lower():
+            show_success("Introspection correctly blocked for namespace user")
+        else:
+            show_success(f"Introspection blocked: {error_text[:100]}")
+    else:
+        show_error("Introspection query should have been blocked but succeeded!")
+        show_error("This is a security issue - namespace user can see all collections via introspection")
+
+    show_next_action("Test GraphQL Aggregate with clean names")
+
+    show_info("Tenant A running Aggregate query with clean name 'NewsArticles'...")
+    ok, result = tenant_a.graphql_query('{ Aggregate { NewsArticles { meta { count } } } }', show_api=True)
+    if ok:
+        data = result.get("data", {})
+        agg_data = data.get("Aggregate", {})
+        if "NewsArticles" in agg_data:
+            count_data = agg_data["NewsArticles"]
+            show_success(f"Aggregate response uses clean name 'NewsArticles'")
+            if count_data and len(count_data) > 0:
+                count = count_data[0].get("meta", {}).get("count")
+                show_success(f"Aggregate count: {count}")
+        elif "Tenanta__NewsArticles" in agg_data:
+            show_error("Aggregate response still uses prefixed name - namespace stripping not working!")
+        else:
+            show_error(f"Unexpected aggregate response: {agg_data}")
+    else:
+        show_error(f"Aggregate query failed: {result}")
+
+    if INTERACTIVE:
+        wait_for_key()
+
+    # =========================================================================
+    # Step 8: Namespace-Aware User Listing
+    # =========================================================================
+    show_step_header(
+        8,
         "Namespace-Aware User Listing",
         "[bold yellow]NEW FEATURE: Namespace-aware list users![/bold yellow]\n\n"
         "When listing users:\n"
@@ -796,10 +990,10 @@ def main():
         show_error(f"Failed to list users: {users_list}")
 
     # =========================================================================
-    # Step 7: Namespace-Aware Role Listing
+    # Step 9: Namespace-Aware Role Listing
     # =========================================================================
     show_step_header(
-        7,
+        9,
         "Namespace-Aware Role Listing",
         "[bold yellow]NEW FEATURE: Namespace-aware list roles![/bold yellow]\n\n"
         "When listing roles:\n"
@@ -859,10 +1053,10 @@ def main():
         show_error(f"Failed to list roles: {roles_list}")
 
     # =========================================================================
-    # Step 8: Show admin can access all namespaces
+    # Step 10: Show admin can access all namespaces
     # =========================================================================
     show_step_header(
-        8,
+        10,
         "Admin Access to All Namespaces",
         "Admin users (root users) can still access any namespace by\n"
         "specifying the [cyan]X-Weaviate-Namespace[/cyan] header.\n\n"
@@ -883,10 +1077,10 @@ def main():
         wait_for_key()
 
     # =========================================================================
-    # Step 9: Cleanup
+    # Step 11: Cleanup
     # =========================================================================
     show_step_header(
-        7,
+        11,
         "Cleanup",
         "Remove the test users and collections we created."
     )

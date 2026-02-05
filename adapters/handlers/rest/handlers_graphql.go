@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespace"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -58,9 +60,23 @@ func setupGraphQLHandlers(
 ) {
 	metricRequestsTotal := newGraphqlRequestsTotal(metrics, logger)
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
-		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
-		// authorization requirements.
-		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.CollectionsMetadata()...)
+		// Extract namespace from request before authorization
+		ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
+		if err != nil {
+			return graphql.NewGraphqlPostUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+
+		// All requests to the graphQL API need at least permissions to read the schema.
+		// For namespace users, check against their namespace-scoped collections instead of all collections.
+		var authResources []string
+		if ns != namespace.DefaultNamespace {
+			nsPrefix := strings.ToUpper(ns[:1]) + ns[1:] + namespace.NamespaceSeparator
+			authResources = authorization.CollectionsMetadata(nsPrefix + "*")
+		} else {
+			authResources = authorization.CollectionsMetadata()
+		}
+		err = m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authResources...)
 		if err != nil {
 			metricRequestsTotal.logUserError()
 			switch {
@@ -87,6 +103,20 @@ func setupGraphQLHandlers(
 		// Get all input from the body of the request, as it is a POST.
 		query := params.Body.Query
 		operationName := params.Body.OperationName
+
+		// Block introspection queries for namespace users to prevent schema leakage
+		if ns != namespace.DefaultNamespace && isIntrospectionQuery(query) {
+			metricRequestsTotal.logUserError()
+			return graphql.NewGraphqlPostForbidden().
+				WithPayload(errPayloadFromSingleErr(
+					fmt.Errorf("introspection queries are not available for namespace-scoped users"),
+				))
+		}
+
+		// Prefix class names in query with namespace for non-default namespaces
+		if ns != namespace.DefaultNamespace {
+			query = prefixGraphQLClassNames(query, ns)
+		}
 
 		// If query is empty, the request is unprocessable
 		if query == "" {
@@ -121,6 +151,11 @@ func setupGraphQLHandlers(
 		result := graphQL.Resolve(ctx, query,
 			operationName, variables)
 
+		// Strip namespace prefix from response data for non-default namespaces
+		if ns != namespace.DefaultNamespace {
+			stripNamespacePrefixFromGraphQLResult(result, ns)
+		}
+
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)
 		if jsonErr != nil {
@@ -154,8 +189,22 @@ func setupGraphQLHandlers(
 	})
 
 	api.GraphqlGraphqlBatchHandler = graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
-		// this is barely used (if at all) - so require read access to all collections for data and metadata
-		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.Collections()...)
+		// Extract namespace from request before authorization
+		ns, err := getNamespaceFromRequest(params.HTTPRequest, principal)
+		if err != nil {
+			return graphql.NewGraphqlBatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+
+		// For namespace users, check against their namespace-scoped collections
+		var batchAuthResources []string
+		if ns != namespace.DefaultNamespace {
+			nsPrefix := strings.ToUpper(ns[:1]) + ns[1:] + namespace.NamespaceSeparator
+			batchAuthResources = authorization.Collections(nsPrefix + "*")
+		} else {
+			batchAuthResources = authorization.Collections()
+		}
+		err = m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, batchAuthResources...)
 		if err != nil {
 			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -166,6 +215,22 @@ func setupGraphQLHandlers(
 			metricRequestsTotal.logUserError()
 			return graphql.NewGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
 		}
+
+		// Block introspection and prefix class names for namespace users
+		if ns != namespace.DefaultNamespace {
+			for _, req := range params.Body {
+				if req != nil && req.Query != "" {
+					if isIntrospectionQuery(req.Query) {
+						return graphql.NewGraphqlBatchForbidden().
+							WithPayload(errPayloadFromSingleErr(
+								fmt.Errorf("introspection queries are not available for namespace-scoped users"),
+							))
+					}
+					req.Query = prefixGraphQLClassNames(req.Query, ns)
+				}
+			}
+		}
+
 		requestResults := make(chan gqlUnbatchedRequestResponse, amountOfBatchedRequests)
 
 		wg := new(sync.WaitGroup)
@@ -199,6 +264,15 @@ func setupGraphQLHandlers(
 		// Add the requests to the result array in the correct order
 		for unbatchedRequestResult := range requestResults {
 			batchedRequestResponse[unbatchedRequestResult.RequestIndex] = unbatchedRequestResult.Response
+		}
+
+		// Strip namespace prefix from batch response data
+		if ns != namespace.DefaultNamespace {
+			for _, resp := range batchedRequestResponse {
+				if resp != nil {
+					stripNamespacePrefixFromGraphQLResponse(resp, ns)
+				}
+			}
 		}
 
 		return graphql.NewGraphqlBatchOK().WithPayload(batchedRequestResponse)
@@ -421,4 +495,149 @@ func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (class
 		}
 	}
 	return className, queryType
+}
+
+// gqlClassNameAtDepthPattern matches a capitalized identifier followed by optional
+// whitespace and either '(' (arguments) or '{' (selection set). This is used to
+// detect class names inside Get/Aggregate blocks at the right nesting depth.
+var gqlClassNameAtDepthPattern = regexp.MustCompile(`^([A-Z][A-Za-z0-9_]*)(\s*[\({])`)
+
+// prefixGraphQLClassNames rewrites a GraphQL query string to prefix class names
+// with the namespace. For example, with namespace "tenanta":
+//
+//	{ Get { Articles { title } } } → { Get { Tenanta__Articles { title } } }
+//
+// It tracks brace depth to only prefix class names that appear at depth 2
+// (one level inside Get/Aggregate blocks). Names that already have the namespace
+// prefix are left unchanged.
+func prefixGraphQLClassNames(query string, ns string) string {
+	prefix := strings.ToUpper(ns[:1]) + ns[1:] + namespace.NamespaceSeparator
+
+	var result strings.Builder
+	result.Grow(len(query) + 64)
+
+	depth := 0
+	inGetOrAggregate := false
+	targetDepth := 0
+	i := 0
+
+	for i < len(query) {
+		ch := query[i]
+
+		switch {
+		case ch == '{':
+			result.WriteByte(ch)
+			depth++
+			i++
+
+		case ch == '}':
+			result.WriteByte(ch)
+			if depth == targetDepth && inGetOrAggregate {
+				inGetOrAggregate = false
+			}
+			depth--
+			i++
+
+		case ch >= 'A' && ch <= 'Z':
+			// Check if this is a keyword (Get/Aggregate) or a class name
+			rest := query[i:]
+			if !inGetOrAggregate {
+				// Look for "Get" or "Aggregate" keyword followed by whitespace/brace
+				for _, kw := range []string{"Get", "Aggregate"} {
+					if strings.HasPrefix(rest, kw) && i+len(kw) < len(query) {
+						next := query[i+len(kw)]
+						if next == ' ' || next == '\t' || next == '\n' || next == '\r' || next == '{' {
+							inGetOrAggregate = true
+							targetDepth = depth + 1
+							result.WriteString(kw)
+							i += len(kw)
+							break
+						}
+					}
+				}
+				if inGetOrAggregate {
+					continue
+				}
+			}
+
+			// If we're inside Get/Aggregate at the right depth, prefix the class name
+			if inGetOrAggregate && depth == targetDepth {
+				if m := gqlClassNameAtDepthPattern.FindStringSubmatch(rest); len(m) >= 2 {
+					className := m[1]
+					if !strings.HasPrefix(className, prefix) {
+						result.WriteString(prefix)
+					}
+					result.WriteString(className)
+					i += len(className)
+					continue
+				}
+			}
+
+			// Not a class name to prefix; write character as-is
+			result.WriteByte(ch)
+			i++
+
+		default:
+			result.WriteByte(ch)
+			i++
+		}
+	}
+
+	return result.String()
+}
+
+// stripNamespacePrefixFromGraphQLResult strips namespace prefixes from class name
+// keys in the GraphQL result Data map. This is called on the *graphql.Result before
+// it gets marshalled to JSON.
+func stripNamespacePrefixFromGraphQLResult(result *tailorincgraphql.Result, ns string) {
+	if result == nil || result.Data == nil {
+		return
+	}
+	dataMap, ok := result.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+	prefix := strings.ToUpper(ns[:1]) + ns[1:] + namespace.NamespaceSeparator
+	for queryType, value := range dataMap {
+		if valueMap, ok := value.(map[string]interface{}); ok {
+			stripped := make(map[string]interface{}, len(valueMap))
+			for className, classData := range valueMap {
+				cleanName := className
+				if strings.HasPrefix(className, prefix) {
+					cleanName = className[len(prefix):]
+				}
+				stripped[cleanName] = classData
+			}
+			dataMap[queryType] = stripped
+		}
+	}
+}
+
+// isIntrospectionQuery checks if a GraphQL query contains introspection fields
+// (__schema or __type). Namespace users are blocked from introspection to prevent
+// leaking collection names and schema details from other namespaces.
+func isIntrospectionQuery(query string) bool {
+	return strings.Contains(query, "__schema") || strings.Contains(query, "__type")
+}
+
+// stripNamespacePrefixFromGraphQLResponse strips namespace prefixes from class name
+// keys in a models.GraphQLResponse.Data map. Used for batch responses.
+func stripNamespacePrefixFromGraphQLResponse(resp *models.GraphQLResponse, ns string) {
+	if resp == nil || resp.Data == nil {
+		return
+	}
+	prefix := strings.ToUpper(ns[:1]) + ns[1:] + namespace.NamespaceSeparator
+	for queryType, value := range resp.Data {
+		if valueMap, ok := value.(map[string]interface{}); ok {
+			stripped := make(map[string]interface{}, len(valueMap))
+			for className, classData := range valueMap {
+				cleanName := className
+				if strings.HasPrefix(className, prefix) {
+					cleanName = className[len(prefix):]
+				}
+				stripped[cleanName] = classData
+			}
+			resp.Data[queryType] = stripped
+		}
+	}
 }
