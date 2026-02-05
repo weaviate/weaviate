@@ -301,6 +301,11 @@ type Shard struct {
 	HFreshEnabled bool
 
 	lazySegmentLoadingEnabled bool
+
+	// metricsRegistered tracks whether this shard was registered with shard lifecycle metrics
+	// (e.g., NewLoadedShard or FinishLoadingShard was called). This prevents double-counting
+	// or incorrect metric updates during partial initialization cleanup.
+	metricsRegistered atomic.Bool
 }
 
 func (s *Shard) ID() string {
