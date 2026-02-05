@@ -27,7 +27,12 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		return nil
 	}
 	h.compressActionLock.Lock()
-	defer h.compressActionLock.Unlock()
+	released := false
+	defer func() {
+		if !released {
+			h.compressActionLock.Unlock()
+		}
+	}()
 	data := h.cache.All()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
@@ -121,25 +126,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return err
 		}
 	} else if cfg.RQ.Enabled {
-		var err error
-		h.trackRQOnce.Do(func() {
-			if singleVector {
-				h.compressor, err = compressionhelpers.NewRQCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
-			} else {
-				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
-			}
-			if err == nil {
-				h.rqConfig.RescoreLimit = cfg.RQ.RescoreLimit
-				h.compressor.PersistCompression(h.commitLog)
-			}
-		})
-		if err != nil {
-			return err
-		}
+		h.rqActive.Store(true)
+		released = true
+		h.compressActionLock.Unlock()
+		h.checkAndCompress()
+		return nil
 	}
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),

@@ -39,6 +39,7 @@ type AllowList interface {
 type AllowListIterator interface {
 	Next() (uint64, bool)
 	Len() int
+	Stop()
 }
 
 func NewAllowList(ids ...uint64) AllowList {
@@ -155,4 +156,8 @@ func (i *bitmapAllowListIterator) Next() (uint64, bool) {
 
 func (i *bitmapAllowListIterator) Len() int {
 	return i.len
+}
+
+func (i *bitmapAllowListIterator) Stop() {
+	// No-op for bitmap iterator as there's no cleanup needed
 }

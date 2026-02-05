@@ -120,8 +120,9 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
+	config.EnableLazyLoadShards = true
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.DisableLazyLoadShards = true
+		config.EnableLazyLoadShards = false
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {

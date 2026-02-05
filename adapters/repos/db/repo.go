@@ -288,7 +288,7 @@ type Config struct {
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
-	DisableLazyLoadShards               bool
+	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool

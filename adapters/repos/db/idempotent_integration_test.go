@@ -540,6 +540,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
+		EnableLazyLoadShards:      true,
 	}, &FakeRemoteClient{}, mockNodeSelector,
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
