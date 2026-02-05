@@ -133,15 +133,21 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	defer l.shardLoadLimiter.Release()
 
+	l.shardOpts.promMetrics.StartLoadingShard()
+
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
 		l.shardOpts.bitmapBufPool)
 	if err != nil {
+		l.shardOpts.promMetrics.FailLoadingShard()
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		return errors.New(msg)
 	}
+
+	l.shardOpts.promMetrics.FinishLoadingShard()
+	shard.metricsRegistered.Store(true)
 
 	l.shard = shard
 	l.loaded = true
@@ -402,6 +408,9 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 			}
 		}
 
+		// decrement unloaded shard count since this shard is being deleted
+		l.shardOpts.promMetrics.DeleteUnloadedShard()
+
 		return nil
 	}
 
@@ -593,10 +602,20 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
 		return nil
 	}
-	return l.shard.Shutdown(ctx)
+
+	if err := l.shard.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	// Mark as unloaded so drop() knows the correct state
+	l.loaded = false
+	return nil
 }
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
