@@ -123,16 +123,25 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		if prop.IndexFilterable != nil && *prop.IndexFilterable {
 			notExists := false
 			prop.IndexFilterable = &notExists
+		} else {
+			// nothing to do
+			return nil
 		}
 	case "searchable":
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
 			notExists := false
 			prop.IndexSearchable = &notExists
+		} else {
+			// nothing to do
+			return nil
 		}
 	case "rangeFilters":
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
 			notExists := false
 			prop.IndexRangeFilters = &notExists
+		} else {
+			// nothing to do
+			return nil
 		}
 	default:
 		// nothing to do
