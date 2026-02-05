@@ -43,6 +43,7 @@ const (
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 	DefaultHNSWAcornFilterRatio = 0.4
+	DefaultQuantization         = "rq-8"
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 
@@ -500,9 +501,13 @@ func FromEnv(config *Config) error {
 	}
 	// ---- HNSW snapshots ----
 
-	defaultQuantization := ""
-	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
-		defaultQuantization = strings.ToLower(v)
+	defaultQuantization := DefaultQuantization
+	if v, exists := os.LookupEnv("DEFAULT_QUANTIZATION"); exists {
+		if v == "" {
+			defaultQuantization = ""
+		} else {
+			defaultQuantization = strings.ToLower(v)
+		}
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 

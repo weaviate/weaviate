@@ -37,12 +37,11 @@ func TestAssignDynamic(t *testing.T) {
 	require.Equal(t, "rq-8", d.Get())
 }
 
-func TestDefaultQuantizationRQ8(t *testing.T) {
+func TestDefaultQuantization(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
