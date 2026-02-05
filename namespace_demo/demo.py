@@ -371,8 +371,8 @@ def cleanup(admin: WeaviateClient):
     """Clean up test users and collections."""
     admin.delete_user("tenanta-user")
     admin.delete_user("tenantb-user")
-    admin.delete_collection("Articles", namespace="tenanta")
-    admin.delete_collection("Articles", namespace="tenantb")
+    admin.delete_collection("NewsArticles", namespace="tenanta")
+    admin.delete_collection("BlogPosts", namespace="tenantb")
 
 
 def show_welcome():
@@ -609,21 +609,23 @@ def main():
         4,
         "Tenant Users Create Their Own Collections",
         "[bold yellow]EXPLICIT NAMESPACE ROLES IN ACTION![/bold yellow]\n\n"
-        "Each tenant user creates an '[cyan]Articles[/cyan]' collection.\n\n"
+        "Each tenant user creates their own collection:\n"
+        "  [green]•[/green] Tenant A creates '[cyan]NewsArticles[/cyan]'\n"
+        "  [green]•[/green] Tenant B creates '[cyan]BlogPosts[/cyan]'\n\n"
         "[bold]Key point:[/bold] Users have the [bold cyan]namespace-admin-{ns}[/bold cyan] role\n"
         "which grants explicit CRUD permissions for their namespace.\n\n"
         "This is proper RBAC - permissions come from an explicit role!\n\n"
         "Internally, these become:\n"
-        "  [green]•[/green] [dim]Tenanta__Articles[/dim] (in tenanta namespace)\n"
-        "  [green]•[/green] [dim]Tenantb__Articles[/dim] (in tenantb namespace)\n\n"
+        "  [green]•[/green] [dim]Tenanta__NewsArticles[/dim] (in tenanta namespace)\n"
+        "  [green]•[/green] [dim]Tenantb__BlogPosts[/dim] (in tenantb namespace)\n\n"
         "These are [bold]completely separate[/bold] collections!"
     )
 
-    show_next_action("Tenant A creates 'Articles' in their namespace")
+    show_next_action("Tenant A creates 'NewsArticles' in their namespace")
 
-    show_info("Tenant A creating 'Articles' (using their API key)...")
+    show_info("Tenant A creating 'NewsArticles' (using their API key)...")
     show_highlight("(Tenant A has namespace-admin-tenanta role for explicit RBAC permissions)")
-    ok, result = tenant_a.create_collection("Articles", show_api=True)
+    ok, result = tenant_a.create_collection("NewsArticles", show_api=True)
     if not ok:
         if "already exists" in str(result):
             show_info("Collection already exists (from previous run)")
@@ -631,13 +633,13 @@ def main():
             show_error(f"Failed to create collection: {result}")
             show_info("This is expected if namespace-scoped permissions are not yet enabled")
     else:
-        show_success("Tenant A created Articles (via namespace-admin-tenanta role)")
+        show_success("Tenant A created NewsArticles (via namespace-admin-tenanta role)")
 
-    show_next_action("Tenant B creates 'Articles' in their namespace")
+    show_next_action("Tenant B creates 'BlogPosts' in their namespace")
 
-    show_info("Tenant B creating 'Articles' (using their API key)...")
+    show_info("Tenant B creating 'BlogPosts' (using their API key)...")
     show_highlight("(Tenant B has namespace-admin-tenantb role for explicit RBAC permissions)")
-    ok, result = tenant_b.create_collection("Articles", show_api=True)
+    ok, result = tenant_b.create_collection("BlogPosts", show_api=True)
     if not ok:
         if "already exists" in str(result):
             show_info("Collection already exists (from previous run)")
@@ -645,7 +647,7 @@ def main():
             show_error(f"Failed to create collection: {result}")
             show_info("This is expected if namespace-scoped permissions are not yet enabled")
     else:
-        show_success("Tenant B created Articles (via namespace-admin-tenantb role)")
+        show_success("Tenant B created BlogPosts (via namespace-admin-tenantb role)")
 
     # =========================================================================
     # Step 5: Verify namespace isolation
@@ -660,8 +662,8 @@ def main():
         "  [green]1.[/green] Authenticates the API key\n"
         "  [green]2.[/green] Looks up the user's bound namespace\n"
         "  [green]3.[/green] Filters results to only show that namespace's data\n\n"
-        "[cyan]Tenant A[/cyan] should ONLY see their 'Articles' collection.\n"
-        "[cyan]Tenant B[/cyan] should ONLY see their 'Articles' collection.\n"
+        "[cyan]Tenant A[/cyan] should ONLY see '[cyan]NewsArticles[/cyan]'.\n"
+        "[cyan]Tenant B[/cyan] should ONLY see '[cyan]BlogPosts[/cyan]'.\n"
         "[bold]They cannot see each other's data![/bold]"
     )
 
