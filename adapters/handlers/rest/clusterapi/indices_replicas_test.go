@@ -404,7 +404,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	// Start shutdown
 	closeErr := make(chan error, 1)
 	go func() {
-		closeErr <- indices.Close(context.Background())
+		closeErr <- indices.Close(t.Context())
 	}()
 
 	// Send a few concurrent requests while shutdown is in progress
@@ -416,7 +416,9 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			req, err := http.NewRequest("POST", reqURL, nil)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
 			if err != nil {
 				return
 			}
