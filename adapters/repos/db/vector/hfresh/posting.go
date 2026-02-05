@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -106,10 +107,36 @@ func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuanti
 type Distancer struct {
 	quantizer *compressionhelpers.BinaryRotationalQuantizer
 	distancer distancer.Provider
+
+	pool sync.Pool
+}
+
+func NewDistancer(quantizer *compressionhelpers.BinaryRotationalQuantizer, distancer distancer.Provider) *Distancer {
+	return &Distancer{
+		quantizer: quantizer,
+		distancer: distancer,
+		pool: sync.Pool{
+			New: func() any {
+				var s []uint64
+				return &s
+			},
+		},
+	}
 }
 
 func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, error) {
-	return d.quantizer.DistanceBetweenCompressedVectors(d.quantizer.FromCompressedBytes(a), d.quantizer.FromCompressedBytes(b))
+	bufA := d.pool.Get().(*[]uint64)
+	bufB := d.pool.Get().(*[]uint64)
+
+	*bufA = d.quantizer.FromCompressedBytesInto(a, *bufA)
+	*bufB = d.quantizer.FromCompressedBytesInto(b, *bufB)
+
+	distance, err := d.quantizer.DistanceBetweenCompressedVectors(*bufA, *bufB)
+
+	d.pool.Put(bufA)
+	d.pool.Put(bufB)
+
+	return distance, err
 }
 
 func (d *Distancer) DistanceBetweenVectors(a, b []float32) (float32, error) {
