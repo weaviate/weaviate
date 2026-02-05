@@ -703,7 +703,16 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 
 	if len(params.ModuleParams) == 1 {
 		for name, value := range params.ModuleParams {
-			return e.crossClassVectorFromModules(ctx, name, value)
+			vector, targetVector, err := e.crossClassVectorFromModules(ctx, name, value)
+			if err != nil {
+				return nil, "", err
+			}
+
+			if name == "nearText" {
+				storeQueryVector(ctx, vector)
+			}
+
+			return vector, targetVector, nil
 		}
 	}
 
@@ -712,7 +721,11 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 		if len(params.NearVector.TargetVectors) == 1 {
 			targetVector = params.NearVector.TargetVectors[0]
 		}
-		return params.NearVector.Vectors[0], targetVector, nil
+		vec := params.NearVector.Vectors[0]
+		if vector, ok := vec.([]float32); ok {
+			storeQueryVector(ctx, vector)
+		}
+		return vec, targetVector, nil
 	}
 
 	if params.NearObject != nil {

@@ -17,9 +17,9 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
+	"encoding/json"
+	"context"
 
 	"github.com/go-openapi/strfmt"
 )
