@@ -548,15 +548,7 @@ def main():
         sys.exit(1)
     tenant_a_key = result.get("apikey", "")
     show_success(f"Created tenanta-user with key: {tenant_a_key[:20]}...")
-
-    # Assign viewer role
-    show_next_action("Assign 'viewer' RBAC role so user can read schema/data")
-
-    ok, _ = admin.assign_role("tenanta-user", "viewer", show_api=True)
-    if ok:
-        show_success("Assigned 'viewer' role to tenanta-user")
-    else:
-        show_info("Note: Could not assign viewer role")
+    show_highlight("(No RBAC roles assigned - namespace binding provides all permissions!)")
 
     # Create Tenant B user
     show_next_action("Create 'tenantb-user' bound to namespace 'tenantb'")
@@ -568,15 +560,7 @@ def main():
         sys.exit(1)
     tenant_b_key = result.get("apikey", "")
     show_success(f"Created tenantb-user with key: {tenant_b_key[:20]}...")
-
-    # Assign viewer role
-    show_next_action("Assign 'viewer' RBAC role to tenantb-user")
-
-    ok, _ = admin.assign_role("tenantb-user", "viewer", show_api=True)
-    if ok:
-        show_success("Assigned 'viewer' role to tenantb-user")
-    else:
-        show_info("Note: Could not assign viewer role")
+    show_highlight("(No RBAC roles assigned - namespace binding provides all permissions!)")
 
     # Create clients for each tenant
     tenant_a = WeaviateClient(WEAVIATE_URL, tenant_a_key, "tenant-a")
@@ -590,9 +574,8 @@ def main():
         "Tenant Users Create Their Own Collections",
         "[bold yellow]NAMESPACE-SCOPED PERMISSIONS IN ACTION![/bold yellow]\n\n"
         "Each tenant user creates an '[cyan]Articles[/cyan]' collection.\n\n"
-        "[bold]Key point:[/bold] The users only have the '[cyan]viewer[/cyan]' RBAC role,\n"
-        "which normally only grants READ permissions!\n\n"
-        "But because they're bound to a namespace, they get [bold]implicit[/bold]\n"
+        "[bold]Key point:[/bold] The users have [bold red]NO RBAC roles[/bold red] assigned!\n\n"
+        "Because they're bound to a namespace, they get [bold]implicit[/bold]\n"
         "[bold]full permissions[/bold] for resources in their own namespace.\n\n"
         "Internally, these become:\n"
         "  [green]•[/green] [dim]Tenanta__Articles[/dim] (in tenanta namespace)\n"
@@ -603,7 +586,7 @@ def main():
     show_next_action("Tenant A creates 'Articles' in their namespace")
 
     show_info("Tenant A creating 'Articles' (using their API key)...")
-    show_highlight("(Note: Tenant A only has 'viewer' role - but can CREATE in their namespace!)")
+    show_highlight("(Note: Tenant A has NO RBAC roles - but can CREATE in their namespace!)")
     ok, result = tenant_a.create_collection("Articles", show_api=True)
     if not ok:
         if "already exists" in str(result):
@@ -617,7 +600,7 @@ def main():
     show_next_action("Tenant B creates 'Articles' in their namespace")
 
     show_info("Tenant B creating 'Articles' (using their API key)...")
-    show_highlight("(Note: Tenant B only has 'viewer' role - but can CREATE in their namespace!)")
+    show_highlight("(Note: Tenant B has NO RBAC roles - but can CREATE in their namespace!)")
     ok, result = tenant_b.create_collection("Articles", show_api=True)
     if not ok:
         if "already exists" in str(result):
