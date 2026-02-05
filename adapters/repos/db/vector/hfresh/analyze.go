@@ -34,6 +34,8 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	}()
 
 	if !h.Centroids.Exists(postingID) {
+		h.logger.WithField("postingID", postingID).
+			Debug("posting not found, skipping analyze operation")
 		return nil
 	}
 
@@ -55,6 +57,12 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 			}
 
 			return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
+		}
+
+		if len(p) == 0 {
+			h.logger.WithField("postingID", postingID).
+				Debug("posting is empty, skipping analyze operation")
+			return nil
 		}
 
 		// update the posting map in-memory cache and persist the vector IDs

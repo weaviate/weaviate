@@ -59,6 +59,12 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 	initialLen := len(p)
 
+	if initialLen == 0 {
+		h.logger.WithField("postingID", postingID).
+			Debug("posting is empty, skipping merge operation")
+		return nil
+	}
+
 	// garbage collect the deleted vectors
 	newPosting, err := p.GarbageCollect(h.VersionMap)
 	if err != nil {
@@ -131,6 +137,9 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 	// first centroid is the query centroid, the rest are candidates for merging
 	for candidateID := range nearest.Iter() {
+		if candidateID == postingID {
+			continue
+		}
 		// check if the combined size of the postings is within limits
 		count, err := h.PostingMap.CountVectorIDs(ctx, candidateID)
 		if err != nil {
