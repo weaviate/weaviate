@@ -18,7 +18,11 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/namespace"
 )
 
 func (s *Raft) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
@@ -122,5 +126,42 @@ func (s *Raft) RevokeRolesForUser(user string, roles ...string) error {
 	if _, err := s.Execute(context.Background(), command); err != nil {
 		return err
 	}
+	return nil
+}
+
+// EnsureNamespaceRoleForUser creates the namespace admin role if it doesn't exist
+// and assigns it to the user. This provides explicit RBAC permissions for
+// namespace-bound users instead of implicit full access.
+//
+// Users in the default namespace or with empty namespace are skipped (they use normal RBAC).
+func (s *Raft) EnsureNamespaceRoleForUser(username string, ns string, authType authentication.AuthType) error {
+	if ns == "" || ns == namespace.DefaultNamespace {
+		return nil // Default namespace users don't get auto-assigned roles
+	}
+
+	roleName := rbac.NamespaceRoleName(ns, rbac.NamespaceRoleAdmin)
+
+	// Check if role exists
+	existingRoles, err := s.GetRoles(roleName)
+	if err != nil {
+		return fmt.Errorf("checking role existence: %w", err)
+	}
+
+	// Create role if it doesn't exist
+	if len(existingRoles) == 0 || len(existingRoles[roleName]) == 0 {
+		policies := rbac.CreateNamespaceAdminPolicies(ns)
+		if err := s.CreateRolesPermissions(map[string][]authorization.Policy{
+			roleName: policies,
+		}); err != nil {
+			return fmt.Errorf("creating namespace role: %w", err)
+		}
+	}
+
+	// Assign role to user
+	userWithPrefix := conv.UserNameWithTypeFromId(username, authType)
+	if err := s.AddRolesForUser(userWithPrefix, []string{roleName}); err != nil {
+		return fmt.Errorf("assigning namespace role: %w", err)
+	}
+
 	return nil
 }

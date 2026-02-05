@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespace"
 )
 
 const (
@@ -606,4 +607,41 @@ func collectStaleRoles(polices [][]string, casbinStoragePoliciesMap map[string]s
 		}
 	}
 	return casbinStoragePolicies
+}
+
+// EnsureNamespaceRoleForUser creates the namespace admin role if it doesn't exist
+// and assigns it to the user. This provides explicit RBAC permissions for
+// namespace-bound users instead of implicit full access.
+//
+// Users in the default namespace or with empty namespace are skipped (they use normal RBAC).
+func (m *Manager) EnsureNamespaceRoleForUser(username string, ns string, authType authentication.AuthType) error {
+	if ns == "" || ns == namespace.DefaultNamespace {
+		return nil // Default namespace users don't get auto-assigned roles
+	}
+
+	roleName := NamespaceRoleName(ns, NamespaceRoleAdmin)
+
+	// Check if role exists
+	existingRoles, err := m.GetRoles(roleName)
+	if err != nil {
+		return fmt.Errorf("checking role existence: %w", err)
+	}
+
+	// Create role if it doesn't exist
+	if len(existingRoles) == 0 || len(existingRoles[roleName]) == 0 {
+		policies := CreateNamespaceAdminPolicies(ns)
+		if err := m.CreateRolesPermissions(map[string][]authorization.Policy{
+			roleName: policies,
+		}); err != nil {
+			return fmt.Errorf("creating namespace role: %w", err)
+		}
+	}
+
+	// Assign role to user
+	userWithPrefix := conv.UserNameWithTypeFromId(username, authType)
+	if err := m.AddRolesForUser(userWithPrefix, []string{roleName}); err != nil {
+		return fmt.Errorf("assigning namespace role: %w", err)
+	}
+
+	return nil
 }

@@ -393,6 +393,54 @@ func (_c *MockDbUserAndRolesGetter_GetRolesForUserOrGroup_Call) RunAndReturn(run
 	return _c
 }
 
+// EnsureNamespaceRoleForUser provides a mock function with given fields: username, namespace, authType
+func (_m *MockDbUserAndRolesGetter) EnsureNamespaceRoleForUser(username string, namespace string, authType authentication.AuthType) error {
+	ret := _m.Called(username, namespace, authType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EnsureNamespaceRoleForUser")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, authentication.AuthType) error); ok {
+		r0 = rf(username, namespace, authType)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EnsureNamespaceRoleForUser'
+type MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call struct {
+	*mock.Call
+}
+
+// EnsureNamespaceRoleForUser is a helper method to define mock.On call
+//   - username string
+//   - namespace string
+//   - authType authentication.AuthType
+func (_e *MockDbUserAndRolesGetter_Expecter) EnsureNamespaceRoleForUser(username interface{}, namespace interface{}, authType interface{}) *MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call {
+	return &MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call{Call: _e.mock.On("EnsureNamespaceRoleForUser", username, namespace, authType)}
+}
+
+func (_c *MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call) Run(run func(username string, namespace string, authType authentication.AuthType)) *MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].(authentication.AuthType))
+	})
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call) Return(_a0 error) *MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call) RunAndReturn(run func(string, string, authentication.AuthType) error) *MockDbUserAndRolesGetter_EnsureNamespaceRoleForUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetUsers provides a mock function with given fields: userIds
 func (_m *MockDbUserAndRolesGetter) GetUsers(userIds ...string) (map[string]*apikey.User, error) {
 	_va := make([]interface{}, len(userIds))

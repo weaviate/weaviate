@@ -351,6 +351,21 @@ class WeaviateClient:
         )
         return resp.status_code in [200, 204, 404]
 
+    def get_user_roles(self, user_id: str) -> list:
+        """Get roles assigned to a user."""
+        resp = requests.get(
+            f"{self.url}/v1/authz/users/{user_id}/roles",
+            headers=self._headers()
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # Handle both possible response formats
+            if isinstance(data, dict) and "roles" in data:
+                return [r.get("name") if isinstance(r, dict) else r for r in data.get("roles", [])]
+            elif isinstance(data, list):
+                return [r.get("name") if isinstance(r, dict) else r for r in data]
+        return []
+
 
 def cleanup(admin: WeaviateClient):
     """Clean up test users and collections."""
@@ -413,8 +428,8 @@ def show_summary():
             "  [green]•[/green] Users are created with namespace binding via [cyan]X-Weaviate-Namespace[/cyan] header\n"
             "  [green]•[/green] Each user's API key is [bold]permanently bound[/bold] to their assigned namespace\n"
             "  [green]•[/green] All operations automatically use the bound namespace\n"
-            "  [green]•[/green] [bold yellow]Namespace-bound users get FULL permissions in their namespace[/bold yellow]\n"
-            "  [green]•[/green] No explicit RBAC roles needed for namespace-scoped operations\n"
+            "  [green]•[/green] [bold cyan]Explicit RBAC:[/bold cyan] [cyan]namespace-admin-{ns}[/cyan] role is auto-assigned\n"
+            "  [green]•[/green] Permissions come from explicit roles, enabling audit trails\n"
             "  [green]•[/green] Admin users can override namespace for management operations",
             border_style="dim",
             padding=(1, 2),
@@ -425,7 +440,8 @@ def show_summary():
 POST /v1/users/db/tenanta-user
 Headers:
   Authorization: Bearer <admin-key>
-  X-Weaviate-Namespace: tenanta  ← Binds user to this namespace"""
+  X-Weaviate-Namespace: tenanta  ← Binds user to this namespace
+# → Automatically creates and assigns 'namespace-admin-tenanta' role"""
 
         user_request_example = """# User operations automatically use bound namespace:
 GET /v1/schema
@@ -450,7 +466,7 @@ Headers:
         ))
 
         console.print()
-        console.print("[bold green]The result: Complete tenant isolation with simpler client code![/bold green]")
+        console.print("[bold green]The result: Complete tenant isolation with proper RBAC![/bold green]")
         console.print()
     else:
         print("\n" + "="*60)
@@ -460,6 +476,8 @@ Headers:
         print("• Users are created with namespace binding via X-Weaviate-Namespace header")
         print("• Each user's API key is permanently bound to their assigned namespace")
         print("• All operations automatically use the bound namespace")
+        print("• Explicit RBAC: namespace-admin-{ns} role is auto-assigned")
+        print("• Permissions come from explicit roles, enabling audit trails")
         print("• Namespace-bound users get FULL permissions in their namespace")
         print("• No explicit RBAC roles needed for namespace-scoped operations")
         print("• Admin users can override namespace for management operations")
@@ -535,7 +553,9 @@ def main():
         "We'll create two users:\n"
         "  [green]•[/green] [cyan]tenanta-user[/cyan] → bound to '[yellow]tenanta[/yellow]' namespace\n"
         "  [green]•[/green] [cyan]tenantb-user[/cyan] → bound to '[yellow]tenantb[/yellow]' namespace\n\n"
-        "Each user gets an API key that only works in their namespace."
+        "Each user gets an API key that only works in their namespace.\n\n"
+        "[bold cyan]EXPLICIT RBAC:[/bold cyan] Each user gets a [cyan]namespace-admin-{ns}[/cyan] role\n"
+        "auto-assigned with explicit permissions for their namespace!"
     )
 
     # Create Tenant A user
@@ -548,7 +568,15 @@ def main():
         sys.exit(1)
     tenant_a_key = result.get("apikey", "")
     show_success(f"Created tenanta-user with key: {tenant_a_key[:20]}...")
-    show_highlight("(No RBAC roles assigned - namespace binding provides all permissions!)")
+
+    # Verify namespace-admin role was auto-assigned
+    expected_role = "namespace-admin-tenanta"
+    roles = admin.get_user_roles("tenanta-user")
+    if expected_role in roles:
+        show_success(f"Role '{expected_role}' auto-assigned (explicit RBAC)")
+    else:
+        show_error(f"Expected role '{expected_role}' to be assigned, got: {roles}")
+        show_error("EXPLICIT NAMESPACE ROLES NOT WORKING - Demo may fail!")
 
     # Create Tenant B user
     show_next_action("Create 'tenantb-user' bound to namespace 'tenantb'")
@@ -560,7 +588,15 @@ def main():
         sys.exit(1)
     tenant_b_key = result.get("apikey", "")
     show_success(f"Created tenantb-user with key: {tenant_b_key[:20]}...")
-    show_highlight("(No RBAC roles assigned - namespace binding provides all permissions!)")
+
+    # Verify namespace-admin role was auto-assigned
+    expected_role = "namespace-admin-tenantb"
+    roles = admin.get_user_roles("tenantb-user")
+    if expected_role in roles:
+        show_success(f"Role '{expected_role}' auto-assigned (explicit RBAC)")
+    else:
+        show_error(f"Expected role '{expected_role}' to be assigned, got: {roles}")
+        show_error("EXPLICIT NAMESPACE ROLES NOT WORKING - Demo may fail!")
 
     # Create clients for each tenant
     tenant_a = WeaviateClient(WEAVIATE_URL, tenant_a_key, "tenant-a")
@@ -572,11 +608,11 @@ def main():
     show_step_header(
         4,
         "Tenant Users Create Their Own Collections",
-        "[bold yellow]NAMESPACE-SCOPED PERMISSIONS IN ACTION![/bold yellow]\n\n"
+        "[bold yellow]EXPLICIT NAMESPACE ROLES IN ACTION![/bold yellow]\n\n"
         "Each tenant user creates an '[cyan]Articles[/cyan]' collection.\n\n"
-        "[bold]Key point:[/bold] The users have [bold red]NO RBAC roles[/bold red] assigned!\n\n"
-        "Because they're bound to a namespace, they get [bold]implicit[/bold]\n"
-        "[bold]full permissions[/bold] for resources in their own namespace.\n\n"
+        "[bold]Key point:[/bold] Users have the [bold cyan]namespace-admin-{ns}[/bold cyan] role\n"
+        "which grants explicit CRUD permissions for their namespace.\n\n"
+        "This is proper RBAC - permissions come from an explicit role!\n\n"
         "Internally, these become:\n"
         "  [green]•[/green] [dim]Tenanta__Articles[/dim] (in tenanta namespace)\n"
         "  [green]•[/green] [dim]Tenantb__Articles[/dim] (in tenantb namespace)\n\n"
@@ -586,7 +622,7 @@ def main():
     show_next_action("Tenant A creates 'Articles' in their namespace")
 
     show_info("Tenant A creating 'Articles' (using their API key)...")
-    show_highlight("(Note: Tenant A has NO RBAC roles - but can CREATE in their namespace!)")
+    show_highlight("(Tenant A has namespace-admin-tenanta role for explicit RBAC permissions)")
     ok, result = tenant_a.create_collection("Articles", show_api=True)
     if not ok:
         if "already exists" in str(result):
@@ -595,12 +631,12 @@ def main():
             show_error(f"Failed to create collection: {result}")
             show_info("This is expected if namespace-scoped permissions are not yet enabled")
     else:
-        show_success("Tenant A created Articles in their namespace")
+        show_success("Tenant A created Articles (via namespace-admin-tenanta role)")
 
     show_next_action("Tenant B creates 'Articles' in their namespace")
 
     show_info("Tenant B creating 'Articles' (using their API key)...")
-    show_highlight("(Note: Tenant B has NO RBAC roles - but can CREATE in their namespace!)")
+    show_highlight("(Tenant B has namespace-admin-tenantb role for explicit RBAC permissions)")
     ok, result = tenant_b.create_collection("Articles", show_api=True)
     if not ok:
         if "already exists" in str(result):
@@ -609,7 +645,7 @@ def main():
             show_error(f"Failed to create collection: {result}")
             show_info("This is expected if namespace-scoped permissions are not yet enabled")
     else:
-        show_success("Tenant B created Articles in their namespace")
+        show_success("Tenant B created Articles (via namespace-admin-tenantb role)")
 
     # =========================================================================
     # Step 5: Verify namespace isolation

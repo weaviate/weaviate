@@ -63,6 +63,7 @@ type DbUserAndRolesGetter interface {
 	apikey.DBUsers
 	GetRolesForUserOrGroup(user string, authTyoes authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
+	EnsureNamespaceRoleForUser(username string, namespace string, authType authentication.AuthType) error
 }
 
 var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + `$`)
@@ -357,6 +358,11 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 		}
 
+		// Assign namespace-admin role for namespace-bound users
+		if err := h.dbUsers.EnsureNamespaceRoleForUser(params.UserID, namespace, authentication.AuthTypeDb); err != nil {
+			h.logger.WithError(err).WithField("user", params.UserID).WithField("namespace", namespace).Warn("failed to assign namespace role")
+		}
+
 		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 	}
 
@@ -386,6 +392,11 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 	if err := h.dbUsers.CreateUser(params.UserID, hash, userIdentifier, apiKey[:3], namespace, time.Now()); err != nil {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
+	}
+
+	// Assign namespace-admin role for namespace-bound users
+	if err := h.dbUsers.EnsureNamespaceRoleForUser(params.UserID, namespace, authentication.AuthTypeDb); err != nil {
+		h.logger.WithError(err).WithField("user", params.UserID).WithField("namespace", namespace).Warn("failed to assign namespace role")
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
