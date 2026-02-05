@@ -43,11 +43,11 @@ func NewSchemaObjectsPropertiesDelete(ctx *middleware.Context, handler SchemaObj
 }
 
 /*
-	SchemaObjectsPropertiesDelete swagger:route DELETE /schema/{className}/properties/{propertyName}/index schema schemaObjectsPropertiesDelete
+	SchemaObjectsPropertiesDelete swagger:route DELETE /schema/{className}/properties/{propertyName}/index/{indexName} schema schemaObjectsPropertiesDelete
 
-# Deletes collection's property indexes
+# Deletes collection's property index
 
-Deletes collection's property indexes.
+Deletes collection's property index.
 */
 type SchemaObjectsPropertiesDelete struct {
 	Context *middleware.Context

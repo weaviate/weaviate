@@ -17,16 +17,12 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewSchemaObjectsPropertiesDeleteParams creates a new SchemaObjectsPropertiesDeleteParams object
@@ -46,16 +42,16 @@ type SchemaObjectsPropertiesDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The definition of property's settings to update.
-	  Required: true
-	  In: body
-	*/
-	Body *models.DeletePropertyIndexRequest
 	/*The name of the collection (class).
 	  Required: true
 	  In: path
 	*/
 	ClassName string
+	/*The name of property's index to be deleted.
+	  Required: true
+	  In: path
+	*/
+	IndexName string
 	/*The name of collection's property to be deleted.
 	  Required: true
 	  In: path
@@ -72,36 +68,13 @@ func (o *SchemaObjectsPropertiesDeleteParams) BindRequest(r *http.Request, route
 
 	o.HTTPRequest = r
 
-	if runtime.HasBody(r) {
-		defer r.Body.Close()
-		var body models.DeletePropertyIndexRequest
-		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			if err == io.EOF {
-				res = append(res, errors.Required("body", "body", ""))
-			} else {
-				res = append(res, errors.NewParseError("body", "body", "", err))
-			}
-		} else {
-			// validate body object
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
-			}
-
-			ctx := validate.WithOperationRequest(r.Context())
-			if err := body.ContextValidate(ctx, route.Formats); err != nil {
-				res = append(res, err)
-			}
-
-			if len(res) == 0 {
-				o.Body = &body
-			}
-		}
-	} else {
-		res = append(res, errors.Required("body", "body", ""))
-	}
-
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	rIndexName, rhkIndexName, _ := route.Params.GetOK("indexName")
+	if err := o.bindIndexName(rIndexName, rhkIndexName, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -125,6 +98,34 @@ func (o *SchemaObjectsPropertiesDeleteParams) bindClassName(rawData []string, ha
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ClassName = raw
+
+	return nil
+}
+
+// bindIndexName binds and validates parameter IndexName from path.
+func (o *SchemaObjectsPropertiesDeleteParams) bindIndexName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+	o.IndexName = raw
+
+	if err := o.validateIndexName(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateIndexName carries on validations for parameter IndexName
+func (o *SchemaObjectsPropertiesDeleteParams) validateIndexName(formats strfmt.Registry) error {
+
+	if err := validate.EnumCase("indexName", "path", o.IndexName, []interface{}{"filterable", "searchable", "rangeFilters"}, true); err != nil {
+		return err
+	}
 
 	return nil
 }

@@ -94,7 +94,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 // DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
-	class *models.Class, className, propertyName string, deletePropIndex *models.DeletePropertyIndexRequest,
+	class *models.Class, className, propertyName, indexName string,
 ) error {
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
@@ -107,7 +107,6 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	if propertyName == "" {
 		return fmt.Errorf("property name cannot be empty")
 	}
-
 	var prop *models.Property
 	for i := range class.Properties {
 		if class.Properties[i].Name == propertyName {
@@ -115,38 +114,37 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			break
 		}
 	}
-
 	if prop == nil {
 		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
 	}
 
-	var preformUpdate bool
-	if deletePropIndex.IndexFilterable != nil && *deletePropIndex.IndexFilterable && prop.IndexFilterable != nil && *prop.IndexFilterable {
-		notExists := false
-		prop.IndexFilterable = &notExists
-		preformUpdate = true
-	}
-
-	if deletePropIndex.IndexSearchable != nil && *deletePropIndex.IndexSearchable && prop.IndexSearchable != nil && *prop.IndexSearchable {
-		notExists := false
-		prop.IndexSearchable = &notExists
-		preformUpdate = true
-	}
-
-	if deletePropIndex.IndexRangeFilters != nil && *deletePropIndex.IndexRangeFilters && prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
-		notExists := false
-		prop.IndexRangeFilters = &notExists
-		preformUpdate = true
-	}
-
-	if preformUpdate {
-		if err := h.validatePropertyIndexing(prop); err != nil {
-			return err
+	switch indexName {
+	case "filterable":
+		if prop.IndexFilterable != nil && *prop.IndexFilterable {
+			notExists := false
+			prop.IndexFilterable = &notExists
 		}
-		_, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop)
-		if err != nil {
-			return err
+	case "searchable":
+		if prop.IndexSearchable != nil && *prop.IndexSearchable {
+			notExists := false
+			prop.IndexSearchable = &notExists
 		}
+	case "rangeFilters":
+		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+			notExists := false
+			prop.IndexRangeFilters = &notExists
+		}
+	default:
+		// nothing to do
+		return nil
+	}
+
+	if err := h.validatePropertyIndexing(prop); err != nil {
+		return err
+	}
+	_, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop)
+	if err != nil {
+		return err
 	}
 	return nil
 }

@@ -88,7 +88,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "DeleteClassPropertyIndex",
-			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", "someprop", &models.DeletePropertyIndexRequest{}},
+			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", "someprop", "someindex"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},

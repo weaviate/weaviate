@@ -1593,26 +1593,6 @@
       },
       "type": "object"
     },
-    "DeletePropertyIndexRequest": {
-      "properties": {
-        "indexFilterable": {
-          "description": "Whether to remove this property's filterable index (Roaring Bitmap index).",
-          "type": "boolean",
-          "x-nullable": true
-        },
-        "indexSearchable": {
-          "description": "Whether to remove this property's from inverted index.",
-          "type": "boolean",
-          "x-nullable": true
-        },
-        "indexRangeFilters": {
-          "description": "Whether to remove this property's rangeable index (range-based Roaring Bitmap index).",
-          "type": "boolean",
-          "x-nullable": true
-        }
-      },
-      "type": "object"
-    },
     "VectorConfig": {
       "properties": {
         "vectorizer": {
@@ -7915,10 +7895,10 @@
         }
       }
     },
-    "/schema/{className}/properties/{propertyName}/index": {
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
       "delete": {
-        "summary": "Deletes collection's property indexes",
-        "description": "Deletes collection's property indexes.",
+        "summary": "Deletes collection's property index",
+        "description": "Deletes collection's property index.",
         "operationId": "schema.objects.properties.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -7942,13 +7922,16 @@
             "type": "string"
           },
           {
-            "name": "body",
-            "description": "The definition of property's settings to update.",
-            "in": "body",
+            "name": "indexName",
+            "description": "The name of property's index to be deleted.",
+            "in": "path",
             "required": true,
-            "schema": {
-              "$ref": "#/definitions/DeletePropertyIndexRequest"
-            }
+            "type": "string",
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ]
           }
         ],
         "responses": {

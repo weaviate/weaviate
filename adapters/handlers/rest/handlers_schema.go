@@ -149,7 +149,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, params.PropertyName, params.Body)
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, params.PropertyName, params.IndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {

@@ -13,6 +13,7 @@ package properties
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,21 +22,24 @@ import (
 )
 
 func TestProperties_SingleNode(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "module_test_image")
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
+	var compose *docker.DockerCompose
+	var err error
+	if os.Getenv("TEST_WEAVIATE_IMAGE") != "" {
+		ctx := context.Background()
+		compose, err = docker.New().
+			WithWeaviate().
+			WithText2VecModel2Vec().
+			Start(ctx)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, compose.Terminate(ctx))
+		}()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+		helper.SetupClient(compose.GetWeaviate().URI())
+		defer helper.ResetClient()
+	}
 
-	t.Run("update property", testDeletePropertyIndex(compose))
+	t.Run("delete property's index", testDeletePropertyIndex(compose))
 }
 
 func TestProperties_Cluster(t *testing.T) {

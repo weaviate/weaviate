@@ -25,8 +25,6 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewSchemaObjectsPropertiesDeleteParams creates a new SchemaObjectsPropertiesDeleteParams object,
@@ -74,17 +72,17 @@ SchemaObjectsPropertiesDeleteParams contains all the parameters to send to the A
 */
 type SchemaObjectsPropertiesDeleteParams struct {
 
-	/* Body.
-
-	   The definition of property's settings to update.
-	*/
-	Body *models.DeletePropertyIndexRequest
-
 	/* ClassName.
 
 	   The name of the collection (class).
 	*/
 	ClassName string
+
+	/* IndexName.
+
+	   The name of property's index to be deleted.
+	*/
+	IndexName string
 
 	/* PropertyName.
 
@@ -145,17 +143,6 @@ func (o *SchemaObjectsPropertiesDeleteParams) SetHTTPClient(client *http.Client)
 	o.HTTPClient = client
 }
 
-// WithBody adds the body to the schema objects properties delete params
-func (o *SchemaObjectsPropertiesDeleteParams) WithBody(body *models.DeletePropertyIndexRequest) *SchemaObjectsPropertiesDeleteParams {
-	o.SetBody(body)
-	return o
-}
-
-// SetBody adds the body to the schema objects properties delete params
-func (o *SchemaObjectsPropertiesDeleteParams) SetBody(body *models.DeletePropertyIndexRequest) {
-	o.Body = body
-}
-
 // WithClassName adds the className to the schema objects properties delete params
 func (o *SchemaObjectsPropertiesDeleteParams) WithClassName(className string) *SchemaObjectsPropertiesDeleteParams {
 	o.SetClassName(className)
@@ -165,6 +152,17 @@ func (o *SchemaObjectsPropertiesDeleteParams) WithClassName(className string) *S
 // SetClassName adds the className to the schema objects properties delete params
 func (o *SchemaObjectsPropertiesDeleteParams) SetClassName(className string) {
 	o.ClassName = className
+}
+
+// WithIndexName adds the indexName to the schema objects properties delete params
+func (o *SchemaObjectsPropertiesDeleteParams) WithIndexName(indexName string) *SchemaObjectsPropertiesDeleteParams {
+	o.SetIndexName(indexName)
+	return o
+}
+
+// SetIndexName adds the indexName to the schema objects properties delete params
+func (o *SchemaObjectsPropertiesDeleteParams) SetIndexName(indexName string) {
+	o.IndexName = indexName
 }
 
 // WithPropertyName adds the propertyName to the schema objects properties delete params
@@ -185,14 +183,14 @@ func (o *SchemaObjectsPropertiesDeleteParams) WriteToRequest(r runtime.ClientReq
 		return err
 	}
 	var res []error
-	if o.Body != nil {
-		if err := r.SetBodyParam(o.Body); err != nil {
-			return err
-		}
-	}
 
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
+		return err
+	}
+
+	// path param indexName
+	if err := r.SetPathParam("indexName", o.IndexName); err != nil {
 		return err
 	}
 

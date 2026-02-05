@@ -26,6 +26,7 @@ import (
 // SchemaObjectsPropertiesDeleteURL generates an URL for the schema objects properties delete operation
 type SchemaObjectsPropertiesDeleteURL struct {
 	ClassName    string
+	IndexName    string
 	PropertyName string
 
 	_basePath string
@@ -52,13 +53,20 @@ func (o *SchemaObjectsPropertiesDeleteURL) SetBasePath(bp string) {
 func (o *SchemaObjectsPropertiesDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/properties/{propertyName}/index"
+	var _path = "/schema/{className}/properties/{propertyName}/index/{indexName}"
 
 	className := o.ClassName
 	if className != "" {
 		_path = strings.Replace(_path, "{className}", className, -1)
 	} else {
 		return nil, errors.New("className is required on SchemaObjectsPropertiesDeleteURL")
+	}
+
+	indexName := o.IndexName
+	if indexName != "" {
+		_path = strings.Replace(_path, "{indexName}", indexName, -1)
+	} else {
+		return nil, errors.New("indexName is required on SchemaObjectsPropertiesDeleteURL")
 	}
 
 	propertyName := o.PropertyName

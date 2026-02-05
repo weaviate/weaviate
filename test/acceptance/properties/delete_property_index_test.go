@@ -41,31 +41,47 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 			return &in
 		}
 
-		deleteIndex := func(t *testing.T, propertyName string, indexSearchable, indexFilterable, indexRangeFilters *bool) {
+		deleteIndex := func(t *testing.T, propertyName string, indexSearchable, indexFilterable, indexRangeFilters bool) {
+			var indexName string
+			if indexSearchable {
+				indexName = "searchable"
+			}
+			if indexFilterable {
+				indexName = "filterable"
+			}
+			if indexRangeFilters {
+				indexName = "rangeFilters"
+			}
+
 			updateParams := clschema.NewSchemaObjectsPropertiesDeleteParams().
-				WithClassName(bookClass).WithPropertyName(propertyName).
-				WithBody(&models.DeletePropertyIndexRequest{
-					IndexSearchable:   indexSearchable,
-					IndexFilterable:   indexFilterable,
-					IndexRangeFilters: indexRangeFilters,
-				})
+				WithClassName(bookClass).WithPropertyName(propertyName).WithIndexName(indexName)
 			updateOk, err := helper.Client(t).Schema.SchemaObjectsPropertiesDelete(updateParams, nil)
 			helper.AssertRequestOk(t, updateOk, err, nil)
 			require.Equal(t, 200, updateOk.Code())
 		}
 
 		assertFilterByQuery := func(t *testing.T, resultsShouldExist bool, query string) {
-			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-
-			require.NotNil(t, result)
-
-			get := result.Result.(map[string]any)["Get"].(map[string]any)
-			cls := get["Book"].([]any)
 			if resultsShouldExist {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				require.NotNil(t, result)
+
+				get := result.Result.(map[string]any)["Get"].(map[string]any)
+				cls := get["Book"].([]any)
 				require.Len(t, cls, 1)
 			} else {
-				require.Len(t, cls, 0)
+				errs := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
+				assert.True(t, len(errs) > 0)
 			}
+		}
+
+		deleteIndexSearchable := func(t *testing.T, propertyName string) {
+			deleteIndex(t, propertyName, true, false, false)
+		}
+		deleteIndexFilterable := func(t *testing.T, propertyName string) {
+			deleteIndex(t, propertyName, false, true, false)
+		}
+		deleteIndexRangeFilters := func(t *testing.T, propertyName string) {
+			deleteIndex(t, propertyName, false, false, true)
 		}
 
 		filterByTextProperty := func(t *testing.T, propertyName string, resultsShouldExist bool) {
@@ -90,11 +106,11 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 		}
 
 		filterByTitle := func(t *testing.T, resultsShouldExist bool) {
-			filterByTextProperty(t, "title", resultsShouldExist)
+			filterByTextProperty(t, title, resultsShouldExist)
 		}
 
 		filterByTitleOnlyFilterable := func(t *testing.T, resultsShouldExist bool) {
-			filterByTextProperty(t, "title_only_filterable", resultsShouldExist)
+			filterByTextProperty(t, title_only_filterable, resultsShouldExist)
 		}
 
 		filterByYear := func(t *testing.T, resultsShouldExist bool) {
@@ -138,7 +154,12 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 			resp, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			cls := resp.Data["Get"].(map[string]any)["Book"].([]any)
+
+			var cls []any
+			book := resp.Data["Get"].(map[string]any)["Book"]
+			if book != nil {
+				cls = resp.Data["Get"].(map[string]any)["Book"].([]any)
+			}
 			if resultsShouldExist {
 				require.Len(t, cls, 1)
 			} else {
@@ -231,26 +252,42 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 			filterByYear(t, true)
 		})
 
-		t.Run("delete title_only_filterable property filterable index", func(t *testing.T) {
-			deleteIndex(t, title_only_filterable, nil, ptrBool(true), nil)
+		t.Run("delete title_only_filterable property index", func(t *testing.T) {
+			t.Run("filterable", func(t *testing.T) {
+				deleteIndexFilterable(t, title_only_filterable)
+			})
 		})
 
-		t.Run("delete author property searchable index", func(t *testing.T) {
-			deleteIndex(t, author, ptrBool(true), nil, nil)
+		t.Run("delete author property index", func(t *testing.T) {
+			t.Run("searchable", func(t *testing.T) {
+				deleteIndexSearchable(t, author)
+			})
+			t.Run("filterable", func(t *testing.T) {
+				deleteIndexFilterable(t, author)
+			})
 		})
 
-		t.Run("delete title property filterable index", func(t *testing.T) {
-			deleteIndex(t, title, nil, ptrBool(true), nil)
+		t.Run("delete title property index", func(t *testing.T) {
+			t.Run("filterable", func(t *testing.T) {
+				deleteIndexFilterable(t, title)
+			})
+			t.Run("searchable", func(t *testing.T) {
+				deleteIndexSearchable(t, title)
+			})
 		})
 
-		t.Run("delete title property searchable index", func(t *testing.T) {
-			deleteIndex(t, title, ptrBool(true), nil, nil)
+		t.Run("delete year property index", func(t *testing.T) {
+			t.Run("filterable", func(t *testing.T) {
+				deleteIndexFilterable(t, year)
+			})
+			t.Run("rangeFilters", func(t *testing.T) {
+				deleteIndexRangeFilters(t, year)
+			})
 		})
 
 		t.Run("cannot update non-existent property", func(t *testing.T) {
 			updateParams := clschema.NewSchemaObjectsPropertiesDeleteParams().
-				WithClassName(bookClass).WithPropertyName("doesntexist").
-				WithBody(&models.DeletePropertyIndexRequest{IndexRangeFilters: ptrBool(true)})
+				WithClassName(bookClass).WithPropertyName("doesntexist").WithIndexName("rangeFilters")
 			updateOk, err := helper.Client(t).Schema.SchemaObjectsPropertiesDelete(updateParams, nil)
 			require.Error(t, err)
 			helper.AssertRequestFail(t, updateOk, err, func() {
@@ -266,10 +303,18 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 		})
 
 		t.Run("perform search - should not work", func(t *testing.T) {
-			filterByTitle(t, false)
-			filterByTitleOnlyFilterable(t, false)
-			searchByAuthor(t, false)
-			filterByYear(t, false)
+			t.Run("title", func(t *testing.T) {
+				filterByTitle(t, false)
+			})
+			t.Run("title_only_filterable", func(t *testing.T) {
+				filterByTitleOnlyFilterable(t, false)
+			})
+			t.Run("author", func(t *testing.T) {
+				searchByAuthor(t, false)
+			})
+			t.Run("year", func(t *testing.T) {
+				filterByYear(t, false)
+			})
 		})
 
 		if compose != nil {
@@ -290,10 +335,18 @@ func testDeletePropertyIndex(compose *docker.DockerCompose) func(t *testing.T) {
 				defer helper.ResetClient()
 
 				t.Run("perform search - should not work after restart", func(t *testing.T) {
-					filterByTitle(t, false)
-					filterByTitleOnlyFilterable(t, false)
-					searchByAuthor(t, false)
-					filterByYear(t, false)
+					t.Run("title", func(t *testing.T) {
+						filterByTitle(t, false)
+					})
+					t.Run("title_only_filterable", func(t *testing.T) {
+						filterByTitleOnlyFilterable(t, false)
+					})
+					t.Run("author", func(t *testing.T) {
+						searchByAuthor(t, false)
+					})
+					t.Run("year", func(t *testing.T) {
+						filterByYear(t, false)
+					})
 				})
 			})
 		}

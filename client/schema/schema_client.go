@@ -495,9 +495,9 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 }
 
 /*
-SchemaObjectsPropertiesDelete deletes collection s property indexes
+SchemaObjectsPropertiesDelete deletes collection s property index
 
-Deletes collection's property indexes.
+Deletes collection's property index.
 */
 func (a *Client) SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -507,7 +507,7 @@ func (a *Client) SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDe
 	op := &runtime.ClientOperation{
 		ID:                 "schema.objects.properties.delete",
 		Method:             "DELETE",
-		PathPattern:        "/schema/{className}/properties/{propertyName}/index",
+		PathPattern:        "/schema/{className}/properties/{propertyName}/index/{indexName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

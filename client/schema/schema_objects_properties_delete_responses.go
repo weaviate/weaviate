@@ -113,11 +113,11 @@ func (o *SchemaObjectsPropertiesDeleteOK) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteOK ", 200)
 }
 
 func (o *SchemaObjectsPropertiesDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteOK ", 200)
 }
 
 func (o *SchemaObjectsPropertiesDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *SchemaObjectsPropertiesDeleteUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsPropertiesDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsPropertiesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *SchemaObjectsPropertiesDeleteForbidden) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -294,11 +294,11 @@ func (o *SchemaObjectsPropertiesDeleteUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesDeleteUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *SchemaObjectsPropertiesDeleteInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index][%d] schemaObjectsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}/properties/{propertyName}/index/{indexName}][%d] schemaObjectsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesDeleteInternalServerError) GetPayload() *models.ErrorResponse {

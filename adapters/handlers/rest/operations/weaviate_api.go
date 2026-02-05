@@ -1434,7 +1434,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/schema/{className}/properties/{propertyName}/index"] = schema.NewSchemaObjectsPropertiesDelete(o.context, o.SchemaSchemaObjectsPropertiesDeleteHandler)
+	o.handlers["DELETE"]["/schema/{className}/properties/{propertyName}/index/{indexName}"] = schema.NewSchemaObjectsPropertiesDelete(o.context, o.SchemaSchemaObjectsPropertiesDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

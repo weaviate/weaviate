@@ -5013,13 +5013,13 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/properties/{propertyName}/index": {
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
       "delete": {
-        "description": "Deletes collection's property indexes.",
+        "description": "Deletes collection's property index.",
         "tags": [
           "schema"
         ],
-        "summary": "Deletes collection's property indexes",
+        "summary": "Deletes collection's property index",
         "operationId": "schema.objects.properties.delete",
         "parameters": [
           {
@@ -5037,13 +5037,16 @@ func init() {
             "required": true
           },
           {
-            "description": "The definition of property's settings to update.",
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/DeletePropertyIndexRequest"
-            }
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ],
+            "type": "string",
+            "description": "The name of property's index to be deleted.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
           }
         ],
         "responses": {
@@ -7060,26 +7063,6 @@ func init() {
         "userId": {
           "description": "The name (ID) of the user.",
           "type": "string"
-        }
-      }
-    },
-    "DeletePropertyIndexRequest": {
-      "type": "object",
-      "properties": {
-        "indexFilterable": {
-          "description": "Whether to remove this property's filterable index (Roaring Bitmap index).",
-          "type": "boolean",
-          "x-nullable": true
-        },
-        "indexRangeFilters": {
-          "description": "Whether to remove this property's rangeable index (range-based Roaring Bitmap index).",
-          "type": "boolean",
-          "x-nullable": true
-        },
-        "indexSearchable": {
-          "description": "Whether to remove this property's from inverted index.",
-          "type": "boolean",
-          "x-nullable": true
         }
       }
     },
@@ -14634,13 +14617,13 @@ func init() {
         ]
       }
     },
-    "/schema/{className}/properties/{propertyName}/index": {
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
       "delete": {
-        "description": "Deletes collection's property indexes.",
+        "description": "Deletes collection's property index.",
         "tags": [
           "schema"
         ],
-        "summary": "Deletes collection's property indexes",
+        "summary": "Deletes collection's property index",
         "operationId": "schema.objects.properties.delete",
         "parameters": [
           {
@@ -14658,13 +14641,16 @@ func init() {
             "required": true
           },
           {
-            "description": "The definition of property's settings to update.",
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/DeletePropertyIndexRequest"
-            }
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ],
+            "type": "string",
+            "description": "The name of property's index to be deleted.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
           }
         ],
         "responses": {
@@ -16836,26 +16822,6 @@ func init() {
         "userId": {
           "description": "The name (ID) of the user.",
           "type": "string"
-        }
-      }
-    },
-    "DeletePropertyIndexRequest": {
-      "type": "object",
-      "properties": {
-        "indexFilterable": {
-          "description": "Whether to remove this property's filterable index (Roaring Bitmap index).",
-          "type": "boolean",
-          "x-nullable": true
-        },
-        "indexRangeFilters": {
-          "description": "Whether to remove this property's rangeable index (range-based Roaring Bitmap index).",
-          "type": "boolean",
-          "x-nullable": true
-        },
-        "indexSearchable": {
-          "description": "Whether to remove this property's from inverted index.",
-          "type": "boolean",
-          "x-nullable": true
         }
       }
     },
