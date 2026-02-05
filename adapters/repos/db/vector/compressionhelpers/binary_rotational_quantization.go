@@ -449,17 +449,6 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytes(compressed []byte) []u
 	return slice
 }
 
-func (brq *BinaryRotationalQuantizer) FromCompressedBytesInto(compressed []byte, buffer []uint64) {
-	l := len(compressed) / 8
-	if len(compressed)%8 != 0 {
-		l++
-	}
-
-	for i := range buffer {
-		buffer[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
-}
-
 func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]uint64) []uint64 {
 	l := len(compressed) / 8
 	if len(compressed)%8 != 0 {
