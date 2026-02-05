@@ -139,8 +139,8 @@ func (al *wrappedAllowList) Truncate(upTo uint64) AllowList {
 	return al
 }
 
-func (al *wrappedAllowList) Iterator() (AllowListIterator, func()) {
-	return al.LimitedIterator(0), func() {}
+func (al *wrappedAllowList) Iterator() AllowListIterator {
+	return al.LimitedIterator(0)
 }
 
 func (al *wrappedAllowList) LimitedIterator(limit int) AllowListIterator {
@@ -187,4 +187,8 @@ func (i *composedAllowListIterator) Next() (uint64, bool) {
 
 func (i *composedAllowListIterator) Len() int {
 	return i.it1.Len() + i.it2.Len()
+}
+
+func (i *composedAllowListIterator) Stop() {
+	// No-op for composed iterator as there's no cleanup needed
 }

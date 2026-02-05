@@ -850,8 +850,8 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 	if allowList != nil && useAcorn {
 		seeds := 10
-		it, stop := allowList.Iterator()
-		defer stop()
+		it := allowList.Iterator()
+		defer it.Stop()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
 		for seeds > 0 {

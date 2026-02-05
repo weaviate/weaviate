@@ -170,8 +170,8 @@ func (h *lsmSorterHelper) getSorted(ctx context.Context) ([]uint64, error) {
 func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs helpers.AllowList) ([]uint64, error) {
 	sorter := newInsertSorter(h.comparator, h.limit)
 	docIDBytes := make([]byte, 8)
-	it, stop := docIDs.Iterator()
-	defer stop()
+	it := docIDs.Iterator()
+	defer it.Stop()
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)

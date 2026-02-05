@@ -107,9 +107,8 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		helpers.AnnotateSlowQueryLog(ctx, "sort_doc_ids_took", time.Since(beforeSort))
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
-		var stop func()
-		it, stop = allowList.Iterator()
-		defer stop()
+		it = allowList.Iterator()
+		defer it.Stop()
 	}
 
 	beforeObjects := time.Now()
@@ -959,6 +958,7 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 type docIDsIterator interface {
 	Next() (uint64, bool)
 	Len() int
+	Stop()
 }
 
 type sliceDocIDsIterator struct {
@@ -977,6 +977,10 @@ func (it *sliceDocIDsIterator) Next() (uint64, bool) {
 	pos := it.pos
 	it.pos++
 	return it.docIDs[pos], true
+}
+
+func (it *sliceDocIDsIterator) Stop() {
+	// No-op for slice iterator as there's no cleanup needed
 }
 
 func (it *sliceDocIDsIterator) Len() int {

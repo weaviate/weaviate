@@ -50,8 +50,8 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	// first extract all candidates, this reduces the amount of coordination
 	// needed for the workers
 	candidates := make([]uint64, 0, allowList.Len())
-	it, stop := allowList.Iterator()
-	defer stop()
+	it := allowList.Iterator()
+	defer it.Stop()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
 		candidates = append(candidates, candidate)
 	}

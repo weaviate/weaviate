@@ -29,25 +29,31 @@ func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helper
 	}
 }
 
-func (h *HFresh) NewAllowListIterator(al helpers.AllowList) (helpers.AllowListIterator, func()) {
-	all := h.PostingMap.cache.All() // snapshot de lo que está en cache ahora
+func (h *HFresh) NewAllowListIterator(al helpers.AllowList) helpers.AllowListIterator {
+	all := h.PostingMap.cache.All() // snapshot of what is currently in cache
 	next, stop := iter.Pull2(all)
 
 	return &AllowListIterator{
 		allowList: al,
 		next:      next,
+		stop:      stop,
 		len:       int(h.Centroids.GetMaxID()),
-	}, stop
+	}
 }
 
 type AllowListIterator struct {
 	len       int
 	next      func() (uint64, *PostingMetadata, bool)
+	stop      func()
 	allowList helpers.AllowList
 }
 
 func (i *AllowListIterator) Len() int {
 	return i.len
+}
+
+func (i *AllowListIterator) Stop() {
+	i.stop()
 }
 
 func (i *AllowListIterator) Next() (uint64, bool) {
@@ -79,8 +85,8 @@ type allowList struct {
 	wrappedIdVisited visited.ListSet
 	idVisited        visited.ListSet
 	// Cache to store PostingMetadata from iterator to avoid expensive Get calls
-	cachedMetadata   *PostingMetadata
-	cachedID         uint64
+	cachedMetadata *PostingMetadata
+	cachedID       uint64
 }
 
 func (a *allowList) cacheMetadata(id uint64, metadata *PostingMetadata) {
@@ -121,7 +127,7 @@ func (a *allowList) Contains(id uint64) bool {
 }
 
 // Iterator implements [helpers.AllowList].
-func (a *allowList) Iterator() (helpers.AllowListIterator, func()) {
+func (a *allowList) Iterator() helpers.AllowListIterator {
 	return a.h.NewAllowListIterator(a)
 }
 
