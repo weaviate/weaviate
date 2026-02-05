@@ -77,10 +77,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 			return // Fail the entire initialization
 		}
 
-		h.distancer = &Distancer{
-			quantizer: h.quantizer,
-			distancer: h.config.DistanceProvider,
-		}
+		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider, size)
 	})
 	if err != nil {
 		return err

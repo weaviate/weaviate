@@ -202,10 +202,7 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 
 	h.quantizer = rq
 	h.Centroids.SetQuantizer(rq)
-	h.distancer = &Distancer{
-		quantizer: rq,
-		distancer: h.config.DistanceProvider,
-	}
+	h.distancer = NewDistancer(rq, h.config.DistanceProvider, h.dims)
 
 	return nil
 }
