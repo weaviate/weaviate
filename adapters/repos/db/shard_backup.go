@@ -205,7 +205,7 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	}
 
 	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		files, err := queue.ListFiles(ctx, s.index.Config.RootPath)
+		files, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}
