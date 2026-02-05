@@ -113,7 +113,7 @@ type hnsw struct {
 	trackDimensionsOnce               sync.Once
 	trackMuveraOnce                   sync.Once
 	trackRQOnce                       sync.Once
-	dims                              int32
+	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -1067,7 +1067,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	}
 
 	stats := HnswStats{
-		Dimensions:         h.dims,
+		Dimensions:         h.dims.Load(),
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
