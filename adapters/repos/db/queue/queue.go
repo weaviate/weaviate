@@ -443,16 +443,24 @@ func (q *DiskQueue) Size() int64 {
 	return int64(q.recordCount)
 }
 
-func (q *DiskQueue) Pause() {
+// Pause the dequeuing of tasks. If nowait is true, it returns immediately
+// without waiting for the currently running tasks to finish.
+// This does not prevent pushing new tasks to the queue.
+func (q *DiskQueue) Pause(nowait ...bool) {
 	q.scheduler.PauseQueue(q.id)
 	q.metrics.Paused(q.id)
+	if len(nowait) == 0 || !nowait[0] {
+		q.scheduler.Wait(q.id)
+	}
 }
 
+// Resume the dequeuing of tasks.
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
 	q.metrics.Resumed(q.id)
 }
 
+// Wait blocks until all currently running tasks are finished.
 func (q *DiskQueue) Wait() {
 	q.scheduler.Wait(q.id)
 }
