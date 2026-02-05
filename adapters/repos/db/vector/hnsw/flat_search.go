@@ -51,6 +51,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	// needed for the workers
 	candidates := make([]uint64, 0, allowList.Len())
 	it := allowList.Iterator()
+	defer it.Stop()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
 		candidates = append(candidates, candidate)
 	}
