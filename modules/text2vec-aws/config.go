@@ -24,8 +24,8 @@ import (
 
 func (m *AwsModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"vectorizeClassName":       vectorizer.DefaultVectorizeClassName,
-		vectorizer.ServiceProperty: vectorizer.DefaultService,
+		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
+		"service":            vectorizer.DefaultService,
 	}
 }
 
