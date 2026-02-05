@@ -26,6 +26,10 @@ type Metrics struct {
 	groupClasses       bool
 	batchTenants       prometheus.Summary
 	batchObjects       prometheus.Summary
+
+	// Pre-resolved gauges for zero-allocation hot path metrics
+	mergeWithVector    prometheus.Gauge
+	mergeWithoutVector prometheus.Gauge
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -33,7 +37,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 		return nil
 	}
 
-	return &Metrics{
+	m := &Metrics{
 		queriesCount:       prom.QueriesCount,
 		batchTime:          prom.BatchTime,
 		dimensions:         prom.QueryDimensions,
@@ -42,6 +46,18 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 		batchTenants:       prom.BatchSizeTenants,
 		batchObjects:       prom.BatchSizeObjects,
 	}
+
+	// Pre-resolve gauges to avoid allocations on hot path
+	m.mergeWithVector = m.queriesCount.With(prometheus.Labels{
+		"class_name": "n/a",
+		"query_type": "merge_object_has_vector_true",
+	})
+	m.mergeWithoutVector = m.queriesCount.With(prometheus.Labels{
+		"class_name": "n/a",
+		"query_type": "merge_object_has_vector_false",
+	})
+
+	return m
 }
 
 func (m *Metrics) queriesInc(queryType string) {
@@ -112,6 +128,17 @@ func (m *Metrics) MergeObjectInc() {
 
 func (m *Metrics) MergeObjectDec() {
 	m.queriesDec("merge_object")
+}
+
+func (m *Metrics) MergeObjectVectorPresence(hasVector bool) {
+	if m == nil {
+		return
+	}
+	if hasVector {
+		m.mergeWithVector.Inc()
+	} else {
+		m.mergeWithoutVector.Inc()
+	}
 }
 
 func (m *Metrics) DeleteObjectInc() {

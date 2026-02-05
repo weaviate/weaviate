@@ -70,6 +70,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
+	// Track whether incoming PATCH request includes vectors (for bandwidth analysis)
+	hasVector := len(updates.Vector) > 0 || len(updates.Vectors) > 0
+	m.metrics.MergeObjectVectorPresence(hasVector)
+
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process patch object")
 		return &Error{err.Error(), StatusInternalServerError, err}
