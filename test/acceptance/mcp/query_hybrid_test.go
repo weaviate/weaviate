@@ -128,6 +128,24 @@ func setupQueryHybridTestWithData(t *testing.T) (*models.Class, context.Context,
 	return cls, ctx, cleanup, alpha
 }
 
+// executeHybridQuery is a helper that executes a hybrid query and performs common validations
+func executeHybridQuery(t *testing.T, ctx context.Context, args *search.QueryHybridArgs) *search.QueryHybridResp {
+	t.Helper()
+	var results *search.QueryHybridResp
+	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, args, &results, testAPIKey)
+	require.Nil(t, err)
+	require.NotNil(t, results)
+	return results
+}
+
+// executeHybridQueryWithResults is like executeHybridQuery but also asserts results are non-empty
+func executeHybridQueryWithResults(t *testing.T, ctx context.Context, args *search.QueryHybridArgs) *search.QueryHybridResp {
+	t.Helper()
+	results := executeHybridQuery(t, ctx, args)
+	require.Greater(t, len(results.Results), 0, "should find matching results")
+	return results
+}
+
 // insertTestArticles inserts test articles for query testing
 func insertTestArticles(t *testing.T, className string) {
 	t.Helper()
@@ -198,16 +216,11 @@ func TestQueryHybridPureBM25Search(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	var results *search.QueryHybridResp
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "machine learning",
 		Alpha:          &alpha,
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0, "should find matching results")
+	})
 
 	// Note: Properties are returned at the top level of each result, not nested
 	result := results.Results[0].(map[string]any)
@@ -221,28 +234,23 @@ func TestQueryHybridWithLimit(t *testing.T) {
 	defer cleanup()
 
 	// Test with limit=2
-	var results *search.QueryHybridResp
 	limit := 2
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
 		Limit:          &limit,
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
+	})
 	assert.LessOrEqual(t, len(results.Results), 2, "should return at most 2 results")
 
 	// Test with limit=0
 	limit = 0
-	err = helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results = executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
 		Limit:          &limit,
-	}, &results, testAPIKey)
-	require.Nil(t, err)
+	})
 	assert.Len(t, results.Results, 0, "limit=0 should return no results")
 }
 
@@ -251,17 +259,12 @@ func TestQueryHybridReturnSpecificProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	var results *search.QueryHybridResp
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
 		Query:            "learning",
 		Alpha:            &alpha,
 		ReturnProperties: []string{"title", "author"},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify requested properties are returned
 	result := results.Results[0].(map[string]any)
@@ -276,16 +279,11 @@ func TestQueryHybridReturnAllProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	var results *search.QueryHybridResp
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify all properties are returned
 	result := results.Results[0].(map[string]any)
@@ -301,17 +299,12 @@ func TestQueryHybridReturnMetadata(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	var results *search.QueryHybridResp
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
 		ReturnMetadata: []string{"id", "score", "creationTimeUnix"},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify metadata is present
 	result := results.Results[0].(map[string]any)
@@ -332,18 +325,12 @@ func TestQueryHybridTargetSpecificProperties(t *testing.T) {
 	defer cleanup()
 
 	// Search for "Python" targeting only title
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
 		Query:            "Python",
 		Alpha:            &alpha,
 		TargetProperties: []string{"title"},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify the result has "Python" in title
 	result := results.Results[0].(map[string]any)
@@ -357,9 +344,7 @@ func TestQueryHybridWithSimpleFilter(t *testing.T) {
 	defer cleanup()
 
 	// Search with filter for status="published"
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
@@ -368,11 +353,7 @@ func TestQueryHybridWithSimpleFilter(t *testing.T) {
 			"operator":  "Equal",
 			"valueText": "published",
 		},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify all results have status="published"
 	for _, r := range results.Results {
@@ -387,9 +368,7 @@ func TestQueryHybridWithNumericFilter(t *testing.T) {
 	defer cleanup()
 
 	// Search with filter for year >= 2020
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
@@ -398,11 +377,7 @@ func TestQueryHybridWithNumericFilter(t *testing.T) {
 			"operator": "GreaterThanEqual",
 			"valueInt": 2020,
 		},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify all results have year >= 2020
 	for _, r := range results.Results {
@@ -418,9 +393,7 @@ func TestQueryHybridWithDateFilter(t *testing.T) {
 	defer cleanup()
 
 	// Search with filter for publishDate >= 2021-01-01T00:00:00Z
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
@@ -429,11 +402,7 @@ func TestQueryHybridWithDateFilter(t *testing.T) {
 			"operator":  "GreaterThanEqual",
 			"valueDate": "2021-01-01T00:00:00Z",
 		},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify all results have publishDate >= 2021-01-01
 	for _, r := range results.Results {
@@ -449,9 +418,7 @@ func TestQueryHybridWithComplexAndFilter(t *testing.T) {
 	defer cleanup()
 
 	// Search with AND filter: status="published" AND year >= 2020
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
@@ -470,11 +437,7 @@ func TestQueryHybridWithComplexAndFilter(t *testing.T) {
 				},
 			},
 		},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify all results match both conditions
 	for _, r := range results.Results {
@@ -491,9 +454,7 @@ func TestQueryHybridWithOrFilter(t *testing.T) {
 	defer cleanup()
 
 	// Search with OR filter: author="John Doe" OR author="Jane Smith"
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
@@ -512,11 +473,7 @@ func TestQueryHybridWithOrFilter(t *testing.T) {
 				},
 			},
 		},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify all results match at least one condition
 	for _, r := range results.Results {
@@ -531,15 +488,12 @@ func TestQueryHybridNoFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	var results *search.QueryHybridResp
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-	}, &results, testAPIKey)
-	require.Nil(t, err)
+	})
 
-	require.NotNil(t, results)
 	// Should return multiple results without filtering
 	assert.Greater(t, len(results.Results), 0)
 }
@@ -594,18 +548,13 @@ func TestQueryHybridWithTenant(t *testing.T) {
 	helper.CreateObjectsBatchAuth(t, objectsB, apiKey)
 
 	// Query tenant-a
-	var results *search.QueryHybridResp
 	alpha := 0.0
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
 		TenantName:     tenantA,
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Verify only tenant-a objects are returned
 	for _, r := range results.Results {
@@ -621,10 +570,8 @@ func TestQueryHybridComplexQuery(t *testing.T) {
 	defer cleanup()
 
 	// Complex query combining multiple parameters
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
 	limit := 3
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
 		Query:            "learning networks",
 		Alpha:            &alpha,
@@ -647,11 +594,8 @@ func TestQueryHybridComplexQuery(t *testing.T) {
 				},
 			},
 		},
-	}, &results, testAPIKey)
-	require.Nil(t, err)
+	})
 
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
 	assert.LessOrEqual(t, len(results.Results), 3, "should respect limit")
 
 	// Verify all constraints are satisfied
@@ -698,16 +642,12 @@ func TestQueryHybridNoResults(t *testing.T) {
 	defer cleanup()
 
 	// Search for something that doesn't exist
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "xyznonexistentquery12345",
 		Alpha:          &alpha,
-	}, &results, testAPIKey)
-	require.Nil(t, err)
+	})
 
-	require.NotNil(t, results)
 	assert.Len(t, results.Results, 0, "should return empty results for non-matching query")
 }
 
@@ -759,18 +699,12 @@ func TestQueryHybridTargetAllProperties(t *testing.T) {
 	defer cleanup()
 
 	// Query without specifying target_properties (should search all text properties)
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "Python",
 		Alpha:          &alpha,
 		// TargetProperties not specified - should search all text fields
-	}, &results, testAPIKey)
-	require.Nil(t, err)
-
-	require.NotNil(t, results)
-	require.Greater(t, len(results.Results), 0)
+	})
 
 	// Should find the result whether "Python" is in title or contents
 	found := false
@@ -792,9 +726,7 @@ func TestQueryHybridEmptyResults(t *testing.T) {
 	defer cleanup()
 
 	// Query with filter that matches nothing - should return empty results, not error
-	var results *search.QueryHybridResp
-	// alpha already set from setupQueryHybridTestWithData
-	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+	results := executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "test",
 		Alpha:          &alpha,
@@ -803,9 +735,7 @@ func TestQueryHybridEmptyResults(t *testing.T) {
 			"operator": "Equal",
 			"valueInt": 9999, // No article from year 9999
 		},
-	}, &results, testAPIKey)
+	})
 
-	require.Nil(t, err, "empty results should not cause an error")
-	require.NotNil(t, results)
 	assert.Len(t, results.Results, 0, "should return empty results")
 }
