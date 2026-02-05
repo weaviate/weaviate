@@ -453,7 +453,7 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return errors.Errorf("cannot delete property from a non-existing index for %s", className)
+		return errors.Errorf("cannot update property for a non-existing index for %s", className)
 	}
 
 	return idx.updateProperty(ctx, property)
