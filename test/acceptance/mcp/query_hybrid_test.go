@@ -138,11 +138,11 @@ func executeHybridQuery(t *testing.T, ctx context.Context, args *search.QueryHyb
 	return results
 }
 
-// executeHybridQueryWithResults is like executeHybridQuery but also asserts results are non-empty
-func executeHybridQueryWithResults(t *testing.T, ctx context.Context, args *search.QueryHybridArgs) *search.QueryHybridResp {
+// executeHybridQueryWithResults is like executeHybridQuery but also asserts exact result count
+func executeHybridQueryWithResults(t *testing.T, ctx context.Context, args *search.QueryHybridArgs, expectedCount int) *search.QueryHybridResp {
 	t.Helper()
 	results := executeHybridQuery(t, ctx, args)
-	require.Greater(t, len(results.Results), 0, "should find matching results")
+	require.Equal(t, expectedCount, len(results.Results), "should find exactly %d results", expectedCount)
 	return results
 }
 
@@ -206,6 +206,17 @@ func insertTestArticles(t *testing.T, className string) {
 				"publishDate": "2021-11-30T16:45:00Z",
 			},
 		},
+		{
+			Class: className,
+			Properties: map[string]interface{}{
+				"title":       "Reinforcement Learning Guide",
+				"contents":    "Complete guide to reinforcement learning algorithms and applications",
+				"author":      authorJaneSmith,
+				"year":        2021,
+				"status":      "published",
+				"publishDate": "2021-03-15T09:00:00Z",
+			},
+		},
 	}
 
 	helper.CreateObjectsBatchAuth(t, objects, testAPIKey)
@@ -216,16 +227,17 @@ func TestQueryHybridPureBM25Search(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
+	// Expects: "Machine Learning Basics", "Deep Learning Advanced", and "Reinforcement Learning Guide" to match
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "machine learning",
 		Alpha:          &alpha,
-	})
+	}, 3)
 
 	// Note: Properties are returned at the top level of each result, not nested
 	result := results.Results[0].(map[string]any)
 	title := result["title"].(string)
-	assert.Contains(t, title, "Machine Learning")
+	assert.Contains(t, title, "Learning")
 }
 
 // Test 2: Test with limit parameter
@@ -233,7 +245,7 @@ func TestQueryHybridWithLimit(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Test with limit=2
+	// Test with limit=2 (without limit, "learning" would match 3 articles)
 	limit := 2
 	results := executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
@@ -241,7 +253,7 @@ func TestQueryHybridWithLimit(t *testing.T) {
 		Alpha:          &alpha,
 		Limit:          &limit,
 	})
-	assert.LessOrEqual(t, len(results.Results), 2, "should return at most 2 results")
+	assert.Equal(t, 2, len(results.Results), "should return exactly 2 results")
 
 	// Test with limit=0
 	limit = 0
@@ -259,12 +271,13 @@ func TestQueryHybridReturnSpecificProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
+	// Expects 3 results: Machine Learning Basics, Deep Learning Advanced, and Python Programming (Learn matches learning)
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
 		Query:            "learning",
 		Alpha:            &alpha,
 		ReturnProperties: []string{"title", "author"},
-	})
+	}, 3)
 
 	// Verify requested properties are returned
 	result := results.Results[0].(map[string]any)
@@ -279,11 +292,12 @@ func TestQueryHybridReturnAllProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
+	// Expects 3 results for "learning" query
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-	})
+	}, 3)
 
 	// Verify all properties are returned
 	result := results.Results[0].(map[string]any)
@@ -299,12 +313,13 @@ func TestQueryHybridReturnMetadata(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
+	// Expects 3 results for "learning" query
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
 		ReturnMetadata: []string{"id", "score", "creationTimeUnix"},
-	})
+	}, 3)
 
 	// Verify metadata is present
 	result := results.Results[0].(map[string]any)
@@ -324,13 +339,13 @@ func TestQueryHybridTargetSpecificProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Search for "Python" targeting only title
+	// Search for "Python" targeting only title - expects 1 result
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
 		Query:            "Python",
 		Alpha:            &alpha,
 		TargetProperties: []string{"title"},
-	})
+	}, 1)
 
 	// Verify the result has "Python" in title
 	result := results.Results[0].(map[string]any)
@@ -343,7 +358,7 @@ func TestQueryHybridWithSimpleFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Search with filter for status="published"
+	// Search with filter for status="published" - expects 3 results (Machine Learning, Deep Learning, Reinforcement Learning)
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -353,7 +368,7 @@ func TestQueryHybridWithSimpleFilter(t *testing.T) {
 			"operator":  "Equal",
 			"valueText": "published",
 		},
-	})
+	}, 3)
 
 	// Verify all results have status="published"
 	for _, r := range results.Results {
@@ -367,7 +382,7 @@ func TestQueryHybridWithNumericFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Search with filter for year >= 2020
+	// Search with filter for year >= 2020 - expects 3 results (all articles with "learning" are >= 2020)
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -377,13 +392,13 @@ func TestQueryHybridWithNumericFilter(t *testing.T) {
 			"operator": "GreaterThanEqual",
 			"valueInt": 2020,
 		},
-	})
+	}, 3)
 
 	// Verify all results have year >= 2020
 	for _, r := range results.Results {
 		result := r.(map[string]any)
 		year := int(result["year"].(float64))
-		assert.GreaterOrEqual(t, year, 2020)
+		assert.Equal(t, true, year >= 2020)
 	}
 }
 
@@ -392,7 +407,7 @@ func TestQueryHybridWithDateFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Search with filter for publishDate >= 2021-01-01T00:00:00Z
+	// Search with filter for publishDate >= 2021-01-01T00:00:00Z - expects 2 results (Deep Learning 2022, Neural Networks 2021)
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -402,7 +417,7 @@ func TestQueryHybridWithDateFilter(t *testing.T) {
 			"operator":  "GreaterThanEqual",
 			"valueDate": "2021-01-01T00:00:00Z",
 		},
-	})
+	}, 2)
 
 	// Verify all results have publishDate >= 2021-01-01
 	for _, r := range results.Results {
@@ -417,7 +432,8 @@ func TestQueryHybridWithComplexAndFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Search with AND filter: status="published" AND year >= 2020
+	// Search with AND filter: status="published" AND year >= 2020 - expects 3 results
+	// Machine Learning (2020), Deep Learning (2022), Reinforcement Learning (2021)
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -437,14 +453,14 @@ func TestQueryHybridWithComplexAndFilter(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, 3)
 
 	// Verify all results match both conditions
 	for _, r := range results.Results {
 		result := r.(map[string]any)
 		assert.Equal(t, "published", result["status"])
 		year := int(result["year"].(float64))
-		assert.GreaterOrEqual(t, year, 2020)
+		assert.Equal(t, true, year >= 2020)
 	}
 }
 
@@ -453,7 +469,8 @@ func TestQueryHybridWithOrFilter(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Search with OR filter: author="John Doe" OR author="Jane Smith"
+	// Search with OR filter: author="John Doe" OR author="Jane Smith" - expects 3 results
+	// Machine Learning (John Doe), Deep Learning (Jane Smith), Reinforcement Learning (Jane Smith)
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
@@ -473,7 +490,7 @@ func TestQueryHybridWithOrFilter(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, 3)
 
 	// Verify all results match at least one condition
 	for _, r := range results.Results {
@@ -494,8 +511,8 @@ func TestQueryHybridNoFilter(t *testing.T) {
 		Alpha:          &alpha,
 	})
 
-	// Should return multiple results without filtering
-	assert.Greater(t, len(results.Results), 0)
+	// Should return 3 results without filtering
+	assert.Equal(t, 3, len(results.Results))
 }
 
 // Test 13: Multi-tenant search
@@ -547,14 +564,14 @@ func TestQueryHybridWithTenant(t *testing.T) {
 	}
 	helper.CreateObjectsBatchAuth(t, objectsB, apiKey)
 
-	// Query tenant-a
+	// Query tenant-a - expects 2 results (2 articles for tenant-a with "learning")
 	alpha := 0.0
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
 		TenantName:     tenantA,
-	})
+	}, 2)
 
 	// Verify only tenant-a objects are returned
 	for _, r := range results.Results {
@@ -569,7 +586,9 @@ func TestQueryHybridComplexQuery(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Complex query combining multiple parameters
+	// Complex query combining multiple parameters - expects 3 results due to limit
+	// Matches: Machine Learning Basics (2020), Deep Learning Advanced (2022), Neural Networks Explained (2021), Reinforcement Learning (2021)
+	// But limited to 3 by the limit parameter
 	limit := 3
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName:   cls.Class,
@@ -594,9 +613,7 @@ func TestQueryHybridComplexQuery(t *testing.T) {
 				},
 			},
 		},
-	})
-
-	assert.LessOrEqual(t, len(results.Results), 3, "should respect limit")
+	}, 3)
 
 	// Verify all constraints are satisfied
 	for _, r := range results.Results {
@@ -613,7 +630,7 @@ func TestQueryHybridComplexQuery(t *testing.T) {
 
 		// Verify filter constraints
 		year := int(result["year"].(float64))
-		assert.GreaterOrEqual(t, year, 2020)
+		assert.Equal(t, true, year >= 2020)
 	}
 }
 
@@ -698,13 +715,13 @@ func TestQueryHybridTargetAllProperties(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()
 
-	// Query without specifying target_properties (should search all text properties)
+	// Query without specifying target_properties (should search all text properties) - expects 1 result
 	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
 		Query:          "Python",
 		Alpha:          &alpha,
 		// TargetProperties not specified - should search all text fields
-	})
+	}, 1)
 
 	// Should find the result whether "Python" is in title or contents
 	found := false
