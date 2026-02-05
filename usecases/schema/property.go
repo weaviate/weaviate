@@ -92,7 +92,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
-// DeleteClassProperty from existing Schema
+// DeleteClassPropertyIndex deletes collection's property index
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	class *models.Class, className, propertyName, indexName string,
 ) error {
