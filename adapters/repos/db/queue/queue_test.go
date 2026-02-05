@@ -619,3 +619,52 @@ func TestQueueListFiles(t *testing.T) {
 		require.Equal(t, expected, f)
 	}
 }
+
+func TestQueueForceSwitch(t *testing.T) {
+	ctx := t.Context()
+	s := makeScheduler(t, 1)
+	s.Start()
+
+	tmpDir := t.TempDir()
+
+	_, e := streamExecutor()
+	q := makeQueueWith(t, s, e, 100, tmpDir)
+
+	// ListFiles on empty queue
+	files, err := q.ListFiles(ctx, tmpDir)
+	require.NoError(t, err)
+	require.Len(t, files, 0)
+
+	// write 50 records
+	for i := 0; i < 50; i++ {
+		err := q.Push(bytes.Repeat([]byte{1}, 10))
+		require.NoError(t, err)
+	}
+
+	// ensure there is a chunk file
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 8)
+
+	// pause the queue
+	q.Pause()
+	q.Wait()
+
+	// call ForceSwitch to promote the last chunk
+	got, err := q.ForceSwitch(ctx, q.dir)
+	require.NoError(t, err)
+
+	// compare
+	for i, f := range got {
+		require.Equal(t, entries[i].Name(), f)
+	}
+
+	// write something
+	err = q.Push(bytes.Repeat([]byte{1}, 10))
+	require.NoError(t, err)
+
+	// ListFiles
+	files, err = q.ListFiles(ctx, tmpDir)
+	require.NoError(t, err)
+	require.Len(t, files, 9)
+}

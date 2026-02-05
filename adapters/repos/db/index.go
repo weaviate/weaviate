@@ -18,7 +18,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"slices"
 	golangSort "sort"
 	"strings"
@@ -1232,7 +1231,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
 					entsentry.Recover(err)
-					debug.PrintStack()
+					enterrors.PrintStack(i.logger)
 				}
 			}()
 			// All objects in the same shard group have the same tenant since in multi-tenant
