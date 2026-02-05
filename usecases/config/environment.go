@@ -125,11 +125,6 @@ func FromEnv(config *Config) error {
 	// 	// TODO LOG DEPRECATION
 	// }
 
-	enableEnv := os.Getenv("ENABLE_LAZY_LOAD_SHARDS")
-	if enableEnv != "" {
-		config.EnableLazyLoadShards = true
-	}
-
 	// Lazy load shard count threshold for auto-detection
 	// Determines at what shard count auto-detection enables lazy loading
 	if v := os.Getenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD"); v != "" {
@@ -141,6 +136,9 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 1")
 		}
 		config.LazyLoadShardCountThreshold = asInt
+		if config.LazyLoadShardCountThreshold == 0 {
+			config.EnableLazyLoadShards = true
+		}
 	} else {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
 	}
