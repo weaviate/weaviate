@@ -23,6 +23,8 @@ type Metrics struct {
 	size             prometheus.Gauge
 	insert           prometheus.Gauge
 	insertTime       prometheus.Observer
+	kmeans           prometheus.Gauge
+	kmeansTime       prometheus.Observer
 	delete           prometheus.Gauge
 	deleteTime       prometheus.Observer
 	postings         prometheus.Gauge
@@ -85,6 +87,19 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "delete",
+		"step":       "n/a",
+	})
+
+	kmeans := prom.VectorIndexOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "kmeans",
+	})
+
+	kmeansTime := prom.VectorIndexDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "kmeans",
 		"step":       "n/a",
 	})
 
@@ -201,6 +216,8 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		insertTime:       insertTime,
 		delete:           del,
 		deleteTime:       deleteTime,
+		kmeans:           kmeans,
+		kmeansTime:       kmeansTime,
 		postings:         postings,
 		postingSize:      postingSize,
 		analyzePending:   analyzePending,
@@ -246,6 +263,15 @@ func (m *Metrics) DeleteVector(start time.Time) {
 
 	m.deleteTime.Observe(float64(time.Since(start).Milliseconds()))
 	m.delete.Inc()
+}
+
+func (m *Metrics) KMeansDuration(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	m.kmeansTime.Observe(float64(time.Since(start).Milliseconds()))
+	m.kmeans.Inc()
 }
 
 func (m *Metrics) SetPostings(count int) {
