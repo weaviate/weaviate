@@ -61,6 +61,8 @@ type neighborFinderConnector struct {
 	// bufLinksLog     BufferedLinksLogger
 	tombstoneCleanupNodes bool
 	processedIDs          *sync.Map
+	connectionsBuf        []uint64 // reusable buffer to avoid allocations in CopyLayer
+	pendingBuf            []uint64 // reusable buffer for accumulating pending IDs
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
@@ -125,7 +127,6 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	n.graph.RLock()
 	nodesLen := uint64(len(n.graph.nodes))
 	n.graph.RUnlock()
-	var pending []uint64
 	// Check if already completed (not just started)
 	if n.processedIDs != nil {
 		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
@@ -157,10 +158,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
-	connections := make([]uint64, n.graph.nodes[from].connections.LenAtLayer(uint8(level)))
-	n.graph.nodes[from].connections.CopyLayer(connections, uint8(level))
+	// Reuse connectionsBuf to avoid allocations. Safe despite recursion because
+	// we complete the first loop over connections before any recursive calls.
+	n.connectionsBuf = n.graph.nodes[from].connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+	connections := n.connectionsBuf
 	n.graph.nodes[from].Unlock()
 	n.graph.shardedNodeLocks.Unlock(from)
+	pending := make([]uint64, 0, min(16, len(connections)))
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
@@ -215,7 +219,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	before := time.Now()
 
 	var results *priorityqueue.Queue[any]
-	var extraIDs []uint64 = nil
+	extraIDs := make([]uint64, 0, n.graph.maximumConnections)
 	total := 0
 	maxConnections := n.graph.maximumConnections
 
@@ -226,24 +230,25 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.RUnlock()
 		n.node.Lock()
-		connections := make([]uint64, n.node.connections.LenAtLayer(uint8(level)))
-		n.node.connections.CopyLayer(connections, uint8(level))
+		n.connectionsBuf = n.node.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+		connections := n.connectionsBuf
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
-		var pending []uint64 = nil
+		// Reuse pendingBuf for accumulation
+		n.pendingBuf = n.pendingBuf[:0]
 
 		for _, id := range connections {
 			visited.Visit(id)
 			if n.denyList.Contains(id) {
-				pending = append(pending, id)
+				n.pendingBuf = append(n.pendingBuf, id)
 				continue
 			}
 			extraIDs = append(extraIDs, id)
 			top--
 			total++
 		}
-		for _, id := range pending {
+		for _, id := range n.pendingBuf {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {

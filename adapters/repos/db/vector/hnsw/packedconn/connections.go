@@ -526,9 +526,12 @@ func (c *Connections) LenAtLayer(layer uint8) int {
 	return int(unpackCount(c.layers[layer].packed))
 }
 
+// emptyConnections is a shared empty slice to avoid nil returns
+var emptyConnections = []uint64{}
+
 func (c *Connections) GetLayer(layer uint8) []uint64 {
 	if layer >= c.layerCount || c.layers[layer].packed == 0 {
-		return nil
+		return emptyConnections
 	}
 
 	layerData := &c.layers[layer]
@@ -572,7 +575,7 @@ func (c *Connections) GetAllLayers() [][]uint64 {
 	return result
 }
 
-// Iterator implementations remain similar but work with the new structure
+// LayerIterator provides iteration over connection layers
 type LayerIterator struct {
 	connections  *Connections
 	currentLayer uint8
