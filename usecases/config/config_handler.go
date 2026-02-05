@@ -72,9 +72,11 @@ const (
 )
 
 const (
-	DefaultObjectsTTLDeleteSchedule    = "" // disabled
-	DefaultObjectsTTLBatchSize         = 10_000
-	DefaultObjectsTTLConcurrencyFactor = 1
+	DefaultObjectsTTLDeleteSchedule      = "" // disabled
+	DefaultObjectsTTLBatchSize           = 10_000
+	DefaultObjectsTTLConcurrencyFactor   = 1
+	DefaultObjectsTTLPauseEveryNoBatches = 10
+	DefaultObjectsTTLPauseDuration       = time.Minute
 )
 
 // Flags are input options
@@ -143,7 +145,7 @@ type Config struct {
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
+	EnableLazyLoadShards                bool                     `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
@@ -242,9 +244,11 @@ type Config struct {
 
 	// Time expired objects should be deleted at by background routine
 	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
-	ObjectsTTLDeleteSchedule    *runtime.DynamicValue[string]  `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
-	ObjectsTTLBatchSize         *runtime.DynamicValue[int]     `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
-	ObjectsTTLConcurrencyFactor *runtime.DynamicValue[float64] `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
+	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
+	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`

@@ -77,30 +77,16 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 			return // Fail the entire initialization
 		}
 
-		h.distancer = &Distancer{
-			quantizer: h.quantizer,
-			distancer: h.config.DistanceProvider,
-		}
+		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
 	})
 	if err != nil {
 		return err
 	}
 
-	// add the vector to the version map.
-	version, err := h.VersionMap.Increment(h.ctx, id, VectorVersion(0))
-	if err != nil {
-		if !errors.Is(err, ErrVersionIncrementFailed) {
-			return errors.Wrapf(err, "failed to increment version map for vector %d", id)
-		}
-
-		// vector already exists, no need to re-insert
-		return nil
-	}
-
 	var v Vector
 
 	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
-	v = NewVector(id, version, compressed)
+	v = NewVector(id, VectorVersion(1), compressed)
 
 	targets, _, err := h.RNGSelect(vector, 0)
 	if err != nil {
@@ -211,6 +197,16 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	h.postingLocks.Unlock(centroidID)
 
 	if !reassigned {
+		// If the posting is way too big, we need to split it immediately.
+		if count > h.maxPostingSize*5 {
+			err = h.doSplit(ctx, centroidID, true)
+			if err != nil {
+				return false, err
+			}
+
+			return true, nil
+		}
+
 		// enqueue an analyze operation to persist the changes and update the posting map on disk
 		err = h.taskQueue.EnqueueAnalyze(centroidID)
 		if err != nil {

@@ -480,7 +480,7 @@ func TestGetOpenAIOrganization(t *testing.T) {
 func TestGetEmbeddingsRequest(t *testing.T) {
 	t.Run("Azure true omits model", func(t *testing.T) {
 		c := New("", "", "", 0, nullLogger())
-		req := c.getEmbeddingsRequest([]string{"foo"}, "model", true, nil)
+		req := c.getEmbeddingsRequest([]string{"foo"}, "model", "", true, nil)
 		assert.Equal(t, []string{"foo"}, req.Input)
 		assert.Equal(t, (*int64)(nil), req.Dimensions)
 		assert.Empty(t, req.Model)
@@ -488,10 +488,18 @@ func TestGetEmbeddingsRequest(t *testing.T) {
 	t.Run("Non-Azure includes model", func(t *testing.T) {
 		c := New("", "", "", 0, nullLogger())
 		dim := int64(42)
-		req := c.getEmbeddingsRequest([]string{"foo"}, "model", false, &dim)
+		req := c.getEmbeddingsRequest([]string{"foo"}, "model", "", false, &dim)
 		assert.Equal(t, []string{"foo"}, req.Input)
 		assert.Equal(t, "model", req.Model)
 		assert.Equal(t, &dim, req.Dimensions)
+	})
+	t.Run("legacy model with explicit dimensions settings", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+		dim := int64(42)
+		req := c.getEmbeddingsRequest([]string{"foo"}, "text-embedding-ada-002", "002", false, &dim)
+		assert.Equal(t, []string{"foo"}, req.Input)
+		assert.Equal(t, "text-embedding-ada-002", req.Model)
+		assert.Nil(t, req.Dimensions)
 	})
 }
 

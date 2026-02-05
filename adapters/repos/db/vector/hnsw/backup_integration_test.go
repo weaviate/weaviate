@@ -96,7 +96,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("switch commit logs", func(t *testing.T) {
-		err = idx.SwitchCommitLogs(ctx)
+		err = idx.PrepareForBackup(ctx)
 		require.Nil(t, err)
 	})
 
@@ -113,7 +113,7 @@ func TestBackup_Integration(t *testing.T) {
 
 		// by this point there should be two files in the commitlog directory.
 		// one is the active log file, and the other is the previous active
-		// log which was in use prior to `SwitchCommitLogs`. additionally,
+		// log which was in use prior to `PrepareForBackup`. additionally,
 		// maintenance has been paused, so we shouldn't see any .condensed
 		// files either.
 		//

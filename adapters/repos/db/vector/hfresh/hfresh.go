@@ -88,6 +88,8 @@ type HFresh struct {
 	initialPostingLock sync.Mutex
 
 	vectorForId common.VectorForID[float32]
+
+	rootPath string
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -131,6 +133,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rngFactor:        DefaultRNGFactor,
 		searchProbe:      uc.SearchProbe,
 		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
+		rootPath:         cfg.RootPath,
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -151,7 +154,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	h.taskQueue = *taskQueue
 
 	if err = h.restoreMetadata(); err != nil {
-		h.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
 
 	return &h, nil
@@ -253,12 +256,77 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) SwitchCommitLogs(ctx context.Context) error {
-	return h.Centroids.hnsw.SwitchCommitLogs(ctx)
+func (h *HFresh) stopTaskQueues() error {
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.Pause()
+		err := queue.Flush()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *HFresh) resumeTaskQueues() {
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.Resume()
+	}
+}
+
+func (h *HFresh) PrepareForBackup(ctx context.Context) error {
+	err := h.Centroids.hnsw.PrepareForBackup(ctx)
+	if err != nil {
+		return err
+	}
+	return h.stopTaskQueues()
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	return nil, nil
+	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	queueFiles, err := h.ListQueues(ctx, basePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// combine both slices
+	var allFiles []string
+	allFiles = append(allFiles, hnswFiles...)
+	allFiles = append(allFiles, queueFiles...)
+
+	return allFiles, nil
+}
+
+func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, error) {
+	var files []string
+
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		f, err := queue.ForceSwitch(ctx, basePath)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f...)
+	}
+
+	return files, nil
 }
 
 func (h *HFresh) PostStartup(ctx context.Context) {

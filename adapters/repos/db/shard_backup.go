@@ -80,11 +80,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		q.Pause()
 		return nil
 	})
-	// wait for ongoing indexing to finish
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Wait()
-		return nil
-	})
 	// flush all the queue
 	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		return q.Flush()
@@ -93,10 +88,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("flush vector index queues: %w", err)
 	}
 
-	// switch commit logs to ensure all data is flushed to disk
+	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+		if err = index.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
@@ -205,7 +200,7 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	}
 
 	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		files, err := queue.ListFiles(ctx, s.index.Config.RootPath)
+		files, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}

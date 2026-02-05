@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -53,7 +52,7 @@ func (b *BM25Searcher) wandBlock(
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
 				b.logger.Errorf("Recovered from panic in wandBlock: %v", r)
-				debug.PrintStack()
+				enterrors.PrintStack(b.logger)
 			}
 		}
 	}()

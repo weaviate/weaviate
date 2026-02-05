@@ -66,7 +66,7 @@ type VectorIndex interface {
 	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	SwitchCommitLogs(ctx context.Context) error
+	PrepareForBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
@@ -414,10 +414,10 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	return dynamic.index.Shutdown(ctx)
 }
 
-func (dynamic *dynamic) SwitchCommitLogs(ctx context.Context) error {
+func (dynamic *dynamic) PrepareForBackup(ctx context.Context) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SwitchCommitLogs(ctx)
+	return dynamic.index.PrepareForBackup(ctx)
 }
 
 func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {

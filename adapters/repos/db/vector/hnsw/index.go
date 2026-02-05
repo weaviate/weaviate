@@ -113,7 +113,7 @@ type hnsw struct {
 	trackDimensionsOnce               sync.Once
 	trackMuveraOnce                   sync.Once
 	trackRQOnce                       sync.Once
-	dims                              int32
+	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -180,7 +180,7 @@ type hnsw struct {
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
 	rqConfig   ent.RQConfig
-	rqActive   bool
+	rqActive   atomic.Bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -220,6 +220,21 @@ func (h *hnsw) Get(id uint64) ([]float32, error) {
 	return h.compressor.Get(id)
 }
 
+// GetCompressedVector retrieves the compressed vector for a given ID.
+// The index must be compressed, otherwise an error is returned.
+func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
+	if !h.compressed.Load() {
+		return nil, errors.New("index is not compressed")
+	}
+
+	v, err := h.compressor.GetCompressed(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]T), nil
+}
+
 type CommitLogger interface {
 	ID() string
 	AddNode(node *vertex) error
@@ -236,7 +251,7 @@ type CommitLogger interface {
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
-	SwitchCommitLogs(bool) error
+	PrepareForBackup(bool) error
 	AddPQCompression(compression.PQData) error
 	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
@@ -409,7 +424,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.RQ.Enabled {
-		index.rqActive = true
+		index.rqActive.Store(true)
 	}
 
 	if uc.Multivector.Enabled {
@@ -1052,7 +1067,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	}
 
 	stats := HnswStats{
-		Dimensions:         h.dims,
+		Dimensions:         h.dims.Load(),
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),

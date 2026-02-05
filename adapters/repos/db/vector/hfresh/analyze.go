@@ -34,6 +34,8 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	}()
 
 	if !h.Centroids.Exists(postingID) {
+		h.logger.WithField("postingID", postingID).
+			Debug("posting not found, skipping analyze operation")
 		return nil
 	}
 
@@ -45,7 +47,7 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 
 	// if the metadata was loaded from disk or the posting doesn't have a mapping entry yet, it might not be in sync with
 	// the posting store. load the posting from disk to do the analysis.
-	if meta.fromDisk || err != nil {
+	if err != nil || meta.fromDisk {
 		p, err := h.PostingStore.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
@@ -55,6 +57,12 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 			}
 
 			return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
+		}
+
+		if len(p) == 0 {
+			h.logger.WithField("postingID", postingID).
+				Debug("posting is empty, skipping analyze operation")
+			return nil
 		}
 
 		// update the posting map in-memory cache and persist the vector IDs

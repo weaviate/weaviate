@@ -18,7 +18,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"slices"
 	golangSort "sort"
 	"strings"
@@ -29,7 +28,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -52,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -69,6 +68,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -284,7 +284,8 @@ type Index struct {
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
-	replicationConfigLock sync.RWMutex
+	replicationConfigLock          sync.RWMutex
+	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -397,6 +398,13 @@ func NewIndex(
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
 
+	index.asyncReplicationWorkersLimiter = dynsemaphore.NewDynamicWeightedWithParent(index.Config.AsyncReplicationWorkersLimiter,
+		func() int64 {
+			index.replicationConfigLock.RLock()
+			defer index.replicationConfigLock.RUnlock()
+			return int64(index.Config.AsyncReplicationConfig.maxWorkers)
+		})
+
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
 	index.initCycleCallbacks()
@@ -453,7 +461,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
-	if i.Config.DisableLazyLoadShards {
+	if !i.Config.EnableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
@@ -596,6 +604,10 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading, i.bitmapBufPool)
 	return shard, nil
+}
+
+func (i *Index) maintenanceModeEnabled() bool {
+	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -767,10 +779,24 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig)
+	if err != nil {
+		return err
+	}
+	i.Config.AsyncReplicationConfig = config
+
+	// unloaded shards will fetch the latest config when they are loaded
+	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
+			// if async replication is being enabled, first disable it to reset any previous config
+			if err := shard.SetAsyncReplicationState(ctx, AsyncReplicationConfig{}, false); err != nil {
+				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+			}
+		}
+
+		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.asyncReplicationEnabled()); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -821,8 +847,10 @@ type IndexConfig struct {
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
+	AsyncReplicationConfig              AsyncReplicationConfig
+	AsyncReplicationWorkersLimiter      *dynsemaphore.DynamicWeighted
 	AvoidMMap                           bool
-	DisableLazyLoadShards               bool
+	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
@@ -832,6 +860,8 @@ type IndexConfig struct {
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -1049,11 +1079,30 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 	return shard, release, nil
 }
 
-func (i *Index) asyncReplicationEnabled() bool {
+func (i *Index) AsyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
+	return i.asyncReplicationEnabled()
+}
+
+func (i *Index) asyncReplicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+}
+
+func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.AsyncReplicationConfig
+}
+
+func (i *Index) asyncReplicationWorkerAcquire(ctx context.Context) error {
+	return i.asyncReplicationWorkersLimiter.Acquire(ctx, 1)
+}
+
+func (i *Index) asyncReplicationWorkerRelease() {
+	i.asyncReplicationWorkersLimiter.Release(1)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -1180,7 +1229,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
 					entsentry.Recover(err)
-					debug.PrintStack()
+					enterrors.PrintStack(i.logger)
 				}
 			}()
 			// All objects in the same shard group have the same tenant since in multi-tenant
@@ -2228,7 +2277,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
-	perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
 
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
@@ -2239,13 +2287,35 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 		for _, tenant := range tenants {
 			eg.Go(func() error {
+				processedBatches := 0
 				// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 				for {
+					pauseEveryNoBatches := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
+					pauseDuration := i.Config.ObjectsTTLPauseDuration.Get()
+					if pauseDuration > 0 && pauseEveryNoBatches > 0 && processedBatches >= pauseEveryNoBatches {
+						timer := time.NewTimer(pauseDuration)
+						t1 := time.Now()
+						select {
+						case t2 := <-timer.C:
+							i.logger.WithFields(logrus.Fields{
+								"action":     "objects_ttl_deletion",
+								"collection": class.Class,
+								"shard":      tenant,
+							}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
+							processedBatches = 0
+						case <-ctx.Done():
+							timer.Stop()
+							ec.AddGroups(ctx.Err(), class.Class, tenant)
+							return nil
+						}
+					}
+
 					if err := ctx.Err(); err != nil {
 						ec.AddGroups(err, class.Class, tenant)
 						return nil
 					}
 
+					perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
 					tenants2uuids, err := i.findUUIDs(ctx, filter, tenant, replProps, perShardLimit)
 					if err != nil {
 						// skip inactive tenants
@@ -2261,6 +2331,8 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 					i.incomingDeleteObjectsExpiredUuids(ctx, ec, deletionTime, "", tenant,
 						tenants2uuids[tenant], countDeleted, replProps, schemaVersion)
+
+					processedBatches++
 				}
 			})
 			if ctx.Err() != nil {
@@ -2271,13 +2343,34 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	}
 
 	eg.Go(func() error {
+		processedBatches := 0
 		// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 		for {
+			pauseEveryNoBatches := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
+			pauseDuration := i.Config.ObjectsTTLPauseDuration.Get()
+			if pauseDuration > 0 && pauseEveryNoBatches > 0 && processedBatches >= pauseEveryNoBatches {
+				timer := time.NewTimer(pauseDuration)
+				t1 := time.Now()
+				select {
+				case t2 := <-timer.C:
+					i.logger.WithFields(logrus.Fields{
+						"action":     "objects_ttl_deletion",
+						"collection": class.Class,
+					}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
+					processedBatches = 0
+				case <-ctx.Done():
+					timer.Stop()
+					ec.AddGroups(ctx.Err(), class.Class)
+					return nil
+				}
+			}
+
 			if err := ctx.Err(); err != nil {
 				ec.AddGroups(err, class.Class)
 				return nil
 			}
 
+			perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
 			shards2uuids, err := i.findUUIDs(ctx, filter, "", replProps, perShardLimit)
 			if err != nil {
 				ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class)
@@ -2301,11 +2394,11 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 				anyUuidsFound = true
 				wg.Add(1)
-				isLast := shardIdx == 0
+				isLastShard := shardIdx == 0
 				// if possible run in separate routine, if not run in current one
 				// always run last in current one (not to start other routine,
 				// while current one have to wait for the results anyway)
-				if isLast || !eg.TryGo(func() error {
+				if isLastShard || !eg.TryGo(func() error {
 					f(shard, uuids)
 					return nil
 				}) {
@@ -2320,6 +2413,8 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 			if !anyUuidsFound {
 				return nil
 			}
+
+			processedBatches++
 		}
 	})
 }
@@ -2439,7 +2534,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
-	disableLazyLoad := mustLoad || i.Config.DisableLazyLoadShards
+	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards
 
 	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
 	if err != nil {

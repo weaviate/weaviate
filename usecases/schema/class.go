@@ -409,14 +409,16 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(m.config.Replication.MinimumFactor),
-			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+			AsyncEnabled:     false,
 		}
 		return nil
 	}
 
 	if class.ReplicationConfig.DeletionStrategy == "" {
-		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyTimeBasedResolution
 	}
+
 	return nil
 }
 

@@ -82,10 +82,17 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
+
+			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)
+			if err != nil {
+				return fmt.Errorf("async replication config: %w", err)
+			}
+
 			collection := schema.ClassName(class.Class).String()
 			indexRouter := router.NewBuilder(
 				collection,
-				multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+				isMultiTenant,
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,
@@ -114,17 +121,21 @@ func (db *DB) init(ctx context.Context) error {
 				CycleManagerRoutinesFactor:                   db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
 				ObjectsTTLBatchSize:                          db.config.ObjectsTTLBatchSize,
+				ObjectsTTLPauseEveryNoBatches:                db.config.ObjectsTTLPauseEveryNoBatches,
+				ObjectsTTLPauseDuration:                      db.config.ObjectsTTLPauseDuration,
 				MaxSegmentSize:                               db.config.MaxSegmentSize,
 				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
 				TrackVectorDimensionsInterval:                db.config.TrackVectorDimensionsInterval,
 				UsageEnabled:                                 db.config.UsageEnabled,
 				AvoidMMap:                                    db.config.AvoidMMap,
-				DisableLazyLoadShards:                        db.config.DisableLazyLoadShards,
+				EnableLazyLoadShards:                         db.config.EnableLazyLoadShards,
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+				AsyncReplicationConfig:                       asyncConfig,
+				AsyncReplicationWorkersLimiter:               db.asyncReplicationWorkersLimiter,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,
