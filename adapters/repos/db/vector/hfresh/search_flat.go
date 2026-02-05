@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	flatSearchConcurrency = 10
+	flatSearchConcurrency = 1
 )
 
 func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
