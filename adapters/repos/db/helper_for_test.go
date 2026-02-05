@@ -24,12 +24,12 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -260,6 +260,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
+		EnableLazyLoadShards:      true,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -338,6 +339,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
+		EnableLazyLoadShards:      true,
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
@@ -369,10 +371,11 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
-			RootPath:            tmpDir,
-			ClassName:           schema.ClassName(class.Class),
-			QueryMaximumResults: maxResults,
-			ReplicationFactor:   1,
+			EnableLazyLoadShards: true,
+			RootPath:             tmpDir,
+			ClassName:            schema.ClassName(class.Class),
+			QueryMaximumResults:  maxResults,
+			ReplicationFactor:    1,
 		},
 		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
@@ -401,7 +404,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards, true)
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.EnableLazyLoadShards, true)
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)
