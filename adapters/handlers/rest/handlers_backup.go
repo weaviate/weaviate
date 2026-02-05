@@ -358,9 +358,9 @@ func newBackupRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 func (e *backupRequestsTotal) logError(className string, err error) {
 	switch {
 	case errors.As(err, &authzerrors.Forbidden{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &backup.ErrUnprocessable{}) || errors.As(err, &backup.ErrNotFound{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	default:
 		e.logServerError(className, err)
 	}
