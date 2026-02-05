@@ -105,6 +105,10 @@
           ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "The namespace this user belongs to. Only shown to cluster admins."
         }
       },
       "required": [
@@ -4237,6 +4241,13 @@
             "required": false,
             "type": "boolean",
             "default": false
+          },
+          {
+            "description": "Filter users by namespace (cluster admin only). When specified, only users belonging to the given namespace are returned.",
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "type": "string"
           }
         ],
         "responses": {
@@ -4676,6 +4687,15 @@
         ],
         "tags": [
           "authz"
+        ],
+        "parameters": [
+          {
+            "description": "Filter roles by namespace (cluster admin only). When specified, only roles belonging to the given namespace are returned.",
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "type": "string"
+          }
         ],
         "responses": {
           "200": {

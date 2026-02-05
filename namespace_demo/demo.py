@@ -366,6 +366,48 @@ class WeaviateClient:
                 return [r.get("name") if isinstance(r, dict) else r for r in data]
         return []
 
+    def list_users(self, namespace: str = None, show_api: bool = False) -> Tuple[bool, list]:
+        """List all users, optionally filtered by namespace (admin only)."""
+        endpoint = f"{self.url}/v1/users/db"
+        if namespace:
+            endpoint += f"?namespace={namespace}"
+        headers = self._headers()
+
+        if show_api:
+            show_api_call("GET", endpoint, headers)
+
+        resp = requests.get(endpoint, headers=headers)
+        if resp.status_code == 200:
+            result = resp.json()
+            if show_api and INTERACTIVE:
+                # Summarize the user list for display
+                summary = [{"userId": u.get("userId"), "namespace": u.get("namespace"), "roles": u.get("roles")} for u in result]
+                show_result({"users": summary}, True)
+                wait_for_key()
+            return True, result
+        return False, {"status": resp.status_code, "error": resp.text}
+
+    def list_roles(self, namespace: str = None, show_api: bool = False) -> Tuple[bool, list]:
+        """List all roles, optionally filtered by namespace (admin only)."""
+        endpoint = f"{self.url}/v1/authz/roles"
+        if namespace:
+            endpoint += f"?namespace={namespace}"
+        headers = self._headers()
+
+        if show_api:
+            show_api_call("GET", endpoint, headers)
+
+        resp = requests.get(endpoint, headers=headers)
+        if resp.status_code == 200:
+            result = resp.json()
+            if show_api and INTERACTIVE:
+                # Summarize the role list for display
+                summary = [{"name": r.get("name")} for r in result]
+                show_result({"roles": summary}, True)
+                wait_for_key()
+            return True, result
+        return False, {"status": resp.status_code, "error": resp.text}
+
 
 def cleanup(admin: WeaviateClient):
     """Clean up test users and collections."""
@@ -692,10 +734,135 @@ def main():
         show_error(f"Tenant B schema response: {schema}")
 
     # =========================================================================
-    # Step 6: Show admin can access all namespaces
+    # Step 6: Namespace-Aware User Listing
     # =========================================================================
     show_step_header(
         6,
+        "Namespace-Aware User Listing",
+        "[bold yellow]NEW FEATURE: Namespace-aware list users![/bold yellow]\n\n"
+        "When listing users:\n"
+        "  [green]•[/green] [bold]Cluster Admin[/bold]: Sees ALL users with [cyan]namespace[/cyan] field visible\n"
+        "  [green]•[/green] [bold]Cluster Admin[/bold]: Can filter with [cyan]?namespace=X[/cyan] query param\n"
+        "  [green]•[/green] [bold]Namespace Admin[/bold]: Sees ONLY their namespace users\n"
+        "  [green]•[/green] [bold]Namespace Admin[/bold]: Does NOT see [cyan]namespace[/cyan] field (they think they have whole cluster)\n"
+        "  [green]•[/green] [bold]Namespace Admin[/bold]: Role names are cleaned (e.g., 'admin' not 'namespace-admin-tenanta')"
+    )
+
+    show_next_action("Admin lists all users (global view)")
+
+    show_info("Admin listing all users (no filter)...")
+    ok, users_list = admin.list_users(show_api=True)
+    if ok:
+        show_success(f"Admin sees {len(users_list)} users")
+        for user in users_list:
+            ns = user.get("namespace", "")
+            ns_display = f"namespace={ns}" if ns else "no namespace"
+            show_info(f"  User: {user.get('userId')} ({ns_display}), roles: {user.get('roles')}")
+    else:
+        show_error(f"Failed to list users: {users_list}")
+
+    show_next_action("Admin lists users filtered by namespace 'tenanta'")
+
+    show_info("Admin listing users with ?namespace=tenanta filter...")
+    ok, users_list = admin.list_users(namespace="tenanta", show_api=True)
+    if ok:
+        show_success(f"Admin sees {len(users_list)} users in tenanta namespace")
+        for user in users_list:
+            ns = user.get("namespace", "")
+            show_info(f"  User: {user.get('userId')}, namespace: {ns}, roles: {user.get('roles')}")
+    else:
+        show_error(f"Failed to list users: {users_list}")
+
+    show_next_action("Namespace user (tenanta-user) lists users")
+
+    show_info("Tenant A user listing users (should only see their namespace)...")
+    ok, users_list = tenant_a.list_users(show_api=True)
+    if ok:
+        show_success(f"Tenant A user sees {len(users_list)} users")
+        for user in users_list:
+            ns = user.get("namespace")
+            roles = user.get("roles", [])
+            if ns is None or ns == "":
+                show_success(f"  User: {user.get('userId')} - namespace field HIDDEN (correct!)")
+            else:
+                show_error(f"  User: {user.get('userId')} - namespace field visible: {ns} (should be hidden!)")
+            # Check if role names are cleaned
+            for role in roles:
+                if role.startswith("namespace-"):
+                    show_error(f"    Role '{role}' should be cleaned (e.g., 'admin' not '{role}')")
+                else:
+                    show_success(f"    Role '{role}' is properly cleaned")
+    else:
+        show_error(f"Failed to list users: {users_list}")
+
+    # =========================================================================
+    # Step 7: Namespace-Aware Role Listing
+    # =========================================================================
+    show_step_header(
+        7,
+        "Namespace-Aware Role Listing",
+        "[bold yellow]NEW FEATURE: Namespace-aware list roles![/bold yellow]\n\n"
+        "When listing roles:\n"
+        "  [green]•[/green] [bold]Cluster Admin[/bold]: Sees ALL roles with full names (e.g., 'namespace-admin-tenanta')\n"
+        "  [green]•[/green] [bold]Cluster Admin[/bold]: Can filter with [cyan]?namespace=X[/cyan] query param\n"
+        "  [green]•[/green] [bold]Namespace Admin[/bold]: Sees ONLY their namespace roles\n"
+        "  [green]•[/green] [bold]Namespace Admin[/bold]: Role names are cleaned (e.g., 'admin' not 'namespace-admin-tenanta')\n"
+        "  [green]•[/green] [bold]Namespace Admin[/bold]: Collection names in permissions are cleaned (e.g., 'Articles' not 'Tenanta__Articles')"
+    )
+
+    show_next_action("Admin lists all roles (global view)")
+
+    show_info("Admin listing all roles (no filter)...")
+    ok, roles_list = admin.list_roles(show_api=True)
+    if ok:
+        show_success(f"Admin sees {len(roles_list)} roles")
+        for role in roles_list:
+            show_info(f"  Role: {role.get('name')}")
+    else:
+        show_error(f"Failed to list roles: {roles_list}")
+
+    show_next_action("Admin lists roles filtered by namespace 'tenanta'")
+
+    show_info("Admin listing roles with ?namespace=tenanta filter...")
+    ok, roles_list = admin.list_roles(namespace="tenanta", show_api=True)
+    if ok:
+        show_success(f"Admin sees {len(roles_list)} roles for tenanta namespace")
+        for role in roles_list:
+            show_info(f"  Role: {role.get('name')}")
+    else:
+        show_error(f"Failed to list roles: {roles_list}")
+
+    show_next_action("Namespace user (tenanta-user) lists roles")
+
+    show_info("Tenant A user listing roles (should only see their namespace roles with cleaned names)...")
+    ok, roles_list = tenant_a.list_roles(show_api=True)
+    if ok:
+        show_success(f"Tenant A user sees {len(roles_list)} roles")
+        for role in roles_list:
+            role_name = role.get("name")
+            if role_name.startswith("namespace-"):
+                show_error(f"  Role '{role_name}' should be cleaned (e.g., 'admin' not '{role_name}')")
+            else:
+                show_success(f"  Role '{role_name}' is properly cleaned")
+            # Check permissions for cleaned collection names
+            perms = role.get("permissions", [])
+            for perm in perms:
+                # Check various permission fields for collection names
+                for field in ["collections", "data", "backups", "tenants", "aliases", "replicate"]:
+                    if perm.get(field) and perm[field].get("collection"):
+                        coll = perm[field]["collection"]
+                        if "__" in coll and coll != "*":
+                            show_error(f"    Permission collection '{coll}' should be cleaned (no namespace prefix)")
+                        else:
+                            show_success(f"    Permission collection '{coll}' is properly cleaned")
+    else:
+        show_error(f"Failed to list roles: {roles_list}")
+
+    # =========================================================================
+    # Step 8: Show admin can access all namespaces
+    # =========================================================================
+    show_step_header(
+        8,
         "Admin Access to All Namespaces",
         "Admin users (root users) can still access any namespace by\n"
         "specifying the [cyan]X-Weaviate-Namespace[/cyan] header.\n\n"
@@ -716,7 +883,7 @@ def main():
         wait_for_key()
 
     # =========================================================================
-    # Step 7: Cleanup
+    # Step 9: Cleanup
     # =========================================================================
     show_step_header(
         7,

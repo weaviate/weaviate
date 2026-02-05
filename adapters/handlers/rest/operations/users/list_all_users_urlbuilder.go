@@ -27,6 +27,7 @@ import (
 // ListAllUsersURL generates an URL for the list all users operation
 type ListAllUsersURL struct {
 	IncludeLastUsedTime *bool
+	Namespace           *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -68,6 +69,14 @@ func (o *ListAllUsersURL) Build() (*url.URL, error) {
 	}
 	if includeLastUsedTimeQ != "" {
 		qs.Set("includeLastUsedTime", includeLastUsedTimeQ)
+	}
+
+	var namespaceQ string
+	if o.Namespace != nil {
+		namespaceQ = *o.Namespace
+	}
+	if namespaceQ != "" {
+		qs.Set("namespace", namespaceQ)
 	}
 
 	_result.RawQuery = qs.Encode()

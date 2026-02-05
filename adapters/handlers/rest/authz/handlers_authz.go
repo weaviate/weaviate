@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -311,6 +312,31 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
+	isClusterAdmin := h.isClusterAdmin(principal)
+
+	// Get requester's namespace from their user record
+	requesterNs := ""
+	if principal != nil {
+		requesterNs = h.getUserNamespace(principal.Username)
+	}
+
+	// Handle namespace query param (admin-only filter)
+	filterNs := ""
+	if params.Namespace != nil && *params.Namespace != "" {
+		if !isClusterAdmin {
+			return authz.NewGetRolesForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("namespace filter requires admin privileges")))
+		}
+		filterNs = *params.Namespace
+	}
+
+	// Determine effective namespace filter
+	// Admin explicit filter takes precedence, non-admins auto-filtered to their namespace
+	effectiveNs := filterNs
+	if effectiveNs == "" && !isClusterAdmin && requesterNs != "" {
+		effectiveNs = requesterNs
+	}
+
 	roles, err := h.controller.GetRoles()
 	if err != nil {
 		return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRoles: %w", err)))
@@ -322,13 +348,30 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			continue
 		}
 
+		// Apply namespace filter
+		if effectiveNs != "" {
+			// Only include namespace-scoped roles for the effective namespace
+			if !rbac.RoleBelongsToNamespace(roleName, effectiveNs) {
+				continue
+			}
+		}
+
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
+
+		// For namespace admins (not cluster admins filtering by namespace), clean names and permissions
+		displayName := roleName
+		displayPerms := perms
+		if !isClusterAdmin && requesterNs != "" {
+			displayName = rbac.CleanNamespaceRoleName(roleName, requesterNs)
+			displayPerms = cleanPermissionCollectionNames(perms, requesterNs)
+		}
+
 		response = append(response, &models.Role{
-			Name:        &roleName,
-			Permissions: perms,
+			Name:        &displayName,
+			Permissions: displayPerms,
 		})
 	}
 
@@ -1181,6 +1224,97 @@ func validateUserTypeInput(userTypeInput string) (authentication.AuthType, error
 		return userType, fmt.Errorf("unknown userType: %v", userTypeInput)
 	}
 	return userType, nil
+}
+
+// isClusterAdmin checks if the principal is a cluster admin (root user or in root group)
+func (h *authZHandlers) isClusterAdmin(principal *models.Principal) bool {
+	if principal == nil {
+		return false
+	}
+	if slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
+		return true
+	}
+	for _, groupName := range principal.Groups {
+		if slices.Contains(h.rbacconfig.RootGroups, groupName) {
+			return true
+		}
+	}
+	return false
+}
+
+// getUserNamespace returns the namespace for a user, or empty string for default namespace
+func (h *authZHandlers) getUserNamespace(username string) string {
+	users, err := h.controller.GetUsers(username)
+	if err != nil || len(users) == 0 {
+		return ""
+	}
+	return users[username].Namespace
+}
+
+// cleanPermissionCollectionNames strips namespace prefix from collection names in permissions
+func cleanPermissionCollectionNames(perms []*models.Permission, namespace string) []*models.Permission {
+	if namespace == "" || len(perms) == 0 {
+		return perms
+	}
+
+	cleaned := make([]*models.Permission, 0, len(perms))
+	for _, perm := range perms {
+		if perm == nil {
+			continue
+		}
+
+		// Create a copy of the permission
+		newPerm := *perm
+
+		// Clean collection name in Collections
+		if perm.Collections != nil && perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
+			cleanedName := rbac.CleanPermissionCollectionName(*perm.Collections.Collection, namespace)
+			newPerm.Collections = &models.PermissionCollections{Collection: &cleanedName}
+		}
+
+		// Clean collection name in Data
+		if perm.Data != nil && perm.Data.Collection != nil && *perm.Data.Collection != "" {
+			cleanedName := rbac.CleanPermissionCollectionName(*perm.Data.Collection, namespace)
+			newData := *perm.Data
+			newData.Collection = &cleanedName
+			newPerm.Data = &newData
+		}
+
+		// Clean collection name in Backups
+		if perm.Backups != nil && perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
+			cleanedName := rbac.CleanPermissionCollectionName(*perm.Backups.Collection, namespace)
+			newBackups := *perm.Backups
+			newBackups.Collection = &cleanedName
+			newPerm.Backups = &newBackups
+		}
+
+		// Clean collection name in Tenants
+		if perm.Tenants != nil && perm.Tenants.Collection != nil && *perm.Tenants.Collection != "" {
+			cleanedName := rbac.CleanPermissionCollectionName(*perm.Tenants.Collection, namespace)
+			newTenants := *perm.Tenants
+			newTenants.Collection = &cleanedName
+			newPerm.Tenants = &newTenants
+		}
+
+		// Clean collection name in Aliases
+		if perm.Aliases != nil && perm.Aliases.Collection != nil && *perm.Aliases.Collection != "" {
+			cleanedName := rbac.CleanPermissionCollectionName(*perm.Aliases.Collection, namespace)
+			newAliases := *perm.Aliases
+			newAliases.Collection = &cleanedName
+			newPerm.Aliases = &newAliases
+		}
+
+		// Clean collection name in Replicate
+		if perm.Replicate != nil && perm.Replicate.Collection != nil && *perm.Replicate.Collection != "" {
+			cleanedName := rbac.CleanPermissionCollectionName(*perm.Replicate.Collection, namespace)
+			newReplicate := *perm.Replicate
+			newReplicate.Collection = &cleanedName
+			newPerm.Replicate = &newReplicate
+		}
+
+		cleaned = append(cleaned, &newPerm)
+	}
+	return cleaned
 }
 
 // TODO-RBAC: we could expose endpoint to validate permissions as dry-run

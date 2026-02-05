@@ -66,6 +66,8 @@ func TestGetRolesSuccess(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles").Return(tt.expectedRoles, nil)
+			// Mock GetUsers call for namespace lookup
+			controller.On("GetUsers", mock.Anything).Return(nil, nil).Maybe()
 
 			h := &authZHandlers{
 				authorizer: authorizer,

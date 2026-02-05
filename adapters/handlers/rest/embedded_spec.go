@@ -700,6 +700,14 @@ func init() {
         ],
         "summary": "Get all roles",
         "operationId": "getRoles",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Filter roles by namespace (cluster admin only). When specified, only roles belonging to the given namespace are returned.",
+            "name": "namespace",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -5551,6 +5559,12 @@ func init() {
             "description": "Whether to include the last time the users were utilized.",
             "name": "includeLastUsedTime",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Filter users by namespace (cluster admin only). When specified, only users belonging to the given namespace are returned.",
+            "name": "namespace",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6985,6 +6999,10 @@ func init() {
             "null"
           ],
           "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace this user belongs to. Only shown to cluster admins.",
+          "type": "string"
         },
         "roles": {
           "description": "The roles associated with the user.",
@@ -10139,6 +10157,14 @@ func init() {
         ],
         "summary": "Get all roles",
         "operationId": "getRoles",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Filter roles by namespace (cluster admin only). When specified, only roles belonging to the given namespace are returned.",
+            "name": "namespace",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -15088,6 +15114,12 @@ func init() {
             "description": "Whether to include the last time the users were utilized.",
             "name": "includeLastUsedTime",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Filter users by namespace (cluster admin only). When specified, only users belonging to the given namespace are returned.",
+            "name": "namespace",
+            "in": "query"
           }
         ],
         "responses": {
@@ -16677,6 +16709,10 @@ func init() {
             "null"
           ],
           "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace this user belongs to. Only shown to cluster admins.",
+          "type": "string"
         },
         "roles": {
           "description": "The roles associated with the user.",

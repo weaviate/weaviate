@@ -71,6 +71,13 @@ GetRolesParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GetRolesParams struct {
+
+	/* Namespace.
+
+	   Filter roles by namespace (cluster admin only). When specified, only roles belonging to the given namespace are returned.
+	*/
+	Namespace *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -124,6 +131,17 @@ func (o *GetRolesParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithNamespace adds the namespace to the get roles params
+func (o *GetRolesParams) WithNamespace(namespace *string) *GetRolesParams {
+	o.SetNamespace(namespace)
+	return o
+}
+
+// SetNamespace adds the namespace to the get roles params
+func (o *GetRolesParams) SetNamespace(namespace *string) {
+	o.Namespace = namespace
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *GetRolesParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -131,6 +149,23 @@ func (o *GetRolesParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Regi
 		return err
 	}
 	var res []error
+
+	if o.Namespace != nil {
+
+		// query param namespace
+		var qrNamespace string
+
+		if o.Namespace != nil {
+			qrNamespace = *o.Namespace
+		}
+		qNamespace := qrNamespace
+		if qNamespace != "" {
+
+			if err := r.SetQueryParam("namespace", qNamespace); err != nil {
+				return err
+			}
+		}
+	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

@@ -663,13 +663,34 @@ func TestNamespaceRoleName(t *testing.T) {
 func TestCreateNamespaceAdminPolicies(t *testing.T) {
 	policies := CreateNamespaceAdminPolicies("tenanta")
 
-	// Should have 6 policies: 2 for schema (collection + tenant level), data, backups, aliases, replicate
-	assert.Len(t, policies, 6)
+	// Should have 8 policies: 2 for schema (collection + tenant level), data, backups, aliases, replicate, users, roles
+	assert.Len(t, policies, 8)
 
-	// Verify each policy has the correct namespace prefix pattern (capitalized)
+	// Collection-scoped domains that should have namespace prefix and CRUD verb
+	collectionScopedDomains := map[string]bool{
+		authorization.SchemaDomain:    true,
+		authorization.DataDomain:      true,
+		authorization.BackupsDomain:   true,
+		authorization.AliasesDomain:   true,
+		authorization.ReplicateDomain: true,
+	}
+
+	// Verify collection-scoped policies have the correct namespace prefix pattern (capitalized)
 	for _, p := range policies {
-		assert.Contains(t, p.Resource, "Tenanta__")
-		assert.Equal(t, conv.CRUD, p.Verb)
+		if collectionScopedDomains[p.Domain] {
+			assert.Contains(t, p.Resource, "Tenanta__")
+			assert.Equal(t, conv.CRUD, p.Verb)
+		}
+	}
+
+	// Verify users domain has READ verb and roles domain has READ_ALL verb
+	for _, p := range policies {
+		if p.Domain == authorization.UsersDomain {
+			assert.Equal(t, authorization.READ, p.Verb)
+		}
+		if p.Domain == authorization.RolesDomain {
+			assert.Equal(t, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), p.Verb)
+		}
 	}
 
 	// Verify domains are covered
@@ -682,4 +703,6 @@ func TestCreateNamespaceAdminPolicies(t *testing.T) {
 	assert.True(t, domains[authorization.BackupsDomain], "should have backups domain")
 	assert.True(t, domains[authorization.AliasesDomain], "should have aliases domain")
 	assert.True(t, domains[authorization.ReplicateDomain], "should have replicate domain")
+	assert.True(t, domains[authorization.UsersDomain], "should have users domain")
+	assert.True(t, domains[authorization.RolesDomain], "should have roles domain")
 }

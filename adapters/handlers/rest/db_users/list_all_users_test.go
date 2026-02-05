@@ -70,6 +70,8 @@ func TestSuccessListAll(t *testing.T) {
 				dynUser.On("GetRolesForUserOrGroup", staticUser, authentication.AuthTypeDb, false).Return(
 					map[string][]authorization.Policy{"role": {}}, nil)
 			}
+			// Mock GetUsers call for namespace lookup
+			dynUser.On("GetUsers", tt.principal.Username).Return(nil, nil).Maybe()
 
 			h := dynUserHandler{
 				dbUsers:              dynUser,
@@ -101,6 +103,8 @@ func TestSuccessListAllAfterImport(t *testing.T) {
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", exStaticUser, authentication.AuthTypeDb, false).Return(
 		map[string][]authorization.Policy{"role": {}}, nil)
+	// Mock GetUsers call for namespace lookup
+	dynUser.On("GetUsers", "root").Return(nil, nil).Maybe()
 
 	h := dynUserHandler{
 		dbUsers:              dynUser,
@@ -204,6 +208,8 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 			for _, user := range tt.userIds {
 				dynUser.On("GetRolesForUserOrGroup", user, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 			}
+			// Mock GetUsers call for namespace lookup
+			dynUser.On("GetUsers", "non-root").Return(nil, nil).Maybe()
 
 			var nodes []string
 			for i := range tt.nodeResponses {
@@ -244,6 +250,8 @@ func TestSuccessListForbidden(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{"test": {Id: "test"}}, nil)
+	// Mock GetUsers call for namespace lookup (returns the requester user with no namespace)
+	dynUser.On("GetUsers", "not-root").Return(map[string]*apikey.User{"not-root": {Id: "not-root", Namespace: ""}}, nil).Maybe()
 
 	log, _ := test.NewNullLogger()
 	h := dynUserHandler{

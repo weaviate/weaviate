@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -95,10 +96,32 @@ func SetupHandlers(
 func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	isRootUser := h.isRequestFromRootUser(principal)
+	isClusterAdmin := h.isRequestFromRootUser(principal)
 
 	if !h.dbUserEnabled {
 		return users.NewListAllUsersOK().WithPayload([]*models.DBUserInfo{})
+	}
+
+	// Get requester's namespace from their user record
+	requesterNs := ""
+	if principal != nil {
+		requesterNs = h.getUserNamespace(principal.Username)
+	}
+
+	// Handle namespace query param (admin-only filter)
+	filterNs := ""
+	if params.Namespace != nil && *params.Namespace != "" {
+		if !isClusterAdmin {
+			return users.NewListAllUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("namespace filter requires admin privileges")))
+		}
+		filterNs = *params.Namespace
+	}
+
+	// Determine effective namespace filter
+	// Admin explicit filter takes precedence, non-admins auto-filtered to their namespace
+	effectiveNs := filterNs
+	if effectiveNs == "" && !isClusterAdmin && requesterNs != "" {
+		effectiveNs = requesterNs
 	}
 
 	allDbUsers, err := h.dbUsers.GetUsers()
@@ -123,6 +146,11 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		},
 	)
 
+	// Apply namespace filter
+	if effectiveNs != "" {
+		filteredUsers = h.filterUsersByNamespace(filteredUsers, effectiveNs)
+	}
+
 	var usersWithTime map[string]time.Time
 	if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
 		usersWithTime = h.getLastUsed(filteredUsers)
@@ -132,29 +160,39 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
-		if isRootUser {
+		if isClusterAdmin {
 			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
 		}
 		var lastUsedTime time.Time
 		if val, ok := usersWithTime[dbUser.Id]; ok {
 			lastUsedTime = val
 		}
-		response, err = h.addToListAllResponse(response, dbUser.Id, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, &dbUser.CreatedAt, &lastUsedTime)
+
+		// Determine whether to show namespace and how to display role names
+		showNamespace := isClusterAdmin
+		cleanRoleNames := !isClusterAdmin && requesterNs != ""
+
+		response, err = h.addToListAllResponse(response, dbUser, string(models.UserTypeOutputDbUser), apiKeyFirstLetter, &lastUsedTime, showNamespace, cleanRoleNames, requesterNs)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
-		if isRootUser {
+		if isClusterAdmin {
 			allDynamicUsers[dbUser.Id] = struct{}{}
 		}
 	}
 
-	if isRootUser {
+	if isClusterAdmin {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
 			if _, ok := allDynamicUsers[staticUser]; ok {
 				// don't overwrite dynamic users with the same name. Can happen after import
 				continue
 			}
-			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", nil, nil)
+			// Static users don't have namespace info, create a minimal user object
+			staticUserObj := &apikey.User{
+				Id:     staticUser,
+				Active: true,
+			}
+			response, err = h.addToListAllResponse(response, staticUserObj, string(models.UserTypeOutputDbEnvUser), "", nil, true, false, "")
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 			}
@@ -164,28 +202,42 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id, userType string, active bool, apiKeyFirstLetter string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
-	roles, err := h.dbUsers.GetRolesForUserOrGroup(id, authentication.AuthTypeDb, false)
+func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, user *apikey.User, userType string, apiKeyFirstLetter string, lastusedAt *time.Time, showNamespace, cleanRoleNames bool, requesterNs string) ([]*models.DBUserInfo, error) {
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(user.Id, authentication.AuthTypeDb, false)
 	if err != nil {
 		return response, err
 	}
 
 	roleNames := make([]string, 0, len(roles))
 	for role := range roles {
-		roleNames = append(roleNames, role)
+		if cleanRoleNames {
+			// For namespace admins: only show roles belonging to their namespace, with cleaned names
+			if rbac.RoleBelongsToNamespace(role, requesterNs) {
+				roleNames = append(roleNames, rbac.CleanNamespaceRoleName(role, requesterNs))
+			}
+			// Skip non-namespace roles for namespace users (they shouldn't see global roles)
+		} else {
+			roleNames = append(roleNames, role)
+		}
 	}
 
 	resp := &models.DBUserInfo{
-		Active:             &active,
-		UserID:             &id,
+		Active:             &user.Active,
+		UserID:             &user.Id,
 		DbUserType:         &userType,
 		Roles:              roleNames,
 		APIKeyFirstLetters: apiKeyFirstLetter,
 	}
-	if createdAt != nil {
-		resp.CreatedAt = strfmt.DateTime(*createdAt)
+
+	// Show namespace field only to cluster admins
+	if showNamespace {
+		resp.Namespace = user.Namespace
 	}
-	if lastusedAt != nil {
+
+	if !user.CreatedAt.IsZero() {
+		resp.CreatedAt = strfmt.DateTime(user.CreatedAt)
+	}
+	if lastusedAt != nil && !lastusedAt.IsZero() {
 		resp.LastUsedAt = strfmt.DateTime(*lastusedAt)
 	}
 
@@ -661,4 +713,24 @@ func validateUserName(name string) error {
 		return fmt.Errorf("'%s' is not a valid user name", name)
 	}
 	return nil
+}
+
+// getUserNamespace returns the namespace for a user, or empty string for default namespace
+func (h *dynUserHandler) getUserNamespace(username string) string {
+	users, err := h.dbUsers.GetUsers(username)
+	if err != nil || len(users) == 0 {
+		return ""
+	}
+	return users[username].Namespace
+}
+
+// filterUsersByNamespace filters users to only those belonging to the specified namespace
+func (h *dynUserHandler) filterUsersByNamespace(users []*apikey.User, namespace string) []*apikey.User {
+	filtered := make([]*apikey.User, 0)
+	for _, user := range users {
+		if user.Namespace == namespace {
+			filtered = append(filtered, user)
+		}
+	}
+	return filtered
 }

@@ -55,6 +55,10 @@ type ListAllUsersParams struct {
 	  Default: false
 	*/
 	IncludeLastUsedTime *bool
+	/*Filter users by namespace (cluster admin only). When specified, only users belonging to the given namespace are returned.
+	  In: query
+	*/
+	Namespace *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,6 +74,11 @@ func (o *ListAllUsersParams) BindRequest(r *http.Request, route *middleware.Matc
 
 	qIncludeLastUsedTime, qhkIncludeLastUsedTime, _ := qs.GetOK("includeLastUsedTime")
 	if err := o.bindIncludeLastUsedTime(qIncludeLastUsedTime, qhkIncludeLastUsedTime, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qNamespace, qhkNamespace, _ := qs.GetOK("namespace")
+	if err := o.bindNamespace(qNamespace, qhkNamespace, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -98,6 +107,24 @@ func (o *ListAllUsersParams) bindIncludeLastUsedTime(rawData []string, hasKey bo
 		return errors.InvalidType("includeLastUsedTime", "query", "bool", raw)
 	}
 	o.IncludeLastUsedTime = &value
+
+	return nil
+}
+
+// bindNamespace binds and validates parameter Namespace from query.
+func (o *ListAllUsersParams) bindNamespace(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.Namespace = &raw
 
 	return nil
 }

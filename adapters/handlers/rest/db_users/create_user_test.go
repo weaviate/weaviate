@@ -145,6 +145,7 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("EnsureNamespaceRoleForUser", user, "", mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -165,6 +166,7 @@ func TestCreateSuccessWithKey(t *testing.T) {
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("CreateUserWithKey", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("EnsureNamespaceRoleForUser", user, "", mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:              dynUser,

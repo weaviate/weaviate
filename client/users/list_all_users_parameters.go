@@ -79,6 +79,12 @@ type ListAllUsersParams struct {
 	*/
 	IncludeLastUsedTime *bool
 
+	/* Namespace.
+
+	   Filter users by namespace (cluster admin only). When specified, only users belonging to the given namespace are returned.
+	*/
+	Namespace *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -154,6 +160,17 @@ func (o *ListAllUsersParams) SetIncludeLastUsedTime(includeLastUsedTime *bool) {
 	o.IncludeLastUsedTime = includeLastUsedTime
 }
 
+// WithNamespace adds the namespace to the list all users params
+func (o *ListAllUsersParams) WithNamespace(namespace *string) *ListAllUsersParams {
+	o.SetNamespace(namespace)
+	return o
+}
+
+// SetNamespace adds the namespace to the list all users params
+func (o *ListAllUsersParams) SetNamespace(namespace *string) {
+	o.Namespace = namespace
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ListAllUsersParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -174,6 +191,23 @@ func (o *ListAllUsersParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 		if qIncludeLastUsedTime != "" {
 
 			if err := r.SetQueryParam("includeLastUsedTime", qIncludeLastUsedTime); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.Namespace != nil {
+
+		// query param namespace
+		var qrNamespace string
+
+		if o.Namespace != nil {
+			qrNamespace = *o.Namespace
+		}
+		qNamespace := qrNamespace
+		if qNamespace != "" {
+
+			if err := r.SetQueryParam("namespace", qNamespace); err != nil {
 				return err
 			}
 		}
