@@ -111,7 +111,7 @@ type Distancer struct {
 	pool sync.Pool
 }
 
-func NewDistancer(quantizer *compressionhelpers.BinaryRotationalQuantizer, distancer distancer.Provider, dims uint32) *Distancer {
+func NewDistancer(quantizer *compressionhelpers.BinaryRotationalQuantizer, distancer distancer.Provider) *Distancer {
 	return &Distancer{
 		quantizer: quantizer,
 		distancer: distancer,
@@ -128,10 +128,11 @@ func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, erro
 	bufA := d.pool.Get().(*[]uint64)
 	bufB := d.pool.Get().(*[]uint64)
 
-	*bufA = d.quantizer.FromCompressedBytesWithSubsliceBuffer(a, bufA)
-	*bufB = d.quantizer.FromCompressedBytesWithSubsliceBuffer(b, bufB)
+	*bufA = d.quantizer.FromCompressedBytesInto(a, *bufA)
+	*bufB = d.quantizer.FromCompressedBytesInto(b, *bufB)
 
 	distance, err := d.quantizer.DistanceBetweenCompressedVectors(*bufA, *bufB)
+
 	d.pool.Put(bufA)
 	d.pool.Put(bufB)
 
