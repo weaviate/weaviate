@@ -356,7 +356,7 @@ function run_acceptance_tests() {
 }
 
 # get_fast_acceptance_packages returns a list of fast acceptance test packages.
-# It excludes slow test categories (replication, graphql, authz, etc.) but includes stress tests.
+# It excludes slow test categories (replication, graphql, authz, mcp, etc.) but includes stress tests.
 # The returned paths are normalized to "test/acceptance/..." format.
 function get_fast_acceptance_packages() {
   # fast acceptance tests minus slow acceptance tests
@@ -366,6 +366,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/graphql_resolvers' \
     | grep -v 'test/acceptance_lsmkv' \
     | grep -v 'test/acceptance/authz' \
+    | grep -v 'test/acceptance/mcp' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
