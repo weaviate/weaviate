@@ -264,7 +264,6 @@ func (h *HFresh) stopTaskQueues() error {
 		h.taskQueue.mergeQueue,
 	} {
 		queue.Pause()
-		queue.Wait()
 		err := queue.Flush()
 		if err != nil {
 			return err
