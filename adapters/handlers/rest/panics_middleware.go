@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"runtime/debug"
 	"syscall"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
@@ -52,7 +52,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 		// This was not expected, so we want to print the stack, this will help us
 		// find the source of the issue if the user sends their logs
 		metricRequestsTotal.logServerError("", fmt.Errorf("%v", recovered))
-		debug.PrintStack()
+		enterrors.PrintStack(logger)
 		return
 	}
 
@@ -82,7 +82,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 
 	entsentry.Recover(r)
 
-	debug.PrintStack()
+	enterrors.PrintStack(logger)
 }
 
 func handleBrokenPipe(err error, logger logrus.FieldLogger, r *http.Request) {

@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"runtime/debug"
 
 	"github.com/sirupsen/logrus"
 
@@ -85,7 +84,7 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 			if r := recover(); r != nil {
 				entsentry.Recover(r)
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
-				debug.PrintStack()
+				PrintStack(egw.logger)
 				egw.returnError = fmt.Errorf("panic occurred: %v", r)
 				egw.cancelCtx()
 			}
