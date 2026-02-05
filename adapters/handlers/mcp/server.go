@@ -13,8 +13,7 @@ package mcp
 
 import (
 	"context"
-	"os"
-	"strings"
+	"fmt"
 	"time"
 
 	"github.com/mark3labs/mcp-go/server"
@@ -59,11 +58,12 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 }
 
 func (s *MCPServer) Serve() {
-	sse := server.NewStreamableHTTPServer(s.server)
-	if err := sse.Start("0.0.0.0:9000"); err != nil {
+	httpServer := server.NewStreamableHTTPServer(s.server)
+	addr := fmt.Sprintf("0.0.0.0:%d", s.state.ServerConfig.Config.MCP.Port)
+	if err := httpServer.Start(addr); err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := sse.Shutdown(ctx); err != nil {
+		if err := httpServer.Shutdown(ctx); err != nil {
 			panic(err)
 		}
 	}
@@ -71,7 +71,8 @@ func (s *MCPServer) Serve() {
 
 func (s *MCPServer) registerTools() {
 	// Load configuration for custom tool descriptions
-	config := internal.LoadConfig(s.state.Logger)
+	configPath := s.state.ServerConfig.Config.MCP.ConfigPath
+	config := internal.LoadConfig(s.state.Logger, configPath)
 	descriptions := config.ToDescriptionMap()
 
 	s.server.AddTools(search.Tools(s.searcher, descriptions)...)
@@ -79,8 +80,7 @@ func (s *MCPServer) registerTools() {
 
 	// Write access is disabled by default. It is enabled only when
 	// MCP_SERVER_WRITE_ACCESS_DISABLED is set to "false" (case-insensitive).
-	writeDisabled := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED")
-	if strings.ToLower(writeDisabled) == "false" {
+	if !s.state.ServerConfig.Config.MCP.WriteAccessDisabled {
 		s.server.AddTools(create.Tools(s.creator, descriptions)...)
 	}
 }

@@ -33,8 +33,7 @@ type Config struct {
 
 // LoadConfig loads the MCP configuration from a YAML or JSON file
 // Returns nil if no config file is specified or if loading fails
-func LoadConfig(logger logrus.FieldLogger) *Config {
-	configPath := os.Getenv("MCP_SERVER_CONFIG_PATH")
+func LoadConfig(logger logrus.FieldLogger, configPath string) *Config {
 	if configPath == "" {
 		return nil
 	}

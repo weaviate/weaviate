@@ -18,6 +18,9 @@ import (
 )
 
 func startMcpServer(server *mcp.MCPServer, state *state.State) {
+	if !state.ServerConfig.Config.MCP.Enabled {
+		return
+	}
 	enterrors.GoWrapper(func() {
 		server.Serve()
 	}, state.Logger)
