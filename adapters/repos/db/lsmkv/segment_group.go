@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -682,6 +683,15 @@ func (sg *SegmentGroup) getManyBySecondaryWithSegmentList(segments []Segment,
 		}
 		return
 	}
+
+	if len(segments) == 0 || len(seckeys) == 0 {
+		return
+	}
+
+	// TODO aliszka:many avoid copy?
+	cpy := make(map[int][]byte, len(seckeys))
+	maps.Copy(cpy, seckeys)
+	seckeys = cpy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
