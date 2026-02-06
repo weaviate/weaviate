@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -116,8 +117,13 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			// make sure to unlock the requestRunning flag when all deletions are done
 			defer d.requestRunning.Store(false)
 
-			var err error
 			started := time.Now()
+
+			metrics := monitoring.GetMetrics()
+			metrics.IncObjectsTtlCount()
+			metrics.IncObjectsTtlRunning()
+
+			var err error
 			// count objects deleted per collection
 			objsDeletedCounters := make(objectttl.DeletedCounters, len(body))
 			colNames := make([]string, len(body))
@@ -131,12 +137,20 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				"collections_count": len(colNames),
 			}).Info("incoming ttl deletion on remote node started")
 			defer func() {
+				took := time.Since(started)
+
 				// add fields c_{collection_name}=>{count_deleted} and total_deleted=>{total_deleted}
-				fields := objsDeletedCounters.ToLogFields(16)
-				fields["took"] = time.Since(started).String()
+				fields, total := objsDeletedCounters.ToLogFields(16)
+				fields["took"] = took.String()
 				logger = logger.WithFields(fields)
 
+				metrics.DecObjectsTtlRunning()
+				metrics.ObserveObjectsTtlDuration(took)
+				metrics.AddObjectsTtlObjectsDeleted(float64(total))
+
 				if err != nil {
+					metrics.IncObjectsTtlFailureCount()
+
 					logger.WithError(err).Error("incoming ttl deletion on remote node failed")
 					return
 				}
