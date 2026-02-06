@@ -672,6 +672,32 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 	return nil, nil, nil, lsmkv.NotFound
 }
 
+func (sg *SegmentGroup) getManyBySecondaryWithSegmentList(segments []Segment,
+	pos int, seckeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		err = fmt.Errorf("SegmentGroup::getManyBySecondaryWithSegmentList(): %w", err)
+		for i := range seckeys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	// TODO aliszka:many waited warning
+	for i := len(segments) - 1; i >= 0 && len(seckeys) > 0; i-- {
+		segments[i].getManyBySecondary(pos, seckeys, outVals, outErrs)
+
+		// TODO aliszka:many wrap !not found err
+		for j := range seckeys {
+			if err, ok := outErrs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(seckeys, j)
+			}
+		}
+	}
+}
+
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
 	var out []value
 

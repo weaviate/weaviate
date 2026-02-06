@@ -37,13 +37,14 @@ import (
 
 type memtable interface {
 	get(key []byte) ([]byte, error)
-	getMany(keys [][]byte) (map[int][]byte, map[int]error)
 	getBySecondary(pos int, key []byte) ([]byte, error)
-	getManyBySecondary(pos int, keys [][]byte) (map[int][]byte, map[int]error)
 	exists(key []byte) error
 	put(key, value []byte, opts ...SecondaryKeyOption) error
 	setTombstone(key []byte, opts ...SecondaryKeyOption) error
 	setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error
+
+	getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
+	getManyBySecondary(pos int, keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
 
 	getCollection(key []byte) ([]value, error)
 	getMap(key []byte) ([]MapPair, error)
@@ -211,35 +212,29 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	return m.key.get(key)
 }
 
-func (m *Memtable) getMany(keys [][]byte) (map[int][]byte, map[int]error) {
+func (m *Memtable) getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
 	start := time.Now()
-	defer m.metrics.observeGet(start.UnixNano())
-
-	ln := len(keys)
-	errs := make(map[int]error, ln)
+	defer m.metrics.observeGet(start.UnixNano()) // TODO aliszka:many separate for get many?
 
 	if m.strategy != StrategyReplace {
 		err := errors.Errorf("get only possible with strategy 'replace'")
 		for i := range keys {
-			errs[i] = err
+			outErrs[i] = err
 		}
-		return nil, errs
+		return
 	}
 
 	m.RLock()
 	defer m.RUnlock()
 
-	vals := make(map[int][]byte, ln)
 	for i := range keys {
 		val, err := m.key.get(keys[i])
 		if err != nil {
-			errs[i] = err
+			outErrs[i] = err
 		} else {
-			vals[i] = val
+			outVals[i] = val
 		}
 	}
-
-	return vals, errs
 }
 
 // exists checks if a key exists and is not deleted, without returning the value.
@@ -274,41 +269,35 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	return m.key.get(primary)
 }
 
-func (m *Memtable) getManyBySecondary(pos int, keys [][]byte) (map[int][]byte, map[int]error) {
+func (m *Memtable) getManyBySecondary(pos int, keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
 	start := time.Now()
-	defer m.metrics.observeGetBySecondary(start.UnixNano())
-
-	ln := len(keys)
-	errs := make(map[int]error, ln)
+	defer m.metrics.observeGetBySecondary(start.UnixNano()) // TODO aliszka:many separate for get many?
 
 	if m.strategy != StrategyReplace {
 		err := errors.Errorf("get only possible with strategy 'replace'")
 		for i := range keys {
-			errs[i] = err
+			outErrs[i] = err
 		}
-		return nil, errs
+		return
 	}
 
 	m.RLock()
 	defer m.RUnlock()
 
-	vals := make(map[int][]byte, ln)
 	for i := range keys {
 		primary := m.secondaryToPrimary[pos][string(keys[i])]
 		if primary == nil {
-			errs[i] = lsmkv.NotFound
+			outErrs[i] = lsmkv.NotFound
 			continue
 		}
 
 		val, err := m.key.get(primary)
 		if err != nil {
-			errs[i] = err
+			outErrs[i] = err
 		} else {
-			vals[i] = val
+			outVals[i] = val
 		}
 	}
-
-	return vals, errs
 }
 
 func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {

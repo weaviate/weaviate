@@ -183,6 +183,10 @@ func (f *fakeSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte
 	panic("not implemented")
 }
 
+func (f *fakeSegment) getManyBySecondary(pos int, seckeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	panic("not implemented")
+}
+
 func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	f.getCounter++
 
