@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -605,6 +606,41 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 	return nil, lsmkv.NotFound
 }
 
+func (sg *SegmentGroup) getManyWithSegmentList(segments []Segment,
+	keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		err = fmt.Errorf("SegmentGroup::getManyBySecondaryWithSegmentList(): %w", err)
+		for i := range keys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	if len(segments) == 0 || len(keys) == 0 {
+		return
+	}
+
+	// TODO aliszka:many avoid copy?
+	cpy := make(map[int][]byte, len(keys))
+	maps.Copy(cpy, keys)
+	keys = cpy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	// TODO aliszka:many waited warning
+	for i := len(segments) - 1; i >= 0 && len(keys) > 0; i-- {
+		segments[i].getMany(keys, outVals, outErrs)
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFound err
+		for j := range keys {
+			if err, ok := outErrs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(keys, j)
+			}
+		}
+	}
+}
+
 // existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
 // This is more efficient than getWithSegmentList() when only existence check is needed.
 func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) error {
@@ -639,6 +675,39 @@ func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) er
 	return lsmkv.NotFound
 }
 
+func (sg *SegmentGroup) existManyWithSegmentList(segments []Segment, keys map[int][]byte, outErrs map[int]error) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		err := fmt.Errorf("SegmentGroup::existsWithSegmentList(): %w", err)
+		for i := range keys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	if len(segments) == 0 || len(keys) == 0 {
+		return
+	}
+
+	// TODO aliszka:many avoid copy?
+	cpy := make(map[int][]byte, len(keys))
+	maps.Copy(cpy, keys)
+	keys = cpy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	// TODO aliszka:many waited warning
+	for i := len(segments) - 1; i >= 0 && len(keys) > 0; i-- {
+		segments[i].existMany(keys, outErrs)
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFound err
+		for k := range keys {
+			if err, ok := outErrs[k]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(keys, k)
+			}
+		}
+	}
+}
+
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
 ) ([]byte, []byte, []byte, error) {
@@ -670,6 +739,41 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 		}
 	}
 	return nil, nil, nil, lsmkv.NotFound
+}
+
+func (sg *SegmentGroup) getManyBySecondaryWithSegmentList(segments []Segment,
+	pos int, seckeys map[int][]byte, outPkeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		err = fmt.Errorf("SegmentGroup::getManyBySecondaryWithSegmentList(): %w", err)
+		for i := range seckeys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	if len(segments) == 0 || len(seckeys) == 0 {
+		return
+	}
+
+	// TODO aliszka:many avoid copy?
+	cpy := make(map[int][]byte, len(seckeys))
+	maps.Copy(cpy, seckeys)
+	seckeys = cpy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	// TODO aliszka:many waited warning
+	for i := len(segments) - 1; i >= 0 && len(seckeys) > 0; i-- {
+		segments[i].getManyBySecondary(pos, seckeys, outPkeys, outVals, outErrs)
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !not found err
+		for j := range seckeys {
+			if err, ok := outErrs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(seckeys, j)
+			}
+		}
+	}
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {

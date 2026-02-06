@@ -212,9 +212,19 @@ func (s *lazySegment) get(key []byte) ([]byte, error) {
 	return s.segment.get(key)
 }
 
+func (s *lazySegment) getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	s.mustLoad()
+	s.segment.getMany(keys, outVals, outErrs)
+}
+
 func (s *lazySegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	s.mustLoad()
 	return s.segment.getBySecondary(pos, key, buffer)
+}
+
+func (s *lazySegment) getManyBySecondary(pos int, seckeys map[int][]byte, outPkeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	s.mustLoad()
+	s.segment.getManyBySecondary(pos, seckeys, outPkeys, outVals, outErrs)
 }
 
 func (s *lazySegment) getCollection(key []byte) ([]value, error) {
@@ -389,6 +399,11 @@ func (s *lazySegment) exists(key []byte) error {
 		return fmt.Errorf("lazySegment::exists: %w", err)
 	}
 	return s.segment.exists(key)
+}
+
+func (s *lazySegment) existMany(keys map[int][]byte, outErrs map[int]error) {
+	s.mustLoad()
+	s.segment.existMany(keys, outErrs)
 }
 
 func (s *lazySegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {

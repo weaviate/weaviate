@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -2461,4 +2462,279 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		assert.True(t, errors.Is(existsErr, lsmkv.Deleted))
 		assert.True(t, errors.Is(getErr, lsmkv.Deleted))
 	})
+}
+
+func _pkey(c int) []byte {
+	return []byte(fmt.Sprintf("key-%d", c))
+}
+func _seckey(c int) []byte {
+	return []byte(fmt.Sprintf("seckey-%d", c))
+}
+func _value(c int) []byte {
+	return []byte(fmt.Sprintf("value-%d", c))
+}
+
+func _initBucketReplace(t testing.TB, rnd *rand.Rand, totalObjects int) *Bucket {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	minSegments := 10
+	maxSegments := 20
+	nSegments := minSegments + rnd.Intn(maxSegments-minSegments+1)
+	avgObjects := totalObjects / (nSegments + 1) // additional 1 for memtable
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(ctx))
+	})
+
+	counter := 1
+	for range nSegments {
+		for range avgObjects + rnd.Intn(5) - 2 { // avg ± 2
+			err := b.Put(_pkey(counter), _value(counter), WithSecondaryKey(0, _seckey(counter)))
+			require.NoError(t, err)
+			counter++
+		}
+		err := b.FlushAndSwitch()
+		require.NoError(t, err)
+	}
+	for ; counter <= totalObjects; counter++ {
+		err := b.Put(_pkey(counter), _value(counter), WithSecondaryKey(0, _seckey(counter)))
+		require.NoError(t, err)
+	}
+
+	return b
+}
+
+func TestBucket_GetManyBySecondary(t *testing.T) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	b := _initBucketReplace(t, rnd, totalObjects)
+
+	n := 50
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+	for range 10 {
+		for i := range n {
+			ids[i] = 1 + rnd.Intn(totalObjects)
+			seckeys[i] = _seckey(ids[i])
+		}
+
+		vals, errs := b.getManyBySecondary(0, seckeys)
+		require.Len(t, vals, n)
+		require.Len(t, errs, 0)
+
+		for i := range n {
+			assert.Equal(t, _value(ids[i]), vals[i])
+		}
+	}
+}
+
+func TestBucket_GetMany(t *testing.T) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	b := _initBucketReplace(t, rnd, totalObjects)
+
+	n := 50
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+	for range 10 {
+		for i := range n {
+			ids[i] = 1 + rnd.Intn(totalObjects)
+			keys[i] = _pkey(ids[i])
+		}
+
+		vals, errs := b.getMany(keys)
+		require.Len(t, vals, n)
+		require.Len(t, errs, 0)
+
+		for i := range n {
+			assert.Equal(t, _value(ids[i]), vals[i])
+		}
+	}
+}
+
+func BenchmarkBucket_GetManyBySecondary(b *testing.B) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				seckeys[i] = _seckey(id)
+			}
+
+			for b.Loop() {
+				bucket.getManyBySecondary(0, seckeys)
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetBySecondaryN(b *testing.B) {
+	ctx := context.Background()
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				seckeys[i] = _seckey(id)
+			}
+
+			for b.Loop() {
+				for i := range n {
+					bucket.getBySecondary(ctx, 0, seckeys[i], nil)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetBySecondaryNView(b *testing.B) {
+	ctx := context.Background()
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				seckeys[i] = _seckey(id)
+			}
+
+			for b.Loop() {
+				func() {
+					view := bucket.GetConsistentView()
+					defer view.ReleaseView()
+					for i := range n {
+						bucket.getBySecondaryCore(ctx, 0, seckeys[i], nil, view, 0, "lsm_get_by_secondary")
+					}
+				}()
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetMany(b *testing.B) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				keys[i] = _pkey(id)
+			}
+
+			for b.Loop() {
+				bucket.getMany(keys)
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetN(b *testing.B) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				keys[i] = _pkey(id)
+			}
+
+			for b.Loop() {
+				for i := range n {
+					bucket.get(keys[i])
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetNView(b *testing.B) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				keys[i] = _pkey(id)
+			}
+
+			for b.Loop() {
+				func() {
+					view := bucket.GetConsistentView()
+					defer view.ReleaseView()
+					for i := range n {
+						bucket.getWithConsistentView(keys[i], view)
+					}
+				}()
+			}
+		})
+	}
 }

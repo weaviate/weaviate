@@ -715,6 +715,8 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	beforeSegments := time.Now()
 	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	// return k, v, err
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -739,6 +741,96 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	return v, allocBuf, nil
 }
 
+// TODO aliszka:many add slow query
+func (b *Bucket) getMany(keys [][]byte) (vals map[int][]byte, errs map[int]error) {
+	ln := len(keys)
+
+	vals = make(map[int][]byte, ln)
+	errs = make(map[int]error, ln)
+	pkeys := make(map[int][]byte, ln)
+	for i := range keys {
+		pkeys[i] = keys[i]
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	memtables, count := viewMemtables(view)
+	for i := range count {
+		b.getManyFromMemtable(memtables[i], memtableNames[i], pkeys, vals, errs)
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFfound error?
+		for j := range pkeys {
+			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(pkeys, j)
+			}
+		}
+	}
+
+	b.getManyFromSegmentGroup(view.Disk, pkeys, vals, errs)
+
+	for i := range errs {
+		delete(vals, i)
+	}
+	return vals, errs
+}
+
+// TODO aliszka:many add slow query
+func (b *Bucket) getManyBySecondary(pos int, keys [][]byte) (vals map[int][]byte, errs map[int]error) {
+	ln := len(keys)
+	errs = make(map[int]error, ln)
+
+	if pos >= int(b.secondaryIndices) {
+		err := fmt.Errorf("no secondary index at pos %d", pos)
+		for i := range keys {
+			errs[i] = err
+		}
+		return nil, errs
+	}
+
+	vals = make(map[int][]byte, ln)
+	seckeys := make(map[int][]byte, ln)
+	for i := range keys {
+		seckeys[i] = keys[i]
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	memtables, count := viewMemtables(view)
+	for i := range count {
+		b.getManyBySecondaryFromMemtable(memtables[i], memtableNames[i], pos, seckeys, vals, errs)
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFfound error?
+		for j := range seckeys {
+			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(seckeys, j)
+			}
+		}
+	}
+
+	pkeys := make(map[int][]byte, len(seckeys))
+	b.getManyBySecondaryFromSegmentGroup(view.Disk, pos, seckeys, pkeys, vals, errs)
+
+	// recheck using primary keys, as values returned might actually be deleted
+	for i := range count {
+		memtables[i].existMany(pkeys, errs)
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFound error?
+		for j := range pkeys {
+			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(pkeys, i)
+			}
+		}
+	}
+	b.disk.existManyWithSegmentList(view.Disk, pkeys, errs)
+
+	for i := range errs {
+		delete(vals, i)
+	}
+
+	return vals, errs
+}
 func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string) (v []byte, err error) {
 	op := "get"
 
@@ -763,6 +855,40 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 	}()
 
 	return memtable.get(key)
+}
+
+func (b *Bucket) getManyFromMemtable(memtable memtable, component string,
+	keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	op := "getmany"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		if duration := time.Since(start); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_%s_%s", op, component),
+			}).Debug("Waited more than 100ms to retrieve objects from memtable")
+		}
+
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		errsCount := 0
+		for i := range keys {
+			if err := outErrs[i]; err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+				errsCount++
+			}
+		}
+		if errsCount > 0 {
+			b.metrics.AddBucketReadOpFailureCountByComponent(op, component, errsCount)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	memtable.getMany(keys, outVals, outErrs)
 }
 
 func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable memtable, component string,
@@ -792,6 +918,40 @@ func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable mem
 	return memtable.getBySecondary(pos, seckey)
 }
 
+func (b *Bucket) getManyBySecondaryFromMemtable(memtable memtable, component string,
+	pos int, seckeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	op := "getmanybysecondary"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		if duration := time.Since(start); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_%s_%s", op, component),
+			}).Debug("Waited more than 100ms to retrieve objects from memtable")
+		}
+
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		errsCount := 0
+		for i := range seckeys {
+			if err := outErrs[i]; err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+				errsCount++
+			}
+		}
+		if errsCount > 0 {
+			b.metrics.AddBucketReadOpFailureCountByComponent(op, component, errsCount)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	memtable.getManyBySecondary(pos, seckeys, outVals, outErrs)
+}
+
 func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, err error) {
 	op := "get"
 	component := "segment_group"
@@ -810,6 +970,35 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 	}()
 
 	return b.disk.getWithSegmentList(key, segments)
+}
+
+func (b *Bucket) getManyFromSegmentGroup(segments []Segment,
+	keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	op := "getmany"
+	component := "segment_group"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+
+		errsCount := 0
+		for i := range keys {
+			if err := outErrs[i]; err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+				errsCount++
+			}
+		}
+		if errsCount > 0 {
+			b.metrics.AddBucketReadOpFailureCountByComponent(op, component, errsCount)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	b.disk.getManyWithSegmentList(segments, keys, outVals, outErrs)
 }
 
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
@@ -831,6 +1020,35 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 	}()
 
 	return b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, segments)
+}
+
+func (b *Bucket) getManyBySecondaryFromSegmentGroup(segments []Segment,
+	pos int, seckeys map[int][]byte, outPkeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	op := "getmanybysecondary"
+	component := "segment_group"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+
+		errsCount := 0
+		for i := range seckeys {
+			if err := outErrs[i]; err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+				errsCount++
+			}
+		}
+		if errsCount > 0 {
+			b.metrics.AddBucketReadOpFailureCountByComponent(op, component, errsCount)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	b.disk.getManyBySecondaryWithSegmentList(segments, pos, seckeys, outPkeys, outVals, outErrs)
 }
 
 // SetList returns all Set entries for a given key.

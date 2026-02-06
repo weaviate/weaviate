@@ -58,8 +58,11 @@ type Segment interface {
 	close() error
 	dropMarked() error
 	get(key []byte) ([]byte, error)
+	getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
 	exists(key []byte) error
+	existMany(keys map[int][]byte, outErrs map[int]error)
 	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
+	getManyBySecondary(pos int, seckeys map[int][]byte, outPkeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
 	isLoaded() bool
