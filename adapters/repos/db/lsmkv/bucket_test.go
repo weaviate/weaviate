@@ -2620,6 +2620,39 @@ func BenchmarkBucket_GetBySecondaryN(b *testing.B) {
 	}
 }
 
+func BenchmarkBucket_GetBySecondaryNView(b *testing.B) {
+	ctx := context.Background()
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				seckeys[i] = _seckey(id)
+			}
+
+			for b.Loop() {
+				func() {
+					view := bucket.GetConsistentView()
+					defer view.ReleaseView()
+					for i := range n {
+						bucket.getBySecondaryCore(ctx, 0, seckeys[i], nil, view, 0, "lsm_get_by_secondary")
+					}
+				}()
+			}
+		})
+	}
+}
+
 func BenchmarkBucket_GetMany(b *testing.B) {
 	seed := int64(1770395573657835000)
 	rnd := rand.New(rand.NewSource(seed))
@@ -2669,6 +2702,38 @@ func BenchmarkBucket_GetN(b *testing.B) {
 				for i := range n {
 					bucket.get(keys[i])
 				}
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetNView(b *testing.B) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				keys[i] = _pkey(id)
+			}
+
+			for b.Loop() {
+				func() {
+					view := bucket.GetConsistentView()
+					defer view.ReleaseView()
+					for i := range n {
+						bucket.getWithConsistentView(keys[i], view)
+					}
+				}()
 			}
 		})
 	}
