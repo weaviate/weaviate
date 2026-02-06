@@ -84,6 +84,11 @@ func (db *DB) init(ctx context.Context) error {
 
 			isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 
+			localShardsCount, err := db.schemaReader.LocalShardsCount(class.Class)
+			if err != nil {
+				return fmt.Errorf("get local shards for class %q: %w", class.Class, err)
+			}
+
 			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)
 			if err != nil {
 				return fmt.Errorf("async replication config: %w", err)
@@ -100,35 +105,41 @@ func (db *DB) init(ctx context.Context) error {
 			).Build()
 			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			idx, err := NewIndex(ctx, IndexConfig{
-				ClassName:                                    schema.ClassName(class.Class),
-				RootPath:                                     db.config.RootPath,
-				ResourceUsage:                                db.config.ResourceUsage,
-				QueryMaximumResults:                          db.config.QueryMaximumResults,
-				QueryHybridMaximumResults:                    db.config.QueryHybridMaximumResults,
-				QueryNestedRefLimit:                          db.config.QueryNestedRefLimit,
-				MemtablesFlushDirtyAfter:                     db.config.MemtablesFlushDirtyAfter,
-				MemtablesInitialSizeMB:                       db.config.MemtablesInitialSizeMB,
-				MemtablesMaxSizeMB:                           db.config.MemtablesMaxSizeMB,
-				MemtablesMinActiveSeconds:                    db.config.MemtablesMinActiveSeconds,
-				MemtablesMaxActiveSeconds:                    db.config.MemtablesMaxActiveSeconds,
-				MinMMapSize:                                  db.config.MinMMapSize,
-				LazySegmentsDisabled:                         db.config.LazySegmentsDisabled,
-				SegmentInfoIntoFileNameEnabled:               db.config.SegmentInfoIntoFileNameEnabled,
-				WriteMetadataFilesEnabled:                    db.config.WriteMetadataFilesEnabled,
-				MaxReuseWalSize:                              db.config.MaxReuseWalSize,
-				SegmentsCleanupIntervalSeconds:               db.config.SegmentsCleanupIntervalSeconds,
-				SeparateObjectsCompactions:                   db.config.SeparateObjectsCompactions,
-				CycleManagerRoutinesFactor:                   db.config.CycleManagerRoutinesFactor,
-				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
-				ObjectsTTLBatchSize:                          db.config.ObjectsTTLBatchSize,
-				ObjectsTTLPauseEveryNoBatches:                db.config.ObjectsTTLPauseEveryNoBatches,
-				ObjectsTTLPauseDuration:                      db.config.ObjectsTTLPauseDuration,
-				MaxSegmentSize:                               db.config.MaxSegmentSize,
-				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
-				TrackVectorDimensionsInterval:                db.config.TrackVectorDimensionsInterval,
-				UsageEnabled:                                 db.config.UsageEnabled,
-				AvoidMMap:                                    db.config.AvoidMMap,
-				EnableLazyLoadShards:                         db.config.EnableLazyLoadShards,
+				ClassName:                      schema.ClassName(class.Class),
+				RootPath:                       db.config.RootPath,
+				ResourceUsage:                  db.config.ResourceUsage,
+				QueryMaximumResults:            db.config.QueryMaximumResults,
+				QueryHybridMaximumResults:      db.config.QueryHybridMaximumResults,
+				QueryNestedRefLimit:            db.config.QueryNestedRefLimit,
+				MemtablesFlushDirtyAfter:       db.config.MemtablesFlushDirtyAfter,
+				MemtablesInitialSizeMB:         db.config.MemtablesInitialSizeMB,
+				MemtablesMaxSizeMB:             db.config.MemtablesMaxSizeMB,
+				MemtablesMinActiveSeconds:      db.config.MemtablesMinActiveSeconds,
+				MemtablesMaxActiveSeconds:      db.config.MemtablesMaxActiveSeconds,
+				MinMMapSize:                    db.config.MinMMapSize,
+				LazySegmentsDisabled:           db.config.LazySegmentsDisabled,
+				SegmentInfoIntoFileNameEnabled: db.config.SegmentInfoIntoFileNameEnabled,
+				WriteMetadataFilesEnabled:      db.config.WriteMetadataFilesEnabled,
+				MaxReuseWalSize:                db.config.MaxReuseWalSize,
+				SegmentsCleanupIntervalSeconds: db.config.SegmentsCleanupIntervalSeconds,
+				SeparateObjectsCompactions:     db.config.SeparateObjectsCompactions,
+				CycleManagerRoutinesFactor:     db.config.CycleManagerRoutinesFactor,
+				IndexRangeableInMemory:         db.config.IndexRangeableInMemory,
+				ObjectsTTLBatchSize:            db.config.ObjectsTTLBatchSize,
+				ObjectsTTLPauseEveryNoBatches:  db.config.ObjectsTTLPauseEveryNoBatches,
+				ObjectsTTLPauseDuration:        db.config.ObjectsTTLPauseDuration,
+				MaxSegmentSize:                 db.config.MaxSegmentSize,
+				TrackVectorDimensions:          db.config.TrackVectorDimensions,
+				TrackVectorDimensionsInterval:  db.config.TrackVectorDimensionsInterval,
+				UsageEnabled:                   db.config.UsageEnabled,
+				AvoidMMap:                      db.config.AvoidMMap,
+				EnableLazyLoadShards: applyLazyShardAutoDetection(
+					isMultiTenant,
+					localShardsCount,
+					0,
+					db.config.LazyLoadShardCountThreshold,
+					db.config.LazyLoadShardSizeThresholdGB,
+				),
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
@@ -188,6 +199,33 @@ func (db *DB) init(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// ApplyLazyShardAutoDetection decides, for a single collection, whether lazy
+// shard loading should be enabled based on schema characteristics.
+//
+// Lazy loading is considered beneficial when multi-tenancy is enabled AND either:
+//   - the number of (local) shards exceeds the count threshold, OR
+//   - the total size of all local shards exceeds the size threshold
+//
+// Thresholds:
+//   - Count: defaults to 1000, customizable via LAZY_LOAD_SHARD_COUNT_THRESHOLD
+//   - Size: defaults to 100GB, customizable via LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB
+//
+// Returns true if lazy loading should be enabled for this collection.
+func applyLazyShardAutoDetection(mtEnabled bool, localShardCount int, totalShardSizeBytes uint64, countThreshold int, sizeThresholdGB float64) bool {
+	if !mtEnabled {
+		return false
+	}
+
+	// Check shard count threshold
+	if localShardCount > countThreshold {
+		return true
+	}
+
+	// Check shard size threshold (convert GB to bytes: GB * 1024^3)
+	sizeThresholdBytes := uint64(sizeThresholdGB * 1024 * 1024 * 1024)
+	return totalShardSizeBytes > sizeThresholdBytes
 }
 
 func (db *DB) LocalTenantActivity(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {

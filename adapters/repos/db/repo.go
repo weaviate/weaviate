@@ -289,6 +289,8 @@ type Config struct {
 	GitHash                             string
 	AvoidMMap                           bool
 	EnableLazyLoadShards                bool
+	LazyLoadShardCountThreshold         int
+	LazyLoadShardSizeThresholdGB        float64
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
