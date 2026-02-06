@@ -483,6 +483,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
 
+				promMetrics.NewLoadedShard()
+				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
 				return nil
 			}, shardName)
@@ -598,6 +600,8 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
 
+		promMetrics.NewLoadedShard()
+		shard.metricsRegistered.Store(true)
 		return shard, nil
 	}
 

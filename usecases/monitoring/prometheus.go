@@ -747,7 +747,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "shards_loaded",
+			Name: "7oaded",
 			Help: "Number of shards loaded",
 		}),
 		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{
