@@ -242,16 +242,18 @@ func (p *PostingMapStore) key(postingID uint64) [9]byte {
 
 // Encoding schemes for vector IDs - same as packedconn
 const (
-	schemeID2Byte = 0 // 2 bytes per value (0-65535)
-	schemeID3Byte = 1 // 3 bytes per value (0-16777215)
-	schemeID4Byte = 2 // 4 bytes per value (0-4294967295)
-	schemeID5Byte = 3 // 5 bytes per value (0-1099511627775)
-	schemeID8Byte = 4 // 8 bytes per value (full uint64)
+	schemeID2Byte Scheme = iota // 2 bytes per value (0-65535)
+	schemeID3Byte               // 3 bytes per value (0-16777215)
+	schemeID4Byte               // 4 bytes per value (0-4294967295)
+	schemeID5Byte               // 5 bytes per value (0-1099511627775)
+	schemeID8Byte               // 8 bytes per value (full uint64)
 )
 
-// bytesPerScheme returns the number of bytes used per value for the given scheme.
-func bytesPerScheme(scheme uint8) int {
-	switch scheme {
+type Scheme uint8
+
+// BytesPerValue returns the number of bytes used per value for the given scheme.
+func (s Scheme) BytesPerValue() int {
+	switch s {
 	case schemeID2Byte:
 		return 2
 	case schemeID3Byte:
