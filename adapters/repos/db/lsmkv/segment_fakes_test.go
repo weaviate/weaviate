@@ -179,6 +179,10 @@ func (f *fakeSegment) get(key []byte) ([]byte, error) {
 	return nil, lsmkv.NotFound
 }
 
+func (f *fakeSegment) getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	panic("not implemented")
+}
+
 func (f *fakeSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	panic("not implemented")
 }

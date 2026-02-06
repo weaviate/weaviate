@@ -212,6 +212,11 @@ func (s *lazySegment) get(key []byte) ([]byte, error) {
 	return s.segment.get(key)
 }
 
+func (s *lazySegment) getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	s.mustLoad()
+	s.segment.getMany(keys, outVals, outErrs)
+}
+
 func (s *lazySegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	s.mustLoad()
 	return s.segment.getBySecondary(pos, key, buffer)

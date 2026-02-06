@@ -62,6 +62,43 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	return v, nil
 }
 
+func (s *segment) getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	if s.strategy != segmentindex.StrategyReplace {
+		err := fmt.Errorf("get only possible for strategy %q", StrategyReplace)
+		for i := range keys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	for i := range keys {
+		if s.useBloomFilter && !s.bloomFilter.Test(keys[i]) {
+			outErrs[i] = lsmkv.NotFound
+			continue
+		}
+
+		node, err := s.index.Get(keys[i])
+		if err != nil {
+			outErrs[i] = err
+			continue
+		}
+
+		contentsCopy := make([]byte, node.End-node.Start)
+		if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+			outErrs[i] = err
+			continue
+		}
+
+		_, val, err := s.replaceStratParseData(contentsCopy)
+		if err != nil {
+			outErrs[i] = err
+			continue
+		}
+
+		outVals[i] = val
+	}
+}
+
 func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
 		return nil, nil, nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
@@ -148,9 +185,10 @@ func (s *segment) getManyBySecondary(pos int, seckeys map[int][]byte, outVals ma
 		_ = pkey // TODO aliszka:many return primary for rechecks
 		if err != nil {
 			outErrs[i] = err
-		} else {
-			outVals[i] = val
+			continue
 		}
+
+		outVals[i] = val
 	}
 }
 

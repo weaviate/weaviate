@@ -601,29 +601,6 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 	return b.getFromSegmentGroup(key, view.Disk)
 }
 
-// func (b *Bucket) getManyWithConsistentView(keys [][]byte, view BucketConsistentView) ([]byte, error) {
-// 	memtables, count := viewMemtables(view)
-
-// 	for i := range count {
-// 		v, err := b.getFromMemtable(key, memtables[i], memtableNames[i])
-// 		if err == nil {
-// 			// item found and no error, return and stop searching, since the strategy
-// 			// is replace
-// 			return v, nil
-// 		}
-// 		if errors.Is(err, lsmkv.Deleted) {
-// 			// deleted in the mem-table (which is always the latest) means we don't
-// 			// have to check the disk segments, return nil now
-// 			return nil, err
-// 		}
-// 		if !errors.Is(err, lsmkv.NotFound) {
-// 			return nil, fmt.Errorf("Bucket::get() %q: %w", memtableNames[i], err)
-// 		}
-// 	}
-
-// 	return b.getFromSegmentGroup(key, view.Disk)
-// }
-
 // existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
 // Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
 // This is more efficient than getWithConsistentView() when only existence check is needed.
@@ -738,6 +715,8 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	beforeSegments := time.Now()
 	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	// return k, v, err
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -763,6 +742,42 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 }
 
 // TODO aliszka:many add slow query
+func (b *Bucket) getMany(keys [][]byte) (vals map[int][]byte, errs map[int]error) {
+	ln := len(keys)
+
+	vals = make(map[int][]byte, ln)
+	errs = make(map[int]error, ln)
+	pkeys := make(map[int][]byte, ln)
+	for i := range keys {
+		pkeys[i] = keys[i]
+	}
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	memtables, count := viewMemtables(view)
+	for i := range count {
+		b.getManyFromMemtable(memtables[i], memtableNames[i], pkeys, vals, errs)
+
+		// TODO aliszka:many wrap !not found error?
+		// leave only keys corresponding to NotFound error for further search
+		for j := range pkeys {
+			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(pkeys, j)
+			}
+		}
+	}
+
+	b.getManyFromSegmentGroup(view.Disk, pkeys, vals, errs)
+
+	for i := range vals {
+		delete(errs, i)
+	}
+
+	return vals, errs
+}
+
+// TODO aliszka:many add slow query
 func (b *Bucket) getManyBySecondary(pos int, keys [][]byte) (vals map[int][]byte, errs map[int]error) {
 	ln := len(keys)
 	errs = make(map[int]error, ln)
@@ -775,21 +790,21 @@ func (b *Bucket) getManyBySecondary(pos int, keys [][]byte) (vals map[int][]byte
 		return nil, errs
 	}
 
-	view := b.GetConsistentView()
-	defer view.ReleaseView()
-
-	memtables, count := viewMemtables(view)
 	vals = make(map[int][]byte, ln)
 	seckeys := make(map[int][]byte, ln)
 	for i := range keys {
 		seckeys[i] = keys[i]
 	}
 
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	memtables, count := viewMemtables(view)
 	for i := range count {
 		b.getManyBySecondaryFromMemtable(memtables[i], memtableNames[i], pos, seckeys, vals, errs)
 
 		// TODO aliszka:many wrap !not found error?
-		// leave only keys corresponding to NotFound error, remove the error
+		// leave only keys corresponding to NotFound error for further search
 		for j := range seckeys {
 			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
 				delete(seckeys, j)
@@ -949,6 +964,35 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 	return b.disk.getWithSegmentList(key, segments)
 }
 
+func (b *Bucket) getManyFromSegmentGroup(segments []Segment,
+	keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+) {
+	op := "getmany"
+	component := "segment_group"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+
+		errsCount := 0
+		for i := range keys {
+			if err := outErrs[i]; err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+				errsCount++
+			}
+		}
+		if errsCount > 0 {
+			b.metrics.AddBucketReadOpFailureCountByComponent(op, component, errsCount)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	b.disk.getManyWithSegmentList(segments, keys, outVals, outErrs)
+}
+
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
 ) (k, v []byte, buf []byte, err error) {
 	op := "getbysecondary"
@@ -984,7 +1028,6 @@ func (b *Bucket) getManyBySecondaryFromSegmentGroup(segments []Segment,
 		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
 
 		errsCount := 0
-		// TODO aliszka:many verify seckeys has valid keys after processing
 		for i := range seckeys {
 			if err := outErrs[i]; err != nil && !lsmkv.IsDeletedOrNotFound(err) {
 				errsCount++
