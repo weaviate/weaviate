@@ -387,6 +387,83 @@ func decodeVectorIDs(data []byte, scheme uint8, count uint32) []uint64 {
 	return result
 }
 
+type packedPostingMetadata []byte
+
+func (p packedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
+	scheme := p[0]
+	count := binary.LittleEndian.Uint32(p[1:5])
+
+	bytesPerID := bytesPerScheme(scheme)
+	idsStart := 5
+	idsEnd := idsStart + int(count)*bytesPerID
+	versionsStart := idsEnd
+	vectorIDs := p[idsStart:idsEnd]
+	vectorVersions := p[versionsStart:]
+
+	switch scheme {
+	case schemeID2Byte:
+		return func(yield func(uint64, VectorVersion) bool) {
+			for i := uint32(0); i < count; i++ {
+				vID := uint64(vectorIDs[i*2]) | uint64(vectorIDs[i*2+1])<<8
+				vVer := VectorVersion(vectorVersions[i])
+				if !yield(vID, vVer) {
+					return
+				}
+			}
+		}
+	case schemeID3Byte:
+		return func(yield func(uint64, VectorVersion) bool) {
+			for i := uint32(0); i < count; i++ {
+				vID := uint64(vectorIDs[i*3]) | uint64(vectorIDs[i*3+1])<<8 | uint64(vectorIDs[i*3+2])<<16
+				vVer := VectorVersion(vectorVersions[i])
+				if !yield(vID, vVer) {
+					return
+				}
+			}
+		}
+	case schemeID4Byte:
+		return func(yield func(uint64, VectorVersion) bool) {
+			for i := uint32(0); i < count; i++ {
+				vID := uint64(vectorIDs[i*4]) |
+					uint64(vectorIDs[i*4+1])<<8 |
+					uint64(vectorIDs[i*4+2])<<16 |
+					uint64(vectorIDs[i*4+3])<<24
+				vVer := VectorVersion(vectorVersions[i])
+				if !yield(vID, vVer) {
+					return
+				}
+			}
+		}
+	case schemeID5Byte:
+		return func(yield func(uint64, VectorVersion) bool) {
+			for i := uint32(0); i < count; i++ {
+				vID := uint64(vectorIDs[i*5]) |
+					uint64(vectorIDs[i*5+1])<<8 |
+					uint64(vectorIDs[i*5+2])<<16 |
+					uint64(vectorIDs[i*5+3])<<24 |
+					uint64(vectorIDs[i*5+4])<<32
+				vVer := VectorVersion(vectorVersions[i])
+				if !yield(vID, vVer) {
+					return
+				}
+			}
+		}
+	default: // schemeID8Byte
+		return func(yield func(uint64, VectorVersion) bool) {
+			for i := uint32(0); i < count; i++ {
+				vID := uint64(0)
+				for j := uint32(0); j < 8; j++ {
+					vID |= uint64(vectorIDs[i*8+j]) << (j * 8)
+				}
+				vVer := VectorVersion(vectorVersions[i])
+				if !yield(vID, vVer) {
+					return
+				}
+			}
+		}
+	}
+}
+
 // Get retrieves the vector IDs for the given posting ID.
 // Disk format:
 //   - 1 byte: scheme for vector IDs
