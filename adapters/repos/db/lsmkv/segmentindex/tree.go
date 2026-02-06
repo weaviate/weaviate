@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -45,7 +46,10 @@ func NewTree(capacity int) Tree {
 }
 
 func NewBalanced(nodes Nodes) Tree {
-	t := Tree{nodes: make([]*Node, len(nodes))}
+	// A balanced binary tree in array form (children at 2i+1, 2i+2) needs
+	// up to 2^ceil(log2(n+1)) slots. Pre-allocate to avoid grow() reallocations.
+	capacity := balancedTreeCapacity(len(nodes))
+	t := Tree{nodes: make([]*Node, capacity)}
 
 	if len(nodes) > 0 {
 		// sort the slice just once
@@ -54,6 +58,16 @@ func NewBalanced(nodes Nodes) Tree {
 	}
 
 	return t
+}
+
+// balancedTreeCapacity returns the array size needed to store a balanced
+// binary tree with n nodes in heap-indexed layout.
+func balancedTreeCapacity(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	// smallest power of 2 > n, i.e. 2^ceil(log2(n+1))
+	return 1 << bits.Len(uint(n))
 }
 
 func (t *Tree) buildBalanced(nodes []Node, targetPos, leftBound, rightBound int) {
@@ -176,10 +190,6 @@ func (t *Tree) grow(i int) {
 
 	newNodes := make([]*Node, newSize)
 	copy(newNodes, t.nodes)
-	for i := range t.nodes {
-		t.nodes[i] = nil
-	}
-
 	t.nodes = newNodes
 }
 
