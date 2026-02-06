@@ -39,7 +39,8 @@ func TestProperties_SingleNode(t *testing.T) {
 		defer helper.ResetClient()
 	}
 
-	t.Run("delete property's index", testDeletePropertyIndex(compose))
+	// t.Run("delete property's index", testDeletePropertyIndex(compose))
+	t.Run("delete property's index multi-tenant", testDeletePropertyIndexMultiTenant())
 }
 
 func TestProperties_Cluster(t *testing.T) {
@@ -57,4 +58,5 @@ func TestProperties_Cluster(t *testing.T) {
 	defer helper.ResetClient()
 
 	t.Run("delete property's index", testDeletePropertyIndex(nil))
+	t.Run("delete property's index multi-tenant", testDeletePropertyIndexMultiTenant())
 }
