@@ -159,7 +159,7 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := segmentindex.HeaderSize
-	var kis []segmentindex.KeyRedux
+	kis := make([]segmentindex.KeyRedux, 0, c.c1.cache.segment.index.KeyCount()+c.c2.cache.segment.index.KeyCount())
 
 	for {
 		if key1 == nil && key2 == nil {
