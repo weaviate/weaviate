@@ -2464,32 +2464,6 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 	})
 }
 
-func TestBucket_GetManyBySecondary(t *testing.T) {
-	seed := int64(1770395573657835000)
-	rnd := rand.New(rand.NewSource(seed))
-	totalObjects := 1000
-
-	b := _initBucketReplace(t, rnd, totalObjects)
-
-	n := 50
-	seckeys := make([][]byte, n)
-	ids := make([]int, n)
-	for range 10 {
-		for i := range n {
-			ids[i] = 1 + rnd.Intn(totalObjects)
-			seckeys[i] = _seckey(ids[i])
-		}
-
-		vals, errs := b.getManyBySecondary(0, seckeys)
-		require.Len(t, vals, n)
-		require.Len(t, errs, 0)
-
-		for i := range n {
-			assert.Equal(t, _value(ids[i]), vals[i])
-		}
-	}
-}
-
 func _pkey(c int) []byte {
 	return []byte(fmt.Sprintf("key-%d", c))
 }
@@ -2539,6 +2513,58 @@ func _initBucketReplace(t testing.TB, rnd *rand.Rand, totalObjects int) *Bucket 
 	return b
 }
 
+func TestBucket_GetManyBySecondary(t *testing.T) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	b := _initBucketReplace(t, rnd, totalObjects)
+
+	n := 50
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+	for range 10 {
+		for i := range n {
+			ids[i] = 1 + rnd.Intn(totalObjects)
+			seckeys[i] = _seckey(ids[i])
+		}
+
+		vals, errs := b.getManyBySecondary(0, seckeys)
+		require.Len(t, vals, n)
+		require.Len(t, errs, 0)
+
+		for i := range n {
+			assert.Equal(t, _value(ids[i]), vals[i])
+		}
+	}
+}
+
+func TestBucket_GetMany(t *testing.T) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	b := _initBucketReplace(t, rnd, totalObjects)
+
+	n := 50
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+	for range 10 {
+		for i := range n {
+			ids[i] = 1 + rnd.Intn(totalObjects)
+			keys[i] = _pkey(ids[i])
+		}
+
+		vals, errs := b.getMany(keys)
+		require.Len(t, vals, n)
+		require.Len(t, errs, 0)
+
+		for i := range n {
+			assert.Equal(t, _value(ids[i]), vals[i])
+		}
+	}
+}
+
 func BenchmarkBucket_GetManyBySecondary(b *testing.B) {
 	seed := int64(1770395573657835000)
 	rnd := rand.New(rand.NewSource(seed))
@@ -2546,12 +2572,12 @@ func BenchmarkBucket_GetManyBySecondary(b *testing.B) {
 
 	bucket := _initBucketReplace(b, rnd, totalObjects)
 
-	n := 50
+	n := 100
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+
 	for r := range 10 {
 		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
-			seckeys := make([][]byte, n)
-			ids := make([]int, n)
-
 			for i := range n {
 				id := 1 + rnd.Intn(totalObjects)
 				ids[i] = id
@@ -2573,12 +2599,12 @@ func BenchmarkBucket_GetBySecondaryN(b *testing.B) {
 
 	bucket := _initBucketReplace(b, rnd, totalObjects)
 
-	n := 50
+	n := 100
+	seckeys := make([][]byte, n)
+	ids := make([]int, n)
+
 	for r := range 10 {
 		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
-			seckeys := make([][]byte, n)
-			ids := make([]int, n)
-
 			for i := range n {
 				id := 1 + rnd.Intn(totalObjects)
 				ids[i] = id
@@ -2588,6 +2614,60 @@ func BenchmarkBucket_GetBySecondaryN(b *testing.B) {
 			for b.Loop() {
 				for i := range n {
 					bucket.getBySecondary(ctx, 0, seckeys[i], nil)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetMany(b *testing.B) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				keys[i] = _pkey(id)
+			}
+
+			for b.Loop() {
+				bucket.getMany(keys)
+			}
+		})
+	}
+}
+
+func BenchmarkBucket_GetN(b *testing.B) {
+	seed := int64(1770395573657835000)
+	rnd := rand.New(rand.NewSource(seed))
+	totalObjects := 1000
+
+	bucket := _initBucketReplace(b, rnd, totalObjects)
+
+	n := 100
+	keys := make([][]byte, n)
+	ids := make([]int, n)
+
+	for r := range 10 {
+		b.Run(fmt.Sprintf("r=%d", r), func(b *testing.B) {
+			for i := range n {
+				id := 1 + rnd.Intn(totalObjects)
+				ids[i] = id
+				keys[i] = _pkey(id)
+			}
+
+			for b.Loop() {
+				for i := range n {
+					bucket.get(keys[i])
 				}
 			}
 		})
