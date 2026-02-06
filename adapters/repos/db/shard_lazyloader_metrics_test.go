@@ -45,7 +45,10 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 	className := "TestMetricsLifecycle"
 
 	// Get metrics instance
-	metrics := monitoring.GetMetrics()
+	baseMetrics := monitoring.GetMetrics()
+	metricsCopy := *baseMetrics
+	metricsCopy.Registerer = monitoring.NoopRegisterer
+	metrics := &metricsCopy
 
 	// Reset shard metrics to known state
 	metrics.ShardsLoaded.Set(0)
