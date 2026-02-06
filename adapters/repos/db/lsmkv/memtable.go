@@ -45,6 +45,7 @@ type memtable interface {
 
 	getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
 	getManyBySecondary(pos int, keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
+	existMany(keys map[int][]byte, outErrs map[int]error)
 
 	getCollection(key []byte) ([]value, error)
 	getMap(key []byte) ([]MapPair, error)
@@ -231,9 +232,11 @@ func (m *Memtable) getMany(keys map[int][]byte, outVals map[int][]byte, outErrs 
 		val, err := m.key.get(keys[i])
 		if err != nil {
 			outErrs[i] = err
-		} else {
-			outVals[i] = val
+			continue
 		}
+
+		outVals[i] = val
+		delete(outErrs, i)
 	}
 }
 
@@ -248,6 +251,27 @@ func (m *Memtable) exists(key []byte) error {
 	defer m.RUnlock()
 
 	return m.key.exists(key)
+}
+
+func (m *Memtable) existMany(keys map[int][]byte, outErrs map[int]error) {
+	if m.strategy != StrategyReplace {
+		err := errors.Errorf("exists only possible with strategy 'replace'")
+		for i := range keys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	for i := range keys {
+		if err := m.key.exists(keys[i]); err != nil {
+			outErrs[i] = err
+			continue
+		}
+		delete(outErrs, i)
+	}
 }
 
 func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
@@ -294,9 +318,11 @@ func (m *Memtable) getManyBySecondary(pos int, keys map[int][]byte, outVals map[
 		val, err := m.key.get(primary)
 		if err != nil {
 			outErrs[i] = err
-		} else {
-			outVals[i] = val
+			continue
 		}
+
+		outVals[i] = val
+		delete(outErrs, i)
 	}
 }
 

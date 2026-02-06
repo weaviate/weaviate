@@ -758,9 +758,8 @@ func (b *Bucket) getMany(keys [][]byte) (vals map[int][]byte, errs map[int]error
 	memtables, count := viewMemtables(view)
 	for i := range count {
 		b.getManyFromMemtable(memtables[i], memtableNames[i], pkeys, vals, errs)
-
-		// TODO aliszka:many wrap !not found error?
-		// leave only keys corresponding to NotFound error for further search
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFfound error?
 		for j := range pkeys {
 			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
 				delete(pkeys, j)
@@ -770,10 +769,9 @@ func (b *Bucket) getMany(keys [][]byte) (vals map[int][]byte, errs map[int]error
 
 	b.getManyFromSegmentGroup(view.Disk, pkeys, vals, errs)
 
-	for i := range vals {
-		delete(errs, i)
+	for i := range errs {
+		delete(vals, i)
 	}
-
 	return vals, errs
 }
 
@@ -802,9 +800,8 @@ func (b *Bucket) getManyBySecondary(pos int, keys [][]byte) (vals map[int][]byte
 	memtables, count := viewMemtables(view)
 	for i := range count {
 		b.getManyBySecondaryFromMemtable(memtables[i], memtableNames[i], pos, seckeys, vals, errs)
-
-		// TODO aliszka:many wrap !not found error?
-		// leave only keys corresponding to NotFound error for further search
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFfound error?
 		for j := range seckeys {
 			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
 				delete(seckeys, j)
@@ -812,17 +809,28 @@ func (b *Bucket) getManyBySecondary(pos int, keys [][]byte) (vals map[int][]byte
 		}
 	}
 
-	b.getManyBySecondaryFromSegmentGroup(view.Disk, pos, seckeys, vals, errs)
+	pkeys := make(map[int][]byte, len(seckeys))
+	b.getManyBySecondaryFromSegmentGroup(view.Disk, pos, seckeys, pkeys, vals, errs)
 
-	for i := range vals {
-		delete(errs, i)
+	// recheck using primary keys, as values returned might actually be deleted
+	for i := range count {
+		memtables[i].existMany(pkeys, errs)
+		// keep only keys with corresponing NotFound
+		// TODO aliszka:many wrap !NotFound error?
+		for j := range pkeys {
+			if err, ok := errs[j]; !ok || !errors.Is(err, lsmkv.NotFound) {
+				delete(pkeys, i)
+			}
+		}
 	}
+	b.disk.existManyWithSegmentList(view.Disk, pkeys, errs)
 
-	// TODO aliszka:many do recheck with get
+	for i := range errs {
+		delete(vals, i)
+	}
 
 	return vals, errs
 }
-
 func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string) (v []byte, err error) {
 	op := "get"
 
@@ -1015,7 +1023,7 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 }
 
 func (b *Bucket) getManyBySecondaryFromSegmentGroup(segments []Segment,
-	pos int, seckeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
+	pos int, seckeys map[int][]byte, outPkeys map[int][]byte, outVals map[int][]byte, outErrs map[int]error,
 ) {
 	op := "getmanybysecondary"
 	component := "segment_group"
@@ -1040,7 +1048,7 @@ func (b *Bucket) getManyBySecondaryFromSegmentGroup(segments []Segment,
 		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
 	}()
 
-	b.disk.getManyBySecondaryWithSegmentList(segments, pos, seckeys, outVals, outErrs)
+	b.disk.getManyBySecondaryWithSegmentList(segments, pos, seckeys, outPkeys, outVals, outErrs)
 }
 
 // SetList returns all Set entries for a given key.
