@@ -143,6 +143,14 @@ type diskIndex interface {
 	// AllKeys in no specific order, e.g. for building a bloom filter
 	AllKeys() ([][]byte, error)
 
+	// KeyCount returns the number of keys without allocating
+	KeyCount() int
+
+	// ForEachKey iterates over all keys without allocating a slice.
+	// The key passed to fn is a subslice of the underlying data and must not
+	// be retained or modified by the caller.
+	ForEachKey(fn func(key []byte))
+
 	// Size of the index in bytes
 	Size() int
 
