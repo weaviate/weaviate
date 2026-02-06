@@ -575,7 +575,7 @@ func Test_NoRace_Flat_ValidateCount(t *testing.T) {
 		ID:                indexID,
 		RootPath:          rootPath,
 		DistanceProvider:  distancer,
-		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		MakeBucketOptions: lsmkv.MakeRegularBucketOptions,
 	}, config, store)
 	require.Nil(t, err)
 	vectors := [][]float32{{-2, 0}, {-2, 1}}
