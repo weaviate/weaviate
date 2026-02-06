@@ -57,6 +57,8 @@ type compactorSet struct {
 	// reusable buffers to reduce allocations during compaction
 	mergedValues []value
 	setDecoder   setDecoder
+
+	writeBuf [9]byte // reused by writeIndividualNode to avoid per-key allocation
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
@@ -148,13 +150,13 @@ func (c *compactorSet) init() error {
 	return nil
 }
 
-func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.KeyRedux, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := segmentindex.HeaderSize
-	var kis []segmentindex.Key
+	var kis []segmentindex.KeyRedux
 
 	for {
 		if key1 == nil && key2 == nil {
@@ -187,7 +189,7 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 }
 
 func (c *compactorSet) processKeyPair(f *segmentindex.SegmentFile, offset *int,
-	kis *[]segmentindex.Key, key1, key2 []byte, value1, value2 []value,
+	kis *[]segmentindex.KeyRedux, key1, key2 []byte, value1, value2 []value,
 ) error {
 	skip, err := c.shouldSkipKey(key1, context.Background())
 	if err != nil || skip {
@@ -216,7 +218,7 @@ func (c *compactorSet) processKeyPair(f *segmentindex.SegmentFile, offset *int,
 }
 
 func (c *compactorSet) processKey(f *segmentindex.SegmentFile, offset *int,
-	kis *[]segmentindex.Key, key []byte, value []value,
+	kis *[]segmentindex.KeyRedux, key []byte, value []value,
 ) error {
 	skip, err := c.shouldSkipKey(key, context.Background())
 	if err != nil || skip {
@@ -236,7 +238,7 @@ func (c *compactorSet) processKey(f *segmentindex.SegmentFile, offset *int,
 
 func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
 	offset int, key []byte, values []value,
-) (segmentindex.Key, error) {
+) (segmentindex.KeyRedux, error) {
 	// With reusable cursors, the key buffer is shared across iterations.
 	// We must copy it before writing, as KeyIndexAndWriteTo may store
 	// a reference. See: https://github.com/weaviate/weaviate/issues/3517
@@ -247,23 +249,13 @@ func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
 		values:     values,
 		primaryKey: keyCopy,
 		offset:     offset,
-	}).KeyIndexAndWriteTo(f.BodyWriter())
+	}).KeyIndexAndWriteToRedux(f.BodyWriter(), c.writeBuf[:])
 }
 
 func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
-	keys []segmentindex.Key,
+	keys []segmentindex.KeyRedux,
 ) error {
-	indexes := &segmentindex.Indexes{
-		Keys:                keys,
-		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategySetCollection,
-			"operation": "writeIndices",
-		}),
-		AllocChecker: c.allocChecker,
-	}
-	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
+	_, err := segmentindex.MarshalSortedKeys(f.BodyWriter(), keys)
 	return err
 }
 
