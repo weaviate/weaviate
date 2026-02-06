@@ -443,18 +443,47 @@ func (q *DiskQueue) Size() int64 {
 	return int64(q.recordCount)
 }
 
-func (q *DiskQueue) Pause() {
+// Pause the dequeuing of tasks. If nowait is true, it returns immediately
+// without waiting for the currently running tasks to finish.
+// This does not prevent pushing new tasks to the queue.
+func (q *DiskQueue) Pause(nowait ...bool) {
 	q.scheduler.PauseQueue(q.id)
 	q.metrics.Paused(q.id)
+	if len(nowait) == 0 || !nowait[0] {
+		q.scheduler.Wait(q.id)
+	}
 }
 
+// Resume the dequeuing of tasks.
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
 	q.metrics.Resumed(q.id)
 }
 
+// Wait blocks until all currently running tasks are finished.
 func (q *DiskQueue) Wait() {
 	q.scheduler.Wait(q.id)
+}
+
+// ForceSwitch forces the queue to switch to a new chunk file.
+// It also returns the content of the directory before the switch.
+// Important: the queue must be paused before calling this method.
+func (q *DiskQueue) ForceSwitch(ctx context.Context, basePath string) ([]string, error) {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	// if the writer is nil, the queue is is not initialized
+	if q.w == nil {
+		return nil, nil
+	}
+
+	// promote the current partial chunk
+	err := q.w.Promote()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to promote chunk")
+	}
+
+	return q.listFilesNoLock(ctx, basePath)
 }
 
 func (q *DiskQueue) Drop() error {
@@ -566,6 +595,10 @@ func (q *DiskQueue) ListFiles(ctx context.Context, basePath string) ([]string, e
 	q.m.Lock()
 	defer q.m.Unlock()
 
+	return q.listFilesNoLock(ctx, basePath)
+}
+
+func (q *DiskQueue) listFilesNoLock(ctx context.Context, basePath string) ([]string, error) {
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
 		if stderrors.Is(err, fs.ErrNotExist) {

@@ -244,11 +244,11 @@ func TestLazyLoadedShards(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(ctx, IndexConfig{
-		RootPath:              dirName,
-		ClassName:             schema.ClassName(className),
-		ReplicationFactor:     1,
-		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		DisableLazyLoadShards: false, // we have to make sure lazyload shard disabled to load directly
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(className),
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		EnableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
 
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{

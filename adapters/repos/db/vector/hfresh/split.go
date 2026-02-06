@@ -37,6 +37,8 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}()
 
 	if !h.Centroids.Exists(postingID) {
+		h.logger.WithField("postingID", postingID).
+			Debug("centroid not found, skipping split operation")
 		return nil
 	}
 
@@ -54,6 +56,13 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 
 	// garbage collect the deleted vectors
 	lp := len(p)
+
+	if lp == 0 {
+		h.logger.WithField("postingID", postingID).
+			Debug("posting is empty, skipping split operation")
+		return nil
+	}
+
 	filtered, err := p.GarbageCollect(h.VersionMap)
 	if err != nil {
 		return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)

@@ -121,11 +121,7 @@ func TestHFreshBackupListFiles(t *testing.T) {
 	})
 
 	t.Run("test list files after backup preparation", func(t *testing.T) {
-		err := index.Flush()
-		require.NoError(t, err)
-		err = index.Shutdown(t.Context())
-		require.NoError(t, err)
-		err = index.PrepareForBackup(t.Context())
+		err := index.PrepareForBackup(t.Context())
 		require.NoError(t, err)
 		files, err := index.ListFiles(t.Context(), cfg.RootPath)
 		require.NoError(t, err)

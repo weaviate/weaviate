@@ -80,11 +80,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		q.Pause()
 		return nil
 	})
-	// wait for ongoing indexing to finish
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Wait()
-		return nil
-	})
 	// flush all the queue
 	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		return q.Flush()
@@ -205,7 +200,7 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	}
 
 	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		files, err := queue.ListFiles(ctx, s.index.Config.RootPath)
+		files, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}

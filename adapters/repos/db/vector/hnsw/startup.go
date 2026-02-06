@@ -142,7 +142,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		h.cache.Drop()
 		if state.CompressionPQData != nil {
 			data := state.CompressionPQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 
 			if len(data.Encoders) > 0 {
 				// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
@@ -183,7 +183,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			}
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
@@ -238,7 +238,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
 	}
 
-	if h.dims == 0 {
+	if h.dims.Load() == 0 {
 		h.setDimensionsFromEntrypoint()
 	}
 
@@ -260,13 +260,13 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 func (h *hnsw) setDimensionsFromEntrypoint() {
 	if len(h.nodes) > 0 {
 		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
-			h.dims = int32(len(vec))
+			h.dims.Store(int32(len(vec)))
 		}
 	}
 }
 
 func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
-	h.dims = int32(data.InputDim)
+	h.dims.Store(int32(data.InputDim))
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {

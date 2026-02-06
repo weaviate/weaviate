@@ -14,10 +14,6 @@ package hfresh
 import (
 	"context"
 	stderrors "errors"
-	"fmt"
-	"io/fs"
-	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -268,7 +264,6 @@ func (h *HFresh) stopTaskQueues() error {
 		h.taskQueue.mergeQueue,
 	} {
 		queue.Pause()
-		queue.Wait()
 		err := queue.Flush()
 		if err != nil {
 			return err
@@ -316,38 +311,21 @@ func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, erro
 }
 
 func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, error) {
-	files := make([]string, 0)
-	// list all files in paths that end with .queue.d
-	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+	var files []string
+
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		f, err := queue.ForceSwitch(ctx, basePath)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if d.IsDir() && strings.HasSuffix(d.Name(), ".queue.d") {
-			// list all files in this directory
-			err := filepath.WalkDir(path, func(p string, de fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if !de.IsDir() {
-					relPath, err := filepath.Rel(basePath, p)
-					if err != nil {
-						return err
-					}
-					files = append(files, relPath)
-				}
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-			// skip walking into subdirectories of this queue directory
-			return filepath.SkipDir
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list queue files: %w", err)
+		files = append(files, f...)
 	}
+
 	return files, nil
 }
 

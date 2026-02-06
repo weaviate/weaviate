@@ -21,11 +21,13 @@ import (
 )
 
 const (
-	DefaultMaxPostingSizeKB   = 48
-	MaxPostingSizeKBFloor     = 8
-	DefaultReplicas           = 4
-	DefaultSearchProbe        = 64
-	DefaultHFreshRescoreLimit = 350
+	DefaultMaxPostingSizeKB     = 48
+	MaxPostingSizeKBFloor       = 8
+	DefaultReplicas             = 4
+	DefaultSearchProbe          = 64
+	DefaultHFreshRescoreLimit   = 350
+	MaximumAllowedReplicas      = 10
+	MaximumAllowedPostingSizeKB = 1024
 )
 
 // UserConfig defines the configuration options for the HFresh index.
@@ -84,6 +86,22 @@ func (u *UserConfig) validate() error {
 			"maxPostingSizeKB is '%d' but must be at least %d",
 			u.MaxPostingSizeKB,
 			MaxPostingSizeKBFloor,
+		))
+	}
+
+	if u.Replicas > MaximumAllowedReplicas {
+		errs = append(errs, fmt.Errorf(
+			"replicas is '%d' but must be less than %d",
+			u.Replicas,
+			MaximumAllowedReplicas,
+		))
+	}
+
+	if u.MaxPostingSizeKB > MaximumAllowedPostingSizeKB {
+		errs = append(errs, fmt.Errorf(
+			"maxPostingSizeKB is '%d' but must be less than %d",
+			u.MaxPostingSizeKB,
+			MaximumAllowedPostingSizeKB,
 		))
 	}
 

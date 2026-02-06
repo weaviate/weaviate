@@ -18,7 +18,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"slices"
 	golangSort "sort"
 	"strings"
@@ -26,12 +25,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/dynsemaphore"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -54,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -71,6 +68,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -463,7 +461,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
-	if i.Config.DisableLazyLoadShards {
+	if !i.Config.EnableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
@@ -852,7 +850,7 @@ type IndexConfig struct {
 	AsyncReplicationConfig              AsyncReplicationConfig
 	AsyncReplicationWorkersLimiter      *dynsemaphore.DynamicWeighted
 	AvoidMMap                           bool
-	DisableLazyLoadShards               bool
+	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
@@ -1231,7 +1229,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
 					entsentry.Recover(err)
-					debug.PrintStack()
+					enterrors.PrintStack(i.logger)
 				}
 			}()
 			// All objects in the same shard group have the same tenant since in multi-tenant
@@ -2536,7 +2534,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
-	disableLazyLoad := mustLoad || i.Config.DisableLazyLoadShards
+	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards
 
 	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
 	if err != nil {

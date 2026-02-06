@@ -128,7 +128,7 @@ func (db *DB) init(ctx context.Context) error {
 				TrackVectorDimensionsInterval:                db.config.TrackVectorDimensionsInterval,
 				UsageEnabled:                                 db.config.UsageEnabled,
 				AvoidMMap:                                    db.config.AvoidMMap,
-				DisableLazyLoadShards:                        db.config.DisableLazyLoadShards,
+				EnableLazyLoadShards:                         db.config.EnableLazyLoadShards,
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
