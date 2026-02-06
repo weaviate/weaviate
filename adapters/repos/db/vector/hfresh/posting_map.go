@@ -268,25 +268,24 @@ func (s Scheme) BytesPerValue() int {
 }
 
 // determineScheme analyzes values to pick the most efficient encoding.
-func determineScheme(values []uint64) uint8 {
+func determineScheme(values []uint64) Scheme {
 	if len(values) == 0 {
 		return schemeID2Byte
 	}
 
-	maxVal := uint64(0)
-	for _, val := range values {
-		if val > maxVal {
-			maxVal = val
-		}
-	}
+	maxVal := slices.Max(values)
 
-	if maxVal <= 65535 {
+	return schemeFor(maxVal)
+}
+
+func schemeFor(value uint64) Scheme {
+	if value <= 65535 {
 		return schemeID2Byte
-	} else if maxVal <= 16777215 {
+	} else if value <= 16777215 {
 		return schemeID3Byte
-	} else if maxVal <= 4294967295 {
+	} else if value <= 4294967295 {
 		return schemeID4Byte
-	} else if maxVal <= 1099511627775 {
+	} else if value <= 1099511627775 {
 		return schemeID5Byte
 	}
 	return schemeID8Byte
