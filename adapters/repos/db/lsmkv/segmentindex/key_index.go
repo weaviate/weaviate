@@ -21,3 +21,8 @@ type Key struct {
 	ValueStart    int
 	ValueEnd      int
 }
+
+type KeyRedux struct {
+	Key      []byte
+	ValueEnd int
+}

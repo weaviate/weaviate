@@ -335,6 +335,55 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key
 	return out, nil
 }
 
+func (s segmentCollectionNode) KeyIndexAndWriteToRedux(w io.Writer, buf []byte) (segmentindex.KeyRedux, error) {
+	written := 0
+	valueLen := uint64(len(s.values))
+	binary.LittleEndian.PutUint64(buf, valueLen)
+	if _, err := w.Write(buf[0:8]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write values len for node")
+	}
+	written += 8
+
+	for i, value := range s.values {
+		if value.tombstone {
+			buf[0] = 0x01
+		} else {
+			buf[0] = 0x00
+		}
+
+		valueLen := uint64(len(value.value))
+		binary.LittleEndian.PutUint64(buf[1:9], valueLen)
+		if _, err := w.Write(buf[0:9]); err != nil {
+			return segmentindex.KeyRedux{}, errors.Wrapf(err, "write len of value %d", i)
+		}
+		written += 9
+
+		n, err := w.Write(value.value)
+		if err != nil {
+			return segmentindex.KeyRedux{}, errors.Wrapf(err, "write value %d", i)
+		}
+		written += n
+	}
+
+	keyLength := uint32(len(s.primaryKey))
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err := w.Write(s.primaryKey)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	return segmentindex.KeyRedux{
+		ValueEnd: s.offset + written,
+		Key:      s.primaryKey,
+	}, nil
+}
+
 // ParseCollectionNode reads from r and parses the collection values into a segmentCollectionNode
 //
 // When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the
