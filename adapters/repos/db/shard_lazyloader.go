@@ -424,8 +424,11 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	property *models.Property,
 ) {
-	l.mustLoad()
-	l.shard.updatePropertyBuckets(ctx, eg, property)
+	if l.isLoaded() {
+		l.shard.updatePropertyBuckets(ctx, eg, property)
+	} else {
+		l.shard.updateUnloadedPropertyBuckets(ctx, eg, property)
+	}
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {

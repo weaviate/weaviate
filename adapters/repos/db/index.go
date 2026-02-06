@@ -705,6 +705,7 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	if err := eg.Wait(); err != nil {
 		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
 	}
+
 	return nil
 }
 

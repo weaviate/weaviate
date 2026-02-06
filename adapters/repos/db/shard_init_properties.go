@@ -104,19 +104,46 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 		if !inverted.HasFilterableIndex(prop) {
 			err := s.removeBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name))
 			if err != nil {
-				return fmt.Errorf("cannot remove filterable index for property: %s %w", prop.Name, err)
+				return fmt.Errorf("cannot remove filterable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasSearchableIndex(prop) {
 			err := s.removeBucket(ctx, helpers.BucketSearchableFromPropNameLSM(prop.Name))
 			if err != nil {
-				return fmt.Errorf("cannot remove searchable index for property: %s %w", prop.Name, err)
+				return fmt.Errorf("cannot remove searchable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasRangeableIndex(prop) {
 			err := s.removeBucket(ctx, helpers.BucketRangeableFromPropNameLSM(prop.Name))
 			if err != nil {
-				return fmt.Errorf("cannot remove rangeable index for property: %s %w", prop.Name, err)
+				return fmt.Errorf("cannot remove rangeable index for %s property: %w", prop.Name, err)
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Shard) updateUnloadedPropertyBuckets(ctx context.Context,
+	eg *enterrors.ErrorGroupWrapper,
+	prop *models.Property,
+) {
+	eg.Go(func() error {
+		if !inverted.HasFilterableIndex(prop) {
+			err := s.removeBucketDir(helpers.BucketFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasSearchableIndex(prop) {
+			err := s.removeBucketDir(helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasRangeableIndex(prop) {
+			err := s.removeBucketDir(helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
 			}
 		}
 		return nil
@@ -128,23 +155,27 @@ func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
 	if bucket == nil {
 		return nil // bucket doesn't exist, nothing to remove
 	}
-
-	bucketDir := bucket.GetDir()
-
 	// Shutdown the bucket first - after this point, the bucket cannot be used
 	if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
 		return fmt.Errorf("failed to shutdown bucket %s: %w", bucketName, err)
 	}
-
 	// Remove the bucket's directory from disk
 	// If this fails after successful shutdown, we're in an inconsistent state:
 	// the bucket is removed from the store but its data remains on disk
-	if err := os.RemoveAll(bucketDir); err != nil {
-		return fmt.Errorf("bucket %s shut down successfully but directory removal failed - "+
-			"orphaned data remains at %s (manual cleanup may be required): %w",
-			bucketName, bucketDir, err)
+	if err := s.removeBucketDir(bucketName); err != nil {
+		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}
+	return nil
+}
 
+func (s *Shard) removeBucketDir(bucketName string) error {
+	bucketDir := filepath.Join(s.pathLSM(), bucketName)
+	if _, err := os.Stat(bucketDir); !os.IsNotExist(err) {
+		if err := os.RemoveAll(bucketDir); err != nil {
+			return fmt.Errorf("failed to remove data for %s bucket: "+
+				"orphaned data remains at %s (manual cleanup may be required): %w", bucketName, bucketDir, err)
+		}
+	}
 	return nil
 }
 
