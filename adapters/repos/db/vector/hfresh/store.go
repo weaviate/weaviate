@@ -43,12 +43,12 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 			lsmkv.WithForceCompaction(true),
 			lsmkv.WithShouldSkipKeyFunction(
 				func(key []byte, ctx context.Context) (bool, error) {
-					if len(key) != 12 {
+					if len(key) != 9 {
 						// don't skip on error
 						return false, fmt.Errorf("invalid key length: %d", len(key))
 					}
 					postingID := binary.LittleEndian.Uint64(key[:8])
-					segmentPostingVersion := binary.LittleEndian.Uint32(key[8:])
+					segmentPostingVersion := key[8]
 					currentPostingVersion, err := versions.Get(ctx, postingID)
 					if err != nil {
 						return false, errors.Wrap(err, "get posting version during compaction")
@@ -73,13 +73,13 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 }
 
 func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
-	var buf [12]byte
+	var buf [9]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	version, err := p.versions.Get(ctx, postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get posting version for id %d", postingID)
 	}
-	binary.LittleEndian.PutUint32(buf[8:], version)
+	buf[8] = version
 	return buf[:], nil
 }
 
@@ -144,9 +144,9 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	}
 	newVersion := currentVersion + 1
 
-	var buf [12]byte
+	var buf [9]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
-	binary.LittleEndian.PutUint32(buf[8:], newVersion)
+	buf[8] = newVersion
 	err = p.bucket.SetAdd(buf[:], set)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put posting %d", postingID)
@@ -187,12 +187,11 @@ func postingsBucketName(id string) string {
 type PostingVersionsStore struct {
 	bucket    *lsmkv.Bucket
 	keyPrefix byte
-	cache     *otter.Cache[uint64, uint32]
+	cache     *otter.Cache[uint64, uint8]
 }
 
 func NewPostingVersionsStore(bucket *lsmkv.Bucket) *PostingVersionsStore {
-	cache, _ := otter.New[uint64, uint32](nil)
-
+	cache, _ := otter.New[uint64, uint8](nil)
 	return &PostingVersionsStore{
 		bucket:    bucket,
 		keyPrefix: postingVersionBucketPrefix,
@@ -207,8 +206,8 @@ func (p *PostingVersionsStore) key(postingID uint64) [9]byte {
 	return buf
 }
 
-func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
-	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint32](func(ctx context.Context, key uint64) (uint32, error) {
+func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8, error) {
+	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint8](func(ctx context.Context, key uint64) (uint8, error) {
 		k := p.key(postingID)
 		v, err := p.bucket.Get(k[:])
 		if err != nil {
@@ -218,7 +217,7 @@ func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint3
 			return 0, otter.ErrNotFound
 		}
 
-		return binary.LittleEndian.Uint32(v), nil
+		return v[0], nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
 		return 0, nil
@@ -227,9 +226,9 @@ func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint3
 	return version, err
 }
 
-func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, version uint32) error {
+func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, version uint8) error {
 	key := p.key(postingID)
-	err := p.bucket.Put(key[:], binary.LittleEndian.AppendUint32(nil, version))
+	err := p.bucket.Put(key[:], []byte{version})
 	if err != nil {
 		return err
 	}

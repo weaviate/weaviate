@@ -18,7 +18,6 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -307,7 +306,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		if err != nil {
 			entsentry.Recover(err)
 			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
-			debug.PrintStack()
+			enterrors.PrintStack(h.logger)
 		}
 	}()
 
@@ -396,6 +395,7 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	}
 
 	it := deleteList.Iterator()
+	defer it.Stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if h.getEntrypoint() == id {
 			// this a special case because:
@@ -516,20 +516,21 @@ LOOP:
 			if i%1000 == 0 {
 				// updating the metric has virtually no cost, so we can do it every 1k
 				h.metrics.TombstoneCycleProgress(float64(i) / float64(size))
+				if i%1_000_000 == 0 {
+					// the interval of 1M is rather arbitrary, but if we have less than 1M
+					// nodes in the graph tombstones cleanup should be so fast, we don't
+					// need to log the progress.
+					h.logger.WithFields(logrus.Fields{
+						"action":          "tombstone_cleanup_progress",
+						"class":           h.className,
+						"shard":           h.shardName,
+						"total_nodes":     size,
+						"processed_nodes": i,
+					}).
+						Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
+				}
 			}
-			if i%1_000_000 == 0 {
-				// the interval of 1M is rather arbitrary, but if we have less than 1M
-				// nodes in the graph tombstones cleanup should be so fast, we don't
-				// need to log the progress.
-				h.logger.WithFields(logrus.Fields{
-					"action":          "tombstone_cleanup_progress",
-					"class":           h.className,
-					"shard":           h.shardName,
-					"total_nodes":     size,
-					"processed_nodes": i,
-				}).
-					Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
-			}
+
 		case <-ctx.Done():
 			// before https://github.com/weaviate/weaviate/issues/4615 the context
 			// would not be canceled if a routine panicked. However, with the fix, it is
@@ -577,6 +578,15 @@ func (h *hnsw) reassignNeighbor(
 		return true, nil
 	}
 
+	neighborNode.Lock()
+	neighborLevel := neighborNode.level
+	if !connectionsPointTo(neighborNode.connections, deleteList) {
+		// nothing needs to be changed, skip
+		neighborNode.Unlock()
+		return true, nil
+	}
+	neighborNode.Unlock()
+
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
@@ -595,19 +605,10 @@ func (h *hnsw) reassignNeighbor(
 			return false, errors.Wrap(err, "get neighbor vec")
 		}
 	}
-	neighborNode.Lock()
-	neighborLevel := neighborNode.level
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
-		// nothing needs to be changed, skip
-		neighborNode.Unlock()
-		return true, nil
-	}
-	neighborNode.Unlock()
-
-	neighborNode.markAsMaintenance()
 
 	// the new recursive implementation no longer needs an entrypoint, so we can
 	// just pass this dummy value to make the neighborFinderConnector happy
+	neighborNode.markAsMaintenance()
 	dummyEntrypoint := uint64(0)
 	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
@@ -620,10 +621,12 @@ func (h *hnsw) reassignNeighbor(
 }
 
 func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
-	iter := connections.Iterator()
-	for iter.Next() {
-		_, atLevel := iter.Current()
-		for _, pointer := range atLevel {
+	// Use CopyLayer with buffer reuse to avoid allocations per layer
+	buffer := make([]uint64, 0, 64)
+
+	for layer := uint8(0); layer < connections.Layers(); layer++ {
+		buffer = connections.CopyLayer(buffer, layer)
+		for _, pointer := range buffer {
 			if needles.Contains(pointer) {
 				return true
 			}
@@ -854,6 +857,7 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	it := deleteList.Iterator()
+	defer it.Stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if breakCleanUpTombstonedNodes() {
 			return false, nil

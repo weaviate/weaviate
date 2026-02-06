@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"iter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -29,15 +30,21 @@ func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helper
 }
 
 func (h *HFresh) NewAllowListIterator(al helpers.AllowList) helpers.AllowListIterator {
+	all := h.PostingMap.cache.All() // snapshot of what is currently in cache
+	next, stop := iter.Pull2(all)
+
 	return &AllowListIterator{
-		len:       int(h.Centroids.GetMaxID()),
 		allowList: al,
+		next:      next,
+		stop:      stop,
+		len:       int(h.Centroids.GetMaxID()),
 	}
 }
 
 type AllowListIterator struct {
 	len       int
-	current   uint64
+	next      func() (uint64, *PostingMetadata, bool)
+	stop      func()
 	allowList helpers.AllowList
 }
 
@@ -45,18 +52,30 @@ func (i *AllowListIterator) Len() int {
 	return i.len
 }
 
+func (i *AllowListIterator) Stop() {
+	i.stop()
+}
+
 func (i *AllowListIterator) Next() (uint64, bool) {
-	if i.current >= uint64(i.len) {
-		return 0, false
+	id, metadata, ok := i.next()
+
+	// Cache the metadata if allowList is our concrete type
+	if al, isOurType := i.allowList.(*allowList); isOurType && metadata != nil {
+		al.cacheMetadata(id, metadata)
 	}
-	for i.current < uint64(i.len) {
-		if i.allowList.Contains(i.current) {
-			i.current++
-			return i.current - 1, true
+
+	for ok && !i.allowList.Contains(id) {
+		id, metadata, ok = i.next()
+		// Cache the metadata for each iteration
+		if al, isOurType := i.allowList.(*allowList); isOurType && metadata != nil {
+			al.cacheMetadata(id, metadata)
 		}
-		i.current++
 	}
-	return 0, false
+	if !ok {
+		return id, ok
+	}
+
+	return id, i.allowList.Contains(id)
 }
 
 type allowList struct {
@@ -65,6 +84,14 @@ type allowList struct {
 	h                *HFresh
 	wrappedIdVisited visited.ListSet
 	idVisited        visited.ListSet
+	// Cache to store PostingMetadata from iterator to avoid expensive Get calls
+	cachedMetadata *PostingMetadata
+	cachedID       uint64
+}
+
+func (a *allowList) cacheMetadata(id uint64, metadata *PostingMetadata) {
+	a.cachedID = id
+	a.cachedMetadata = metadata
 }
 
 func (a *allowList) Contains(id uint64) bool {
@@ -72,9 +99,18 @@ func (a *allowList) Contains(id uint64) bool {
 		return true
 	}
 
-	p, err := a.h.PostingMap.Get(a.ctx, id)
-	if err != nil {
-		return false
+	var p *PostingMetadata
+	var err error
+
+	// Use cached metadata if available for this id
+	if a.cachedID == id && a.cachedMetadata != nil {
+		p = a.cachedMetadata
+	} else {
+		// Fall back to expensive Get only if not cached
+		p, err = a.h.PostingMap.Get(a.ctx, id)
+		if err != nil {
+			return false
+		}
 	}
 
 	p.RLock()
