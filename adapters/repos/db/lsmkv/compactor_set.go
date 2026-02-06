@@ -277,6 +277,11 @@ func (c *compactorSet) allocKey(size int) []byte {
 func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
 	keys []segmentindex.KeyRedux,
 ) error {
+	// TODO: check if there is any set bucket with secondary indexes
+	if c.secondaryIndexCount > 0 {
+		return fmt.Errorf("unsupported secondary indexes in compactorSet")
+	}
+
 	_, err := segmentindex.MarshalSortedKeys(f.BodyWriter(), keys)
 	return err
 }
