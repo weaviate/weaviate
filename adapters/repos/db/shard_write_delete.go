@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -66,10 +67,12 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
 
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
 	if deletionTime.IsZero() {
-		err = bucket.Delete(idBytes)
+		err = bucket.Delete(idBytes, lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes))
 	} else {
-		err = bucket.DeleteWith(idBytes, deletionTime)
+		err = bucket.DeleteWith(idBytes, deletionTime, lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes))
 	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
