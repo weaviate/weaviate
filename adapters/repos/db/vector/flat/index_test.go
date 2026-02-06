@@ -305,7 +305,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 }
 
-func TestFlat_QueryVectorDistancer(t *testing.T) {
+func Test_NoRaceFlat_QueryVectorDistancer(t *testing.T) {
 	cases := []struct {
 		pq    bool
 		cache bool
@@ -338,9 +338,10 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			distancr := distancer.NewCosineDistanceProvider()
 
 			index, err := New(Config{
-				ID:               "id",
-				RootPath:         t.TempDir(),
-				DistanceProvider: distancr,
+				ID:                "id",
+				RootPath:          t.TempDir(),
+				DistanceProvider:  distancr,
+				MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 			}, flatent.UserConfig{
 				PQ: pq,
 				BQ: bq,
@@ -363,7 +364,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 	}
 }
 
-func TestFlat_Preload(t *testing.T) {
+func Test_NoRace_Flat_Preload(t *testing.T) {
 	cases := []struct {
 		name        string
 		distance    string
@@ -416,9 +417,10 @@ func TestFlat_Preload(t *testing.T) {
 			defer store.Shutdown(context.Background())
 
 			index, err := New(Config{
-				ID:               "test-preload",
-				RootPath:         dirName,
-				DistanceProvider: distanceProvider,
+				ID:                "test-preload",
+				RootPath:          dirName,
+				DistanceProvider:  distanceProvider,
+				MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 			}, config, store)
 			require.Nil(t, err)
 			defer index.Shutdown(context.Background())
@@ -479,7 +481,7 @@ func TestFlat_Preload(t *testing.T) {
 	}
 }
 
-func TestConcurrentReads(t *testing.T) {
+func Test_NoRace_ConcurrentReads(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 
@@ -515,7 +517,7 @@ func TestConcurrentReads(t *testing.T) {
 	}
 }
 
-func TestFlat_Validation(t *testing.T) {
+func Test_NoRace_Flat_Validation(t *testing.T) {
 	ctx := t.Context()
 
 	dirName := t.TempDir()
@@ -525,9 +527,10 @@ func TestFlat_Validation(t *testing.T) {
 	distancr := distancer.NewCosineDistanceProvider()
 
 	index, err := New(Config{
-		ID:               "id",
-		RootPath:         t.TempDir(),
-		DistanceProvider: distancr,
+		ID:                "id",
+		RootPath:          t.TempDir(),
+		DistanceProvider:  distancr,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, flatent.UserConfig{}, store)
 	require.Nil(t, err)
 
@@ -556,7 +559,7 @@ func TestFlat_Validation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestFlat_ValidateCount(t *testing.T) {
+func Test_NoRace_Flat_ValidateCount(t *testing.T) {
 	ctx := t.Context()
 
 	store := testinghelpers.NewDummyStore(t)
@@ -569,9 +572,10 @@ func TestFlat_ValidateCount(t *testing.T) {
 	config.SetDefaults()
 
 	index, err := New(Config{
-		ID:               indexID,
-		RootPath:         rootPath,
-		DistanceProvider: distancer,
+		ID:                indexID,
+		RootPath:          rootPath,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
 	require.Nil(t, err)
 	vectors := [][]float32{{-2, 0}, {-2, 1}}
@@ -591,16 +595,17 @@ func TestFlat_ValidateCount(t *testing.T) {
 	index = nil
 
 	index, err = New(Config{
-		ID:               indexID,
-		RootPath:         rootPath,
-		DistanceProvider: distancer,
+		ID:                indexID,
+		RootPath:          rootPath,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
 	require.Nil(t, err)
 	newCount := index.AlreadyIndexed()
 	require.Equal(t, count, newCount)
 }
 
-func TestFlat_RQPersistence(t *testing.T) {
+func Test_NoRace_Flat_RQPersistence(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 
@@ -616,9 +621,10 @@ func TestFlat_RQPersistence(t *testing.T) {
 		RescoreLimit: 10,
 	}
 	index, err := New(Config{
-		ID:               "test-rq",
-		RootPath:         dirName,
-		DistanceProvider: distancer,
+		ID:                "test-rq",
+		RootPath:          dirName,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, flatent.UserConfig{
 		RQ: rq,
 	}, store)
@@ -670,9 +676,10 @@ func TestFlat_RQPersistence(t *testing.T) {
 	defer store2.Shutdown(context.Background())
 
 	index2, err := New(Config{
-		ID:               "test-rq",
-		RootPath:         dirName,
-		DistanceProvider: distancer,
+		ID:                "test-rq",
+		RootPath:          dirName,
+		DistanceProvider:  distancer,
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, flatent.UserConfig{
 		RQ: rq,
 	}, store2)
@@ -726,7 +733,7 @@ func TestFlat_RQPersistence(t *testing.T) {
 	require.Equal(t, originalDistance, distance2, "Distance calculation should be consistent after restart")
 }
 
-func TestQuantizerInterfaces(t *testing.T) {
+func Test_NoRace_QuantizerInterfaces(t *testing.T) {
 	ctx := context.Background()
 	distancer := distancer.NewCosineDistanceProvider()
 	testVector := []float32{1.0, 2.0, 3.0, 4.0, 5.0}
@@ -740,9 +747,10 @@ func TestQuantizerInterfaces(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-bq",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-bq",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			BQ: bq,
 		}, store)
@@ -805,9 +813,10 @@ func TestQuantizerInterfaces(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-rq1",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq1",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -868,9 +877,10 @@ func TestQuantizerInterfaces(t *testing.T) {
 			Bits:         8,
 		}
 		index, err := New(Config{
-			ID:               "test-rq8",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq8",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -914,7 +924,7 @@ func TestQuantizerInterfaces(t *testing.T) {
 	})
 }
 
-func TestCompressionTypes(t *testing.T) {
+func Test_NoRace_CompressionTypes(t *testing.T) {
 	t.Run("String method", func(t *testing.T) {
 		require.Equal(t, "none", CompressionNone.String())
 		require.Equal(t, "bq", CompressionBQ.String())
@@ -930,7 +940,7 @@ func TestCompressionTypes(t *testing.T) {
 	})
 }
 
-func TestQuantizerBuilder(t *testing.T) {
+func Test_NoRace_QuantizerBuilder(t *testing.T) {
 	distancer := distancer.NewCosineDistanceProvider()
 	builder := NewQuantizerBuilder(distancer)
 
@@ -1008,7 +1018,7 @@ func TestQuantizerBuilder(t *testing.T) {
 	}
 }
 
-func TestCacheFunctionality(t *testing.T) {
+func Test_NoRace_CacheFunctionality(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
 
@@ -1123,7 +1133,7 @@ func TestCacheFunctionality(t *testing.T) {
 	})
 }
 
-func TestQuantizedSearchFunctionality(t *testing.T) {
+func Test_NoRace_QuantizedSearchFunctionality(t *testing.T) {
 	ctx := context.Background()
 	distancer := distancer.NewCosineDistanceProvider()
 	testVectors := [][]float32{
@@ -1202,9 +1212,10 @@ func TestQuantizedSearchFunctionality(t *testing.T) {
 			config := tc.createConfig()
 
 			index, err := New(Config{
-				ID:               "test-" + strings.ToLower(strings.ReplaceAll(tc.name, " ", "-")),
-				RootPath:         dirName,
-				DistanceProvider: distancer,
+				ID:                "test-" + strings.ToLower(strings.ReplaceAll(tc.name, " ", "-")),
+				RootPath:          dirName,
+				DistanceProvider:  distancer,
+				MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 			}, config, store)
 			require.Nil(t, err)
 			defer index.Shutdown(context.Background())
@@ -1227,7 +1238,7 @@ func TestQuantizedSearchFunctionality(t *testing.T) {
 	}
 }
 
-func TestEdgeCases(t *testing.T) {
+func Test_NoRace_EdgeCases(t *testing.T) {
 	ctx := context.Background()
 	distancer := distancer.NewCosineDistanceProvider()
 
@@ -1240,9 +1251,10 @@ func TestEdgeCases(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-empty-vector",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-empty-vector",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1269,9 +1281,10 @@ func TestEdgeCases(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-single-dim",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-single-dim",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1298,9 +1311,10 @@ func TestEdgeCases(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-large-dim",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-large-dim",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1333,9 +1347,10 @@ func TestEdgeCases(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-zero-vector",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-zero-vector",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1363,9 +1378,10 @@ func TestEdgeCases(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-negative-values",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-negative-values",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1385,7 +1401,7 @@ func TestEdgeCases(t *testing.T) {
 	})
 }
 
-func TestEmptyIndexRestoration(t *testing.T) {
+func Test_NoRace_EmptyIndexRestoration(t *testing.T) {
 	ctx := context.Background()
 	distancer := distancer.NewCosineDistanceProvider()
 
@@ -1399,9 +1415,10 @@ func TestEmptyIndexRestoration(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-empty-index",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-empty-index",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1416,9 +1433,10 @@ func TestEmptyIndexRestoration(t *testing.T) {
 		defer store2.Shutdown(context.Background())
 
 		index2, err := New(Config{
-			ID:               "test-empty-index",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-empty-index",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store2)
@@ -1439,7 +1457,7 @@ func TestEmptyIndexRestoration(t *testing.T) {
 	})
 }
 
-func TestRQ1PersistenceAndRestoration(t *testing.T) {
+func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 	ctx := context.Background()
 	distancer := distancer.NewCosineDistanceProvider()
 	testVector := []float32{1.0, 2.0, 3.0, 4.0, 5.0}
@@ -1454,9 +1472,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 			Bits:         1,
 		}
 		index, err := New(Config{
-			ID:               "test-rq1-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq1-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1493,9 +1512,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 		defer store2.Shutdown(context.Background())
 
 		index2, err := New(Config{
-			ID:               "test-rq1-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq1-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store2)
@@ -1540,9 +1560,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 			Bits:         8,
 		}
 		index, err := New(Config{
-			ID:               "test-rq8-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq8-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1579,9 +1600,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 		defer store2.Shutdown(context.Background())
 
 		index2, err := New(Config{
-			ID:               "test-rq8-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq8-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store2)
@@ -1625,9 +1647,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-rq-multi-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq-multi-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1669,9 +1692,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 		defer store2.Shutdown(context.Background())
 
 		index2, err := New(Config{
-			ID:               "test-rq-multi-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq-multi-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store2)
@@ -1702,9 +1726,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 			RescoreLimit: 10,
 		}
 		index, err := New(Config{
-			ID:               "test-rq-cache-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq-cache-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store)
@@ -1734,9 +1759,10 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 		defer store2.Shutdown(context.Background())
 
 		index2, err := New(Config{
-			ID:               "test-rq-cache-persistence",
-			RootPath:         dirName,
-			DistanceProvider: distancer,
+			ID:                "test-rq-cache-persistence",
+			RootPath:          dirName,
+			DistanceProvider:  distancer,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, flatent.UserConfig{
 			RQ: rq,
 		}, store2)

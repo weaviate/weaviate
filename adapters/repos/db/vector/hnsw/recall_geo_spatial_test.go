@@ -36,7 +36,7 @@ type recallGeoNoopBucketView struct{}
 
 func (n *recallGeoNoopBucketView) ReleaseView() {}
 
-func TestRecallGeo(t *testing.T) {
+func Test_NoRaceRecallGeo(t *testing.T) {
 	ctx := context.Background()
 	size := 10000
 	queries := 100
