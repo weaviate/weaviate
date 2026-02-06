@@ -28,6 +28,29 @@ import (
 
 const (
 	toolNameUpsert = "weaviate-objects-upsert"
+
+	// Property names
+	propContents = "contents"
+	propTitle    = "title"
+	propTextProp = "textProp"
+	propIntProp  = "intProp"
+	propDateProp = "dateProp"
+
+	// Test data values
+	testContent      = "Test Content"
+	testTitle        = "Test Title"
+	originalContent  = "Original Content"
+	originalTitle    = "Original Title"
+	updatedContent   = "Updated Content"
+	updatedTitle     = "Updated Title"
+	testText         = "Test"
+	validRFC3339Date = "2023-01-15T10:30:00Z"
+	invalidDateOnly  = "2023-01-15"
+
+	// Tenant names
+	tenant1       = "tenant1"
+	tenant2       = "tenant2"
+	tenantInvalid = "nonexistent"
 )
 
 // setupUpsertTest handles the boilerplate setup: client init, class creation, and context generation.
@@ -147,6 +170,43 @@ func assertPartialBatchResults(t *testing.T, resp *create.UpsertObjectResp, expe
 	assert.Equal(t, expectedFails, failCount, "unexpected number of failed upserts")
 }
 
+// upsertObjects is a helper that calls the upsert tool and validates success
+func upsertObjects(t *testing.T, ctx context.Context, args *create.UpsertObjectArgs, apiKey string) *create.UpsertObjectResp {
+	t.Helper()
+	var resp *create.UpsertObjectResp
+	err := helper.CallToolOnce(ctx, t, toolNameUpsert, args, &resp, apiKey)
+	require.Nil(t, err)
+	validateUpsertResults(t, resp, len(args.Objects))
+	return resp
+}
+
+// upsertObjectsExpectError is a helper that calls the upsert tool and expects an error in results
+func upsertObjectsExpectError(t *testing.T, ctx context.Context, args *create.UpsertObjectArgs, apiKey string, errorSubstring string) *create.UpsertObjectResp {
+	t.Helper()
+	var resp *create.UpsertObjectResp
+	err := helper.CallToolOnce(ctx, t, toolNameUpsert, args, &resp, apiKey)
+	require.Nil(t, err, "should not return error at function level")
+	require.NotNil(t, resp)
+	require.Len(t, resp.Results, len(args.Objects))
+	require.NotEmpty(t, resp.Results[0].Error, "should have error in result")
+	if errorSubstring != "" {
+		assert.Contains(t, resp.Results[0].Error, errorSubstring)
+	}
+	return resp
+}
+
+// getAndVerifyObject fetches an object and verifies a property value
+func getAndVerifyObject(t *testing.T, class string, uuid strfmt.UUID, apiKey, propertyName string, expectedValue interface{}) *models.Object {
+	t.Helper()
+	obj, err := helper.GetObjectAuth(t, class, uuid, apiKey)
+	require.Nil(t, err)
+	require.NotNil(t, obj)
+	if propertyName != "" && expectedValue != nil {
+		assert.Equal(t, expectedValue, obj.Properties.(map[string]interface{})[propertyName])
+	}
+	return obj
+}
+
 // validateUpsertResults checks that the response exists, has the correct number of results,
 // and that none of the results contain errors.
 func validateUpsertResults(t *testing.T, resp *create.UpsertObjectResp, expectedCount int) {
@@ -177,8 +237,7 @@ func TestUpsertToolInsertOneObject(t *testing.T) {
 	defer cleanup()
 
 	// Insert a single object
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	resp := upsertObjects(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -188,18 +247,12 @@ func TestUpsertToolInsertOneObject(t *testing.T) {
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-	require.Nil(t, err)
-
-	validateUpsertResults(t, resp, 1)
+	}, testAPIKey)
 
 	// Verify the object was created
 	uuid := strfmt.UUID(resp.Results[0].ID)
-	obj, err := helper.GetObjectAuth(t, cls.Class, uuid, testAPIKey)
-	require.Nil(t, err)
-	require.NotNil(t, obj)
-	assert.Equal(t, "Test Article Content", obj.Properties.(map[string]interface{})["contents"])
-	assert.Equal(t, "Test Article", obj.Properties.(map[string]interface{})["title"])
+	getAndVerifyObject(t, cls.Class, uuid, testAPIKey, "contents", "Test Article Content")
+	getAndVerifyObject(t, cls.Class, uuid, testAPIKey, "title", "Test Article")
 }
 
 func TestUpsertToolInsertMultipleObjects(t *testing.T) {
@@ -254,30 +307,25 @@ func TestUpsertToolUpdateOneObject(t *testing.T) {
 	existingUUID := createdObj.ID.String()
 
 	// Now update the object using upsert with the same UUID
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	resp := upsertObjects(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
 				UUID: existingUUID,
 				Properties: map[string]any{
-					"contents": "Updated Content",
-					"title":    "Updated Title",
+					propContents: updatedContent,
+					propTitle:    updatedTitle,
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-	require.Nil(t, err)
+	}, testAPIKey)
 
-	validateUpsertResults(t, resp, 1)
 	require.Equal(t, existingUUID, resp.Results[0].ID, "should return same UUID")
 
 	// Verify the object was updated
 	uuid := strfmt.UUID(existingUUID)
-	obj, err := helper.GetObjectAuth(t, cls.Class, uuid, testAPIKey)
-	require.Nil(t, err)
-	assert.Equal(t, "Updated Content", obj.Properties.(map[string]interface{})["contents"])
-	assert.Equal(t, "Updated Title", obj.Properties.(map[string]interface{})["title"])
+	getAndVerifyObject(t, cls.Class, uuid, testAPIKey, propContents, updatedContent)
+	getAndVerifyObject(t, cls.Class, uuid, testAPIKey, propTitle, updatedTitle)
 }
 
 func TestUpsertToolUpdateMultipleObjects(t *testing.T) {
@@ -444,8 +492,8 @@ func TestUpsertToolNonExistentCollection(t *testing.T) {
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 				},
 			},
 		},
@@ -461,14 +509,13 @@ func TestUpsertToolNonExistentCollection(t *testing.T) {
 
 // Multi-tenancy tests
 func TestUpsertToolWithTenant(t *testing.T) {
-	cls, ctx, cleanup := setupUpsertTestWithTenant(t, []string{"tenant1", "tenant2"})
+	cls, ctx, cleanup := setupUpsertTestWithTenant(t, []string{tenant1, tenant2})
 	defer cleanup()
 
 	// Insert object for tenant1
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	resp := upsertObjects(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
-		TenantName:     "tenant1",
+		TenantName:     tenant1,
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
@@ -477,72 +524,56 @@ func TestUpsertToolWithTenant(t *testing.T) {
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-	require.Nil(t, err)
-	validateUpsertResults(t, resp, 1)
+	}, testAPIKey)
 
 	// Verify object exists for tenant1
 	uuid := strfmt.UUID(resp.Results[0].ID)
-	obj, err := helper.GetObjectAuthWithTenant(t, cls.Class, uuid, "tenant1", testAPIKey)
+	obj, err := helper.GetObjectAuthWithTenant(t, cls.Class, uuid, tenant1, testAPIKey)
 	require.Nil(t, err)
 	require.NotNil(t, obj)
 	assert.Equal(t, "Tenant 1 Content", obj.Properties.(map[string]interface{})["contents"])
 
 	// Verify object doesn't exist for tenant2
-	_, err = helper.GetObjectAuthWithTenant(t, cls.Class, uuid, "tenant2", testAPIKey)
+	_, err = helper.GetObjectAuthWithTenant(t, cls.Class, uuid, tenant2, testAPIKey)
 	require.NotNil(t, err, "object should not exist in tenant2")
 }
 
 func TestUpsertToolInvalidTenant(t *testing.T) {
-	cls, ctx, cleanup := setupUpsertTestWithTenant(t, []string{"tenant1"})
+	cls, ctx, cleanup := setupUpsertTestWithTenant(t, []string{tenant1})
 	defer cleanup()
 
 	// Try to upsert to non-existent tenant
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	upsertObjectsExpectError(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
-		TenantName:     "nonexistent",
+		TenantName:     tenantInvalid,
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-
-	// Should return success but with error in results
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, resp.Results, 1)
-	require.NotEmpty(t, resp.Results[0].Error, "should have error for non-existent tenant")
+	}, testAPIKey, "") // Any error is acceptable
 }
 
 func TestUpsertToolMissingTenantWhenRequired(t *testing.T) {
-	cls, ctx, cleanup := setupUpsertTestWithTenant(t, []string{"tenant1"})
+	cls, ctx, cleanup := setupUpsertTestWithTenant(t, []string{tenant1})
 	defer cleanup()
 
 	// Try to upsert without tenant name when multi-tenancy is enabled
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	upsertObjectsExpectError(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		// TenantName is missing
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-
-	// Should return success but with error in results
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, resp.Results, 1)
-	require.NotEmpty(t, resp.Results[0].Error, "should have error when tenant is missing")
+	}, testAPIKey, "") // Any error is acceptable
 }
 
 // Data Validation Tests
@@ -559,8 +590,8 @@ func TestUpsertToolInvalidUUID(t *testing.T) {
 			{
 				UUID: "not-a-valid-uuid",
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 				},
 			},
 		},
@@ -599,8 +630,7 @@ func TestUpsertToolInvalidPropertyType(t *testing.T) {
 	defer cleanup()
 
 	// Try to upsert with wrong property type (string where int expected)
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	upsertObjectsExpectError(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -610,13 +640,7 @@ func TestUpsertToolInvalidPropertyType(t *testing.T) {
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-
-	// Should return success but with error in results
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, resp.Results, 1)
-	require.NotEmpty(t, resp.Results[0].Error, "should have error for type mismatch")
+	}, testAPIKey, "") // Any error is acceptable for type mismatch
 }
 
 func TestUpsertToolDatePropertyRFC3339(t *testing.T) {
@@ -624,37 +648,30 @@ func TestUpsertToolDatePropertyRFC3339(t *testing.T) {
 	defer cleanup()
 
 	// Test valid RFC3339 date
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	upsertObjects(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"textProp": "Test",
-					"dateProp": "2023-01-15T10:30:00Z", // Valid RFC3339
+					propTextProp: testText,
+					propDateProp: validRFC3339Date, // Valid RFC3339
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-	require.Nil(t, err)
-	validateUpsertResults(t, resp, 1)
+	}, testAPIKey)
 
 	// Test invalid date format (date only, no time)
-	err = helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	upsertObjectsExpectError(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"textProp": "Test",
-					"dateProp": "2023-01-15", // Invalid - missing time
+					propTextProp: testText,
+					propDateProp: invalidDateOnly, // Invalid - missing time
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, resp.Results, 1)
-	require.NotEmpty(t, resp.Results[0].Error, "should have error for invalid date format")
+	}, testAPIKey, "") // Any error for invalid date format
 }
 
 // Vector Operations Tests
@@ -663,17 +680,16 @@ func TestUpsertToolMultipleNamedVectors(t *testing.T) {
 	defer cleanup()
 
 	// Test that providing multiple named vectors returns error for single-vector schema
-	var resp *create.UpsertObjectResp
 	textVector := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
 	imageVector := []float32{0.6, 0.7, 0.8, 0.9, 1.0}
 
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	upsertObjectsExpectError(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 				},
 				Vectors: map[string][]float32{
 					"text":  textVector,
@@ -681,14 +697,7 @@ func TestUpsertToolMultipleNamedVectors(t *testing.T) {
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-
-	// Should return success but with error in results for unsupported named vectors
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, resp.Results, 1)
-	require.NotEmpty(t, resp.Results[0].Error, "should have error for unsupported named vector")
-	assert.Contains(t, resp.Results[0].Error, "image")
+	}, testAPIKey, "does not have configuration for vector")
 }
 
 func TestUpsertToolVectorDimensionMismatch(t *testing.T) {
@@ -799,8 +808,8 @@ func TestUpsertToolUnauthorized(t *testing.T) {
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 				},
 			},
 		},
@@ -848,8 +857,8 @@ func TestUpsertToolInvalidVectorValues(t *testing.T) {
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 				},
 				Vectors: map[string][]float32{
 					"default": {}, // Empty vector
@@ -875,8 +884,7 @@ func TestUpsertToolNoOpUpdate(t *testing.T) {
 	existingUUID := createdObj.ID.String()
 
 	// Update with exact same properties (no-op)
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	resp := upsertObjects(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -887,16 +895,12 @@ func TestUpsertToolNoOpUpdate(t *testing.T) {
 				},
 			},
 		},
-	}, &resp, testAPIKey)
+	}, testAPIKey)
 
-	require.Nil(t, err)
-	validateUpsertResults(t, resp, 1)
 	require.Equal(t, existingUUID, resp.Results[0].ID)
 
 	// Verify object still has same properties
-	obj, err := helper.GetObjectAuth(t, cls.Class, createdObj.ID, testAPIKey)
-	require.Nil(t, err)
-	assert.Equal(t, "Original Content", obj.Properties.(map[string]interface{})["contents"])
+	getAndVerifyObject(t, cls.Class, createdObj.ID, testAPIKey, "contents", "Original Content")
 }
 
 func TestUpsertToolArrayProperties(t *testing.T) {
@@ -904,8 +908,7 @@ func TestUpsertToolArrayProperties(t *testing.T) {
 	defer cleanup()
 
 	// Insert object with array properties
-	var resp *create.UpsertObjectResp
-	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
+	resp := upsertObjects(t, ctx, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
 			{
@@ -916,15 +919,11 @@ func TestUpsertToolArrayProperties(t *testing.T) {
 				},
 			},
 		},
-	}, &resp, testAPIKey)
-
-	require.Nil(t, err)
-	validateUpsertResults(t, resp, 1)
+	}, testAPIKey)
 
 	// Verify arrays were stored correctly
 	uuid := strfmt.UUID(resp.Results[0].ID)
-	obj, err := helper.GetObjectAuth(t, cls.Class, uuid, testAPIKey)
-	require.Nil(t, err)
+	obj := getAndVerifyObject(t, cls.Class, uuid, testAPIKey, "", nil)
 	assert.NotNil(t, obj.Properties.(map[string]interface{})["textArrayProp"])
 	assert.NotNil(t, obj.Properties.(map[string]interface{})["intArrayProp"])
 }
@@ -940,8 +939,8 @@ func TestUpsertToolNestedObjectProperties(t *testing.T) {
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Test Content",
-					"title":    "Test Title",
+					propContents: testContent,
+					propTitle:    testTitle,
 					"metadata": map[string]any{
 						"author": "John Doe",
 						"year":   2023,
@@ -970,8 +969,8 @@ func TestUpsertToolUnicodeInProperties(t *testing.T) {
 		Objects: []create.ObjectToUpsert{
 			{
 				Properties: map[string]any{
-					"contents": "Hello 世界 🌍 Привет",
-					"title":    "Ü​nicode テスト 🚀",
+					"contents": "海賊王に、俺はなる！",
+					"title":    "私の夢 🚀",
 				},
 			},
 		},
@@ -984,8 +983,8 @@ func TestUpsertToolUnicodeInProperties(t *testing.T) {
 	uuid := strfmt.UUID(resp.Results[0].ID)
 	obj, err := helper.GetObjectAuth(t, cls.Class, uuid, testAPIKey)
 	require.Nil(t, err)
-	assert.Equal(t, "Hello 世界 🌍 Привет", obj.Properties.(map[string]interface{})["contents"])
-	assert.Equal(t, "Ü​nicode テスト 🚀", obj.Properties.(map[string]interface{})["title"])
+	assert.Equal(t, "海賊王に、俺はなる！", obj.Properties.(map[string]interface{})["contents"])
+	assert.Equal(t, "私の夢 🚀", obj.Properties.(map[string]interface{})["title"])
 }
 
 func TestUpsertToolVeryLongPropertyValues(t *testing.T) {
