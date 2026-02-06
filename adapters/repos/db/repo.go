@@ -34,6 +34,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/shard"
+	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -61,6 +63,7 @@ type DB struct {
 	remoteIndex                    sharding.RemoteIndexClient
 	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
 	replicaClient                  replica.Client
+	raftClient                     shardproto.ShardReplicationServiceClient
 	nodeResolver                   cluster.NodeResolver
 	remoteNode                     *sharding.RemoteNode
 	promMetrics                    *monitoring.PrometheusMetrics
@@ -324,6 +327,8 @@ type Config struct {
 
 	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
+
+	ShardRegistry *shard.Registry
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

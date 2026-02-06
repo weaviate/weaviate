@@ -1,0 +1,94 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+syntax = "proto3";
+
+// NOTE run `buf generate` from `cluster/data/proto` to regenerate code
+package weaviate.internal.data;
+
+option go_package = "github.com/weaviate/weaviate/cluster/data/proto";
+
+// ApplyRequest represents a command to be applied to a shard's RAFT FSM.
+// Each physical shard has its own RAFT cluster for object replication.
+message ApplyRequest {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_PUT_OBJECT = 1;
+    // Future: Additional object operations
+    // TYPE_DELETE_OBJECT = 2;
+    // TYPE_MERGE_OBJECT = 3;
+    // TYPE_PUT_OBJECTS_BATCH = 4;
+    // TYPE_DELETE_OBJECTS_BATCH = 5;
+    // TYPE_ADD_REFERENCES = 6;
+  }
+
+  Type type = 1;
+  string class = 2;
+  string shard = 3;
+  uint64 version = 4;
+  bytes sub_command = 5;
+}
+
+// ApplyResponse is returned by the FSM after applying a command.
+message ApplyResponse {
+  uint64 version = 1;
+  string leader = 2;
+  optional string error = 3;
+}
+
+// ShardRaftSnapshot represents the snapshot metadata for a shard's RAFT FSM.
+// The actual object data is stored in the LSM store, so the snapshot only
+// contains the last applied index for consistency verification.
+message ShardRaftSnapshot {
+  // The last RAFT log index that was applied to the shard
+  uint64 last_applied_index = 1;
+
+  // Shard identification
+  string class_name = 2;
+  string shard_name = 3;
+
+  // Node that created this snapshot
+  string node_id = 4;
+}
+
+// =========================================================================
+// gRPC Service for forwarding shard operations to RAFT leaders
+// =========================================================================
+
+// ShardReplicationService handles forwarding of shard operations from
+// followers to leaders in per-shard RAFT clusters.
+service ShardReplicationService {                                                                                                                                                                                  
+  rpc Apply(ApplyRequest) returns (ApplyResponse) {}                                                                                                                                                     
+}
+
+// PutObjectRequest is sent from a follower to the leader to apply a PutObject operation.
+message PutObjectRequest {
+  // Serialized storobj.Object
+  bytes object = 3;
+
+  // Schema version for compatibility validation
+  uint64 schema_version = 4;
+
+  // Unique request ID for idempotency (optional, can be 0)
+  uint64 request_id = 5;
+}
+
+// PutObjectResponse is returned after applying a PutObject operation.
+message PutObjectResponse {
+  // The RAFT log index at which this command was applied (0 on error)
+  uint64 applied_index = 1;
+
+  // Current leader address (useful when returning NotLeader error)
+  string leader = 2;
+
+  // Error message if the operation failed (empty on success)
+  string error = 3;
+}

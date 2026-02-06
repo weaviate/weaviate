@@ -767,6 +767,11 @@
             "TimeBasedResolution"
           ],
           "x-omitempty": true
+        },
+        "raftEnabled": {
+          "description": "Whether to use Raft for replication (default: `false`).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"

@@ -84,6 +84,7 @@ type Config struct {
 	Hostname                string     `json:"hostname" yaml:"hostname"`
 	GossipBindPort          int        `json:"gossipBindPort" yaml:"gossipBindPort"`
 	DataBindPort            int        `json:"dataBindPort" yaml:"dataBindPort"`
+	ShardRaftPort           int        `json:"shardRaftPort" yaml:"shardRaftPort"`
 	Join                    string     `json:"join" yaml:"join"`
 	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`

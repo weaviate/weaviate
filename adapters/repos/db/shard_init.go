@@ -173,6 +173,36 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunAfterLsmInit(ctx, s)
 	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
+
+	// Register shard with RAFT manager if RAFT replication is enabled
+	if index.Config.RaftReplicationEnabled && index.raft != nil {
+		className := index.Config.ClassName.String()
+		members, err := index.getSchema.ShardReplicas(className, shardName)
+		if err != nil {
+			index.logger.WithError(err).WithFields(logrus.Fields{
+				"action": "raft_shard_registration",
+				"shard":  shardName,
+				"index":  index.ID(),
+			}).Warn("failed to get shard replicas for RAFT registration")
+		} else if len(members) > 0 {
+			if err := index.raft.OnShardCreated(ctx, shardName, members, s.path(), s); err != nil {
+				index.logger.WithError(err).WithFields(logrus.Fields{
+					"action":  "raft_shard_registration",
+					"shard":   shardName,
+					"index":   index.ID(),
+					"members": members,
+				}).Warn("failed to register shard with RAFT manager")
+			} else {
+				index.logger.WithFields(logrus.Fields{
+					"action":  "raft_shard_registration",
+					"shard":   shardName,
+					"index":   index.ID(),
+					"members": members,
+				}).Info("registered shard with RAFT manager")
+			}
+		}
+	}
+
 	return s, nil
 }
 

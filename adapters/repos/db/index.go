@@ -44,8 +44,10 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/shard"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -231,7 +233,7 @@ type Index struct {
 	logger       logrus.FieldLogger
 	remote       *sharding.RemoteIndex
 	stopwords    *stopwords.Detector
-	replicator   *replica.Replicator
+	replicator   shard.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
@@ -280,6 +282,9 @@ type Index struct {
 	// canceled when either Shutdown or Drop called
 	closingCtx    context.Context
 	closingCancel context.CancelFunc
+
+	// Per-index RAFT manager (only set if RaftReplicationEnabled)
+	raft *shard.Raft
 
 	// always true if lazy shard loading is off, in the case of lazy shard
 	// loading will be set to true once the last shard was loaded.
@@ -395,9 +400,32 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	// Create the base replicator which handles 2PC/async replication
+	baseReplicator, err := replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
+	}
+
+	if cfg.RaftReplicationEnabled && cfg.ShardRegistry != nil {
+		// Get or create per-index Raft manager from the global registry
+		indexRaft, err := cfg.ShardRegistry.GetOrCreateRaft(class.Class)
+		if err != nil {
+			return nil, fmt.Errorf("create index raft for %q: %w", class.Class, err)
+		}
+		index.raft = indexRaft
+
+		// Wrap with RAFT router - overrides PutObject to use RAFT,
+		// delegates all other methods to the backing replicator
+		index.replicator = shard.Newreplicator(shard.RouterConfig{
+			NodeID:            index.getSchema.NodeName(),
+			Logger:            logger,
+			Raft:              indexRaft,
+			ClassName:         class.Class,
+			BackingReplicator: baseReplicator,
+			RpcClientMaker:    cfg.ShardRegistry.RpcClientMaker,
+		})
+	} else {
+		index.replicator = baseReplicator
 	}
 
 	index.asyncReplicationWorkersLimiter = dynsemaphore.NewDynamicWeightedWithParent(index.Config.AsyncReplicationWorkersLimiter,
@@ -882,7 +910,9 @@ type IndexConfig struct {
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
 
-	HFreshEnabled bool
+	HFreshEnabled          bool
+	RaftReplicationEnabled bool
+	ShardRegistry          *shard.Registry
 }
 
 func indexID(class schema.ClassName) string {

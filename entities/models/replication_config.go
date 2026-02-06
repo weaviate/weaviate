@@ -43,6 +43,9 @@ type ReplicationConfig struct {
 
 	// Number of times a collection (class) is replicated (default: 1).
 	Factor int64 `json:"factor,omitempty"`
+
+	// Whether to use Raft for replication (default: `false`).
+	RaftEnabled bool `json:"raftEnabled"`
 }
 
 // Validate validates this replication config
