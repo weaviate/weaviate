@@ -31,7 +31,7 @@ import (
 type compactorSet struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1, c2 innerCursorCollection
+	c1, c2 *segmentCursorCollectionReusable
 
 	// the level matching those of the cursors
 	currentLevel        uint16
@@ -53,10 +53,14 @@ type compactorSet struct {
 	enableChecksumValidation bool
 
 	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)
+
+	// reusable buffers to reduce allocations during compaction
+	mergedValues []value
+	setDecoder   setDecoder
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
-	c1, c2 innerCursorCollection, level, secondaryIndexCount uint16,
+	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error),
@@ -190,8 +194,16 @@ func (c *compactorSet) processKeyPair(f *segmentindex.SegmentFile, offset *int,
 		return err
 	}
 
-	values := append(value1, value2...)
-	valuesMerged := newSetDecoder().DoPartial(values)
+	needed := len(value1) + len(value2)
+	if cap(c.mergedValues) < needed {
+		c.mergedValues = make([]value, needed, int(float64(needed)*1.25))
+	} else {
+		c.mergedValues = c.mergedValues[:needed]
+	}
+	copy(c.mergedValues, value1)
+	copy(c.mergedValues[len(value1):], value2)
+
+	valuesMerged := c.setDecoder.DoPartial(c.mergedValues)
 	if vals, skip := c.cleanupValues(valuesMerged); !skip {
 		ki, err := c.writeIndividualNode(f, *offset, key2, vals)
 		if err != nil {
@@ -225,9 +237,15 @@ func (c *compactorSet) processKey(f *segmentindex.SegmentFile, offset *int,
 func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
 	offset int, key []byte, values []value,
 ) (segmentindex.Key, error) {
+	// With reusable cursors, the key buffer is shared across iterations.
+	// We must copy it before writing, as KeyIndexAndWriteTo may store
+	// a reference. See: https://github.com/weaviate/weaviate/issues/3517
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+
 	return (&segmentCollectionNode{
 		values:     values,
-		primaryKey: key,
+		primaryKey: keyCopy,
 		offset:     offset,
 	}).KeyIndexAndWriteTo(f.BodyWriter())
 }
