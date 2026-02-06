@@ -25,11 +25,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type recallGeoNoopBucketView struct{}
@@ -66,6 +68,7 @@ func Test_NoRaceRecallGeo(t *testing.T) {
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
 		index, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
@@ -73,7 +76,8 @@ func Test_NoRaceRecallGeo(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			GetViewThunk: func() common.BucketView { return &recallGeoNoopBucketView{} },
+			GetViewThunk:      func() common.BucketView { return &recallGeoNoopBucketView{} },
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, ent.UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
