@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -38,16 +39,16 @@ type objectsManager interface {
 type WeaviateReader struct {
 	auth.Auth
 
-	schemaReader      schemaReader
-	objectsManager    objectsManager
-	defaultCollection string
+	schemaReader   schemaReader
+	objectsManager objectsManager
+	logger         logrus.FieldLogger
 }
 
-func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, objectsManager objectsManager) *WeaviateReader {
+func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, objectsManager objectsManager, logger logrus.FieldLogger) *WeaviateReader {
 	return &WeaviateReader{
-		defaultCollection: "DefaultCollection",
-		schemaReader:      schemaReader,
-		objectsManager:    objectsManager,
-		Auth:              *auth,
+		schemaReader:   schemaReader,
+		objectsManager: objectsManager,
+		Auth:           *auth,
+		logger:         logger,
 	}
 }

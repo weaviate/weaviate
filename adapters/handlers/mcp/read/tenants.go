@@ -16,10 +16,17 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest, args GetTenantsArgs) (*GetTenantsResp, error) {
+	log := r.logger.WithFields(logrus.Fields{
+		"tool":       "weaviate-tenants-list",
+		"collection": args.CollectionName,
+	})
+	log.Debug("listing tenants")
+
 	// Authorize the request
 	principal, err := r.Authorize(ctx, req, authorization.READ)
 	if err != nil {
@@ -27,6 +34,7 @@ func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest
 	}
 	tenants, err := r.schemaReader.GetConsistentTenants(ctx, principal, args.CollectionName, true, nil)
 	if err != nil {
+		log.WithError(err).Warn("failed to get tenants")
 		return nil, fmt.Errorf("failed to get tenants: %w", err)
 	}
 	return &GetTenantsResp{Tenants: tenants}, nil

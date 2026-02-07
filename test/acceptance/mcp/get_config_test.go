@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/read"
 	"github.com/weaviate/weaviate/entities/models"
@@ -67,7 +68,7 @@ func setupGetConfigTestWithTenants(t *testing.T, tenantNames []string) (*models.
 }
 
 func TestCollectionsGetConfigTool(t *testing.T) {
-	_, ctx, cleanup := setupGetConfigTest(t)
+	cls, ctx, cleanup := setupGetConfigTest(t)
 	defer cleanup()
 
 	var schema *read.GetCollectionConfigResp
@@ -77,6 +78,7 @@ func TestCollectionsGetConfigTool(t *testing.T) {
 	require.NotNil(t, schema)
 	require.NotNil(t, schema.Collections)
 	require.Len(t, schema.Collections, 1)
+	require.Equal(t, cls.Class, schema.Collections[0].Class)
 }
 
 func TestCollectionsGetSpecificConfigTool(t *testing.T) {
@@ -105,4 +107,6 @@ func TestGetTenantsTool(t *testing.T) {
 
 	require.NotNil(t, tenants)
 	require.Len(t, tenants.Tenants, 2)
+	names := []string{tenants.Tenants[0].Name, tenants.Tenants[1].Name}
+	assert.ElementsMatch(t, []string{"tenant1", "tenant2"}, names)
 }

@@ -14,6 +14,7 @@ package search
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
@@ -22,18 +23,18 @@ import (
 type WeaviateSearcher struct {
 	auth.Auth
 
-	traverser         traverser
-	defaultCollection string
+	traverser traverser
+	logger    logrus.FieldLogger
 }
 
 type traverser interface {
 	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) ([]any, error)
 }
 
-func NewWeaviateSearcher(auth *auth.Auth, traverser traverser) *WeaviateSearcher {
+func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, logger logrus.FieldLogger) *WeaviateSearcher {
 	return &WeaviateSearcher{
-		defaultCollection: "DefaultCollection",
-		traverser:         traverser,
-		Auth:              *auth,
+		traverser: traverser,
+		Auth:      *auth,
+		logger:    logger,
 	}
 }

@@ -14,6 +14,7 @@ package create
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,8 +24,8 @@ import (
 type WeaviateCreator struct {
 	auth.Auth
 
-	batchManager      batchManager
-	defaultCollection string
+	batchManager batchManager
+	logger       logrus.FieldLogger
 }
 
 type batchManager interface {
@@ -32,10 +33,10 @@ type batchManager interface {
 		objects []*models.Object, fields []*string, repl *additional.ReplicationProperties) (objects.BatchObjects, error)
 }
 
-func NewWeaviateCreator(auth *auth.Auth, batchManager batchManager) *WeaviateCreator {
+func NewWeaviateCreator(auth *auth.Auth, batchManager batchManager, logger logrus.FieldLogger) *WeaviateCreator {
 	return &WeaviateCreator{
-		defaultCollection: "DefaultCollection",
-		batchManager:      batchManager,
-		Auth:              *auth,
+		batchManager: batchManager,
+		Auth:         *auth,
+		logger:       logger,
 	}
 }

@@ -517,18 +517,8 @@ func TestQueryHybridNoFilter(t *testing.T) {
 
 // Test 13: Multi-tenant search
 func TestQueryHybridWithTenant(t *testing.T) {
-	helper.SetupClient("localhost:8080")
-	apiKey := "admin-key"
-
 	cls, ctx, cleanup := setupQueryHybridMultiTenantTest(t, []string{tenantA, tenantB})
 	defer cleanup()
-
-	// Tenants already created in setup
-	tenants := []*models.Tenant{
-		{Name: tenantA},
-		{Name: tenantB},
-	}
-	helper.CreateTenantsAuth(t, cls.Class, tenants, apiKey)
 
 	// Insert objects for tenant-a
 	objectsA := []*models.Object{
@@ -549,7 +539,7 @@ func TestQueryHybridWithTenant(t *testing.T) {
 			},
 		},
 	}
-	helper.CreateObjectsBatchAuth(t, objectsA, apiKey)
+	helper.CreateObjectsBatchAuth(t, objectsA, testAPIKey)
 
 	// Insert objects for tenant-b
 	objectsB := []*models.Object{
@@ -562,7 +552,7 @@ func TestQueryHybridWithTenant(t *testing.T) {
 			},
 		},
 	}
-	helper.CreateObjectsBatchAuth(t, objectsB, apiKey)
+	helper.CreateObjectsBatchAuth(t, objectsB, testAPIKey)
 
 	// Query tenant-a - expects 2 results (2 articles for tenant-a with "learning")
 	alpha := 0.0
@@ -646,11 +636,9 @@ func TestQueryHybridEmptyQuery(t *testing.T) {
 		Alpha:          &alpha,
 	}, &results, testAPIKey)
 
-	// Empty query might return all results or be valid behavior
-	// Just verify it doesn't crash
-	if err == nil {
-		require.NotNil(t, results)
-	}
+	// Empty query with pure BM25 should succeed without crashing
+	require.Nil(t, err, "empty query should not produce an error")
+	require.NotNil(t, results)
 }
 
 // Test 16: No results scenario
@@ -700,13 +688,15 @@ func TestQueryHybridDefaultAlpha(t *testing.T) {
 		// Alpha not specified - should use default
 	}, &results, testAPIKey)
 
-	// Note: This might fail if no vectorizer is configured
-	// The test verifies the parameter handling, not the semantic search itself
+	// Default alpha (0.5) uses both vector and keyword components.
+	// Without a vectorizer, the vector component fails.
 	if err != nil {
 		// If it fails due to vectorization, that's expected without a vectorizer
 		assert.Contains(t, err.Error(), "vector", "should mention vector-related error")
 	} else {
+		// If it succeeds, BM25 component should return results
 		require.NotNil(t, results)
+		require.NotEmpty(t, results.Results, "BM25 component should still return results")
 	}
 }
 

@@ -12,11 +12,10 @@
 package mcp
 
 import (
-	"context"
 	"fmt"
-	"time"
 
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/create"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
@@ -27,31 +26,30 @@ import (
 )
 
 type MCPServer struct {
-	server            *server.MCPServer
-	defaultCollection string
-	creator           *create.WeaviateCreator
-	searcher          *search.WeaviateSearcher
-	reader            *read.WeaviateReader
-	state             *state.State
+	server   *server.MCPServer
+	creator  *create.WeaviateCreator
+	searcher *search.WeaviateSearcher
+	reader   *read.WeaviateReader
+	state    *state.State
+	logger   logrus.FieldLogger
 }
 
 func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServer, error) {
 	authHandler := auth.NewAuth(state)
+	logger := state.Logger.WithField("component", "mcp")
 	s := &MCPServer{
 		server: server.NewMCPServer(
 			"Weaviate MCP Server",
 			"0.1.0",
 			server.WithToolCapabilities(true),
-			server.WithPromptCapabilities(true),
 			server.WithResourceCapabilities(false, false),
 			server.WithRecovery(),
 		),
-		// TODO: configurable collection name
-		defaultCollection: "DefaultCollection",
-		creator:           create.NewWeaviateCreator(authHandler, state.BatchManager),
-		searcher:          search.NewWeaviateSearcher(authHandler, state.Traverser),
-		reader:            read.NewWeaviateReader(authHandler, state.SchemaManager, objectsManager),
-		state:             state,
+		creator:  create.NewWeaviateCreator(authHandler, state.BatchManager, logger),
+		searcher: search.NewWeaviateSearcher(authHandler, state.Traverser, logger),
+		reader:   read.NewWeaviateReader(authHandler, state.SchemaManager, objectsManager, logger),
+		state:    state,
+		logger:   logger,
 	}
 	s.registerTools()
 	return s, nil
@@ -60,12 +58,9 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 func (s *MCPServer) Serve() {
 	httpServer := server.NewStreamableHTTPServer(s.server)
 	addr := fmt.Sprintf("0.0.0.0:%d", s.state.ServerConfig.Config.MCP.Port)
+	s.logger.WithField("addr", addr).Info("starting MCP server")
 	if err := httpServer.Start(addr); err != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := httpServer.Shutdown(ctx); err != nil {
-			panic(err)
-		}
+		s.logger.WithError(err).Error("MCP server stopped")
 	}
 }
 

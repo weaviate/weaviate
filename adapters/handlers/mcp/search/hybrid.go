@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -29,6 +30,12 @@ import (
 )
 
 func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (*QueryHybridResp, error) {
+	log := s.logger.WithFields(logrus.Fields{
+		"tool":       "weaviate-query-hybrid",
+		"collection": args.CollectionName,
+	})
+	log.Debug("executing hybrid query")
+
 	// Authorize the request
 	principal, err := s.Authorize(ctx, req, authorization.READ)
 	if err != nil {
@@ -103,6 +110,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		AdditionalProperties: additionalProps,
 	})
 	if err != nil {
+		log.WithError(err).Warn("hybrid query failed")
 		return nil, fmt.Errorf("failed to execute hybrid search: %w", err)
 	}
 

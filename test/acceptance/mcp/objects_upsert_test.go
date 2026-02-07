@@ -459,10 +459,9 @@ func TestUpsertToolWithVectors(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, obj)
 	assert.Equal(t, "Article with custom vector", obj.Properties.(map[string]interface{})["contents"])
-	// Verify the vector was set (if returned)
-	if obj.Vector != nil {
-		assert.Len(t, obj.Vector, len(customVector))
-	}
+	// Verify the vector was set
+	require.NotNil(t, obj.Vector, "vector should be returned when requested")
+	assert.Len(t, obj.Vector, len(customVector))
 }
 
 func TestUpsertToolEmptyBatch(t *testing.T) {
@@ -723,7 +722,7 @@ func TestUpsertToolVectorDimensionMismatch(t *testing.T) {
 	require.Nil(t, err)
 	validateUpsertResults(t, resp, 1)
 
-	// Try to insert with different dimension (should fail or warn)
+	// Try to insert with different dimension (should fail)
 	err = helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
 		Objects: []create.ObjectToUpsert{
@@ -739,13 +738,13 @@ func TestUpsertToolVectorDimensionMismatch(t *testing.T) {
 		},
 	}, &resp, testAPIKey)
 
-	// May succeed or fail depending on Weaviate config
-	// If it succeeds, it should have error in results
-	if err == nil && resp != nil && len(resp.Results) > 0 {
-		// Check if there's an error in the result
-		if resp.Results[0].Error != "" {
-			assert.Contains(t, resp.Results[0].Error, "dimension")
-		}
+	// Dimension mismatch must produce an error at protocol or result level
+	if err != nil {
+		assert.Contains(t, err.Error(), "dimensions")
+	} else {
+		require.NotNil(t, resp)
+		require.Len(t, resp.Results, 1)
+		require.NotEmpty(t, resp.Results[0].Error, "dimension mismatch should produce an error")
 	}
 }
 
@@ -866,12 +865,16 @@ func TestUpsertToolInvalidVectorValues(t *testing.T) {
 			},
 		},
 	}, &resp, testAPIKey)
-
-	// Should succeed or have error in results
-	if err == nil {
-		require.NotNil(t, resp)
-		// May or may not have error depending on Weaviate validation
+	// Empty vector must produce a valid response: either a protocol error or
+	// a result with success/failure for each object
+	if err != nil {
+		// Protocol-level error is acceptable for empty vectors
+		return
 	}
+	require.NotNil(t, resp)
+	require.Len(t, resp.Results, 1)
+	assert.True(t, resp.Results[0].ID != "" || resp.Results[0].Error != "",
+		"result should have either ID or error")
 }
 
 // Edge cases tests
@@ -932,7 +935,7 @@ func TestUpsertToolNestedObjectProperties(t *testing.T) {
 	cls, ctx, cleanup := setupUpsertTest(t)
 	defer cleanup()
 
-	// Try to insert with nested object (should be flattened by Weaviate)
+	// Try to insert with nested object (should be flattened or rejected by Weaviate)
 	var resp *create.UpsertObjectResp
 	err := helper.CallToolOnce(ctx, t, toolNameUpsert, &create.UpsertObjectArgs{
 		CollectionName: cls.Class,
@@ -949,13 +952,16 @@ func TestUpsertToolNestedObjectProperties(t *testing.T) {
 			},
 		},
 	}, &resp, testAPIKey)
-
-	// May succeed or fail depending on schema validation
-	// This tests how MCP handles nested objects
-	if err == nil {
-		require.NotNil(t, resp)
-		require.Len(t, resp.Results, 1)
+	// Nested objects must produce a valid response: either a protocol error or
+	// a result with success/failure for each object
+	if err != nil {
+		// Protocol-level error is acceptable for unsupported nested properties
+		return
 	}
+	require.NotNil(t, resp)
+	require.Len(t, resp.Results, 1)
+	assert.True(t, resp.Results[0].ID != "" || resp.Results[0].Error != "",
+		"result should have either ID or error")
 }
 
 func TestUpsertToolUnicodeInProperties(t *testing.T) {

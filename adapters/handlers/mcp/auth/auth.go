@@ -63,7 +63,7 @@ func (a *Auth) principalFromRequest(req mcp.CallToolRequest) (*models.Principal,
 	}
 
 	if !strings.HasPrefix(authValue[0], "Bearer ") {
-		return a.tryAnonymous()
+		return nil, fmt.Errorf("invalid authorization header: expected 'Bearer <token>' format")
 	}
 
 	token := strings.TrimPrefix(authValue[0], "Bearer ")

@@ -17,11 +17,19 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequest, args UpsertObjectArgs) (*UpsertObjectResp, error) {
+	log := c.logger.WithFields(logrus.Fields{
+		"tool":       "weaviate-objects-upsert",
+		"collection": args.CollectionName,
+		"count":      len(args.Objects),
+	})
+	log.Debug("upserting objects")
+
 	// Authorize for CREATE and UPDATE operations
 	principal, err := c.Authorize(ctx, req, authorization.CREATE)
 	if err != nil {
@@ -71,15 +79,8 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	// Call batch add operation
 	batchResults, err := c.batchManager.AddObjects(ctx, principal, modelObjects, nil, nil)
 	if err != nil {
-		// If the batch operation itself fails (e.g., collection doesn't exist),
-		// return error details for all objects in the results
-		results := make([]UpsertObjectResult, len(args.Objects))
-		for i := range results {
-			results[i] = UpsertObjectResult{
-				Error: err.Error(),
-			}
-		}
-		return &UpsertObjectResp{Results: results}, nil
+		log.WithError(err).Warn("batch add failed")
+		return nil, fmt.Errorf("failed to add objects: %w", err)
 	}
 
 	// Convert batch results to response
