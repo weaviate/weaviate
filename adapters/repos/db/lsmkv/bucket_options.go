@@ -30,6 +30,12 @@ func MakeNoopBucketOptions(strategy string, _ ...BucketOption) []BucketOption {
 	return []BucketOption{WithStrategy(strategy)}
 }
 
+func MakeRegularBucketOptions(strategy string, customOptions ...BucketOption) []BucketOption {
+	return append([]BucketOption{
+		WithStrategy(strategy),
+	}, customOptions...)
+}
+
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
 		if err := CheckExpectedStrategy(strategy); err != nil {
