@@ -36,3 +36,5 @@ services:
       MCP_SERVER_ENABLED: "true"
       MCP_SERVER_WRITE_ACCESS_DISABLED: "false"
       MCP_SERVER_CONFIG_PATH: "/app/tools/dev/config.mcp.json"
+    volumes:
+      - ./tools/dev:/app/tools/dev:ro

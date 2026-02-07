@@ -39,6 +39,7 @@ func startWeaviate(ctx context.Context,
 	weaviateImage, hostname string,
 	exposeGRPCPort, exposeDebugPort, exposeMCPPort bool,
 	wellKnownEndpoint string,
+	files []testcontainers.ContainerFile,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -148,6 +149,7 @@ func startWeaviate(ctx context.Context,
 		ExposedPorts: exposedPorts,
 		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
+		Files:        files,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
