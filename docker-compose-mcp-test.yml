@@ -1,0 +1,38 @@
+services:
+  weaviate-mcp:
+    image: weaviate/test-mcp-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: weaviate
+    restart: on-failure:0
+    ports:
+      - "8082:8080"
+      - "6062:6060"
+      - "9002:9000"
+      - "2114:2112"
+      - "7104:7101"
+      - "50053:50051"
+    environment:
+      LOG_LEVEL: "debug"
+      QUERY_DEFAULTS_LIMIT: 20
+      PERSISTENCE_DATA_PATH: "./data-mcp"
+      ENABLE_MODULES: backup-filesystem,generative-dummy,reranker-dummy
+      API_BASED_MODULES_DISABLED: "true"
+      AUTOSCHEMA_ENABLED: "false"
+      BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
+      CLUSTER_GOSSIP_BIND_PORT: "7104"
+      CLUSTER_DATA_BIND_PORT: "7105"
+      CLUSTER_HOSTNAME: "weaviate-mcp-test"
+      RAFT_JOIN: "weaviate-mcp-test"
+      RAFT_BOOTSTRAP_EXPECT: "1"
+      DISABLE_TELEMETRY: "true"
+      DISABLE_RECOVERY_ON_PANIC: "true"
+      AUTHENTICATION_APIKEY_ENABLED: "true"
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: 'admin-key,custom-key'
+      AUTHENTICATION_APIKEY_USERS: 'admin,custom-user'
+      AUTHORIZATION_RBAC_ENABLED: "true"
+      AUTHORIZATION_RBAC_ROOT_USERS: "admin"
+      MCP_SERVER_ENABLED: "true"
+      MCP_SERVER_WRITE_ACCESS_DISABLED: "false"
+      MCP_SERVER_CONFIG_PATH: "/app/tools/dev/config.mcp.json"

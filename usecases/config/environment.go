@@ -860,6 +860,24 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// MCP Server Configuration
+	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	if err := parsePositiveInt(
+		"MCP_SERVER_PORT",
+		func(val int) { config.MCP.Port = val },
+		DefaultMCPPort,
+	); err != nil {
+		return err
+	}
+	// Default is true (write access disabled), set to false when explicitly set to "false"
+	config.MCP.WriteAccessDisabled = DefaultMCPWriteAccessDisabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED"); v != "" {
+		config.MCP.WriteAccessDisabled = entcfg.Enabled(v)
+	}
+	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
+		config.MCP.ConfigPath = v
+	}
+
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
@@ -1466,6 +1484,9 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
+	DefaultMCPPort                             = 9000
+	DefaultMCPEnabled                          = false
+	DefaultMCPWriteAccessDisabled              = true
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultAsyncReplicationClusterMaxWorkers   = 30

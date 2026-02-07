@@ -10,6 +10,7 @@ function main() {
   run_acceptance_only_fast_group_3=false
   run_acceptance_only_fast_group_4=false
   run_acceptance_only_authz=false
+  run_acceptance_only_mcp=false
   run_acceptance_only_python=false
   run_acceptance_go_client=false
   run_acceptance_go_client_only_fast_group_1=false
@@ -61,6 +62,7 @@ function main() {
           --acceptance-go-client-named-vectors-cluster|-agnvc) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_named_vectors_cluster=true;;
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-authz|-aoa) run_all_tests=false; run_acceptance_only_authz=true;;
+          --acceptance-only-mcp|-aom) run_all_tests=false; run_acceptance_only_mcp=true;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --acceptance-only-replica-replication-fast|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
           --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
@@ -139,7 +141,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
+  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -151,6 +153,9 @@ function main() {
     then
       tools/test/run_ci_server.sh --with-auth
       build_mockoidc_docker_image_for_tests
+    elif $run_acceptance_only_mcp
+    then
+      tools/test/run_ci_server.sh --with-mcp
     else
       tools/test/run_ci_server.sh
     fi
@@ -167,7 +172,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
+    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -300,6 +305,10 @@ function run_acceptance_tests() {
   echo "running acceptance authz"
     run_acceptance_only_authz "$@"
   fi
+  if $run_acceptance_only_mcp || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance mcp"
+    run_acceptance_only_mcp "$@"
+  fi
   if $run_acceptance_graphql_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance graphql"
     run_acceptance_graphql_tests "$@"
@@ -347,7 +356,7 @@ function run_acceptance_tests() {
 }
 
 # get_fast_acceptance_packages returns a list of fast acceptance test packages.
-# It excludes slow test categories (replication, graphql, authz, etc.) but includes stress tests.
+# It excludes slow test categories (replication, graphql, authz, mcp, etc.) but includes stress tests.
 # The returned paths are normalized to "test/acceptance/..." format.
 function get_fast_acceptance_packages() {
   # fast acceptance tests minus slow acceptance tests
@@ -357,6 +366,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/graphql_resolvers' \
     | grep -v 'test/acceptance_lsmkv' \
     | grep -v 'test/acceptance/authz' \
+    | grep -v 'test/acceptance/mcp' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -617,6 +627,16 @@ function run_acceptance_graphql_tests() {
 function run_acceptance_only_authz() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
+    if ! go test -timeout=15m -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_acceptance_only_mcp() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  for pkg in $(go list ./.../ | grep 'test/acceptance/mcp'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1

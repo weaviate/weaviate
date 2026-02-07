@@ -136,6 +136,7 @@ type Config struct {
 	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
 	Monitoring                          monitoring.Config        `json:"monitoring" yaml:"monitoring"`
 	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
+	MCP                                 MCP                      `json:"mcp" yaml:"mcp"`
 	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
 	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
@@ -395,6 +396,13 @@ type GRPC struct {
 	MaxMsgSize      int           `json:"maxMsgSize" yaml:"maxMsgSize"`
 	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
 	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
+}
+
+type MCP struct {
+	Enabled             bool   `json:"enabled" yaml:"enabled"`
+	Port                int    `json:"port" yaml:"port"`
+	WriteAccessDisabled bool   `json:"writeAccessDisabled" yaml:"writeAccessDisabled"`
+	ConfigPath          string `json:"configPath" yaml:"configPath"`
 }
 
 type Profiling struct {
