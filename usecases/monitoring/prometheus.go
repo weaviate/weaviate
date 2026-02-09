@@ -944,7 +944,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}),
 	}
 
-	// TODO aliszka:ttl remove panic
 	if err := m.initObjectsTtl(); err != nil {
 		panic(err)
 	}
@@ -954,8 +953,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 
 func (m *PrometheusMetrics) initObjectsTtl() error {
 	var err error
-	minute := float64(60)
-	hour := float64(3600)
+	minute := time.Minute.Seconds()
+	hour := time.Hour.Seconds()
 
 	m.objttlCount, _, err = EnsureRegisteredMetric(m.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
