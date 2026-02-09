@@ -566,8 +566,6 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 		},
 	)
 
-	mockSchemaReader.EXPECT().LocalShardsCount(className).Return(1, nil)
-
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	repo.Shutdown(ctx)
 	repo.SetSchemaReader(mockSchemaReader)
