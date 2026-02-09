@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"iter"
+	"slices"
 	"sync"
 
 	"github.com/maypok86/otter/v2"
@@ -27,48 +28,10 @@ import (
 // Any read or modification to the vectors slice must be protected by the mutex.
 type PostingMetadata struct {
 	sync.RWMutex
-	vectors []uint64
-	version []VectorVersion
+	PackedPostingMetadata
 	// whether this cached entry has been loaded from disk
 	// or has been refreshed by a background operation.
 	fromDisk bool
-}
-
-// Iter returns an iterator over the vector metadata in the posting.
-func (m *PostingMetadata) Iter() iter.Seq2[int, *VectorMetadata] {
-	var v VectorMetadata
-
-	return func(yield func(int, *VectorMetadata) bool) {
-		for i := range m.vectors {
-			v.ID = m.vectors[i]
-			v.Version = m.version[i]
-			if !yield(i, &v) {
-				return
-			}
-		}
-	}
-}
-
-// GetValidVectors returns the list of vector IDs that are still valid
-// according to the provided VersionMap.
-func (m *PostingMetadata) GetValidVectors(ctx context.Context, vmap *VersionMap) ([]uint64, error) {
-	m.RLock()
-	defer m.RUnlock()
-
-	validVectors := make([]uint64, 0, len(m.vectors))
-
-	for i, vectorID := range m.vectors {
-		currentVersion, err := vmap.Get(ctx, vectorID)
-		if err != nil {
-			return nil, err
-		}
-
-		if m.version[i] == currentVersion && !m.version[i].Deleted() {
-			validVectors = append(validVectors, vectorID)
-		}
-	}
-
-	return validVectors, nil
 }
 
 // VectorMetadata holds the ID and version of a vector.
