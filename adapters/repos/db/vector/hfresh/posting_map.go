@@ -34,22 +34,6 @@ type PostingMetadata struct {
 	fromDisk bool
 }
 
-// VectorMetadata holds the ID and version of a vector.
-type VectorMetadata struct {
-	ID      uint64
-	Version VectorVersion
-}
-
-// IsValid checks if the vector is outdated or deleted.
-func (v *VectorMetadata) IsValid(ctx context.Context, vmap *VersionMap) (bool, error) {
-	currentVersion, err := vmap.Get(ctx, v.ID)
-	if err != nil {
-		return false, err
-	}
-
-	return v.Version == currentVersion && !v.Version.Deleted(), nil
-}
-
 // PostingMap manages various information about postings.
 type PostingMap struct {
 	metrics *Metrics
@@ -248,103 +232,6 @@ func schemeFor(value uint64) Scheme {
 		return schemeID5Byte
 	}
 	return schemeID8Byte
-}
-
-// encodeVectorIDs encodes vector IDs using the specified scheme.
-func encodeVectorIDs(values []uint64, scheme uint8) []byte {
-	switch scheme {
-	case schemeID2Byte:
-		data := make([]byte, len(values)*2)
-		for i, val := range values {
-			data[i*2] = byte(val)
-			data[i*2+1] = byte(val >> 8)
-		}
-		return data
-
-	case schemeID3Byte:
-		data := make([]byte, len(values)*3)
-		for i, val := range values {
-			data[i*3] = byte(val)
-			data[i*3+1] = byte(val >> 8)
-			data[i*3+2] = byte(val >> 16)
-		}
-		return data
-
-	case schemeID4Byte:
-		data := make([]byte, len(values)*4)
-		for i, val := range values {
-			data[i*4] = byte(val)
-			data[i*4+1] = byte(val >> 8)
-			data[i*4+2] = byte(val >> 16)
-			data[i*4+3] = byte(val >> 24)
-		}
-		return data
-
-	case schemeID5Byte:
-		data := make([]byte, len(values)*5)
-		for i, val := range values {
-			data[i*5] = byte(val)
-			data[i*5+1] = byte(val >> 8)
-			data[i*5+2] = byte(val >> 16)
-			data[i*5+3] = byte(val >> 24)
-			data[i*5+4] = byte(val >> 32)
-		}
-		return data
-
-	default: // schemeID8Byte
-		data := make([]byte, len(values)*8)
-		for i, val := range values {
-			for j := 0; j < 8; j++ {
-				data[i*8+j] = byte(val >> (j * 8))
-			}
-		}
-		return data
-	}
-}
-
-// decodeVectorIDs decodes vector IDs using the specified scheme.
-func decodeVectorIDs(data []byte, scheme uint8, count uint32) []uint64 {
-	result := make([]uint64, count)
-
-	switch scheme {
-	case schemeID2Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*2]) | uint64(data[i*2+1])<<8
-		}
-
-	case schemeID3Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*3]) | uint64(data[i*3+1])<<8 | uint64(data[i*3+2])<<16
-		}
-
-	case schemeID4Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*4]) |
-				uint64(data[i*4+1])<<8 |
-				uint64(data[i*4+2])<<16 |
-				uint64(data[i*4+3])<<24
-		}
-
-	case schemeID5Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*5]) |
-				uint64(data[i*5+1])<<8 |
-				uint64(data[i*5+2])<<16 |
-				uint64(data[i*5+3])<<24 |
-				uint64(data[i*5+4])<<32
-		}
-
-	default: // schemeID8Byte
-		for i := uint32(0); i < count; i++ {
-			val := uint64(0)
-			for j := uint32(0); j < 8; j++ {
-				val |= uint64(data[i*8+j]) << (j * 8)
-			}
-			result[i] = val
-		}
-	}
-
-	return result
 }
 
 type PackedPostingMetadata []byte
