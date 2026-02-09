@@ -51,6 +51,11 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	}
 }
 
+// Iter returns an iterator over all postings in the map.
+func (v *PostingMap) Iter() iter.Seq2[uint64, *PostingMetadata] {
+	return v.data.AllRelaxed()
+}
+
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
 	m, ok := v.data.Load(postingID)
