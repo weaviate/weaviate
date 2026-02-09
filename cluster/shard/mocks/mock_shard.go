@@ -34,6 +34,52 @@ func (_m *Mockshard) EXPECT() *Mockshard_Expecter {
 	return &Mockshard_Expecter{mock: &_m.Mock}
 }
 
+// FlushMemtables provides a mock function with given fields: ctx
+func (_m *Mockshard) FlushMemtables(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FlushMemtables")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Mockshard_FlushMemtables_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FlushMemtables'
+type Mockshard_FlushMemtables_Call struct {
+	*mock.Call
+}
+
+// FlushMemtables is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Mockshard_Expecter) FlushMemtables(ctx interface{}) *Mockshard_FlushMemtables_Call {
+	return &Mockshard_FlushMemtables_Call{Call: _e.mock.On("FlushMemtables", ctx)}
+}
+
+func (_c *Mockshard_FlushMemtables_Call) Run(run func(ctx context.Context)) *Mockshard_FlushMemtables_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Mockshard_FlushMemtables_Call) Return(_a0 error) *Mockshard_FlushMemtables_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Mockshard_FlushMemtables_Call) RunAndReturn(run func(context.Context) error) *Mockshard_FlushMemtables_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Name provides a mock function with no fields
 func (_m *Mockshard) Name() string {
 	ret := _m.Called()

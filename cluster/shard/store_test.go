@@ -12,6 +12,7 @@
 package shard_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -343,6 +344,86 @@ func TestStore_Stop_NotStarted(t *testing.T) {
 	// After Stop (even without Start), Start should fail with ErrAlreadyClosed
 	err = store.Start(context.Background())
 	assert.ErrorIs(t, err, shard.ErrAlreadyClosed)
+}
+
+// ---------------------------------------------------------------------------
+// FSM Snapshot-Flush Tests (Phase 2)
+// ---------------------------------------------------------------------------
+
+// fakeSnapshotSink implements raft.SnapshotSink for testing Persist().
+type fakeSnapshotSink struct {
+	bytes.Buffer
+	cancelled bool
+}
+
+func (f *fakeSnapshotSink) Close() error { return nil }
+func (f *fakeSnapshotSink) ID() string   { return "fake-snap-1" }
+func (f *fakeSnapshotSink) Cancel() error {
+	f.cancelled = true
+	return nil
+}
+
+func TestFSM_Snapshot_FlushesMemtables(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	fsm := shard.NewFSM(testClassName, testShardName, testNodeID, logger)
+	mockShard := mocks.NewMockshard(t)
+	fsm.SetShard(mockShard)
+
+	mockShard.EXPECT().FlushMemtables(mock.Anything).Return(nil)
+
+	snap, err := fsm.Snapshot()
+	require.NoError(t, err)
+	require.NotNil(t, snap)
+
+	// FlushMemtables is called during Persist(), not Snapshot().
+	sink := &fakeSnapshotSink{}
+	err = snap.Persist(sink)
+	require.NoError(t, err)
+
+	mockShard.AssertCalled(t, "FlushMemtables", mock.Anything)
+	assert.False(t, sink.cancelled)
+}
+
+func TestFSM_Persist_FlushError_CancelsSink(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	fsm := shard.NewFSM(testClassName, testShardName, testNodeID, logger)
+	mockShard := mocks.NewMockshard(t)
+	fsm.SetShard(mockShard)
+
+	flushErr := errors.New("disk I/O error")
+	mockShard.EXPECT().FlushMemtables(mock.Anything).Return(flushErr)
+
+	snap, err := fsm.Snapshot()
+	require.NoError(t, err)
+	require.NotNil(t, snap)
+
+	sink := &fakeSnapshotSink{}
+	err = snap.Persist(sink)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "flush memtables before snapshot persist")
+	assert.True(t, sink.cancelled)
+}
+
+func TestFSM_Snapshot_NilShard_Succeeds(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	// Do NOT call SetShard — shard remains nil.
+	fsm := shard.NewFSM(testClassName, testShardName, testNodeID, logger)
+
+	snap, err := fsm.Snapshot()
+	require.NoError(t, err)
+	require.NotNil(t, snap)
+
+	// Persist should also succeed with nil shard (no flush attempted).
+	sink := &fakeSnapshotSink{}
+	err = snap.Persist(sink)
+	require.NoError(t, err)
+	assert.False(t, sink.cancelled)
 }
 
 func TestStore_RaftConfig_TrailingLogs(t *testing.T) {

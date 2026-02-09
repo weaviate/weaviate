@@ -307,6 +307,13 @@ func (s *Shard) ID() string {
 	return shardId(s.index.ID(), s.name)
 }
 
+// FlushMemtables flushes all in-memory memtables to disk segments.
+// This is called by the RAFT FSM before creating a snapshot to ensure
+// all applied log entries are durable in LSM segments before log truncation.
+func (s *Shard) FlushMemtables(ctx context.Context) error {
+	return s.store.FlushMemtables(ctx)
+}
+
 func (s *Shard) path() string {
 	return shardPath(s.index.path(), s.name)
 }
