@@ -171,6 +171,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
 	compression := defaultQuantization.Get()
+	if compression == "" {
+		return
+	}
+
 	var err error
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
 		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
