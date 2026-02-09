@@ -314,6 +314,22 @@ func (s *Shard) FlushMemtables(ctx context.Context) error {
 	return s.store.FlushMemtables(ctx)
 }
 
+// isRaftReplicated returns true if this shard is backed by a RAFT cluster
+// for replication. When true, durability is provided by the RAFT log instead
+// of per-bucket WALs.
+func (s *Shard) isRaftReplicated() bool {
+	return s.index.Config.RaftReplicationEnabled && s.index.raft != nil
+}
+
+// writeWALs flushes all WAL buffers to disk. For RAFT-replicated shards,
+// this is a no-op since durability is provided by the RAFT log.
+func (s *Shard) writeWALs() error {
+	if s.isRaftReplicated() {
+		return nil
+	}
+	return s.store.WriteWALs()
+}
+
 func (s *Shard) path() string {
 	return shardPath(s.index.path(), s.name)
 }
