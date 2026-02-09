@@ -201,9 +201,6 @@ func TestPostingMapEncoding(t *testing.T) {
 				err := store.SetVectorIDs(ctx, postingID, posting)
 				require.NoError(t, err)
 
-				// Invalidate cache to force disk read
-				store.data.Invalidate(postingID)
-
 				m, err := store.Get(ctx, postingID)
 				require.NoError(t, err)
 				vectorIDs, versions := decodePacked(m.PackedPostingMetadata)
@@ -233,8 +230,6 @@ func TestPostingMapEncoding(t *testing.T) {
 		err := store.SetVectorIDs(ctx, postingID, posting)
 		require.NoError(t, err)
 
-		store.data.Invalidate(postingID)
-
 		m, err := store.Get(ctx, postingID)
 		require.NoError(t, err)
 		vIDs, vVersions := decodePacked(m.PackedPostingMetadata)
@@ -262,8 +257,6 @@ func TestPostingMapEncoding(t *testing.T) {
 
 		err := store.SetVectorIDs(ctx, postingID, posting)
 		require.NoError(t, err)
-
-		store.data.Invalidate(postingID)
 
 		m, err := store.Get(ctx, postingID)
 		require.NoError(t, err)
@@ -302,8 +295,6 @@ func TestPostingMetadataStore(t *testing.T) {
 		count, err := store.CountVectorIDs(ctx, 42)
 		require.NoError(t, err)
 		require.EqualValues(t, 10, count)
-
-		store.data.Invalidate(42)
 
 		m, err = store.Get(ctx, 42)
 		require.NoError(t, err)

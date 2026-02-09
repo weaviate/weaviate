@@ -30,7 +30,7 @@ func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helper
 }
 
 func (h *HFresh) NewAllowListIterator(al helpers.AllowList) helpers.AllowListIterator {
-	all := h.PostingMap.data.All() // snapshot of what is currently in cache
+	all := h.PostingMap.Iter()
 	next, stop := iter.Pull2(all)
 
 	return &AllowListIterator{
