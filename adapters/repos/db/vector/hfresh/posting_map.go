@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"iter"
+	"slices"
 	"sync"
 
 	"github.com/maypok86/otter/v2"
@@ -27,64 +28,10 @@ import (
 // Any read or modification to the vectors slice must be protected by the mutex.
 type PostingMetadata struct {
 	sync.RWMutex
-	vectors []uint64
-	version []VectorVersion
+	PackedPostingMetadata
 	// whether this cached entry has been loaded from disk
 	// or has been refreshed by a background operation.
 	fromDisk bool
-}
-
-// Iter returns an iterator over the vector metadata in the posting.
-func (m *PostingMetadata) Iter() iter.Seq2[int, *VectorMetadata] {
-	var v VectorMetadata
-
-	return func(yield func(int, *VectorMetadata) bool) {
-		for i := range m.vectors {
-			v.ID = m.vectors[i]
-			v.Version = m.version[i]
-			if !yield(i, &v) {
-				return
-			}
-		}
-	}
-}
-
-// GetValidVectors returns the list of vector IDs that are still valid
-// according to the provided VersionMap.
-func (m *PostingMetadata) GetValidVectors(ctx context.Context, vmap *VersionMap) ([]uint64, error) {
-	m.RLock()
-	defer m.RUnlock()
-
-	validVectors := make([]uint64, 0, len(m.vectors))
-
-	for i, vectorID := range m.vectors {
-		currentVersion, err := vmap.Get(ctx, vectorID)
-		if err != nil {
-			return nil, err
-		}
-
-		if m.version[i] == currentVersion && !m.version[i].Deleted() {
-			validVectors = append(validVectors, vectorID)
-		}
-	}
-
-	return validVectors, nil
-}
-
-// VectorMetadata holds the ID and version of a vector.
-type VectorMetadata struct {
-	ID      uint64
-	Version VectorVersion
-}
-
-// IsValid checks if the vector is outdated or deleted.
-func (v *VectorMetadata) IsValid(ctx context.Context, vmap *VersionMap) (bool, error) {
-	currentVersion, err := vmap.Get(ctx, v.ID)
-	if err != nil {
-		return false, err
-	}
-
-	return v.Version == currentVersion && !v.Version.Deleted(), nil
 }
 
 // PostingMap manages various information about postings.
@@ -109,7 +56,7 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
 	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
-		vids, vvers, err := v.bucket.Get(ctx, postingID)
+		data, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				return nil, otter.ErrNotFound
@@ -118,7 +65,7 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadat
 			return nil, err
 		}
 
-		return &PostingMetadata{vectors: vids, version: vvers, fromDisk: true}, nil
+		return &PostingMetadata{PackedPostingMetadata: data, fromDisk: true}, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
 		return nil, ErrPostingNotFound
@@ -143,7 +90,7 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 	}
 
 	m.RLock()
-	size := uint32(len(m.vectors))
+	size := uint32(m.Count())
 	m.RUnlock()
 
 	return size, nil
@@ -162,19 +109,17 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		return nil
 	}
 
-	vectorIDs := make([]uint64, len(posting))
-	vectorVersions := make([]VectorVersion, len(posting))
-	for i, vector := range posting {
-		vectorIDs[i] = vector.ID()
-		vectorVersions[i] = vector.Version()
+	var pm PackedPostingMetadata
+	for _, vector := range posting {
+		pm = pm.AddVector(vector.ID(), vector.Version())
 	}
 
-	err := v.bucket.Set(ctx, postingID, vectorIDs, vectorVersions)
+	err := v.bucket.Set(ctx, postingID, pm)
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, &PostingMetadata{vectors: vectorIDs, version: vectorVersions})
-	v.metrics.ObservePostingSize(float64(len(vectorIDs)))
+	v.cache.Set(postingID, &PostingMetadata{PackedPostingMetadata: pm})
+	v.metrics.ObservePostingSize(float64(pm.Count()))
 
 	return nil
 }
@@ -192,19 +137,17 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 
 	if m != nil {
 		m.Lock()
-		m.vectors = append(m.vectors, vectorID)
-		m.version = append(m.version, version)
+		m.PackedPostingMetadata = m.AddVector(vectorID, version)
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
-			vectors: []uint64{vectorID},
-			version: []VectorVersion{version},
+			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
 		v.cache.Set(postingID, m)
 	}
 
-	v.metrics.ObservePostingSize(float64(len(m.vectors)))
-	return uint32(len(m.vectors)), nil
+	v.metrics.ObservePostingSize(float64(m.Count()))
+	return uint32(m.Count()), nil
 }
 
 // Persist the vector IDs for the posting with the given ID to disk.
@@ -217,7 +160,7 @@ func (v *PostingMap) Persist(ctx context.Context, postingID uint64) error {
 	m.RLock()
 	defer m.RUnlock()
 
-	return v.bucket.Set(ctx, postingID, m.vectors, m.version)
+	return v.bucket.Set(ctx, postingID, m.PackedPostingMetadata)
 }
 
 // PostingMapStore is a persistent store for vector IDs.
@@ -242,16 +185,18 @@ func (p *PostingMapStore) key(postingID uint64) [9]byte {
 
 // Encoding schemes for vector IDs - same as packedconn
 const (
-	schemeID2Byte = 0 // 2 bytes per value (0-65535)
-	schemeID3Byte = 1 // 3 bytes per value (0-16777215)
-	schemeID4Byte = 2 // 4 bytes per value (0-4294967295)
-	schemeID5Byte = 3 // 5 bytes per value (0-1099511627775)
-	schemeID8Byte = 4 // 8 bytes per value (full uint64)
+	schemeID2Byte Scheme = iota // 2 bytes per value (0-65535)
+	schemeID3Byte               // 3 bytes per value (0-16777215)
+	schemeID4Byte               // 4 bytes per value (0-4294967295)
+	schemeID5Byte               // 5 bytes per value (0-1099511627775)
+	schemeID8Byte               // 8 bytes per value (full uint64)
 )
 
-// bytesPerScheme returns the number of bytes used per value for the given scheme.
-func bytesPerScheme(scheme uint8) int {
-	switch scheme {
+type Scheme uint8
+
+// BytesPerValue returns the number of bytes used per value for the given scheme.
+func (s Scheme) BytesPerValue() int {
+	switch s {
 	case schemeID2Byte:
 		return 2
 	case schemeID3Byte:
@@ -266,193 +211,196 @@ func bytesPerScheme(scheme uint8) int {
 }
 
 // determineScheme analyzes values to pick the most efficient encoding.
-func determineScheme(values []uint64) uint8 {
+func determineScheme(values []uint64) Scheme {
 	if len(values) == 0 {
 		return schemeID2Byte
 	}
 
-	maxVal := uint64(0)
-	for _, val := range values {
-		if val > maxVal {
-			maxVal = val
-		}
-	}
+	maxVal := slices.Max(values)
 
-	if maxVal <= 65535 {
+	return schemeFor(maxVal)
+}
+
+func schemeFor(value uint64) Scheme {
+	if value <= 65535 {
 		return schemeID2Byte
-	} else if maxVal <= 16777215 {
+	} else if value <= 16777215 {
 		return schemeID3Byte
-	} else if maxVal <= 4294967295 {
+	} else if value <= 4294967295 {
 		return schemeID4Byte
-	} else if maxVal <= 1099511627775 {
+	} else if value <= 1099511627775 {
 		return schemeID5Byte
 	}
 	return schemeID8Byte
 }
 
-// encodeVectorIDs encodes vector IDs using the specified scheme.
-func encodeVectorIDs(values []uint64, scheme uint8) []byte {
-	switch scheme {
-	case schemeID2Byte:
-		data := make([]byte, len(values)*2)
-		for i, val := range values {
-			data[i*2] = byte(val)
-			data[i*2+1] = byte(val >> 8)
-		}
-		return data
+type PackedPostingMetadata []byte
 
-	case schemeID3Byte:
-		data := make([]byte, len(values)*3)
-		for i, val := range values {
-			data[i*3] = byte(val)
-			data[i*3+1] = byte(val >> 8)
-			data[i*3+2] = byte(val >> 16)
-		}
-		return data
+func NewPackedPostingMetadata(vectorIDs []uint64, versions []VectorVersion) PackedPostingMetadata {
+	scheme := determineScheme(vectorIDs)
+	data := PackedPostingMetadata(make([]byte, 0, 5+len(vectorIDs)*(scheme.BytesPerValue()+1)))
+	for i, id := range vectorIDs {
+		data = data.AddVector(id, versions[i])
+	}
+	return data
+}
 
-	case schemeID4Byte:
-		data := make([]byte, len(values)*4)
-		for i, val := range values {
-			data[i*4] = byte(val)
-			data[i*4+1] = byte(val >> 8)
-			data[i*4+2] = byte(val >> 16)
-			data[i*4+3] = byte(val >> 24)
-		}
-		return data
+func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
+	if len(p) < 5 {
+		return func(yield func(uint64, VectorVersion) bool) {}
+	}
 
-	case schemeID5Byte:
-		data := make([]byte, len(values)*5)
-		for i, val := range values {
-			data[i*5] = byte(val)
-			data[i*5+1] = byte(val >> 8)
-			data[i*5+2] = byte(val >> 16)
-			data[i*5+3] = byte(val >> 24)
-			data[i*5+4] = byte(val >> 32)
-		}
-		return data
+	scheme := Scheme(p[0])
+	count := binary.LittleEndian.Uint32(p[1:5])
+	bytesPerID := scheme.BytesPerValue()
+	bytesPerValue := bytesPerID + 1 // ID + version byte
+	start := 5
+	data := p[start:]
 
-	default: // schemeID8Byte
-		data := make([]byte, len(values)*8)
-		for i, val := range values {
-			for j := 0; j < 8; j++ {
-				data[i*8+j] = byte(val >> (j * 8))
+	return func(yield func(uint64, VectorVersion) bool) {
+		for i := uint32(0); i < count; i++ {
+			offset := i * uint32(bytesPerValue)
+
+			// Decode ID
+			vID := uint64(0)
+			for j := 0; j < bytesPerID; j++ {
+				vID |= uint64(data[offset+uint32(j)]) << (j * 8)
+			}
+
+			// Decode version
+			vVer := VectorVersion(data[offset+uint32(bytesPerID)])
+
+			if !yield(vID, vVer) {
+				return
 			}
 		}
-		return data
 	}
 }
 
-// decodeVectorIDs decodes vector IDs using the specified scheme.
-func decodeVectorIDs(data []byte, scheme uint8, count uint32) []uint64 {
-	result := make([]uint64, count)
+func (p PackedPostingMetadata) GetAt(index int) (uint64, VectorVersion) {
+	scheme := Scheme(p[0])
+	count := binary.LittleEndian.Uint32(p[1:5])
+	if index >= int(count) {
+		return 0, 0
+	}
+	bytesPerID := scheme.BytesPerValue()
+	bytesPerValue := bytesPerID + 1
+	start := 5
+	offset := index * bytesPerValue
 
-	switch scheme {
-	case schemeID2Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*2]) | uint64(data[i*2+1])<<8
-		}
-
-	case schemeID3Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*3]) | uint64(data[i*3+1])<<8 | uint64(data[i*3+2])<<16
-		}
-
-	case schemeID4Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*4]) |
-				uint64(data[i*4+1])<<8 |
-				uint64(data[i*4+2])<<16 |
-				uint64(data[i*4+3])<<24
-		}
-
-	case schemeID5Byte:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i*5]) |
-				uint64(data[i*5+1])<<8 |
-				uint64(data[i*5+2])<<16 |
-				uint64(data[i*5+3])<<24 |
-				uint64(data[i*5+4])<<32
-		}
-
-	default: // schemeID8Byte
-		for i := uint32(0); i < count; i++ {
-			val := uint64(0)
-			for j := uint32(0); j < 8; j++ {
-				val |= uint64(data[i*8+j]) << (j * 8)
-			}
-			result[i] = val
-		}
+	// Decode ID
+	vID := uint64(0)
+	for j := 0; j < bytesPerID; j++ {
+		vID |= uint64(p[start+offset+j]) << (j * 8)
 	}
 
-	return result
+	// Decode version
+	vVer := VectorVersion(p[start+offset+bytesPerID])
+
+	return vID, vVer
+}
+
+// Count returns the number of vector IDs in the posting metadata.
+func (p PackedPostingMetadata) Count() uint32 {
+	if len(p) < 5 {
+		return 0
+	}
+	return binary.LittleEndian.Uint32(p[1:5])
+}
+
+// AddVector adds a new vector ID to the packed metadata, returning a new PackedPostingMetadata.
+// It handles upgrading the encoding scheme if the new vector ID exceeds the current scheme's limits.
+func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion) PackedPostingMetadata {
+	const headerSize = 5
+	var currentScheme, newScheme Scheme
+	var currentCount uint32
+
+	if len(p) == 0 {
+		currentScheme = schemeFor(vectorID)
+		newScheme = currentScheme
+		p = make([]byte, headerSize, headerSize+currentScheme.BytesPerValue()+1)
+		p[0] = byte(currentScheme)
+	} else {
+		currentScheme = Scheme(p[0])
+		newScheme = schemeFor(vectorID)
+		currentCount = binary.LittleEndian.Uint32(p[1:5])
+	}
+
+	bytesPerValue := newScheme.BytesPerValue()
+	newCount := currentCount + 1
+	idsSize := int(newCount) * bytesPerValue
+	versionsSize := int(newCount) // 1 byte per version
+
+	// same scheme or lower, just append the new ID and version
+	if currentScheme >= newScheme {
+		for i := range bytesPerValue {
+			p = append(p, byte(vectorID>>(i*8)))
+		}
+		p = append(p, byte(version))
+
+		// update count in header
+		binary.LittleEndian.PutUint32(p[1:5], newCount)
+		return p
+	}
+
+	// new scheme needed, re-encode all existing IDs with the new scheme and append the new ID
+
+	newData := make([]byte, headerSize+idsSize+versionsSize)
+	// write new header
+	newData[0] = byte(newScheme)
+	// write count
+	binary.LittleEndian.PutUint32(newData[1:5], newCount)
+
+	// write IDs and versions
+	offset := headerSize
+	for id, ver := range p.Iter() {
+		// write the id
+		for j := range bytesPerValue {
+			newData[offset] = byte(id >> (j * 8))
+			offset++
+		}
+		// write the version
+		newData[offset] = byte(ver)
+		offset++
+	}
+
+	// write the new ID
+	for j := range bytesPerValue {
+		newData[offset] = byte(vectorID >> (j * 8))
+		offset++
+	}
+	// write the new version
+	newData[offset] = byte(version)
+
+	return newData
 }
 
 // Get retrieves the vector IDs for the given posting ID.
 // Disk format:
 //   - 1 byte: scheme for vector IDs
 //   - 4 bytes: count (uint32, little endian)
-//   - count * bytesPerScheme: vector IDs
-//   - count * 1 byte: vector versions
-func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]uint64, []VectorVersion, error) {
+//   - count * (bytesPerScheme + 1): vector IDs and version
+func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPostingMetadata, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+		return nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
 	}
 	if len(v) == 0 {
-		return nil, nil, ErrPostingNotFound
+		return nil, ErrPostingNotFound
 	}
 
-	scheme := v[0]
-	count := binary.LittleEndian.Uint32(v[1:5])
-
-	bytesPerID := bytesPerScheme(scheme)
-	idsStart := 5
-	idsEnd := idsStart + int(count)*bytesPerID
-	versionsStart := idsEnd
-
-	vectorIDs := decodeVectorIDs(v[idsStart:idsEnd], scheme, count)
-	vectorVersions := make([]VectorVersion, count)
-	for i := uint32(0); i < count; i++ {
-		vectorVersions[i] = VectorVersion(v[versionsStart+int(i)])
-	}
-
-	return vectorIDs, vectorVersions, nil
+	return PackedPostingMetadata(v), nil
 }
 
 // Set adds or replaces the vector IDs for the given posting ID.
 // Disk format:
 //   - 1 byte: scheme for vector IDs
 //   - 4 bytes: count (uint32, little endian)
-//   - count * bytesPerScheme: vector IDs
-//   - count * 1 byte: vector versions
-func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs []uint64, vectorVersions []VectorVersion) error {
+//   - count * (bytesPerScheme + 1): vector IDs and version
+func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
-
-	scheme := determineScheme(vectorIDs)
-	bytesPerID := bytesPerScheme(scheme)
-	count := len(vectorIDs)
-
-	// Header: 1 byte scheme + 4 bytes count
-	// Data: count * bytesPerID for IDs + count * 1 for versions
-	bufSize := 5 + count*bytesPerID + count
-	buf := make([]byte, bufSize)
-
-	// Write header
-	buf[0] = scheme
-	binary.LittleEndian.PutUint32(buf[1:5], uint32(count))
-
-	// Write vector IDs
-	idsData := encodeVectorIDs(vectorIDs, scheme)
-	copy(buf[5:], idsData)
-
-	// Write versions (1 byte each)
-	versionsStart := 5 + len(idsData)
-	for i, ver := range vectorVersions {
-		buf[versionsStart+i] = byte(ver)
-	}
-
-	return p.bucket.Put(key[:], buf)
+	return p.bucket.Put(key[:], metadata)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {

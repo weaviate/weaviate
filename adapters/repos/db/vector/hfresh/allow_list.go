@@ -116,9 +116,9 @@ func (a *allowList) Contains(id uint64) bool {
 	p.RLock()
 	defer p.RUnlock()
 
-	for _, metadata := range p.Iter() {
-		if !a.wrappedIdVisited.Visited(metadata.ID) && a.AllowList.Contains(metadata.ID) {
-			a.wrappedIdVisited.Visit(metadata.ID)
+	for id := range p.Iter() {
+		if !a.wrappedIdVisited.Visited(id) && a.AllowList.Contains(id) {
+			a.wrappedIdVisited.Visit(id)
 			a.idVisited.Visit(id)
 			return true
 		}
