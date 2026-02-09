@@ -176,7 +176,7 @@ func (v *PostingMap) Persist(ctx context.Context, postingID uint64) error {
 	m.RLock()
 	defer m.RUnlock()
 
-	return v.bucket.Set(ctx, postingID, m.vectors, m.version)
+	return v.bucket.Set(ctx, postingID, m.PackedPostingMetadata)
 }
 
 // PostingMapStore is a persistent store for vector IDs.
