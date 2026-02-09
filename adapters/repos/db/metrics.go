@@ -397,9 +397,8 @@ func NewMetrics(
 
 	m.objttlFindUuidsCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_finduuids_count",
-			Help:      "Count of object ttl find uuids executions",
+			Name: "weaviate_objects_ttl_deletion_finduuids_count",
+			Help: "Count of object ttl find uuids executions",
 		}),
 	)
 	if err != nil {
@@ -408,9 +407,8 @@ func NewMetrics(
 
 	m.objttlFindUuidsFailureCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_finduuids_failure_count",
-			Help:      "Count of object ttl find uuids failures",
+			Name: "weaviate_objects_ttl_deletion_finduuids_failure_count",
+			Help: "Count of object ttl find uuids failures",
 		}),
 	)
 	if err != nil {
@@ -419,9 +417,8 @@ func NewMetrics(
 
 	m.objttlFindUuidsRunning, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_finduuids_running",
-			Help:      "Number of object ttl find uuids running currently",
+			Name: "weaviate_objects_ttl_deletion_finduuids_running",
+			Help: "Number of object ttl find uuids running currently",
 		}),
 	)
 	if err != nil {
@@ -430,10 +427,9 @@ func NewMetrics(
 
 	m.objttlFindUuidsDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_finduuids_duration",
-			Help:      "Duration of object ttl find uuids in seconds",
-			Buckets:   monitoring.LatencyBuckets,
+			Name:    "weaviate_objects_ttl_deletion_finduuids_duration_seconds",
+			Help:    "Duration of object ttl find uuids in seconds",
+			Buckets: monitoring.LatencyBuckets,
 		}),
 	)
 	if err != nil {
@@ -442,9 +438,8 @@ func NewMetrics(
 
 	m.objttlFindUuidsObjectsFound, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_finduuids_objects_found",
-			Help:      "Count of expired objects found per shard/tenant",
+			Name: "weaviate_objects_ttl_deletion_finduuids_objects_found",
+			Help: "Count of expired objects found per shard/tenant",
 		}),
 	)
 	if err != nil {
@@ -455,9 +450,8 @@ func NewMetrics(
 
 	m.objttlBatchDeletesCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_batchdeletes_count",
-			Help:      "Count of object ttl batch deletes executions",
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_count",
+			Help: "Count of object ttl batch deletes executions",
 		}),
 	)
 	if err != nil {
@@ -466,9 +460,8 @@ func NewMetrics(
 
 	m.objttlBatchDeletesFailureCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_batchdeletes_failure_count",
-			Help:      "Count of object ttl batch deletes failures",
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_failure_count",
+			Help: "Count of object ttl batch deletes failures",
 		}),
 	)
 	if err != nil {
@@ -477,9 +470,8 @@ func NewMetrics(
 
 	m.objttlBatchDeletesRunning, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_batchdeletes_running",
-			Help:      "Number of object ttl batch deletes running currently",
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_running",
+			Help: "Number of object ttl batch deletes running currently",
 		}),
 	)
 	if err != nil {
@@ -488,10 +480,9 @@ func NewMetrics(
 
 	m.objttlBatchDeletesDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_batchdeletes_duration",
-			Help:      "Duration of object ttl batch deletes in seconds",
-			Buckets:   monitoring.LatencyBuckets,
+			Name:    "weaviate_objects_ttl_deletion_batchdeletes_duration_seconds",
+			Help:    "Duration of object ttl batch deletes in seconds",
+			Buckets: monitoring.LatencyBuckets,
 		}),
 	)
 	if err != nil {
@@ -500,9 +491,8 @@ func NewMetrics(
 
 	m.objttlBatchDeletesObjectsDeleted, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_batchdeletes_objects_deleted",
-			Help:      "Count of expired objects deleted per shard/tenant",
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_objects_deleted",
+			Help: "Count of expired objects deleted per shard/tenant",
 		}),
 	)
 	if err != nil {

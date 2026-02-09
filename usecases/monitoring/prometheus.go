@@ -958,9 +958,8 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 
 	m.objttlCount, _, err = EnsureRegisteredMetric(m.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_db_count",
-			Help:      "Count of object ttl deletions executions",
+			Name: "weaviate_objects_ttl_deletion_db_count",
+			Help: "Count of object ttl deletions executions",
 		}),
 	)
 	if err != nil {
@@ -969,9 +968,8 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 
 	m.objttlFailureCount, _, err = EnsureRegisteredMetric(m.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_db_failure_count",
-			Help:      "Count of object ttl deletions failures",
+			Name: "weaviate_objects_ttl_deletion_db_failure_count",
+			Help: "Count of object ttl deletions failures",
 		}),
 	)
 	if err != nil {
@@ -980,9 +978,8 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 
 	m.objttlRunning, _, err = EnsureRegisteredMetric(m.Registerer,
 		prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_db_running",
-			Help:      "Number of object ttl deletions running currently",
+			Name: "weaviate_objects_ttl_deletion_db_running",
+			Help: "Number of object ttl deletions running currently",
 		}),
 	)
 	if err != nil {
@@ -991,9 +988,8 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 
 	m.objttlDuration, _, err = EnsureRegisteredMetric(m.Registerer,
 		prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_db_duration",
-			Help:      "Duration of object ttl deletions in seconds",
+			Name: "weaviate_objects_ttl_deletion_db_duration_seconds",
+			Help: "Duration of object ttl deletions in seconds",
 			Buckets: []float64{
 				minute, 5 * minute, 15 * minute, 30 * minute, hour,
 				2 * hour, 3 * hour, 4 * hour, 8 * hour, 16 * hour, 24 * hour,
@@ -1006,9 +1002,8 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 
 	m.objttlObjectsDeleted, _, err = EnsureRegisteredMetric(m.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: DefaultMetricsNamespace,
-			Name:      "objects_ttl_deletion_db_objects_deleted",
-			Help:      "Count of all expired objects deleted",
+			Name: "weaviate_objects_ttl_deletion_db_objects_deleted",
+			Help: "Count of all expired objects deleted",
 		}),
 	)
 	if err != nil {
