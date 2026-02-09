@@ -461,7 +461,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 	}
 
 	if params.UserID == principal.Username {
-		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' cannot self-delete", params.UserID)))
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("cannot delete its own user %q", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
@@ -509,7 +509,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 	}
 
 	if params.UserID == principal.Username {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' cannot self-deactivate", params.UserID)))
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("cannot deactivate its own user %q", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
