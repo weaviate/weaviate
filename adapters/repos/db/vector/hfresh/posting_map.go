@@ -106,7 +106,7 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 	}
 
 	m.RLock()
-	size := uint32(len(m.vectors))
+	size := uint32(m.Count())
 	m.RUnlock()
 
 	return size, nil
@@ -379,6 +379,14 @@ func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 			}
 		}
 	}
+}
+
+// Count returns the number of vector IDs in the posting metadata.
+func (p PackedPostingMetadata) Count() uint32 {
+	if len(p) < 5 {
+		return 0
+	}
+	return binary.LittleEndian.Uint32(p[1:5])
 }
 
 // AddVector adds a new vector ID to the packed metadata, returning a new PackedPostingMetadata.
