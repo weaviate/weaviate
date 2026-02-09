@@ -465,6 +465,59 @@ func (p packedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 	}
 }
 
+// AddVector adds a new vector ID to the packed metadata, returning a new PackedPostingMetadata.
+// It handles upgrading the encoding scheme if the new vector ID exceeds the current scheme's limits.
+func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion) PackedPostingMetadata {
+	currentScheme := Scheme(p[0])
+	newScheme := schemeFor(vectorID)
+	bytesPerValue := newScheme.BytesPerValue()
+	const headerSize = 5
+	newCount := binary.LittleEndian.Uint32(p[1:5]) + 1
+	idsSize := int(newCount) * bytesPerValue
+	versionsSize := int(newCount) // 1 byte per version
+
+	// same scheme or lower, just append the new ID and version
+	if currentScheme >= newScheme {
+		for i := 0; i < bytesPerValue; i++ {
+			p = append(p, byte(vectorID>>(i*8)))
+		}
+		p = append(p, byte(version))
+
+		// update count in header
+		binary.LittleEndian.PutUint32(p[1:5], newCount)
+		return p
+	}
+
+	// new scheme needed, re-encode all existing IDs with the new scheme and append the new ID
+
+	newData := make([]byte, headerSize+idsSize+versionsSize)
+	// write new header
+	newData[0] = byte(newScheme)
+	// write count
+	binary.LittleEndian.PutUint32(newData[1:5], newCount)
+
+	// write IDs and versions
+	for i := 0; i < int(newCount)-1; i++ {
+		for id, ver := range p.Iter() {
+			// write the id
+			for j := 0; j < bytesPerValue; j++ {
+				newData[headerSize+i*bytesPerValue+j] = byte(id >> (j * 8))
+			}
+			// write the version
+			newData[headerSize+idsSize+i] = byte(ver)
+		}
+	}
+
+	// write the new ID
+	for j := 0; j < bytesPerValue; j++ {
+		newData[headerSize+(int(newCount)-1)*bytesPerValue+j] = byte(vectorID >> (j * 8))
+	}
+	// write the new version
+	newData[headerSize+idsSize+(int(newCount)-1)] = byte(version)
+
+	return newData
+}
+
 // Get retrieves the vector IDs for the given posting ID.
 // Disk format:
 //   - 1 byte: scheme for vector IDs
