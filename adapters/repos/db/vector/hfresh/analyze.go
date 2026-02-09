@@ -34,8 +34,6 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	}()
 
 	if !h.Centroids.Exists(postingID) {
-		h.logger.WithField("postingID", postingID).
-			Debug("posting not found, skipping analyze operation")
 		return nil
 	}
 
@@ -51,8 +49,6 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 		p, err := h.PostingStore.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
-				h.logger.WithField("postingID", postingID).
-					Debug("posting not found, skipping analyze operation")
 				return nil
 			}
 
@@ -60,8 +56,6 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 		}
 
 		if len(p) == 0 {
-			h.logger.WithField("postingID", postingID).
-				Debug("posting is empty, skipping analyze operation")
 			return nil
 		}
 
