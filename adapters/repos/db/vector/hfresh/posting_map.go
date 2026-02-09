@@ -37,7 +37,7 @@ type PostingMetadata struct {
 // PostingMap manages various information about postings.
 type PostingMap struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, *PostingMetadata]
+	data    *otter.Cache[uint64, *PostingMetadata]
 	bucket  *PostingMapStore
 }
 
@@ -47,7 +47,7 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	cache, _ := otter.New[uint64, *PostingMetadata](nil)
 
 	return &PostingMap{
-		cache:   cache,
+		data:    cache,
 		metrics: metrics,
 		bucket:  b,
 	}
@@ -55,7 +55,7 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
+	m, err := v.data.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
 		data, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
@@ -105,7 +105,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		if err != nil {
 			return err
 		}
-		v.cache.Invalidate(postingID)
+		v.data.Invalidate(postingID)
 		return nil
 	}
 
@@ -118,7 +118,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, &PostingMetadata{PackedPostingMetadata: pm})
+	v.data.Set(postingID, &PostingMetadata{PackedPostingMetadata: pm})
 	v.metrics.ObservePostingSize(float64(pm.Count()))
 
 	return nil
@@ -143,7 +143,7 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		m = &PostingMetadata{
 			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
-		v.cache.Set(postingID, m)
+		v.data.Set(postingID, m)
 	}
 
 	v.metrics.ObservePostingSize(float64(m.Count()))
