@@ -60,10 +60,6 @@ message ShardRaftSnapshot {
   string node_id = 4;
 }
 
-// =========================================================================
-// gRPC Service for forwarding shard operations to RAFT leaders
-// =========================================================================
-
 // ShardReplicationService handles forwarding of shard operations from
 // followers to leaders in per-shard RAFT clusters.
 service ShardReplicationService {                                                                                                                                                                                  
