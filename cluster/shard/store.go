@@ -80,6 +80,7 @@ type StoreConfig struct {
 	LeaderLeaseTimeout time.Duration
 	SnapshotInterval   time.Duration
 	SnapshotThreshold  uint64
+	TrailingLogs       uint64
 }
 
 // Store manages a RAFT cluster for a single physical shard.
@@ -234,6 +235,14 @@ func (s *Store) raftConfig() *raft.Config {
 	}
 	if s.config.SnapshotThreshold > 0 {
 		cfg.SnapshotThreshold = s.config.SnapshotThreshold
+	}
+	if s.config.TrailingLogs > 0 {
+		cfg.TrailingLogs = s.config.TrailingLogs
+	} else {
+		// Shard-level default: keep fewer trailing logs than schema-level.
+		// WAL cleanup has zero trailing entries; RAFT needs some until
+		// out-of-band state transfer is implemented.
+		cfg.TrailingLogs = 4096
 	}
 
 	cfg.LocalID = raft.ServerID(s.config.NodeID)
@@ -424,11 +433,6 @@ func (s *Store) State() raft.RaftState {
 // LastAppliedIndex returns the last applied RAFT log index.
 func (s *Store) LastAppliedIndex() uint64 {
 	return s.fsm.LastAppliedIndex()
-}
-
-// generateRequestID generates a unique request ID for tracing.
-func generateRequestID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
 type Response struct {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
+	"github.com/klauspost/compress/s2"
 	"github.com/sirupsen/logrus"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
@@ -86,7 +87,6 @@ type replicator struct {
 	config         RouterConfig
 	log            logrus.FieldLogger
 	raft           *Raft
-	client         shardproto.ShardReplicationServiceClient
 	class          string
 	rpcClientMaker rpcClientMaker
 }
@@ -124,12 +124,14 @@ func (r *replicator) PutObject(ctx context.Context, shard string, obj *storobj.O
 		return fmt.Errorf("marshal put request: %w", err)
 	}
 
-	// Apply locally if we're the leader
+	compressed := s2.Encode(nil, subCmd)
+
 	req := &shardproto.ApplyRequest{
 		Type:       shardproto.ApplyRequest_TYPE_PUT_OBJECT,
 		Class:      r.class,
 		Shard:      shard,
-		SubCommand: subCmd,
+		SubCommand: compressed,
+		Compressed: true,
 	}
 	_, err = r.apply(ctx, req)
 	return err

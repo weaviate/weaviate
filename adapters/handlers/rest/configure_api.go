@@ -386,18 +386,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	nodeName := appState.Cluster.LocalName()
+	raftCfg := appState.ServerConfig.Config.Raft
 	sConfig := shard.RegistryConfig{
 		NodeID:          nodeName,
 		Logger:          appState.Logger,
-		RaftPort:        appState.ServerConfig.Config.Raft.Port + 1,
+		RaftPort:        raftCfg.Port + 1,
 		AddressResolver: appState.Cluster,
 		RpcClientMaker:  rpcClientMaker,
 
-		HeartbeatTimeout:   appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		ElectionTimeout:    appState.ServerConfig.Config.Raft.ElectionTimeout,
-		LeaderLeaseTimeout: appState.ServerConfig.Config.Raft.LeaderLeaseTimeout,
-		SnapshotInterval:   appState.ServerConfig.Config.Raft.SnapshotInterval,
-		SnapshotThreshold:  appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		HeartbeatTimeout:   raftCfg.HeartbeatTimeout,
+		ElectionTimeout:    raftCfg.ElectionTimeout,
+		LeaderLeaseTimeout: raftCfg.LeaderLeaseTimeout,
+		SnapshotInterval:   raftCfg.ShardSnapshotInterval,
+		SnapshotThreshold:  raftCfg.ShardSnapshotThreshold,
+		TrailingLogs:       raftCfg.ShardTrailingLogs,
 	}
 
 	// Initialize shard RAFT registry (lifecycle managed by Server in clusterapi/serve.go)

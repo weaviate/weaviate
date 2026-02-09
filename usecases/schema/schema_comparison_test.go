@@ -247,7 +247,7 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 		"class Foo: module config mismatch: " +
 			"L has \"bar\", but R has null",
 		"class Foo: replication config mismatch: " +
-			"L has {\"asyncEnabled\":false,\"factor\":7}, but R has {\"asyncEnabled\":false,\"factor\":8}",
+			"L has {\"asyncEnabled\":false,\"factor\":7,\"raftEnabled\":false}, but R has {\"asyncEnabled\":false,\"factor\":8,\"raftEnabled\":false}",
 		"class Foo: sharding config mismatch: " +
 			"L has {\"desiredCount\":7}, but R has null",
 		"class Foo: vector index config mismatch: " +

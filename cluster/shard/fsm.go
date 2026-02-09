@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 
 	"github.com/hashicorp/raft"
+	"github.com/klauspost/compress/s2"
 	"github.com/sirupsen/logrus"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -92,7 +93,19 @@ func (f *FSM) Apply(l *raft.Log) any {
 	var req shardproto.ApplyRequest
 	if err := proto.Unmarshal(l.Data, &req); err != nil {
 		f.log.WithError(err).Error("failed to unmarshal command")
-		return Response{Version: l.Index, Error: fmt.Errorf("unmarshal command: %v", err)}
+		return Response{Version: l.Index, Error: fmt.Errorf("unmarshal command: %w", err)}
+	}
+
+	// Decompress sub_command if the entry was compressed by the replicator.
+	// Uncompressed entries (Compressed=false) pass through unchanged, which
+	// ensures backwards compatibility during rolling upgrades.
+	if req.Compressed {
+		decompressed, err := s2.Decode(nil, req.SubCommand)
+		if err != nil {
+			f.log.WithError(err).Error("failed to decompress sub_command")
+			return Response{Version: l.Index, Error: fmt.Errorf("decompress: %w", err)}
+		}
+		req.SubCommand = decompressed
 	}
 
 	// Dispatch based on command type

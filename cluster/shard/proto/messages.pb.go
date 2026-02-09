@@ -89,6 +89,7 @@ type ApplyRequest struct {
 	Shard         string                 `protobuf:"bytes,3,opt,name=shard,proto3" json:"shard,omitempty"`
 	Version       uint64                 `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
 	SubCommand    []byte                 `protobuf:"bytes,5,opt,name=sub_command,json=subCommand,proto3" json:"sub_command,omitempty"`
+	Compressed    bool                   `protobuf:"varint,6,opt,name=compressed,proto3" json:"compressed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -156,6 +157,13 @@ func (x *ApplyRequest) GetSubCommand() []byte {
 		return x.SubCommand
 	}
 	return nil
+}
+
+func (x *ApplyRequest) GetCompressed() bool {
+	if x != nil {
+		return x.Compressed
+	}
+	return false
 }
 
 // ApplyResponse is returned by the FSM after applying a command.
@@ -425,14 +433,17 @@ var File_messages_proto protoreflect.FileDescriptor
 
 const file_messages_proto_rawDesc = "" +
 	"\n" +
-	"\x0emessages.proto\x12\x16weaviate.internal.data\"\xe7\x01\n" +
+	"\x0emessages.proto\x12\x16weaviate.internal.data\"\x87\x02\n" +
 	"\fApplyRequest\x12=\n" +
 	"\x04type\x18\x01 \x01(\x0e2).weaviate.internal.data.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x14\n" +
 	"\x05shard\x18\x03 \x01(\tR\x05shard\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x05 \x01(\fR\n" +
-	"subCommand\"1\n" +
+	"subCommand\x12\x1e\n" +
+	"\n" +
+	"compressed\x18\x06 \x01(\bR\n" +
+	"compressed\"1\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fTYPE_PUT_OBJECT\x10\x01\"f\n" +
