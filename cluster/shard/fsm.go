@@ -33,6 +33,11 @@ type shard interface {
 	// PutObject stores an object in the shard.
 	PutObject(ctx context.Context, obj *storobj.Object) error
 
+	// FlushMemtables flushes all in-memory memtables to disk segments.
+	// Called before RAFT snapshots to ensure all applied entries are durable
+	// in LSM segments before the RAFT log is truncated.
+	FlushMemtables(ctx context.Context) error
+
 	// Name returns the shard name.
 	Name() string
 }
@@ -152,17 +157,24 @@ func (f *FSM) putObject(shard shard, req *shardproto.ApplyRequest) error {
 	return nil
 }
 
-// Snapshot implements raft.FSM. It returns a snapshot of the FSM state.
-// For shard data, the actual objects are stored in the LSM store, so we only
-// need to capture the last applied index for consistency verification.
+// Snapshot implements raft.FSM. It captures a lightweight reference to the
+// current FSM state and returns quickly. The expensive FlushMemtables call
+// happens in FSMSnapshot.Persist(), which runs on the snapshot goroutine
+// and does not block Apply().
 func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 	f.log.Info("creating snapshot")
+
+	f.mu.RLock()
+	shard := f.shard
+	f.mu.RUnlock()
+
 	return &FSMSnapshot{
 		className:        f.className,
 		shardName:        f.shardName,
 		nodeID:           f.nodeID,
 		lastAppliedIndex: f.lastAppliedIndex.Load(),
 		log:              f.log,
+		shard:            shard,
 	}, nil
 }
 
@@ -209,11 +221,24 @@ type FSMSnapshot struct {
 	nodeID           string
 	lastAppliedIndex uint64
 	log              logrus.FieldLogger
+	shard            shard
 }
 
 // Persist implements raft.FSMSnapshot. It writes the snapshot to the sink.
+// Before writing, all memtables are flushed to LSM segments. This ensures
+// all applied entries up to lastAppliedIndex are durable before RAFT
+// truncates the log. Persist() runs on the snapshot goroutine (not the
+// FSM apply thread), so this does not block new Apply() calls.
 func (s *FSMSnapshot) Persist(sink raft.SnapshotSink) error {
 	defer sink.Close()
+
+	if s.shard != nil {
+		ctx := context.Background()
+		if err := s.shard.FlushMemtables(ctx); err != nil {
+			sink.Cancel()
+			return fmt.Errorf("flush memtables before snapshot persist: %w", err)
+		}
+	}
 
 	snap := shardSnapshotData{
 		ClassName:        s.className,
