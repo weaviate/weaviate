@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -89,6 +90,17 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("get local shards for class %q: %w", class.Class, err)
 			}
 
+			var totalShardSizeBytes uint64
+			if isMultiTenant {
+				// we do need to calculate shard size if it's MT to be able to decide
+				// to enable lazy load shards
+				localShards, err := db.schemaReader.LocalShards(class.Class)
+				if err != nil {
+					return fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
+				}
+				totalShardSizeBytes = db.totalShardSizeBytes(schema.ClassName(class.Class), localShards)
+			}
+
 			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)
 			if err != nil {
 				return fmt.Errorf("async replication config: %w", err)
@@ -136,7 +148,7 @@ func (db *DB) init(ctx context.Context) error {
 				EnableLazyLoadShards: applyLazyShardAutoDetection(
 					isMultiTenant,
 					localShardsCount,
-					0,
+					totalShardSizeBytes,
 					db.config.LazyLoadShardCountThreshold,
 					db.config.LazyLoadShardSizeThresholdGB,
 				),
@@ -226,6 +238,51 @@ func applyLazyShardAutoDetection(mtEnabled bool, localShardCount int, totalShard
 	// Check shard size threshold (convert GB to bytes: GB * 1024^3)
 	sizeThresholdBytes := uint64(sizeThresholdGB * 1024 * 1024 * 1024)
 	return totalShardSizeBytes > sizeThresholdBytes
+}
+
+// totalShardSizeBytes returns the cumulative on-disk size (in bytes) of all local
+// shards for a given collection.
+func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []string) uint64 {
+	if len(shardNames) == 0 {
+		return 0
+	}
+
+	indexPath := path.Join(db.config.RootPath, indexID(className))
+
+	var total uint64
+	for _, shardName := range shardNames {
+		// Prefer precomputed usage data if available; it is cheap to read
+		// and already contains the full shard storage size.
+		if shardusage.ComputedUsageDataExists(indexPath, shardName) {
+			shardUsage, err := shardusage.LoadComputedUsageData(indexPath, shardName)
+			if err != nil {
+				db.logger.WithField("action", "lazy_shard_auto_detection").
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithError(err).
+					Warn("failed to load pre-calculated shard usage; falling back to on-disk size")
+			} else if shardUsage != nil {
+				total += shardUsage.FullShardStorageBytes
+				continue
+			}
+		}
+
+		shardPath := path.Join(indexPath, shardName)
+
+		size, err := diskio.GetDirSize(shardPath)
+		if err != nil {
+			db.logger.WithField("action", "lazy_shard_auto_detection").
+				WithField("class", className).
+				WithField("shard", shardName).
+				WithError(err).
+				Warn("failed to determine shard size; ignoring shard in lazy load auto-detection")
+			continue
+		}
+
+		total += size
+	}
+
+	return total
 }
 
 func (db *DB) LocalTenantActivity(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {

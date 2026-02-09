@@ -947,14 +947,18 @@ func FromEnv(config *Config) error {
 	{
 		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
 		switch {
-		// Deprecated flag: still honored, but default behavior is now to wait.
+		// Deprecated flag: still honored, environment always wins over auto-detection.
 		case waitEnvSet:
 			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
 
-		// Default behavior: wait for vector cache prefill on startup.
-		// TODO: reflect value based on lazy load shards
 		default:
 			config.HNSWStartupWaitForVectorCache = true
+			// When lazy load shards are enabled we don't wait for vector cache prefill
+			// on startup to avoid blocking shard loading. Otherwise we keep the
+			// default behavior of waiting for the vector cache prefill.
+			if config.EnableLazyLoadShards {
+				config.HNSWStartupWaitForVectorCache = false
+			}
 		}
 	}
 
