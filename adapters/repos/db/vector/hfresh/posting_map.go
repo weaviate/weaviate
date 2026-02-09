@@ -125,19 +125,17 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		return nil
 	}
 
-	vectorIDs := make([]uint64, len(posting))
-	vectorVersions := make([]VectorVersion, len(posting))
-	for i, vector := range posting {
-		vectorIDs[i] = vector.ID()
-		vectorVersions[i] = vector.Version()
+	var pm PackedPostingMetadata
+	for _, vector := range posting {
+		pm = pm.AddVector(vector.ID(), vector.Version())
 	}
 
-	err := v.bucket.Set(ctx, postingID, vectorIDs, vectorVersions)
+	err := v.bucket.Set(ctx, postingID, pm)
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, &PostingMetadata{vectors: vectorIDs, version: vectorVersions})
-	v.metrics.ObservePostingSize(float64(len(vectorIDs)))
+	v.cache.Set(postingID, &PostingMetadata{PackedPostingMetadata: pm})
+	v.metrics.ObservePostingSize(float64(pm.Count()))
 
 	return nil
 }
