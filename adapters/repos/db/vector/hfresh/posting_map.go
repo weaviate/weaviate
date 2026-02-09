@@ -137,7 +137,7 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 
 	if m != nil {
 		m.Lock()
-		m.PackedPostingMetadata = m.PackedPostingMetadata.AddVector(vectorID, version)
+		m.PackedPostingMetadata = m.AddVector(vectorID, version)
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
