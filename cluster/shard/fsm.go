@@ -93,7 +93,7 @@ func (f *FSM) Apply(l *raft.Log) any {
 	var req shardproto.ApplyRequest
 	if err := proto.Unmarshal(l.Data, &req); err != nil {
 		f.log.WithError(err).Error("failed to unmarshal command")
-		return Response{Version: l.Index, Error: fmt.Errorf("unmarshal command: %v", err)}
+		return Response{Version: l.Index, Error: fmt.Errorf("unmarshal command: %w", err)}
 	}
 
 	// Decompress sub_command if the entry was compressed by the replicator.
@@ -103,7 +103,7 @@ func (f *FSM) Apply(l *raft.Log) any {
 		decompressed, err := s2.Decode(nil, req.SubCommand)
 		if err != nil {
 			f.log.WithError(err).Error("failed to decompress sub_command")
-			return Response{Version: l.Index, Error: fmt.Errorf("decompress: %v", err)}
+			return Response{Version: l.Index, Error: fmt.Errorf("decompress: %w", err)}
 		}
 		req.SubCommand = decompressed
 	}

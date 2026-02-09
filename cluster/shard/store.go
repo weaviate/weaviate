@@ -435,11 +435,6 @@ func (s *Store) LastAppliedIndex() uint64 {
 	return s.fsm.LastAppliedIndex()
 }
 
-// generateRequestID generates a unique request ID for tracing.
-func generateRequestID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
-}
-
 type Response struct {
 	Error   error
 	Version uint64

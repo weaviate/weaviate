@@ -87,7 +87,6 @@ type replicator struct {
 	config         RouterConfig
 	log            logrus.FieldLogger
 	raft           *Raft
-	client         shardproto.ShardReplicationServiceClient
 	class          string
 	rpcClientMaker rpcClientMaker
 }

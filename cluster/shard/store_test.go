@@ -13,6 +13,7 @@ package shard_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -243,7 +244,7 @@ func TestStore_Apply_AfterStop(t *testing.T) {
 	require.Error(t, err)
 	// After Stop(), started=false and closed=true. Apply checks started first,
 	// so ErrNotStarted is returned. Either sentinel error is acceptable here.
-	assert.True(t, err == shard.ErrNotStarted || err == shard.ErrAlreadyClosed,
+	assert.True(t, errors.Is(err, shard.ErrNotStarted) || errors.Is(err, shard.ErrAlreadyClosed),
 		"expected ErrNotStarted or ErrAlreadyClosed, got: %v", err)
 }
 
