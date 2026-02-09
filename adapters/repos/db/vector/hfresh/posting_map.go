@@ -236,6 +236,15 @@ func schemeFor(value uint64) Scheme {
 
 type PackedPostingMetadata []byte
 
+func NewPackedPostingMetadata(vectorIDs []uint64, versions []VectorVersion) PackedPostingMetadata {
+	scheme := determineScheme(vectorIDs)
+	data := PackedPostingMetadata(make([]byte, 0, 5+len(vectorIDs)*(scheme.BytesPerValue()+1)))
+	for i, id := range vectorIDs {
+		data = data.AddVector(id, versions[i])
+	}
+	return data
+}
+
 func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 	scheme := Scheme(p[0])
 	count := binary.LittleEndian.Uint32(p[1:5])
