@@ -273,6 +273,29 @@ func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 	}
 }
 
+func (p PackedPostingMetadata) GetAt(index int) (uint64, VectorVersion) {
+	scheme := Scheme(p[0])
+	count := binary.LittleEndian.Uint32(p[1:5])
+	if index >= int(count) {
+		panic("index out of bounds")
+	}
+	bytesPerID := scheme.BytesPerValue()
+	bytesPerValue := bytesPerID + 1
+	start := 5
+	offset := index * bytesPerValue
+
+	// Decode ID
+	vID := uint64(0)
+	for j := 0; j < bytesPerID; j++ {
+		vID |= uint64(p[start+offset+j]) << (j * 8)
+	}
+
+	// Decode version
+	vVer := VectorVersion(p[start+offset+bytesPerID])
+
+	return vID, vVer
+}
+
 // Count returns the number of vector IDs in the posting metadata.
 func (p PackedPostingMetadata) Count() uint32 {
 	if len(p) < 5 {
