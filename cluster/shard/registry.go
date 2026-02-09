@@ -55,6 +55,7 @@ type RegistryConfig struct {
 	LeaderLeaseTimeout time.Duration
 	SnapshotInterval   time.Duration
 	SnapshotThreshold  uint64
+	TrailingLogs       uint64
 }
 
 // Registry manages all per-index Raft instances on a node.
@@ -151,6 +152,7 @@ func (reg *Registry) GetOrCreateRaft(className string) (*Raft, error) {
 		LeaderLeaseTimeout: reg.config.LeaderLeaseTimeout,
 		SnapshotInterval:   reg.config.SnapshotInterval,
 		SnapshotThreshold:  reg.config.SnapshotThreshold,
+		TrailingLogs:       reg.config.TrailingLogs,
 	}
 
 	raft := NewRaft(raftConfig)

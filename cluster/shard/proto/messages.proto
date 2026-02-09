@@ -35,6 +35,7 @@ message ApplyRequest {
   string shard = 3;
   uint64 version = 4;
   bytes sub_command = 5;
+  bool compressed = 6;
 }
 
 // ApplyResponse is returned by the FSM after applying a command.

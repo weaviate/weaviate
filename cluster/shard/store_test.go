@@ -343,3 +343,69 @@ func TestStore_Stop_NotStarted(t *testing.T) {
 	err = store.Start(context.Background())
 	assert.ErrorIs(t, err, shard.ErrAlreadyClosed)
 }
+
+func TestStore_RaftConfig_TrailingLogs(t *testing.T) {
+	t.Run("custom TrailingLogs propagated", func(t *testing.T) {
+		_, transport := raft.NewInmemTransport("")
+		logger := logrus.New()
+		logger.SetLevel(logrus.WarnLevel)
+
+		cfg := shard.StoreConfig{
+			ClassName:          testClassName,
+			ShardName:          testShardName,
+			NodeID:             testNodeID,
+			DataPath:           t.TempDir(),
+			Members:            []string{testNodeID},
+			Logger:             logger,
+			Transport:          transport,
+			HeartbeatTimeout:   150 * time.Millisecond,
+			ElectionTimeout:    150 * time.Millisecond,
+			LeaderLeaseTimeout: 100 * time.Millisecond,
+			SnapshotInterval:   10 * time.Second,
+			SnapshotThreshold:  1024,
+			TrailingLogs:       2048,
+		}
+
+		store, err := shard.NewStore(cfg)
+		require.NoError(t, err)
+
+		mockShard := mocks.NewMockshard(t)
+		store.SetShard(mockShard)
+
+		// Store should start successfully with the configured TrailingLogs
+		startAndWaitForLeader(t, store)
+		assert.True(t, store.IsLeader())
+	})
+
+	t.Run("default TrailingLogs when zero", func(t *testing.T) {
+		_, transport := raft.NewInmemTransport("")
+		logger := logrus.New()
+		logger.SetLevel(logrus.WarnLevel)
+
+		cfg := shard.StoreConfig{
+			ClassName:          testClassName,
+			ShardName:          testShardName,
+			NodeID:             testNodeID,
+			DataPath:           t.TempDir(),
+			Members:            []string{testNodeID},
+			Logger:             logger,
+			Transport:          transport,
+			HeartbeatTimeout:   150 * time.Millisecond,
+			ElectionTimeout:    150 * time.Millisecond,
+			LeaderLeaseTimeout: 100 * time.Millisecond,
+			SnapshotInterval:   10 * time.Second,
+			SnapshotThreshold:  1024,
+			// TrailingLogs intentionally left at zero -> should default to 4096
+		}
+
+		store, err := shard.NewStore(cfg)
+		require.NoError(t, err)
+
+		mockShard := mocks.NewMockshard(t)
+		store.SetShard(mockShard)
+
+		// Store should start successfully with the default TrailingLogs (4096)
+		startAndWaitForLeader(t, store)
+		assert.True(t, store.IsLeader())
+	})
+}

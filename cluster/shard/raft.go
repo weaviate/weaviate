@@ -37,6 +37,7 @@ type RaftConfig struct {
 	LeaderLeaseTimeout time.Duration
 	SnapshotInterval   time.Duration
 	SnapshotThreshold  uint64
+	TrailingLogs       uint64
 }
 
 // Raft manages all per-shard RAFT clusters (Stores) for a single index.
@@ -133,6 +134,7 @@ func (r *Raft) GetOrCreateStore(
 		LeaderLeaseTimeout: r.config.LeaderLeaseTimeout,
 		SnapshotInterval:   r.config.SnapshotInterval,
 		SnapshotThreshold:  r.config.SnapshotThreshold,
+		TrailingLogs:       r.config.TrailingLogs,
 	}
 
 	store, err := NewStore(storeConfig)

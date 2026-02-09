@@ -1177,6 +1177,31 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	// Shard-level RAFT parameters with tuned defaults for per-shard RAFT clusters.
+	if err := parsePositiveInt(
+		"SHARD_RAFT_SNAPSHOT_THRESHOLD",
+		func(val int) { cfg.ShardSnapshotThreshold = uint64(val) },
+		1024,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"SHARD_RAFT_SNAPSHOT_INTERVAL",
+		func(val int) { cfg.ShardSnapshotInterval = time.Second * time.Duration(val) },
+		30,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"SHARD_RAFT_TRAILING_LOGS",
+		func(val int) { cfg.ShardTrailingLogs = uint64(val) },
+		4096,
+	); err != nil {
+		return cfg, err
+	}
+
 	if err := parsePositiveInt(
 		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
 		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
