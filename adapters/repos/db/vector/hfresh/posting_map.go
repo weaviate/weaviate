@@ -281,7 +281,7 @@ func (p PackedPostingMetadata) GetAt(index int) (uint64, VectorVersion) {
 	scheme := Scheme(p[0])
 	count := binary.LittleEndian.Uint32(p[1:5])
 	if index >= int(count) {
-		panic("index out of bounds")
+		return 0, 0
 	}
 	bytesPerID := scheme.BytesPerValue()
 	bytesPerValue := bytesPerID + 1
