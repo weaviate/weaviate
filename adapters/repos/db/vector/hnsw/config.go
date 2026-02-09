@@ -55,6 +55,8 @@ type Config struct {
 	VisitedListPoolMaxSize int
 
 	AsyncIndexingEnabled bool
+
+	HFreshMode bool
 }
 
 func (c Config) Validate() error {
