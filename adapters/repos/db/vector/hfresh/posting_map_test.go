@@ -43,6 +43,16 @@ func makeVectors(n, dims int) []Vector {
 	return result
 }
 
+func decodePacked(encoded PackedPostingMetadata) ([]uint64, []VectorVersion) {
+	var ids []uint64
+	var versions []VectorVersion
+	for id, version := range encoded.Iter() {
+		ids = append(ids, id)
+		versions = append(versions, version)
+	}
+	return ids, versions
+}
+
 func TestPostingMapEncoding(t *testing.T) {
 	ctx := t.Context()
 
@@ -59,57 +69,68 @@ func TestPostingMapEncoding(t *testing.T) {
 		tests := []struct {
 			name           string
 			vectorIDs      []uint64
-			expectedScheme uint8
+			expectedScheme Scheme
+			versions       []VectorVersion
 		}{
 			{
 				name:           "2-byte scheme - zero",
 				vectorIDs:      []uint64{0},
 				expectedScheme: schemeID2Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "2-byte scheme - max",
 				vectorIDs:      []uint64{65535},
 				expectedScheme: schemeID2Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "3-byte scheme - boundary",
 				vectorIDs:      []uint64{65536},
 				expectedScheme: schemeID3Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "3-byte scheme - max",
 				vectorIDs:      []uint64{16777215},
 				expectedScheme: schemeID3Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "4-byte scheme - boundary",
 				vectorIDs:      []uint64{16777216},
 				expectedScheme: schemeID4Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "4-byte scheme - max",
 				vectorIDs:      []uint64{4294967295},
 				expectedScheme: schemeID4Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "5-byte scheme - boundary",
 				vectorIDs:      []uint64{4294967296},
 				expectedScheme: schemeID5Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "5-byte scheme - max",
 				vectorIDs:      []uint64{1099511627775},
 				expectedScheme: schemeID5Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "8-byte scheme - boundary",
 				vectorIDs:      []uint64{1099511627776},
 				expectedScheme: schemeID8Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "8-byte scheme - max uint64",
 				vectorIDs:      []uint64{^uint64(0)},
 				expectedScheme: schemeID8Byte,
+				versions:       []VectorVersion{1},
 			},
 		}
 
@@ -119,9 +140,11 @@ func TestPostingMapEncoding(t *testing.T) {
 				require.Equal(t, tt.expectedScheme, scheme)
 
 				// Test encode/decode round-trip
-				encoded := encodeVectorIDs(tt.vectorIDs, scheme)
-				decoded := decodeVectorIDs(encoded, scheme, uint32(len(tt.vectorIDs)))
-				require.Equal(t, tt.vectorIDs, decoded)
+				encoded := NewPackedPostingMetadata(tt.vectorIDs, tt.versions)
+
+				decodedIDs, decodedVersions := decodePacked(encoded)
+				require.Equal(t, tt.vectorIDs, decodedIDs)
+				require.Equal(t, tt.versions, decodedVersions)
 			})
 		}
 	})
@@ -183,8 +206,9 @@ func TestPostingMapEncoding(t *testing.T) {
 
 				m, err := store.Get(ctx, postingID)
 				require.NoError(t, err)
-				require.Equal(t, tt.vectorIDs, m.vectors)
-				require.Equal(t, tt.versions, m.version)
+				vectorIDs, versions := decodePacked(m.PackedPostingMetadata)
+				require.Equal(t, tt.vectorIDs, vectorIDs)
+				require.Equal(t, tt.versions, versions)
 			})
 		}
 	})
@@ -213,7 +237,9 @@ func TestPostingMapEncoding(t *testing.T) {
 
 		m, err := store.Get(ctx, postingID)
 		require.NoError(t, err)
-		require.Equal(t, versions, m.version)
+		vIDs, vVersions := decodePacked(m.PackedPostingMetadata)
+		require.Equal(t, vectorIDs, vIDs)
+		require.Equal(t, versions, vVersions)
 	})
 
 	t.Run("large posting count", func(t *testing.T) {
@@ -241,9 +267,10 @@ func TestPostingMapEncoding(t *testing.T) {
 
 		m, err := store.Get(ctx, postingID)
 		require.NoError(t, err)
-		require.Len(t, m.vectors, count)
-		require.Equal(t, vectorIDs, m.vectors)
-		require.Equal(t, versions, m.version)
+		require.EqualValues(t, count, m.Count())
+		vIDs, vVersions := decodePacked(m.PackedPostingMetadata)
+		require.Equal(t, vectorIDs, vIDs)
+		require.Equal(t, versions, vVersions)
 	})
 }
 
@@ -265,9 +292,11 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
-		for i, v := range posting {
-			require.Equal(t, v.ID(), m.vectors[i])
-			require.Equal(t, v.Version(), m.version[i])
+		var i int
+		for id, v := range m.Iter() {
+			require.Equal(t, id, posting[i].ID())
+			require.Equal(t, v, posting[i].Version())
+			i++
 		}
 
 		count, err := store.CountVectorIDs(ctx, 42)
@@ -278,9 +307,11 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		m, err = store.Get(ctx, 42)
 		require.NoError(t, err)
-		for i, v := range posting {
-			require.Equal(t, v.ID(), m.vectors[i])
-			require.Equal(t, v.Version(), m.version[i])
+		i = 0
+		for id, v := range m.Iter() {
+			require.Equal(t, id, posting[i].ID())
+			require.Equal(t, v, posting[i].Version())
+			i++
 		}
 	})
 
@@ -303,9 +334,11 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
-		require.Equal(t, uint64(100), m.vectors[0])
-		require.Equal(t, VectorVersion(1), m.version[0])
-		require.Equal(t, uint64(200), m.vectors[1])
-		require.Equal(t, VectorVersion(1), m.version[1])
+		id, v := m.GetAt(0)
+		require.Equal(t, uint64(100), id)
+		require.Equal(t, VectorVersion(1), v)
+		id, v = m.GetAt(1)
+		require.Equal(t, uint64(200), id)
+		require.Equal(t, VectorVersion(1), v)
 	})
 }

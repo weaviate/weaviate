@@ -141,7 +141,7 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
-			PackedPostingMetadata: PackedPostingMetadata{}.AddVector(vectorID, version),
+			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
 		v.cache.Set(postingID, m)
 	}
@@ -246,6 +246,10 @@ func NewPackedPostingMetadata(vectorIDs []uint64, versions []VectorVersion) Pack
 }
 
 func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
+	if len(p) < 5 {
+		return func(yield func(uint64, VectorVersion) bool) {}
+	}
+
 	scheme := Scheme(p[0])
 	count := binary.LittleEndian.Uint32(p[1:5])
 	bytesPerID := scheme.BytesPerValue()
@@ -255,7 +259,7 @@ func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 
 	return func(yield func(uint64, VectorVersion) bool) {
 		for i := uint32(0); i < count; i++ {
-			offset := i * uint32(bytesPerValue+1)
+			offset := i * uint32(bytesPerValue)
 
 			// Decode ID
 			vID := uint64(0)
@@ -307,17 +311,29 @@ func (p PackedPostingMetadata) Count() uint32 {
 // AddVector adds a new vector ID to the packed metadata, returning a new PackedPostingMetadata.
 // It handles upgrading the encoding scheme if the new vector ID exceeds the current scheme's limits.
 func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion) PackedPostingMetadata {
-	currentScheme := Scheme(p[0])
-	newScheme := schemeFor(vectorID)
-	bytesPerValue := newScheme.BytesPerValue()
 	const headerSize = 5
-	newCount := binary.LittleEndian.Uint32(p[1:5]) + 1
+	var currentScheme, newScheme Scheme
+	var currentCount uint32
+
+	if len(p) == 0 {
+		currentScheme = schemeFor(vectorID)
+		newScheme = currentScheme
+		p = make([]byte, headerSize, headerSize+currentScheme.BytesPerValue()+1)
+		p[0] = byte(currentScheme)
+	} else {
+		currentScheme = Scheme(p[0])
+		newScheme = schemeFor(vectorID)
+		currentCount = binary.LittleEndian.Uint32(p[1:5])
+	}
+
+	bytesPerValue := newScheme.BytesPerValue()
+	newCount := currentCount + 1
 	idsSize := int(newCount) * bytesPerValue
 	versionsSize := int(newCount) // 1 byte per version
 
 	// same scheme or lower, just append the new ID and version
 	if currentScheme >= newScheme {
-		for i := 0; i < bytesPerValue; i++ {
+		for i := range bytesPerValue {
 			p = append(p, byte(vectorID>>(i*8)))
 		}
 		p = append(p, byte(version))
@@ -336,23 +352,25 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	binary.LittleEndian.PutUint32(newData[1:5], newCount)
 
 	// write IDs and versions
-	for i := 0; i < int(newCount)-1; i++ {
-		for id, ver := range p.Iter() {
-			// write the id
-			for j := 0; j < bytesPerValue; j++ {
-				newData[headerSize+i*bytesPerValue+j] = byte(id >> (j * 8))
-			}
-			// write the version
-			newData[headerSize+idsSize+i] = byte(ver)
+	offset := headerSize
+	for id, ver := range p.Iter() {
+		// write the id
+		for j := range bytesPerValue {
+			newData[offset] = byte(id >> (j * 8))
+			offset++
 		}
+		// write the version
+		newData[offset] = byte(ver)
+		offset++
 	}
 
 	// write the new ID
-	for j := 0; j < bytesPerValue; j++ {
-		newData[headerSize+(int(newCount)-1)*bytesPerValue+j] = byte(vectorID >> (j * 8))
+	for j := range bytesPerValue {
+		newData[offset] = byte(vectorID >> (j * 8))
+		offset++
 	}
 	// write the new version
-	newData[headerSize+idsSize+(int(newCount)-1)] = byte(version)
+	newData[offset] = byte(version)
 
 	return newData
 }
