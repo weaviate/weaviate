@@ -75,7 +75,7 @@ func TestApplyLazyShardAutoDetection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			totalBytes := uint64(tt.totalShardSizeGib * 1024 * 1024 * 1024)
-			got := applyLazyShardAutoDetection(
+			got := shouldAutoLazyLoadShards(
 				tt.mtEnabled,
 				tt.localShardCount,
 				totalBytes,

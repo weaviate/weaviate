@@ -470,13 +470,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			continue
 		}
 		hotShardNames = append(hotShardNames, shard.name)
-
+		shardName := shard.name
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
-				lazyShard := NewLazyLoadShard(ctx, promMetrics, shard.name, i, class, i.centralJobQueue, i.indexCheckpoints,
+				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
-				i.shards.Store(shard.name, lazyShard)
+				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
 				// default behavior is to load all shards immediately
@@ -485,16 +485,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 				defer i.shardLoadLimiter.Release()
 
-				newShard, err := NewShard(ctx, promMetrics, shard.name, i, class, i.centralJobQueue, i.scheduler,
+				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
 					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
 				if err != nil {
-					return fmt.Errorf("init shard %s of index %s: %w", shard.name, i.ID(), err)
+					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
 
-				i.shards.Store(shard.name, newShard)
+				i.shards.Store(shardName, newShard)
 				return nil
 			}
-		}, shard.name)
+		}, shardName)
 
 	}
 

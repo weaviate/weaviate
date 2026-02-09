@@ -120,11 +120,6 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
-	// disableEnv := os.Getenv("DISABLE_LAZY_LOAD_SHARDS")
-	// if disableEnv != "" {
-	// 	// TODO LOG DEPRECATION
-	// }
-
 	// Lazy load shard count threshold for auto-detection
 	// Determines at what shard count auto-detection enables lazy loading
 	if v := os.Getenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD"); v != "" {

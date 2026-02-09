@@ -85,13 +85,16 @@ func (db *DB) init(ctx context.Context) error {
 
 			isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 
-			localShardsCount, err := db.schemaReader.LocalShardsCount(class.Class)
-			if err != nil {
-				return fmt.Errorf("get local shards for class %q: %w", class.Class, err)
-			}
-
 			var totalShardSizeBytes uint64
+			var localShardsCount int
+			var err error
 			if isMultiTenant {
+				// we need to calculate the local shards count if it's MT to be able to decide
+				// to enable lazy load shards
+				localShardsCount, err = db.schemaReader.LocalShardsCount(class.Class)
+				if err != nil {
+					return fmt.Errorf("get local shards for class %q: %w", class.Class, err)
+				}
 				// we do need to calculate shard size if it's MT to be able to decide
 				// to enable lazy load shards
 				localShards, err := db.schemaReader.LocalShards(class.Class)
@@ -145,13 +148,19 @@ func (db *DB) init(ctx context.Context) error {
 				TrackVectorDimensionsInterval:  db.config.TrackVectorDimensionsInterval,
 				UsageEnabled:                   db.config.UsageEnabled,
 				AvoidMMap:                      db.config.AvoidMMap,
-				EnableLazyLoadShards: applyLazyShardAutoDetection(
-					isMultiTenant,
-					localShardsCount,
-					totalShardSizeBytes,
-					db.config.LazyLoadShardCountThreshold,
-					db.config.LazyLoadShardSizeThresholdGB,
-				),
+				EnableLazyLoadShards: func() bool {
+					// If explicitly enabled in config, override auto-detection.
+					if db.config.EnableLazyLoadShards {
+						return true
+					}
+					return shouldAutoLazyLoadShards(
+						isMultiTenant,
+						localShardsCount,
+						totalShardSizeBytes,
+						db.config.LazyLoadShardCountThreshold,
+						db.config.LazyLoadShardSizeThresholdGB,
+					)
+				}(),
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
@@ -213,7 +222,7 @@ func (db *DB) init(ctx context.Context) error {
 	return nil
 }
 
-// ApplyLazyShardAutoDetection decides, for a single collection, whether lazy
+// shouldAutoLazyLoadShards decides, for a single collection, whether lazy
 // shard loading should be enabled based on schema characteristics.
 //
 // Lazy loading is considered beneficial when multi-tenancy is enabled AND either:
@@ -225,7 +234,7 @@ func (db *DB) init(ctx context.Context) error {
 //   - Size: defaults to 100GB, customizable via LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB
 //
 // Returns true if lazy loading should be enabled for this collection.
-func applyLazyShardAutoDetection(mtEnabled bool, localShardCount int, totalShardSizeBytes uint64, countThreshold int, sizeThresholdGB float64) bool {
+func shouldAutoLazyLoadShards(mtEnabled bool, localShardCount int, totalShardSizeBytes uint64, countThreshold int, sizeThresholdGB float64) bool {
 	if !mtEnabled {
 		return false
 	}

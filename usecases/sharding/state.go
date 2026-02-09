@@ -342,9 +342,9 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
-// CountPhysicalShards return a count of physical shards
-func (s *State) CountPhysicalShards() int {
-	return len(s.Physical)
+// LocalPhysicalShardsCount return a count of physical shards
+func (s *State) LocalPhysicalShardsCount() int {
+	return len(s.AllLocalPhysicalShards())
 }
 
 func (s *State) AllPhysicalShards() []string {
