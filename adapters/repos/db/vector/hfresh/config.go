@@ -94,7 +94,7 @@ func DefaultConfig() *Config {
 		ReassignNeighbors:         DefaultReassignNeighbors,
 		MaxDistanceRatio:          DefaultMaxDistanceRatio,
 		DistanceProvider:          distancer.NewL2SquaredProvider(),
-		Store:                     StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions},
+		Store:                     StoreConfig{MakeBucketOptions: lsmkv.MakeRegularBucketOptions},
 	}
 }
 

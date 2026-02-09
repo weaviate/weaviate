@@ -20,7 +20,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
 	"sort"
 	"sync"
@@ -31,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1959,7 +1959,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
 				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-				debug.PrintStack()
+				enterrors.PrintStack(b.logger)
 				view.ReleaseView()
 			}
 		}

@@ -113,7 +113,7 @@ type hnsw struct {
 	trackDimensionsOnce               sync.Once
 	trackMuveraOnce                   sync.Once
 	trackRQOnce                       sync.Once
-	dims                              int32
+	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -365,7 +365,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
 		shardName: cfg.ShardName,
 
 		randFunc:                          rand.Float64,
@@ -1067,7 +1067,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	}
 
 	stats := HnswStats{
-		Dimensions:         h.dims,
+		Dimensions:         h.dims.Load(),
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),

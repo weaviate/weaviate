@@ -262,13 +262,11 @@ func (h *StreamHandler) handleWorkerResults(report *report, batchResults *batchR
 		h.metrics.OnStreamError(len(report.Errors))
 	}
 	batchResults.add(report.Successes, report.Errors)
-	if batchResults.shouldSend() {
-		if innerErr := batchResults.send(stream); innerErr != nil {
-			logger.Errorf("failed to send results message: %s", innerErr)
-			return
-		}
-		batchResults.reset()
+	if innerErr := batchResults.send(stream); innerErr != nil {
+		logger.Errorf("failed to send results message: %s", innerErr)
+		return
 	}
+	batchResults.reset()
 }
 
 func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, recvErrCh chan error) error {
@@ -600,10 +598,6 @@ func (r *batchResults) add(successes []*pb.BatchStreamReply_Results_Success, err
 func (r *batchResults) reset() {
 	r.successes = r.successes[:0]
 	r.errors = r.errors[:0]
-}
-
-func (r *batchResults) shouldSend() bool {
-	return len(r.successes)+len(r.errors) > r.batchSize
 }
 
 func (r *batchResults) send(stream pb.Weaviate_BatchStreamServer) error {
