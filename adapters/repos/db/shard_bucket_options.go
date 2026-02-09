@@ -41,6 +41,10 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		lsmkv.WithLazySegmentLoading(s.lazySegmentLoadingEnabled),
 	}
 
+	if s.isRaftReplicated() {
+		options = append(options, lsmkv.WithWALDisabled())
+	}
+
 	switch strategy {
 	case lsmkv.StrategyRoaringSet:
 		options = append(options,

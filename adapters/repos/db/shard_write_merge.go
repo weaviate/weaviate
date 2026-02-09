@@ -107,7 +107,7 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
-	if err := s.store.WriteWALs(); err != nil {
+	if err := s.writeWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
