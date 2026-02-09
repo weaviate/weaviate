@@ -72,7 +72,7 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
 	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
-		vids, vvers, err := v.bucket.Get(ctx, postingID)
+		data, err := v.bucket.Get(ctx, postingID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				return nil, otter.ErrNotFound
@@ -81,7 +81,7 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadat
 			return nil, err
 		}
 
-		return &PostingMetadata{vectors: vids, version: vvers, fromDisk: true}, nil
+		return &PostingMetadata{PackedPostingMetadata: data, fromDisk: true}, nil
 	}))
 	if errors.Is(err, otter.ErrNotFound) {
 		return nil, ErrPostingNotFound
