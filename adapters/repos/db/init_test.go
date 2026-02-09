@@ -131,7 +131,7 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 	// Write a meta file with a known size
 	const fullShardBytes = uint64(1234)
 	err := shardusage.SaveComputedUsageData(indexPath, shardName, &types.ShardUsage{
-		Name:                 shardName,
+		Name:                  shardName,
 		FullShardStorageBytes: fullShardBytes,
 	})
 	require.NoError(t, err)
@@ -143,4 +143,3 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 	got := db.totalShardSizeBytes(className, []string{shardName})
 	require.Equal(t, fullShardBytes, got)
 }
-
