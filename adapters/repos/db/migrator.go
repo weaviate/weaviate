@@ -154,7 +154,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
 			UsageEnabled:                                 m.db.config.UsageEnabled,
 			AvoidMMap:                                    m.db.config.AvoidMMap,
-			DisableLazyLoadShards:                        m.db.config.DisableLazyLoadShards,
+			EnableLazyLoadShards:                         m.db.config.EnableLazyLoadShards,
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,

@@ -114,14 +114,14 @@ func TestStore(t *testing.T) {
 
 		version, err := s.versions.Get(ctx, 1)
 		require.NoError(t, err)
-		require.Equal(t, uint32(1), version)
+		require.Equal(t, uint8(1), version)
 
 		err = s.Put(ctx, 1, Posting{})
 		require.NoError(t, err)
 
 		version, err = s.versions.Get(ctx, 1)
 		require.NoError(t, err)
-		require.Equal(t, uint32(2), version)
+		require.Equal(t, uint8(2), version)
 	})
 
 	t.Run("append", func(t *testing.T) {

@@ -120,8 +120,9 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
+	config.EnableLazyLoadShards = true
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.DisableLazyLoadShards = true
+		config.EnableLazyLoadShards = false
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
@@ -505,9 +506,7 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
-	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
-		config.HFreshEnabled = true
-	}
+	config.HFreshEnabled = true
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
