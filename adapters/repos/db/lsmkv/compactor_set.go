@@ -60,8 +60,7 @@ type compactorSet struct {
 
 	writeBuf [9]byte // reused by writeIndividualNode to avoid per-key allocation
 
-	keyArena    []byte // chunk arena for key copies, avoids per-key heap allocation
-	keyArenaOff int    // current offset into keyArena
+	arena keyArena // chunk arena for key copies, avoids per-key heap allocation
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
@@ -245,33 +244,13 @@ func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
 	// With reusable cursors, the key buffer is shared across iterations.
 	// We must copy it before writing, as KeyIndexAndWriteTo may store
 	// a reference. See: https://github.com/weaviate/weaviate/issues/3517
-	keyCopy := c.allocKey(len(key))
-	copy(keyCopy, key)
+	keyCopy := c.arena.CopyKey(key)
 
 	return (&segmentCollectionNode{
 		values:     values,
 		primaryKey: keyCopy,
 		offset:     offset,
 	}).KeyIndexAndWriteToRedux(f.BodyWriter(), c.writeBuf[:])
-}
-
-const keyArenaChunkSize = 4 * 1024 * 1024 // 4 MB
-
-// allocKey returns a []byte of the requested size from a chunk arena,
-// avoiding per-key heap allocations. Old chunks remain alive via
-// existing KeyRedux.Key sub-slice references.
-func (c *compactorSet) allocKey(size int) []byte {
-	if c.keyArenaOff+size > len(c.keyArena) {
-		newSize := keyArenaChunkSize
-		if size > newSize {
-			newSize = size
-		}
-		c.keyArena = make([]byte, newSize)
-		c.keyArenaOff = 0
-	}
-	buf := c.keyArena[c.keyArenaOff : c.keyArenaOff+size]
-	c.keyArenaOff += size
-	return buf
 }
 
 func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
