@@ -153,19 +153,17 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 
 	if m != nil {
 		m.Lock()
-		m.vectors = append(m.vectors, vectorID)
-		m.version = append(m.version, version)
+		m.PackedPostingMetadata = m.PackedPostingMetadata.AddVector(vectorID, version)
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
-			vectors: []uint64{vectorID},
-			version: []VectorVersion{version},
+			PackedPostingMetadata: PackedPostingMetadata{}.AddVector(vectorID, version),
 		}
 		v.cache.Set(postingID, m)
 	}
 
-	v.metrics.ObservePostingSize(float64(len(m.vectors)))
-	return uint32(len(m.vectors)), nil
+	v.metrics.ObservePostingSize(float64(m.Count()))
+	return uint32(m.Count()), nil
 }
 
 // Persist the vector IDs for the posting with the given ID to disk.
