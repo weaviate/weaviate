@@ -522,68 +522,28 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 // Disk format:
 //   - 1 byte: scheme for vector IDs
 //   - 4 bytes: count (uint32, little endian)
-//   - count * bytesPerScheme: vector IDs
-//   - count * 1 byte: vector versions
-func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) ([]uint64, []VectorVersion, error) {
+//   - count * (bytesPerScheme + 1): vector IDs and version
+func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPostingMetadata, error) {
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+		return nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
 	}
 	if len(v) == 0 {
-		return nil, nil, ErrPostingNotFound
+		return nil, ErrPostingNotFound
 	}
 
-	scheme := v[0]
-	count := binary.LittleEndian.Uint32(v[1:5])
-
-	bytesPerID := bytesPerScheme(scheme)
-	idsStart := 5
-	idsEnd := idsStart + int(count)*bytesPerID
-	versionsStart := idsEnd
-
-	vectorIDs := decodeVectorIDs(v[idsStart:idsEnd], scheme, count)
-	vectorVersions := make([]VectorVersion, count)
-	for i := uint32(0); i < count; i++ {
-		vectorVersions[i] = VectorVersion(v[versionsStart+int(i)])
-	}
-
-	return vectorIDs, vectorVersions, nil
+	return PackedPostingMetadata(v), nil
 }
 
 // Set adds or replaces the vector IDs for the given posting ID.
 // Disk format:
 //   - 1 byte: scheme for vector IDs
 //   - 4 bytes: count (uint32, little endian)
-//   - count * bytesPerScheme: vector IDs
-//   - count * 1 byte: vector versions
-func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, vectorIDs []uint64, vectorVersions []VectorVersion) error {
+//   - count * (bytesPerScheme + 1): vector IDs and version
+func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
-
-	scheme := determineScheme(vectorIDs)
-	bytesPerID := bytesPerScheme(scheme)
-	count := len(vectorIDs)
-
-	// Header: 1 byte scheme + 4 bytes count
-	// Data: count * bytesPerID for IDs + count * 1 for versions
-	bufSize := 5 + count*bytesPerID + count
-	buf := make([]byte, bufSize)
-
-	// Write header
-	buf[0] = scheme
-	binary.LittleEndian.PutUint32(buf[1:5], uint32(count))
-
-	// Write vector IDs
-	idsData := encodeVectorIDs(vectorIDs, scheme)
-	copy(buf[5:], idsData)
-
-	// Write versions (1 byte each)
-	versionsStart := 5 + len(idsData)
-	for i, ver := range vectorVersions {
-		buf[versionsStart+i] = byte(ver)
-	}
-
-	return p.bucket.Put(key[:], buf)
+	return p.bucket.Put(key[:], metadata)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
