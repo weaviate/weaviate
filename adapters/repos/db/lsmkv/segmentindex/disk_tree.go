@@ -213,7 +213,7 @@ func (t *DiskTree) KeyCount() int {
 	// each node: 4 (keyLen) + keyLen + 8 (start) + 8 (end) + 8 (left) + 8 (right)
 	for bufferPos+36 <= len(t.data) {
 		keyLen := int(binary.LittleEndian.Uint32(t.data[bufferPos:]))
-		nodeSize := 4 + keyLen + 32
+		nodeSize := keyLen + 36
 		if bufferPos+nodeSize > len(t.data) {
 			break
 		}
@@ -230,7 +230,7 @@ func (t *DiskTree) ForEachKey(fn func(key []byte)) {
 	bufferPos := 0
 	for bufferPos+36 <= len(t.data) {
 		keyLen := int(binary.LittleEndian.Uint32(t.data[bufferPos:]))
-		nodeSize := 4 + keyLen + 32
+		nodeSize := keyLen + 36
 		if bufferPos+nodeSize > len(t.data) {
 			break
 		}
