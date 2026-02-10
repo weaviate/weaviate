@@ -63,14 +63,12 @@ func (f *finderStream) readOne(ctx context.Context,
 
 		for r := range ch { // len(ch) == level
 			resp := r.Value
-			if r.Err != nil { // at least one node is not responding
-				// Log and continue – a single failing replica should not
-				// immediately abort the whole read; we only fail if we
-				// cannot reach the required consistency level overall.
-				f.log.WithField("op", "get").
+			if r.Err != nil { // a least one node is not responding
+				f.log.WithField("op", "get").WithField("replica", resp.sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				continue
+				resultCh <- ObjResult{nil, ErrRead}
+				return
 			}
 			if !resp.DigestRead {
 				contentIdx = len(votes)
@@ -100,14 +98,6 @@ func (f *finderStream) readOne(ctx context.Context,
 					return
 				}
 			}
-		}
-
-		// If we have fewer successful replies than required by the
-		// consistency level, or we never received a full read, we
-		// cannot satisfy the read – treat this as a consistency error.
-		if len(votes) < level || contentIdx < 0 {
-			resultCh <- ObjResult{nil, ErrRead}
-			return
 		}
 
 		obj, err := f.repairOne(ctx, shard, id, votes, contentIdx)
@@ -160,13 +150,11 @@ func (f *finderStream) readExistence(ctx context.Context,
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
 			if r.Err != nil { // at least one node is not responding
-				// Same semantics as readOne: log and keep going, and
-				// only treat as failure if we cannot reach the required
-				// consistency level after consuming all replies.
-				f.log.WithField("op", "exists").
+				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				continue
+				resultCh <- _Result[bool]{false, ErrRead}
+				return
 			}
 
 			votes = append(votes, BoolTuple{resp.Sender, resp.UpdateTime, resp.RepairResponse, 0, nil})
@@ -188,11 +176,6 @@ func (f *finderStream) readExistence(ctx context.Context,
 				resultCh <- _Result[bool]{exists, nil}
 				return
 			}
-		}
-
-		if len(votes) < level {
-			resultCh <- _Result[bool]{false, ErrRead}
-			return
 		}
 
 		obj, err := f.repairExist(ctx, shard, id, votes)
@@ -239,12 +222,10 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		for r := range ch { // len(ch) == level
 			resp := r.Value
 			if r.Err != nil { // at least one node is not responding
-				// As above, don't abort immediately on a single failing
-				// replica; we only fail if we cannot reach the desired
-				// consistency level once all responses are processed.
-				f.log.WithField("op", "read_batch.get").
+				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
 					WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
-				continue
+				resultCh <- batchResult{nil, ErrRead}
+				return
 			}
 			if !resp.IsDigest {
 				contentIdx = len(votes)
@@ -279,12 +260,6 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 				return
 			}
 		}
-
-		if len(votes) < level || contentIdx < 0 {
-			resultCh <- batchResult{nil, ErrRead}
-			return
-		}
-
 		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
 			resultCh <- batchResult{nil, ErrRepair}
