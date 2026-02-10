@@ -226,8 +226,7 @@ func schemeFor(value uint64) Scheme {
 type PackedPostingMetadata []byte
 
 func NewPackedPostingMetadata(vectorIDs []uint64, versions []VectorVersion) PackedPostingMetadata {
-	scheme := determineScheme(vectorIDs)
-	data := PackedPostingMetadata(make([]byte, 0, 5+len(vectorIDs)*(scheme.BytesPerValue()+1)))
+	var data PackedPostingMetadata
 	for i, id := range vectorIDs {
 		data = data.AddVector(id, versions[i])
 	}
@@ -247,12 +246,12 @@ func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 	data := p[start:]
 
 	return func(yield func(uint64, VectorVersion) bool) {
-		for i := uint32(0); i < count; i++ {
+		for i := range count {
 			offset := i * uint32(bytesPerValue)
 
 			// Decode ID
 			vID := uint64(0)
-			for j := 0; j < bytesPerID; j++ {
+			for j := range bytesPerID {
 				vID |= uint64(data[offset+uint32(j)]) << (j * 8)
 			}
 
@@ -315,14 +314,13 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 		currentCount = binary.LittleEndian.Uint32(p[1:5])
 	}
 
-	bytesPerValue := newScheme.BytesPerValue()
 	newCount := currentCount + 1
-	idsSize := int(newCount) * bytesPerValue
-	versionsSize := int(newCount) // 1 byte per version
 
 	// same scheme or lower, just append the new ID and version
+	// using the current scheme's byte width (not the new one)
 	if currentScheme >= newScheme {
-		for i := range bytesPerValue {
+		currentBytesPerValue := currentScheme.BytesPerValue()
+		for i := range currentBytesPerValue {
 			p = append(p, byte(vectorID>>(i*8)))
 		}
 		p = append(p, byte(version))
@@ -333,6 +331,9 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	}
 
 	// new scheme needed, re-encode all existing IDs with the new scheme and append the new ID
+	bytesPerValue := newScheme.BytesPerValue()
+	idsSize := int(newCount) * bytesPerValue
+	versionsSize := int(newCount) // 1 byte per version
 
 	newData := make([]byte, headerSize+idsSize+versionsSize)
 	// write new header

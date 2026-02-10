@@ -1589,6 +1589,12 @@
           },
           "type": "array",
           "x-omitempty": true
+        },
+        "disableDuplicatedReferences": {
+          "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
+          "type": "boolean",
+          "x-nullable": true,
+          "default": true
         }
       },
       "type": "object"
