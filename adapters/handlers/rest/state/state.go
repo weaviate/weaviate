@@ -27,6 +27,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
+	"github.com/weaviate/weaviate/cluster/shard"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -95,6 +96,7 @@ type State struct {
 	Migrator                 *db.Migrator
 
 	GRPCConnManager *grpcconn.ConnManager
+	ShardRegistry   *shard.Registry
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

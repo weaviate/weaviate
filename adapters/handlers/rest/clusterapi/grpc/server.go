@@ -20,6 +20,8 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/cluster/shard"
+	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -73,6 +75,13 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 
 	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
+
+	// Register shard replication service if RAFT registry is available
+	if state.ShardRegistry != nil {
+		server := shard.NewServer(state.ShardRegistry, state.Logger)
+		shardproto.RegisterShardReplicationServiceServer(s, server)
+		state.Logger.Info("registered shard replication gRPC service")
+	}
 
 	return &Server{Server: s, state: state}
 }

@@ -155,6 +155,8 @@ func (db *DB) init(ctx context.Context) error {
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 				HFreshEnabled:                                db.config.HFreshEnabled,
+				RaftReplicationEnabled:                       class.ReplicationConfig.RaftEnabled,
+				ShardRegistry:                                db.config.ShardRegistry,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

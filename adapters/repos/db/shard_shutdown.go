@@ -86,6 +86,17 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
 
+	// Unregister shard from RAFT manager if RAFT replication is enabled
+	if s.index.Config.RaftReplicationEnabled && s.index.raft != nil {
+		if err := s.index.raft.OnShardDeleted(s.name); err != nil {
+			s.index.logger.WithError(err).WithField("action", "raft_shard_unregistration").
+				Warnf("failed to unregister shard %q from RAFT manager", s.name)
+		} else {
+			s.index.logger.WithField("action", "raft_shard_unregistration").
+				Infof("unregistered shard %q from RAFT manager", s.name)
+		}
+	}
+
 	s.haltForTransferMux.Lock()
 	if s.haltForTransferCancel != nil {
 		s.haltForTransferCancel()

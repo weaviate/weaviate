@@ -50,6 +50,13 @@ packages:
       OpProducer:
       OpConsumer:
       Timer:
+  github.com/weaviate/weaviate/cluster/shard:
+    interfaces:
+      shard:
+        config:
+          dir: "cluster/shard/mocks"
+          outpkg: "mocks"
+          inpackage: false
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:

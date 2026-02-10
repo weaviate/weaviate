@@ -579,6 +579,52 @@ func (_c *MockVectorIndex_Preload_Call) RunAndReturn(run func(uint64, []float32)
 	return _c
 }
 
+// PrepareForBackup provides a mock function with given fields: ctx
+func (_m *MockVectorIndex) PrepareForBackup(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareForBackup")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockVectorIndex_PrepareForBackup_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareForBackup'
+type MockVectorIndex_PrepareForBackup_Call struct {
+	*mock.Call
+}
+
+// PrepareForBackup is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockVectorIndex_Expecter) PrepareForBackup(ctx interface{}) *MockVectorIndex_PrepareForBackup_Call {
+	return &MockVectorIndex_PrepareForBackup_Call{Call: _e.mock.On("PrepareForBackup", ctx)}
+}
+
+func (_c *MockVectorIndex_PrepareForBackup_Call) Run(run func(ctx context.Context)) *MockVectorIndex_PrepareForBackup_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockVectorIndex_PrepareForBackup_Call) Return(_a0 error) *MockVectorIndex_PrepareForBackup_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockVectorIndex_PrepareForBackup_Call) RunAndReturn(run func(context.Context) error) *MockVectorIndex_PrepareForBackup_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // QueryVectorDistancer provides a mock function with given fields: queryVector
 func (_m *MockVectorIndex) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	ret := _m.Called(queryVector)
@@ -808,52 +854,6 @@ func (_c *MockVectorIndex_Shutdown_Call) Return(_a0 error) *MockVectorIndex_Shut
 }
 
 func (_c *MockVectorIndex_Shutdown_Call) RunAndReturn(run func(context.Context) error) *MockVectorIndex_Shutdown_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// PrepareForBackup provides a mock function with given fields: ctx
-func (_m *MockVectorIndex) PrepareForBackup(ctx context.Context) error {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for PrepareForBackup")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockVectorIndex_PrepareForBackup_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareForBackup'
-type MockVectorIndex_PrepareForBackup_Call struct {
-	*mock.Call
-}
-
-// PrepareForBackup is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockVectorIndex_Expecter) PrepareForBackup(ctx interface{}) *MockVectorIndex_PrepareForBackup_Call {
-	return &MockVectorIndex_PrepareForBackup_Call{Call: _e.mock.On("PrepareForBackup", ctx)}
-}
-
-func (_c *MockVectorIndex_PrepareForBackup_Call) Run(run func(ctx context.Context)) *MockVectorIndex_PrepareForBackup_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_PrepareForBackup_Call) Return(_a0 error) *MockVectorIndex_PrepareForBackup_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockVectorIndex_PrepareForBackup_Call) RunAndReturn(run func(context.Context) error) *MockVectorIndex_PrepareForBackup_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -67,6 +67,8 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/cluster/shard"
+	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
@@ -375,6 +377,32 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Metrics = promMetrics
 	}
 
+	rpcClientMaker := func(ctx context.Context, address string) (shardproto.ShardReplicationServiceClient, error) {
+		clientConn, err := appState.GRPCConnManager.GetConn(address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get gRPC connection: %w", err)
+		}
+		return shardproto.NewShardReplicationServiceClient(clientConn), nil
+	}
+
+	nodeName := appState.Cluster.LocalName()
+	sConfig := shard.RegistryConfig{
+		NodeID:          nodeName,
+		Logger:          appState.Logger,
+		RaftPort:        appState.ServerConfig.Config.Raft.Port + 1,
+		AddressResolver: appState.Cluster,
+		RpcClientMaker:  rpcClientMaker,
+
+		HeartbeatTimeout:   appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		ElectionTimeout:    appState.ServerConfig.Config.Raft.ElectionTimeout,
+		LeaderLeaseTimeout: appState.ServerConfig.Config.Raft.LeaderLeaseTimeout,
+		SnapshotInterval:   appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:  appState.ServerConfig.Config.Raft.SnapshotThreshold,
+	}
+
+	// Initialize shard RAFT registry (lifecycle managed by Server in clusterapi/serve.go)
+	appState.ShardRegistry = shard.NewRegistry(sConfig)
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
@@ -449,6 +477,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		ShardRegistry:                                appState.ShardRegistry,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -506,7 +535,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		os.Exit(1)
 	}
 
-	nodeName := appState.Cluster.LocalName()
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
