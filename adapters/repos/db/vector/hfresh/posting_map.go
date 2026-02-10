@@ -382,8 +382,7 @@ func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
 	return p.bucket.Delete(key[:])
 }
 
-func (p *PostingMapStore) LoadAll(ctx context.Context) (*xsync.Map[uint64, PackedPostingMetadata], error) {
-	x := xsync.NewMap[uint64, PackedPostingMetadata]()
+func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostingMetadata) error) error {
 	c := p.bucket.Cursor()
 	defer c.Close()
 
@@ -395,12 +394,15 @@ func (p *PostingMapStore) LoadAll(ctx context.Context) (*xsync.Map[uint64, Packe
 		}
 
 		if i%1000 == 0 && ctx.Err() != nil {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 
 		postingID := binary.LittleEndian.Uint64(k)
-		x.Store(postingID, PackedPostingMetadata(v))
+		err := fn(postingID, PackedPostingMetadata(v))
+		if err != nil {
+			return err
+		}
 	}
 
-	return x, nil
+	return ctx.Err()
 }
