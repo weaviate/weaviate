@@ -1486,7 +1486,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
@@ -1507,7 +1507,7 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
@@ -1654,7 +1654,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
@@ -1937,7 +1937,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 ) ([]*storobj.Object, []float32, error) {
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
@@ -2200,7 +2200,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard not found", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
@@ -2561,7 +2561,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
@@ -2824,7 +2824,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 	var size int64
@@ -2888,7 +2888,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 	return shard.GetStatus().String(), nil
@@ -2992,7 +2992,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
