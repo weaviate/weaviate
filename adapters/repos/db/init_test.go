@@ -107,7 +107,7 @@ func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {
 	data := []byte("0123456789") // 10 bytes
 	require.NoError(t, os.WriteFile(path.Join(shardPath, "data.bin"), data, 0o644))
 
-	got := db.totalShardSizeBytes(className, []string{shardName})
+	got := db.totalShardSizeBytes(className, []string{shardName}, 0)
 	require.Equal(t, uint64(len(data)), got)
 }
 
@@ -140,6 +140,6 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 	data := []byte("0123456789") // 10 bytes
 	require.NoError(t, os.WriteFile(path.Join(shardPath, "data.bin"), data, 0o644))
 
-	got := db.totalShardSizeBytes(className, []string{shardName})
+	got := db.totalShardSizeBytes(className, []string{shardName}, 0)
 	require.Equal(t, fullShardBytes, got)
 }

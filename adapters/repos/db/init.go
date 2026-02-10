@@ -98,14 +98,16 @@ func (db *DB) init(ctx context.Context) error {
 				// Only calculate shard sizes if the shard-count condition alone wouldn't
 				// already trigger lazy-loading. This avoids walking all shard directories
 				// on large MT setups where the count exceeds the threshold.
-				if localShardsCount <= db.config.LazyLoadShardCountThreshold {
+				if localShardsCount <= db.config.LazyLoadShardCountThreshold &&
+					db.config.LazyLoadShardSizeThresholdGB > 0 {
 					// we do need to calculate shard size if it's MT to be able to decide
 					// to enable lazy load shards based on total size
 					localShards, err := db.schemaReader.LocalShards(class.Class)
 					if err != nil {
 						return fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
 					}
-					totalShardSizeBytes = db.totalShardSizeBytes(schema.ClassName(class.Class), localShards)
+					sizeThresholdBytes := uint64(db.config.LazyLoadShardSizeThresholdGB * 1024 * 1024 * 1024)
+					totalShardSizeBytes = db.totalShardSizeBytes(schema.ClassName(class.Class), localShards, sizeThresholdBytes)
 				}
 			}
 
@@ -158,13 +160,14 @@ func (db *DB) init(ctx context.Context) error {
 					if db.config.EnableLazyLoadShards {
 						return true
 					}
-					return shouldAutoLazyLoadShards(
+					db.config.EnableLazyLoadShards = shouldAutoLazyLoadShards(
 						isMultiTenant,
 						localShardsCount,
 						totalShardSizeBytes,
 						db.config.LazyLoadShardCountThreshold,
 						db.config.LazyLoadShardSizeThresholdGB,
 					)
+					return db.config.EnableLazyLoadShards
 				}(),
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
@@ -182,16 +185,22 @@ func (db *DB) init(ctx context.Context) error {
 				HNSWSnapshotOnStartup:                        db.config.HNSWSnapshotOnStartup,
 				HNSWSnapshotMinDeltaCommitlogsNumber:         db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
 				HNSWSnapshotMinDeltaCommitlogsSizePercentage: db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-				HNSWWaitForCachePrefill:                      db.config.HNSWWaitForCachePrefill,
-				HNSWFlatSearchConcurrency:                    db.config.HNSWFlatSearchConcurrency,
-				HNSWAcornFilterRatio:                         db.config.HNSWAcornFilterRatio,
-				HNSWGeoIndexEF:                               db.config.HNSWGeoIndexEF,
-				VisitedListPoolMaxSize:                       db.config.VisitedListPoolMaxSize,
-				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
-				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
-				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
-				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
-				HFreshEnabled:                                db.config.HFreshEnabled,
+				HNSWWaitForCachePrefill: func() bool {
+					// don't wait if lazy load shard is enabled
+					if db.config.EnableLazyLoadShards {
+						return false
+					}
+					return db.config.HNSWWaitForCachePrefill
+				}(),
+				HNSWFlatSearchConcurrency: db.config.HNSWFlatSearchConcurrency,
+				HNSWAcornFilterRatio:      db.config.HNSWAcornFilterRatio,
+				HNSWGeoIndexEF:            db.config.HNSWGeoIndexEF,
+				VisitedListPoolMaxSize:    db.config.VisitedListPoolMaxSize,
+				QuerySlowLogEnabled:       db.config.QuerySlowLogEnabled,
+				QuerySlowLogThreshold:     db.config.QuerySlowLogThreshold,
+				InvertedSorterDisabled:    db.config.InvertedSorterDisabled,
+				MaintenanceModeEnabled:    db.config.MaintenanceModeEnabled,
+				HFreshEnabled:             db.config.HFreshEnabled,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -256,7 +265,7 @@ func shouldAutoLazyLoadShards(mtEnabled bool, localShardCount int, totalShardSiz
 
 // totalShardSizeBytes returns the cumulative on-disk size (in bytes) of all local
 // shards for a given collection.
-func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []string) uint64 {
+func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []string, sizeThresholdBytes uint64) uint64 {
 	if len(shardNames) == 0 {
 		return 0
 	}
@@ -277,6 +286,9 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 					Warn("failed to load pre-calculated shard usage; falling back to on-disk size")
 			} else if shardUsage != nil {
 				total += shardUsage.FullShardStorageBytes
+				if sizeThresholdBytes > 0 && total > sizeThresholdBytes {
+					return total
+				}
 				continue
 			}
 		}
@@ -294,6 +306,9 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 		}
 
 		total += size
+		if sizeThresholdBytes > 0 && total > sizeThresholdBytes {
+			return total
+		}
 	}
 
 	return total
