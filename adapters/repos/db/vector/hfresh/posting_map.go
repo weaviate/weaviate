@@ -136,19 +136,6 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 	return uint32(m.Count()), nil
 }
 
-// Persist the vector IDs for the posting with the given ID to disk.
-func (v *PostingMap) Persist(ctx context.Context, postingID uint64) error {
-	m, err := v.Get(ctx, postingID)
-	if err != nil {
-		return err
-	}
-
-	m.RLock()
-	defer m.RUnlock()
-
-	return v.bucket.Set(ctx, postingID, m.PackedPostingMetadata)
-}
-
 // PostingMapStore is a persistent store for vector IDs.
 type PostingMapStore struct {
 	bucket    *lsmkv.Bucket
