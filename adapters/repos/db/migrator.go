@@ -456,31 +456,7 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 		return errors.Errorf("cannot update property for a non-existing index for %s", className)
 	}
 
-	err := idx.updateProperty(ctx, property)
-
-	class := idx.getClass()
-	isMultiTenancy := class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
-
-	// Mark property index as removed for deferred cleanup on next shard load when:
-	// - multi-tenant class: inactive/offloaded tenants have unloaded shards that
-	//   could not be cleaned up at runtime
-	// - updateProperty failed: loaded shards may not have had their buckets removed;
-	//   flag ensures cleanup is retried on next startup
-	//
-	// This is safe because ensureBucketsAreRemovedForNonExistentPropertyIndexes
-	// cross-checks the schema (which is already committed at this point) before
-	// removing any bucket from disk.
-	if class != nil && (isMultiTenancy || err != nil) {
-		if markErr := newPropertyDeleteIndexHelper().markPropertyIndexRemoved(idx.path(), property.Name); markErr != nil {
-			msg := fmt.Sprintf("failed to mark removed index for class %s property %s", className, property.Name)
-			if err != nil {
-				msg = fmt.Sprintf("%s (update property error: %s)", msg, err.Error())
-			}
-			return fmt.Errorf("%s: %w", msg, markErr)
-		}
-	}
-
-	return err
+	return idx.updateProperty(ctx, property)
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
