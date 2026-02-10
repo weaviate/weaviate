@@ -395,7 +395,8 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 	defer c.Close()
 
 	var i int
-	for k, v := c.First(); k != nil; k, v = c.Next() {
+	prefix := []byte{p.keyPrefix}
+	for k, v := c.Seek(prefix); len(k) > 0 && k[0] == p.keyPrefix; k, v = c.Next() {
 		i++
 		if len(v) == 0 {
 			continue
@@ -405,7 +406,7 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 			return ctx.Err()
 		}
 
-		postingID := binary.LittleEndian.Uint64(k)
+		postingID := binary.LittleEndian.Uint64(k[1:])
 		err := fn(postingID, PackedPostingMetadata(v))
 		if err != nil {
 			return err
