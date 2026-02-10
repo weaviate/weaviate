@@ -387,10 +387,17 @@ func (p *PostingMapStore) LoadAll(ctx context.Context) (*xsync.Map[uint64, Packe
 	c := p.bucket.Cursor()
 	defer c.Close()
 
+	var i int
 	for k, v := c.First(); k != nil; k, v = c.Next() {
+		i++
 		if len(v) == 0 {
 			continue
 		}
+
+		if i%1000 == 0 && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		postingID := binary.LittleEndian.Uint64(k)
 		x.Store(postingID, PackedPostingMetadata(v))
 	}
