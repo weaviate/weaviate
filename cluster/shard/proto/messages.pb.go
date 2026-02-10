@@ -37,8 +37,13 @@ const (
 type ApplyRequest_Type int32
 
 const (
-	ApplyRequest_TYPE_UNSPECIFIED ApplyRequest_Type = 0
-	ApplyRequest_TYPE_PUT_OBJECT  ApplyRequest_Type = 1
+	ApplyRequest_TYPE_UNSPECIFIED          ApplyRequest_Type = 0
+	ApplyRequest_TYPE_PUT_OBJECT           ApplyRequest_Type = 1
+	ApplyRequest_TYPE_DELETE_OBJECT        ApplyRequest_Type = 2
+	ApplyRequest_TYPE_MERGE_OBJECT         ApplyRequest_Type = 3
+	ApplyRequest_TYPE_PUT_OBJECTS_BATCH    ApplyRequest_Type = 4
+	ApplyRequest_TYPE_DELETE_OBJECTS_BATCH ApplyRequest_Type = 5
+	ApplyRequest_TYPE_ADD_REFERENCES       ApplyRequest_Type = 6
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -46,10 +51,20 @@ var (
 	ApplyRequest_Type_name = map[int32]string{
 		0: "TYPE_UNSPECIFIED",
 		1: "TYPE_PUT_OBJECT",
+		2: "TYPE_DELETE_OBJECT",
+		3: "TYPE_MERGE_OBJECT",
+		4: "TYPE_PUT_OBJECTS_BATCH",
+		5: "TYPE_DELETE_OBJECTS_BATCH",
+		6: "TYPE_ADD_REFERENCES",
 	}
 	ApplyRequest_Type_value = map[string]int32{
-		"TYPE_UNSPECIFIED": 0,
-		"TYPE_PUT_OBJECT":  1,
+		"TYPE_UNSPECIFIED":          0,
+		"TYPE_PUT_OBJECT":           1,
+		"TYPE_DELETE_OBJECT":        2,
+		"TYPE_MERGE_OBJECT":         3,
+		"TYPE_PUT_OBJECTS_BATCH":    4,
+		"TYPE_DELETE_OBJECTS_BATCH": 5,
+		"TYPE_ADD_REFERENCES":       6,
 	}
 )
 
@@ -429,11 +444,303 @@ func (x *PutObjectResponse) GetError() string {
 	return ""
 }
 
+// DeleteObjectRequest is the sub-command for TYPE_DELETE_OBJECT.
+type DeleteObjectRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	DeletionTimeUnix int64                  `protobuf:"varint,2,opt,name=deletion_time_unix,json=deletionTimeUnix,proto3" json:"deletion_time_unix,omitempty"`
+	SchemaVersion    uint64                 `protobuf:"varint,3,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *DeleteObjectRequest) Reset() {
+	*x = DeleteObjectRequest{}
+	mi := &file_messages_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteObjectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteObjectRequest) ProtoMessage() {}
+
+func (x *DeleteObjectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteObjectRequest.ProtoReflect.Descriptor instead.
+func (*DeleteObjectRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DeleteObjectRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DeleteObjectRequest) GetDeletionTimeUnix() int64 {
+	if x != nil {
+		return x.DeletionTimeUnix
+	}
+	return 0
+}
+
+func (x *DeleteObjectRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+// MergeObjectRequest is the sub-command for TYPE_MERGE_OBJECT.
+// MergeDocument contains map[string]interface{} fields, so it is serialized as JSON bytes.
+type MergeObjectRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	MergeDocumentJson []byte                 `protobuf:"bytes,1,opt,name=merge_document_json,json=mergeDocumentJson,proto3" json:"merge_document_json,omitempty"`
+	SchemaVersion     uint64                 `protobuf:"varint,2,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *MergeObjectRequest) Reset() {
+	*x = MergeObjectRequest{}
+	mi := &file_messages_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MergeObjectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MergeObjectRequest) ProtoMessage() {}
+
+func (x *MergeObjectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MergeObjectRequest.ProtoReflect.Descriptor instead.
+func (*MergeObjectRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MergeObjectRequest) GetMergeDocumentJson() []byte {
+	if x != nil {
+		return x.MergeDocumentJson
+	}
+	return nil
+}
+
+func (x *MergeObjectRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+// PutObjectsBatchRequest is the sub-command for TYPE_PUT_OBJECTS_BATCH.
+// Each entry in objects is a storobj.Object serialized via MarshalBinary().
+type PutObjectsBatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Objects       [][]byte               `protobuf:"bytes,1,rep,name=objects,proto3" json:"objects,omitempty"`
+	SchemaVersion uint64                 `protobuf:"varint,2,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PutObjectsBatchRequest) Reset() {
+	*x = PutObjectsBatchRequest{}
+	mi := &file_messages_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PutObjectsBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PutObjectsBatchRequest) ProtoMessage() {}
+
+func (x *PutObjectsBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PutObjectsBatchRequest.ProtoReflect.Descriptor instead.
+func (*PutObjectsBatchRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PutObjectsBatchRequest) GetObjects() [][]byte {
+	if x != nil {
+		return x.Objects
+	}
+	return nil
+}
+
+func (x *PutObjectsBatchRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+// DeleteObjectsBatchRequest is the sub-command for TYPE_DELETE_OBJECTS_BATCH.
+type DeleteObjectsBatchRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Uuids            []string               `protobuf:"bytes,1,rep,name=uuids,proto3" json:"uuids,omitempty"`
+	DeletionTimeUnix int64                  `protobuf:"varint,2,opt,name=deletion_time_unix,json=deletionTimeUnix,proto3" json:"deletion_time_unix,omitempty"`
+	DryRun           bool                   `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	SchemaVersion    uint64                 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *DeleteObjectsBatchRequest) Reset() {
+	*x = DeleteObjectsBatchRequest{}
+	mi := &file_messages_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteObjectsBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteObjectsBatchRequest) ProtoMessage() {}
+
+func (x *DeleteObjectsBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteObjectsBatchRequest.ProtoReflect.Descriptor instead.
+func (*DeleteObjectsBatchRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DeleteObjectsBatchRequest) GetUuids() []string {
+	if x != nil {
+		return x.Uuids
+	}
+	return nil
+}
+
+func (x *DeleteObjectsBatchRequest) GetDeletionTimeUnix() int64 {
+	if x != nil {
+		return x.DeletionTimeUnix
+	}
+	return 0
+}
+
+func (x *DeleteObjectsBatchRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+func (x *DeleteObjectsBatchRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+// AddReferencesRequest is the sub-command for TYPE_ADD_REFERENCES.
+// BatchReference has nested refs, so it is serialized as JSON bytes.
+type AddReferencesRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ReferencesJson []byte                 `protobuf:"bytes,1,opt,name=references_json,json=referencesJson,proto3" json:"references_json,omitempty"`
+	SchemaVersion  uint64                 `protobuf:"varint,2,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AddReferencesRequest) Reset() {
+	*x = AddReferencesRequest{}
+	mi := &file_messages_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddReferencesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddReferencesRequest) ProtoMessage() {}
+
+func (x *AddReferencesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddReferencesRequest.ProtoReflect.Descriptor instead.
+func (*AddReferencesRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *AddReferencesRequest) GetReferencesJson() []byte {
+	if x != nil {
+		return x.ReferencesJson
+	}
+	return nil
+}
+
+func (x *AddReferencesRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
 var File_messages_proto protoreflect.FileDescriptor
 
 const file_messages_proto_rawDesc = "" +
 	"\n" +
-	"\x0emessages.proto\x12\x16weaviate.internal.data\"\x87\x02\n" +
+	"\x0emessages.proto\x12\x16weaviate.internal.data\"\x8b\x03\n" +
 	"\fApplyRequest\x12=\n" +
 	"\x04type\x18\x01 \x01(\x0e2).weaviate.internal.data.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x14\n" +
@@ -443,10 +750,15 @@ const file_messages_proto_rawDesc = "" +
 	"subCommand\x12\x1e\n" +
 	"\n" +
 	"compressed\x18\x06 \x01(\bR\n" +
-	"compressed\"1\n" +
+	"compressed\"\xb4\x01\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
-	"\x0fTYPE_PUT_OBJECT\x10\x01\"f\n" +
+	"\x0fTYPE_PUT_OBJECT\x10\x01\x12\x16\n" +
+	"\x12TYPE_DELETE_OBJECT\x10\x02\x12\x15\n" +
+	"\x11TYPE_MERGE_OBJECT\x10\x03\x12\x1a\n" +
+	"\x16TYPE_PUT_OBJECTS_BATCH\x10\x04\x12\x1d\n" +
+	"\x19TYPE_DELETE_OBJECTS_BATCH\x10\x05\x12\x17\n" +
+	"\x13TYPE_ADD_REFERENCES\x10\x06\"f\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
 	"\x06leader\x18\x02 \x01(\tR\x06leader\x12\x19\n" +
@@ -467,7 +779,25 @@ const file_messages_proto_rawDesc = "" +
 	"\x11PutObjectResponse\x12#\n" +
 	"\rapplied_index\x18\x01 \x01(\x04R\fappliedIndex\x12\x16\n" +
 	"\x06leader\x18\x02 \x01(\tR\x06leader\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error2q\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"z\n" +
+	"\x13DeleteObjectRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
+	"\x12deletion_time_unix\x18\x02 \x01(\x03R\x10deletionTimeUnix\x12%\n" +
+	"\x0eschema_version\x18\x03 \x01(\x04R\rschemaVersion\"k\n" +
+	"\x12MergeObjectRequest\x12.\n" +
+	"\x13merge_document_json\x18\x01 \x01(\fR\x11mergeDocumentJson\x12%\n" +
+	"\x0eschema_version\x18\x02 \x01(\x04R\rschemaVersion\"Y\n" +
+	"\x16PutObjectsBatchRequest\x12\x18\n" +
+	"\aobjects\x18\x01 \x03(\fR\aobjects\x12%\n" +
+	"\x0eschema_version\x18\x02 \x01(\x04R\rschemaVersion\"\x9f\x01\n" +
+	"\x19DeleteObjectsBatchRequest\x12\x14\n" +
+	"\x05uuids\x18\x01 \x03(\tR\x05uuids\x12,\n" +
+	"\x12deletion_time_unix\x18\x02 \x01(\x03R\x10deletionTimeUnix\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12%\n" +
+	"\x0eschema_version\x18\x04 \x01(\x04R\rschemaVersion\"f\n" +
+	"\x14AddReferencesRequest\x12'\n" +
+	"\x0freferences_json\x18\x01 \x01(\fR\x0ereferencesJson\x12%\n" +
+	"\x0eschema_version\x18\x02 \x01(\x04R\rschemaVersion2q\n" +
 	"\x17ShardReplicationService\x12V\n" +
 	"\x05Apply\x12$.weaviate.internal.data.ApplyRequest\x1a%.weaviate.internal.data.ApplyResponse\"\x00B\xd6\x01\n" +
 	"\x1acom.weaviate.internal.dataB\rMessagesProtoP\x01Z/github.com/weaviate/weaviate/cluster/data/proto\xa2\x02\x03WID\xaa\x02\x16Weaviate.Internal.Data\xca\x02\x16Weaviate\\Internal\\Data\xe2\x02\"Weaviate\\Internal\\Data\\GPBMetadata\xea\x02\x18Weaviate::Internal::Datab\x06proto3"
@@ -485,14 +815,19 @@ func file_messages_proto_rawDescGZIP() []byte {
 }
 
 var file_messages_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_messages_proto_goTypes = []any{
-	(ApplyRequest_Type)(0),    // 0: weaviate.internal.data.ApplyRequest.Type
-	(*ApplyRequest)(nil),      // 1: weaviate.internal.data.ApplyRequest
-	(*ApplyResponse)(nil),     // 2: weaviate.internal.data.ApplyResponse
-	(*ShardRaftSnapshot)(nil), // 3: weaviate.internal.data.ShardRaftSnapshot
-	(*PutObjectRequest)(nil),  // 4: weaviate.internal.data.PutObjectRequest
-	(*PutObjectResponse)(nil), // 5: weaviate.internal.data.PutObjectResponse
+	(ApplyRequest_Type)(0),            // 0: weaviate.internal.data.ApplyRequest.Type
+	(*ApplyRequest)(nil),              // 1: weaviate.internal.data.ApplyRequest
+	(*ApplyResponse)(nil),             // 2: weaviate.internal.data.ApplyResponse
+	(*ShardRaftSnapshot)(nil),         // 3: weaviate.internal.data.ShardRaftSnapshot
+	(*PutObjectRequest)(nil),          // 4: weaviate.internal.data.PutObjectRequest
+	(*PutObjectResponse)(nil),         // 5: weaviate.internal.data.PutObjectResponse
+	(*DeleteObjectRequest)(nil),       // 6: weaviate.internal.data.DeleteObjectRequest
+	(*MergeObjectRequest)(nil),        // 7: weaviate.internal.data.MergeObjectRequest
+	(*PutObjectsBatchRequest)(nil),    // 8: weaviate.internal.data.PutObjectsBatchRequest
+	(*DeleteObjectsBatchRequest)(nil), // 9: weaviate.internal.data.DeleteObjectsBatchRequest
+	(*AddReferencesRequest)(nil),      // 10: weaviate.internal.data.AddReferencesRequest
 }
 var file_messages_proto_depIdxs = []int32{
 	0, // 0: weaviate.internal.data.ApplyRequest.type:type_name -> weaviate.internal.data.ApplyRequest.Type
@@ -517,7 +852,7 @@ func file_messages_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_messages_proto_rawDesc), len(file_messages_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

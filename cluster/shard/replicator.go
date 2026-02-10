@@ -13,6 +13,7 @@ package shard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -225,6 +226,233 @@ func (r *replicator) forwardToLeader(
 	}
 
 	return resp, nil
+}
+
+// DeleteObject routes a DeleteObject operation to the appropriate shard leader.
+func (r *replicator) DeleteObject(ctx context.Context, shard string, id strfmt.UUID, deletionTime time.Time, l routerTypes.ConsistencyLevel, schemaVersion uint64) error {
+	deleteReq := &shardproto.DeleteObjectRequest{
+		Id:               string(id),
+		DeletionTimeUnix: deletionTime.UnixNano(),
+		SchemaVersion:    schemaVersion,
+	}
+	subCmd, err := proto.Marshal(deleteReq)
+	if err != nil {
+		return fmt.Errorf("marshal delete request: %w", err)
+	}
+
+	compressed := s2.Encode(nil, subCmd)
+
+	req := &shardproto.ApplyRequest{
+		Type:       shardproto.ApplyRequest_TYPE_DELETE_OBJECT,
+		Class:      r.class,
+		Shard:      shard,
+		SubCommand: compressed,
+		Compressed: true,
+	}
+	_, err = r.apply(ctx, req)
+	return err
+}
+
+// MergeObject routes a MergeObject operation to the appropriate shard leader.
+func (r *replicator) MergeObject(ctx context.Context, shard string, doc *objects.MergeDocument, l routerTypes.ConsistencyLevel, schemaVersion uint64) error {
+	docJSON, err := json.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("marshal merge document: %w", err)
+	}
+
+	mergeReq := &shardproto.MergeObjectRequest{
+		MergeDocumentJson: docJSON,
+		SchemaVersion:     schemaVersion,
+	}
+	subCmd, err := proto.Marshal(mergeReq)
+	if err != nil {
+		return fmt.Errorf("marshal merge request: %w", err)
+	}
+
+	compressed := s2.Encode(nil, subCmd)
+
+	req := &shardproto.ApplyRequest{
+		Type:       shardproto.ApplyRequest_TYPE_MERGE_OBJECT,
+		Class:      r.class,
+		Shard:      shard,
+		SubCommand: compressed,
+		Compressed: true,
+	}
+	_, err = r.apply(ctx, req)
+	return err
+}
+
+// PutObjects routes a batch PutObjects operation to the appropriate shard leader.
+// Objects are serialized, chunked by size, and each chunk is applied as a separate
+// RAFT log entry via the existing unary Apply path.
+func (r *replicator) PutObjects(ctx context.Context, shard string, objs []*storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error {
+	if len(objs) == 0 {
+		return nil
+	}
+
+	// Serialize all objects
+	objBytes := make([][]byte, len(objs))
+	for i, obj := range objs {
+		b, err := obj.MarshalBinary()
+		if err != nil {
+			return duplicateError(fmt.Errorf("marshal object %d: %w", i, err), len(objs))
+		}
+		objBytes[i] = b
+	}
+
+	// Chunk by size and apply each chunk
+	chunks := ChunkObjectBytes(objBytes, defaultMaxBatchChunkBytes)
+	for _, chunk := range chunks {
+		batchReq := &shardproto.PutObjectsBatchRequest{
+			Objects:       chunk,
+			SchemaVersion: schemaVersion,
+		}
+		subCmd, err := proto.Marshal(batchReq)
+		if err != nil {
+			return duplicateError(fmt.Errorf("marshal batch request: %w", err), len(objs))
+		}
+
+		compressed := s2.Encode(nil, subCmd)
+
+		req := &shardproto.ApplyRequest{
+			Type:       shardproto.ApplyRequest_TYPE_PUT_OBJECTS_BATCH,
+			Class:      r.class,
+			Shard:      shard,
+			SubCommand: compressed,
+			Compressed: true,
+		}
+		if _, err := r.apply(ctx, req); err != nil {
+			return duplicateError(err, len(objs))
+		}
+	}
+
+	return make([]error, len(objs))
+}
+
+// DeleteObjects routes a batch DeleteObjects operation to the appropriate shard leader.
+// When dryRun is true, the operation is read-only and delegates to the backing replicator.
+func (r *replicator) DeleteObjects(ctx context.Context, shard string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, l routerTypes.ConsistencyLevel, schemaVersion uint64) []objects.BatchSimpleObject {
+	// Dry-run is read-only, skip RAFT and delegate to backing replicator
+	if dryRun {
+		return r.Replicator.DeleteObjects(ctx, shard, uuids, deletionTime, dryRun, l, schemaVersion)
+	}
+
+	uuidStrs := make([]string, len(uuids))
+	for i, id := range uuids {
+		uuidStrs[i] = string(id)
+	}
+
+	deleteReq := &shardproto.DeleteObjectsBatchRequest{
+		Uuids:            uuidStrs,
+		DeletionTimeUnix: deletionTime.UnixNano(),
+		DryRun:           false,
+		SchemaVersion:    schemaVersion,
+	}
+	subCmd, err := proto.Marshal(deleteReq)
+	if err != nil {
+		return duplicateBatchSimpleError(fmt.Errorf("marshal batch delete request: %w", err), uuids)
+	}
+
+	compressed := s2.Encode(nil, subCmd)
+
+	req := &shardproto.ApplyRequest{
+		Type:       shardproto.ApplyRequest_TYPE_DELETE_OBJECTS_BATCH,
+		Class:      r.class,
+		Shard:      shard,
+		SubCommand: compressed,
+		Compressed: true,
+	}
+	if _, err := r.apply(ctx, req); err != nil {
+		return duplicateBatchSimpleError(err, uuids)
+	}
+
+	results := make([]objects.BatchSimpleObject, len(uuids))
+	for i, id := range uuids {
+		results[i] = objects.BatchSimpleObject{UUID: id}
+	}
+	return results
+}
+
+// AddReferences routes a batch AddReferences operation to the appropriate shard leader.
+func (r *replicator) AddReferences(ctx context.Context, shard string, refs []objects.BatchReference, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error {
+	refsJSON, err := json.Marshal(refs)
+	if err != nil {
+		return duplicateError(fmt.Errorf("marshal references: %w", err), len(refs))
+	}
+
+	addReq := &shardproto.AddReferencesRequest{
+		ReferencesJson: refsJSON,
+		SchemaVersion:  schemaVersion,
+	}
+	subCmd, err := proto.Marshal(addReq)
+	if err != nil {
+		return duplicateError(fmt.Errorf("marshal add references request: %w", err), len(refs))
+	}
+
+	compressed := s2.Encode(nil, subCmd)
+
+	req := &shardproto.ApplyRequest{
+		Type:       shardproto.ApplyRequest_TYPE_ADD_REFERENCES,
+		Class:      r.class,
+		Shard:      shard,
+		SubCommand: compressed,
+		Compressed: true,
+	}
+	if _, err := r.apply(ctx, req); err != nil {
+		return duplicateError(err, len(refs))
+	}
+
+	return make([]error, len(refs))
+}
+
+const defaultMaxBatchChunkBytes = 2 * 1024 * 1024 // 2MB per chunk
+
+// ChunkObjectBytes splits serialized objects into chunks where each chunk's
+// total size stays under maxBytes. Single objects larger than maxBytes get
+// their own chunk (at least one object per chunk).
+func ChunkObjectBytes(objectBytes [][]byte, maxBytes int) [][][]byte {
+	if len(objectBytes) == 0 {
+		return nil
+	}
+
+	var chunks [][][]byte
+	var current [][]byte
+	currentSize := 0
+
+	for _, b := range objectBytes {
+		if len(current) > 0 && currentSize+len(b) > maxBytes {
+			chunks = append(chunks, current)
+			current = nil
+			currentSize = 0
+		}
+		current = append(current, b)
+		currentSize += len(b)
+	}
+
+	if len(current) > 0 {
+		chunks = append(chunks, current)
+	}
+
+	return chunks
+}
+
+// duplicateError returns a slice of n identical errors.
+func duplicateError(err error, n int) []error {
+	errs := make([]error, n)
+	for i := range errs {
+		errs[i] = err
+	}
+	return errs
+}
+
+// duplicateBatchSimpleError returns a BatchSimpleObjects slice with the same
+// error for each UUID.
+func duplicateBatchSimpleError(err error, uuids []strfmt.UUID) []objects.BatchSimpleObject {
+	results := make([]objects.BatchSimpleObject, len(uuids))
+	for i, id := range uuids {
+		results[i] = objects.BatchSimpleObject{UUID: id, Err: err}
+	}
+	return results
 }
 
 // IsLeader returns true if this node is the leader for the specified shard.

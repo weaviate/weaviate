@@ -22,12 +22,11 @@ message ApplyRequest {
   enum Type {
     TYPE_UNSPECIFIED = 0;
     TYPE_PUT_OBJECT = 1;
-    // Future: Additional object operations
-    // TYPE_DELETE_OBJECT = 2;
-    // TYPE_MERGE_OBJECT = 3;
-    // TYPE_PUT_OBJECTS_BATCH = 4;
-    // TYPE_DELETE_OBJECTS_BATCH = 5;
-    // TYPE_ADD_REFERENCES = 6;
+    TYPE_DELETE_OBJECT = 2;
+    TYPE_MERGE_OBJECT = 3;
+    TYPE_PUT_OBJECTS_BATCH = 4;
+    TYPE_DELETE_OBJECTS_BATCH = 5;
+    TYPE_ADD_REFERENCES = 6;
   }
 
   Type type = 1;
@@ -88,4 +87,40 @@ message PutObjectResponse {
 
   // Error message if the operation failed (empty on success)
   string error = 3;
+}
+
+// DeleteObjectRequest is the sub-command for TYPE_DELETE_OBJECT.
+message DeleteObjectRequest {
+  string id = 1;
+  int64 deletion_time_unix = 2;
+  uint64 schema_version = 3;
+}
+
+// MergeObjectRequest is the sub-command for TYPE_MERGE_OBJECT.
+// MergeDocument contains map[string]interface{} fields, so it is serialized as JSON bytes.
+message MergeObjectRequest {
+  bytes merge_document_json = 1;
+  uint64 schema_version = 2;
+}
+
+// PutObjectsBatchRequest is the sub-command for TYPE_PUT_OBJECTS_BATCH.
+// Each entry in objects is a storobj.Object serialized via MarshalBinary().
+message PutObjectsBatchRequest {
+  repeated bytes objects = 1;
+  uint64 schema_version = 2;
+}
+
+// DeleteObjectsBatchRequest is the sub-command for TYPE_DELETE_OBJECTS_BATCH.
+message DeleteObjectsBatchRequest {
+  repeated string uuids = 1;
+  int64 deletion_time_unix = 2;
+  bool dry_run = 3;
+  uint64 schema_version = 4;
+}
+
+// AddReferencesRequest is the sub-command for TYPE_ADD_REFERENCES.
+// BatchReference has nested refs, so it is serialized as JSON bytes.
+message AddReferencesRequest {
+  bytes references_json = 1;
+  uint64 schema_version = 2;
 }
