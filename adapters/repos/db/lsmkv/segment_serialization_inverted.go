@@ -337,6 +337,90 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 	return out
 }
 
+// convertFromBlocksReusable is like convertFromBlocks but reuses pre-allocated
+// buffers for the output MapPair slice and the key/value arena. This avoids
+// millions of individual make([]byte, 8) calls per compaction round.
+func convertFromBlocksReusable(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.BlockData, objectCount uint64, out []MapPair, kvArena []byte, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) ([]MapPair, []byte) {
+	// Grow output slice if needed, reset length
+	if cap(out) < int(objectCount) {
+		out = make([]MapPair, 0, objectCount)
+	} else {
+		out = out[:0]
+	}
+
+	// Grow arena if needed: 16 bytes per doc (8 key + 8 value)
+	neededArena := int(objectCount) * 16
+	if cap(kvArena) < neededArena {
+		kvArena = make([]byte, neededArena)
+	}
+	arenaOff := 0
+
+	for i := range blockEntries {
+		blockSize := uint64(terms.BLOCK_SIZE)
+		if i == len(blockEntries)-1 {
+			blockSize = objectCount - uint64(terms.BLOCK_SIZE)*uint64(i)
+		}
+		blockSizeInt := int(blockSize)
+
+		docIds, tfs := packedDecode(encodedBlocks[i], blockSizeInt, deltaEnc, tfEnc)
+
+		for j := 0; j < blockSizeInt; j++ {
+			key := kvArena[arenaOff : arenaOff+8]
+			binary.BigEndian.PutUint64(key, docIds[j])
+			arenaOff += 8
+
+			value := kvArena[arenaOff : arenaOff+8]
+			binary.LittleEndian.PutUint32(value, math.Float32bits(float32(tfs[j])))
+			arenaOff += 8
+
+			out = append(out, MapPair{
+				Key:   key,
+				Value: value,
+			})
+		}
+	}
+	return out, kvArena
+}
+
+// decodeAndConvertFromBlocksReusable is like decodeAndConvertFromBlocks but
+// reuses pre-allocated buffers. Returns updated mapPairBuf and kvArena for
+// the caller to store back.
+func decodeAndConvertFromBlocksReusable(data []byte, mapPairBuf []MapPair, kvArena []byte, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) ([]MapPair, []byte, int) {
+	collectionSize := binary.LittleEndian.Uint64(data)
+
+	if collectionSize <= uint64(terms.ENCODE_AS_FULL_BYTES) {
+		// For the single-value fast path, still use arena for key/value
+		neededArena := int(collectionSize) * 16
+		if cap(kvArena) < neededArena {
+			kvArena = make([]byte, neededArena)
+		}
+		if cap(mapPairBuf) < int(collectionSize) {
+			mapPairBuf = make([]MapPair, 0, collectionSize)
+		} else {
+			mapPairBuf = mapPairBuf[:0]
+		}
+		arenaOff := 0
+		offset := 8
+		for i := 0; i < int(collectionSize*16); i += 16 {
+			key := kvArena[arenaOff : arenaOff+8]
+			copy(key, data[offset:offset+8])
+			arenaOff += 8
+			value := kvArena[arenaOff : arenaOff+8]
+			copy(value, data[offset+8:offset+12])
+			arenaOff += 8
+			mapPairBuf = append(mapPairBuf, MapPair{
+				Key:   key,
+				Value: value,
+			})
+			offset += 16
+		}
+		return mapPairBuf, kvArena, offset
+	}
+	blockEntries, blockDatas, offset := decodeBlocks(data)
+	mapPairBuf, kvArena = convertFromBlocksReusable(blockEntries, blockDatas, collectionSize, mapPairBuf, kvArena, deltaEnc, tfEnc)
+	return mapPairBuf, kvArena, offset
+}
+
 func convertFixedLengthFromMemory(data []byte, blockSize int) *terms.BlockDataDecoded {
 	out := &terms.BlockDataDecoded{
 		DocIds: make([]uint64, blockSize),

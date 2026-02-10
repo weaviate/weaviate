@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -23,6 +24,13 @@ type segmentCursorInvertedReusable struct {
 	nextOffset  uint64
 	nodeBuf     binarySearchNodeMap
 	propLengths map[uint64]uint32
+
+	// reusable decode buffers to reduce allocations during compaction
+	readBuf    []byte    // reusable buffer for reading node data from disk
+	mapPairBuf []MapPair // reusable slice for decoded MapPairs
+	kvArena    []byte    // contiguous arena for MapPair Key/Value (8+8 bytes each)
+	deltaEnc   varenc.VarEncEncoder[uint64]
+	tfEnc      varenc.VarEncEncoder[uint64]
 }
 
 func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
@@ -33,6 +41,8 @@ func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	return &segmentCursorInvertedReusable{
 		segment:     s,
 		propLengths: propLengths,
+		deltaEnc:    &varenc.VarIntDeltaEncoder{},
+		tfEnc:       &varenc.VarIntEncoder{},
 	}
 }
 
@@ -104,16 +114,23 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	}
 	defer r.Release()
 
-	allBytes := make([]byte, offset.end-offset.start)
+	// Reuse readBuf if large enough
+	needed := int(offset.end - offset.start)
+	if cap(s.readBuf) < needed {
+		s.readBuf = make([]byte, needed, needed*5/4)
+	} else {
+		s.readBuf = s.readBuf[:needed]
+	}
 
-	_, err = r.Read(allBytes)
+	_, err = r.Read(s.readBuf)
 	if err != nil {
 		return err
 	}
 
-	nodes, _ := decodeAndConvertFromBlocks(allBytes)
+	s.mapPairBuf, s.kvArena, _ = decodeAndConvertFromBlocksReusable(
+		s.readBuf, s.mapPairBuf, s.kvArena, s.deltaEnc, s.tfEnc)
 
-	keyLen := binary.LittleEndian.Uint32(allBytes[len(allBytes)-4:])
+	keyLen := binary.LittleEndian.Uint32(s.readBuf[len(s.readBuf)-4:])
 
 	offset.start = offset.end
 	offset.end += uint64(keyLen)
@@ -132,7 +149,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 		}
 	}
 	s.nodeBuf.key = key
-	s.nodeBuf.values = nodes
+	s.nodeBuf.values = s.mapPairBuf
 
 	s.nextOffset = offset.end
 
