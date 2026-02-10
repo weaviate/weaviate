@@ -59,7 +59,6 @@ type compactorInverted struct {
 	tombstonesToClean *sroar.Bitmap
 
 	propertyLengthsToWrite map[uint64]uint32
-	propertyLengthsToClean map[uint64]uint32
 
 	invertedHeader *segmentindex.HeaderInverted
 
@@ -150,11 +149,12 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "get property lengths")
 	}
 
-	c.propertyLengthsToWrite = make(map[uint64]uint32, len(propertyLengthsToWrite))
-	c.propertyLengthsToClean = make(map[uint64]uint32, len(propertyLengthsToClean))
-
+	// Merge both segments' property lengths into a single map. We copy into
+	// a new map (not the segment's cached map) to avoid data races. Entries
+	// from c2 (clean) override c1 (write) on duplicate keys.
+	c.propertyLengthsToWrite = make(map[uint64]uint32, len(propertyLengthsToWrite)+len(propertyLengthsToClean))
 	maps.Copy(c.propertyLengthsToWrite, propertyLengthsToWrite)
-	maps.Copy(c.propertyLengthsToClean, propertyLengthsToClean)
+	maps.Copy(c.propertyLengthsToWrite, propertyLengthsToClean)
 
 	tombstones := c.computeTombstonesAndPropLengths()
 
@@ -437,7 +437,7 @@ func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 }
 
 func (c *compactorInverted) computeTombstonesAndPropLengths() *sroar.Bitmap {
-	maps.Copy(c.propertyLengthsToWrite, c.propertyLengthsToClean)
+	// Property lengths are already merged in do() — no merge needed here.
 
 	if c.cleanupTombstones { // no tombstones to write
 		return sroar.NewBitmap()
