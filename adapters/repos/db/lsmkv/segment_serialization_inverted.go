@@ -397,6 +397,38 @@ func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer, deltaEnc, tfEnc var
 	return out, nil
 }
 
+// KeyIndexAndWriteToRedux is like KeyIndexAndWriteTo but returns a KeyRedux
+// (no ValueStart/SecondaryKeys) and uses an externally-provided buf to avoid
+// per-call allocations. buf must be at least 4 bytes.
+func (s segmentInvertedNode) KeyIndexAndWriteToRedux(w io.Writer, buf []byte, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) (segmentindex.KeyRedux, error) {
+	written := 0
+
+	blocksEncoded, _ := createAndEncodeBlocks(s.values, s.propLengths, deltaEnc, tfEnc, k1, b, avgPropLen)
+	n, err := w.Write(blocksEncoded)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write values for node")
+	}
+	written += n
+
+	keyLength := uint32(len(s.primaryKey))
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err = w.Write(s.primaryKey)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	return segmentindex.KeyRedux{
+		ValueEnd: s.offset + written,
+		Key:      s.primaryKey,
+	}, nil
+}
+
 // ParseInvertedNode reads from r and parses the Inverted values into a segmentCollectionNode
 //
 // When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the
