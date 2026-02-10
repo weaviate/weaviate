@@ -85,6 +85,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		if err != nil {
 			return &Error{"repo.object", StatusInternalServerError, err}
 		}
+		if err := m.schemaManager.WaitForUpdate(ctx, activationVersion); err != nil {
+			return &Error{"repo.object", StatusInternalServerError, err}
+		}
 	}
 
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
