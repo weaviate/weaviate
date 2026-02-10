@@ -43,6 +43,16 @@ func makeVectors(n, dims int) []Vector {
 	return result
 }
 
+func decodePacked(encoded PackedPostingMetadata) ([]uint64, []VectorVersion) {
+	var ids []uint64
+	var versions []VectorVersion
+	for id, version := range encoded.Iter() {
+		ids = append(ids, id)
+		versions = append(versions, version)
+	}
+	return ids, versions
+}
+
 func TestPostingMapEncoding(t *testing.T) {
 	ctx := t.Context()
 
@@ -59,57 +69,68 @@ func TestPostingMapEncoding(t *testing.T) {
 		tests := []struct {
 			name           string
 			vectorIDs      []uint64
-			expectedScheme uint8
+			expectedScheme Scheme
+			versions       []VectorVersion
 		}{
 			{
 				name:           "2-byte scheme - zero",
 				vectorIDs:      []uint64{0},
 				expectedScheme: schemeID2Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "2-byte scheme - max",
 				vectorIDs:      []uint64{65535},
 				expectedScheme: schemeID2Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "3-byte scheme - boundary",
 				vectorIDs:      []uint64{65536},
 				expectedScheme: schemeID3Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "3-byte scheme - max",
 				vectorIDs:      []uint64{16777215},
 				expectedScheme: schemeID3Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "4-byte scheme - boundary",
 				vectorIDs:      []uint64{16777216},
 				expectedScheme: schemeID4Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "4-byte scheme - max",
 				vectorIDs:      []uint64{4294967295},
 				expectedScheme: schemeID4Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "5-byte scheme - boundary",
 				vectorIDs:      []uint64{4294967296},
 				expectedScheme: schemeID5Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "5-byte scheme - max",
 				vectorIDs:      []uint64{1099511627775},
 				expectedScheme: schemeID5Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "8-byte scheme - boundary",
 				vectorIDs:      []uint64{1099511627776},
 				expectedScheme: schemeID8Byte,
+				versions:       []VectorVersion{1},
 			},
 			{
 				name:           "8-byte scheme - max uint64",
 				vectorIDs:      []uint64{^uint64(0)},
 				expectedScheme: schemeID8Byte,
+				versions:       []VectorVersion{1},
 			},
 		}
 
@@ -119,9 +140,11 @@ func TestPostingMapEncoding(t *testing.T) {
 				require.Equal(t, tt.expectedScheme, scheme)
 
 				// Test encode/decode round-trip
-				encoded := encodeVectorIDs(tt.vectorIDs, scheme)
-				decoded := decodeVectorIDs(encoded, scheme, uint32(len(tt.vectorIDs)))
-				require.Equal(t, tt.vectorIDs, decoded)
+				encoded := NewPackedPostingMetadata(tt.vectorIDs, tt.versions)
+
+				decodedIDs, decodedVersions := decodePacked(encoded)
+				require.Equal(t, tt.vectorIDs, decodedIDs)
+				require.Equal(t, tt.versions, decodedVersions)
 			})
 		}
 	})
@@ -183,8 +206,9 @@ func TestPostingMapEncoding(t *testing.T) {
 
 				m, err := store.Get(ctx, postingID)
 				require.NoError(t, err)
-				require.Equal(t, tt.vectorIDs, m.vectors)
-				require.Equal(t, tt.versions, m.version)
+				vectorIDs, versions := decodePacked(m.PackedPostingMetadata)
+				require.Equal(t, tt.vectorIDs, vectorIDs)
+				require.Equal(t, tt.versions, versions)
 			})
 		}
 	})
@@ -213,7 +237,9 @@ func TestPostingMapEncoding(t *testing.T) {
 
 		m, err := store.Get(ctx, postingID)
 		require.NoError(t, err)
-		require.Equal(t, versions, m.version)
+		vIDs, vVersions := decodePacked(m.PackedPostingMetadata)
+		require.Equal(t, vectorIDs, vIDs)
+		require.Equal(t, versions, vVersions)
 	})
 
 	t.Run("large posting count", func(t *testing.T) {
@@ -241,9 +267,220 @@ func TestPostingMapEncoding(t *testing.T) {
 
 		m, err := store.Get(ctx, postingID)
 		require.NoError(t, err)
-		require.Len(t, m.vectors, count)
-		require.Equal(t, vectorIDs, m.vectors)
-		require.Equal(t, versions, m.version)
+		require.EqualValues(t, count, m.Count())
+		vIDs, vVersions := decodePacked(m.PackedPostingMetadata)
+		require.Equal(t, vectorIDs, vIDs)
+		require.Equal(t, versions, vVersions)
+	})
+
+	t.Run("AddVector scheme upgrade with data preservation", func(t *testing.T) {
+		// Test that when AddVector needs to upgrade scheme, all previous data is preserved
+		var data PackedPostingMetadata
+
+		// Start with 2-byte scheme (small vectors)
+		data = data.AddVector(100, 1)
+		require.Equal(t, uint32(1), data.Count())
+
+		data = data.AddVector(200, 2)
+		require.Equal(t, uint32(2), data.Count())
+
+		// Add a vector that requires 4-byte scheme (should trigger upgrade)
+		data = data.AddVector(16777216, 3)
+		require.Equal(t, uint32(3), data.Count())
+
+		// Verify all data is preserved in correct order
+		ids, versions := decodePacked(data)
+		require.Equal(t, []uint64{100, 200, 16777216}, ids)
+		require.Equal(t, []VectorVersion{1, 2, 3}, versions)
+
+		// Verify scheme is now 4-byte
+		require.Equal(t, schemeID4Byte, Scheme(data[0]))
+	})
+
+	t.Run("AddVector multiple consecutive scheme upgrades", func(t *testing.T) {
+		// Test that multiple consecutive scheme upgrades preserve all data correctly
+		var data PackedPostingMetadata
+
+		// Add in ascending order to trigger multiple upgrades
+		testCases := []struct {
+			id      uint64
+			version VectorVersion
+		}{
+			{100, 1},                  // 2-byte
+			{1000, 2},                 // still 2-byte
+			{65536, 3},                // upgrade to 3-byte
+			{100000, 4},               // still 3-byte
+			{16777216, 5},             // upgrade to 4-byte
+			{1000000000, 6},           // still 4-byte
+			{4294967296, 7},           // upgrade to 5-byte
+			{500000000000, 8},         // still 5-byte
+			{1099511627776, 9},        // upgrade to 8-byte
+			{9223372036854775807, 10}, // max int64, still 8-byte
+		}
+
+		for _, tc := range testCases {
+			data = data.AddVector(tc.id, tc.version)
+		}
+
+		// Verify all data is preserved
+		ids, versions := decodePacked(data)
+		require.Len(t, ids, len(testCases))
+		require.Len(t, versions, len(testCases))
+
+		for i, tc := range testCases {
+			require.Equal(t, tc.id, ids[i], "ID at index %d", i)
+			require.Equal(t, tc.version, versions[i], "Version at index %d", i)
+		}
+
+		// Final scheme should be 8-byte
+		require.Equal(t, schemeID8Byte, Scheme(data[0]))
+	})
+
+	t.Run("AddVector boundary conditions", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			boundary uint64
+			nextSize uint64
+		}{
+			{"2-byte max boundary", 65535, 65536},
+			{"3-byte max boundary", 16777215, 16777216},
+			{"4-byte max boundary", 4294967295, 4294967296},
+			{"5-byte max boundary", 1099511627775, 1099511627776},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				var data PackedPostingMetadata
+
+				// Add at boundary
+				data = data.AddVector(tc.boundary, 1)
+				ids, versions := decodePacked(data)
+				require.Equal(t, []uint64{tc.boundary}, ids)
+				require.Equal(t, []VectorVersion{1}, versions)
+
+				// Add just over boundary (should trigger upgrade)
+				data = data.AddVector(tc.nextSize, 2)
+				ids, versions = decodePacked(data)
+				require.Equal(t, []uint64{tc.boundary, tc.nextSize}, ids)
+				require.Equal(t, []VectorVersion{1, 2}, versions)
+			})
+		}
+	})
+
+	t.Run("AddVector order preservation through upgrades", func(t *testing.T) {
+		var data PackedPostingMetadata
+
+		// Add vectors in specific order
+		additions := []struct {
+			id      uint64
+			version VectorVersion
+		}{
+			{1000, 10},
+			{2000, 20},
+			{16777216, 30}, // triggers upgrade to 4-byte
+			{3000, 40},
+			{4000, 50},
+		}
+
+		for _, add := range additions {
+			data = data.AddVector(add.id, add.version)
+		}
+
+		// Verify order is preserved
+		ids, versions := decodePacked(data)
+		require.Equal(t, []uint64{1000, 2000, 16777216, 3000, 4000}, ids)
+		require.Equal(t, []VectorVersion{10, 20, 30, 40, 50}, versions)
+	})
+
+	t.Run("AddVector version byte integrity through re-encoding", func(t *testing.T) {
+		var data PackedPostingMetadata
+
+		// Add vectors with various version values
+		versionTests := []struct {
+			id      uint64
+			version VectorVersion
+		}{
+			{100, 0},       // min version
+			{200, 127},     // max without tombstone
+			{300, 128},     // with tombstone bit
+			{400, 255},     // max version
+			{16777216, 50}, // triggers upgrade, version in middle
+		}
+
+		for _, vt := range versionTests {
+			data = data.AddVector(vt.id, vt.version)
+		}
+
+		// Verify all version bits are correct
+		ids, versions := decodePacked(data)
+		for i, vt := range versionTests {
+			require.Equal(t, vt.id, ids[i], "ID at index %d", i)
+			require.Equal(t, vt.version, versions[i], "Version at index %d should be %d, got %d", i, vt.version, versions[i])
+		}
+	})
+
+	t.Run("AddVector to empty posting", func(t *testing.T) {
+		var data PackedPostingMetadata
+		require.Equal(t, uint32(0), data.Count())
+
+		// Add first vector
+		data = data.AddVector(12345, 99)
+		require.Equal(t, uint32(1), data.Count())
+
+		ids, versions := decodePacked(data)
+		require.Equal(t, []uint64{12345}, ids)
+		require.Equal(t, []VectorVersion{99}, versions)
+
+		// Verify header is correct
+		require.Greater(t, len(data), 5)
+		scheme := Scheme(data[0])
+		require.True(t, scheme >= schemeID2Byte && scheme <= schemeID8Byte)
+	})
+
+	t.Run("AddVector with zero ID", func(t *testing.T) {
+		var data PackedPostingMetadata
+
+		// Add with ID = 0
+		data = data.AddVector(0, 1)
+		require.Equal(t, uint32(1), data.Count())
+
+		ids, versions := decodePacked(data)
+		require.Equal(t, []uint64{0}, ids)
+		require.Equal(t, []VectorVersion{1}, versions)
+
+		// Add another to ensure 0 doesn't break iteration
+		data = data.AddVector(100, 2)
+		ids, versions = decodePacked(data)
+		require.Equal(t, []uint64{0, 100}, ids)
+		require.Equal(t, []VectorVersion{1, 2}, versions)
+	})
+
+	t.Run("AddVector interleaved small and large", func(t *testing.T) {
+		var data PackedPostingMetadata
+
+		// Interleave small and large IDs
+		additions := []struct {
+			id      uint64
+			version VectorVersion
+		}{
+			{10, 1},
+			{4294967295, 2},    // triggers 4-byte upgrade
+			{20, 3},            // small ID after upgrade
+			{16777216, 4},      // medium ID
+			{1099511627776, 5}, // triggers 5-byte upgrade
+			{30, 6},            // small ID at end
+		}
+
+		for _, add := range additions {
+			data = data.AddVector(add.id, add.version)
+		}
+
+		ids, versions := decodePacked(data)
+		expectedIDs := []uint64{10, 4294967295, 20, 16777216, 1099511627776, 30}
+		expectedVersions := []VectorVersion{1, 2, 3, 4, 5, 6}
+
+		require.Equal(t, expectedIDs, ids)
+		require.Equal(t, expectedVersions, versions)
 	})
 }
 
@@ -265,9 +502,11 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
-		for i, v := range posting {
-			require.Equal(t, v.ID(), m.vectors[i])
-			require.Equal(t, v.Version(), m.version[i])
+		var i int
+		for id, v := range m.Iter() {
+			require.Equal(t, id, posting[i].ID())
+			require.Equal(t, v, posting[i].Version())
+			i++
 		}
 
 		count, err := store.CountVectorIDs(ctx, 42)
@@ -278,9 +517,11 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		m, err = store.Get(ctx, 42)
 		require.NoError(t, err)
-		for i, v := range posting {
-			require.Equal(t, v.ID(), m.vectors[i])
-			require.Equal(t, v.Version(), m.version[i])
+		i = 0
+		for id, v := range m.Iter() {
+			require.Equal(t, id, posting[i].ID())
+			require.Equal(t, v, posting[i].Version())
+			i++
 		}
 	})
 
@@ -303,9 +544,11 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		m, err := store.Get(ctx, 42)
 		require.NoError(t, err)
-		require.Equal(t, uint64(100), m.vectors[0])
-		require.Equal(t, VectorVersion(1), m.version[0])
-		require.Equal(t, uint64(200), m.vectors[1])
-		require.Equal(t, VectorVersion(1), m.version[1])
+		id, v := m.GetAt(0)
+		require.Equal(t, uint64(100), id)
+		require.Equal(t, VectorVersion(1), v)
+		id, v = m.GetAt(1)
+		require.Equal(t, uint64(200), id)
+		require.Equal(t, VectorVersion(1), v)
 	})
 }

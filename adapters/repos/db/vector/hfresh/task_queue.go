@@ -76,7 +76,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 		reassignList: reassignList,
 	}
 
-	// create queue for split operations
+	// create queue for analyze operations
 	tq.analyzeQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_analyze_queue_%s_%s", index.config.ShardName, index.config.ID),
