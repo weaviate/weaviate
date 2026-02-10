@@ -513,6 +513,195 @@ func (s segmentInvertedNode) KeyIndexAndWriteToRedux(w io.Writer, buf []byte, de
 	}, nil
 }
 
+// compactorInvertedBuffers holds pre-allocated buffers for the encode pipeline
+// during compaction. These are stored on the compactorInverted struct and
+// passed through to avoid per-key and per-block allocations.
+type compactorInvertedBuffers struct {
+	docIdsBuf    []uint64
+	termFreqsBuf []uint64
+	blockEntries []*terms.BlockEntry
+	blockDatas   []*terms.BlockData
+	encodeOutBuf []byte
+}
+
+func newCompactorInvertedBuffers() compactorInvertedBuffers {
+	return compactorInvertedBuffers{
+		docIdsBuf:    make([]uint64, terms.BLOCK_SIZE),
+		termFreqsBuf: make([]uint64, terms.BLOCK_SIZE),
+	}
+}
+
+// extractTombstonesInPlace is like extractTombstones but compacts in-place
+// instead of allocating a new slice. The input slice is modified.
+func extractTombstonesInPlace(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
+	out := sroar.NewBitmap()
+	writeIdx := 0
+	for readIdx := 0; readIdx < len(nodes); readIdx++ {
+		if nodes[readIdx].Tombstone {
+			id := binary.BigEndian.Uint64(nodes[readIdx].Key)
+			out.Set(id)
+		} else {
+			if writeIdx != readIdx {
+				nodes[writeIdx] = nodes[readIdx]
+			}
+			writeIdx++
+		}
+	}
+	return out, nodes[:writeIdx]
+}
+
+// encodeBlockParamReusable is like encodeBlockParam but writes into provided
+// docIds/termFreqs slices instead of allocating new ones per block.
+func encodeBlockParamReusable(nodes []MapPair, docIds, termFreqs []uint64, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) *terms.BlockData {
+	for i, n := range nodes {
+		docIds[i] = binary.BigEndian.Uint64(n.Key)
+		termFreqs[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[0:4])))
+	}
+	return packedEncode(docIds[:len(nodes)], termFreqs[:len(nodes)], deltaEnc, tfEnc)
+}
+
+// createBlocksCompaction is like createBlocks but uses in-place tombstone
+// extraction and reusable buffers for docIds/termFreqs and block metadata.
+func createBlocksCompaction(nodes []MapPair, propLengths map[uint64]uint32, bufs *compactorInvertedBuffers, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
+	tombstones, values := extractTombstonesInPlace(nodes)
+	externalPropLengths := len(propLengths) != 0
+
+	blockCount := (len(values) + (terms.BLOCK_SIZE - 1)) / terms.BLOCK_SIZE
+
+	// Reuse or grow block metadata slices
+	if cap(bufs.blockEntries) < blockCount {
+		bufs.blockEntries = make([]*terms.BlockEntry, blockCount)
+	} else {
+		bufs.blockEntries = bufs.blockEntries[:blockCount]
+	}
+	if cap(bufs.blockDatas) < blockCount {
+		bufs.blockDatas = make([]*terms.BlockData, blockCount)
+	} else {
+		bufs.blockDatas = bufs.blockDatas[:blockCount]
+	}
+
+	offset := uint32(0)
+
+	for i := 0; i < blockCount; i++ {
+		start := i * terms.BLOCK_SIZE
+		end := start + terms.BLOCK_SIZE
+		if end > len(values) {
+			end = len(values)
+		}
+		maxImpact := float64(0)
+		maxImpactTf := uint32(0)
+		maxImpactPropLength := uint32(0)
+
+		for j := start; j < end; j++ {
+			tf := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4])))
+			pl := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8])))
+			docId := binary.BigEndian.Uint64(values[j].Key)
+			if externalPropLengths {
+				pl = float64(propLengths[docId])
+			} else {
+				propLengths[docId] = uint32(pl)
+			}
+
+			impact := tf / (tf + k1*(1-b+b*(pl/avgPropLen)))
+
+			if impact > maxImpact {
+				maxImpact = impact
+				maxImpactTf = uint32(tf)
+				maxImpactPropLength = uint32(pl)
+			}
+		}
+
+		maxId := binary.BigEndian.Uint64(values[end-1].Key)
+		bufs.blockDatas[i] = encodeBlockParamReusable(values[start:end], bufs.docIdsBuf, bufs.termFreqsBuf, deltaEnc, tfEnc)
+
+		bufs.blockEntries[i] = &terms.BlockEntry{
+			MaxId:               maxId,
+			Offset:              offset,
+			MaxImpactTf:         maxImpactTf,
+			MaxImpactPropLength: maxImpactPropLength,
+		}
+
+		offset += uint32(bufs.blockDatas[i].Size())
+	}
+
+	return bufs.blockEntries, bufs.blockDatas, tombstones, propLengths
+}
+
+// encodeBlocksInto is like encodeBlocks but writes into a reusable buffer
+// and uses EncodeInto to avoid per-block allocations. Returns the updated
+// buffer and the number of bytes written.
+func encodeBlocksInto(blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockData, docCount uint64, buf []byte) ([]byte, int) {
+	length := 0
+	for i := range blockDatas {
+		length += blockDatas[i].Size() + blockEntries[i].Size()
+	}
+	needed := length + 8 + 8
+	if cap(buf) < needed {
+		buf = make([]byte, needed)
+	} else {
+		buf = buf[:needed]
+	}
+
+	binary.LittleEndian.PutUint64(buf, docCount)
+	offset := 8
+	binary.LittleEndian.PutUint64(buf[offset:], uint64(length))
+	offset += 8
+
+	for _, blockEntry := range blockEntries {
+		blockEntry.EncodeInto(buf[offset:])
+		offset += blockEntry.Size()
+	}
+	for _, blockData := range blockDatas {
+		blockData.EncodeInto(buf[offset:])
+		offset += blockData.Size()
+	}
+
+	return buf, offset
+}
+
+// createAndEncodeBlocksCompaction is the compaction-optimized version of
+// createAndEncodeBlocks. It uses in-place tombstone extraction, reusable
+// encode buffers, and inline block serialization.
+func createAndEncodeBlocksCompaction(nodes []MapPair, propLengths map[uint64]uint32, bufs *compactorInvertedBuffers, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
+	if len(nodes) <= terms.ENCODE_AS_FULL_BYTES {
+		return createAndEncodeSingleValue(nodes, propLengths)
+	}
+	blockEntries, blockDatas, tombstones, _ := createBlocksCompaction(nodes, propLengths, bufs, deltaEnc, tfEnc, k1, b, avgPropLen)
+	bufs.encodeOutBuf, _ = encodeBlocksInto(blockEntries, blockDatas, uint64(len(nodes)), bufs.encodeOutBuf)
+	return bufs.encodeOutBuf, tombstones
+}
+
+// KeyIndexAndWriteToCompaction is like KeyIndexAndWriteToRedux but uses the
+// compaction-optimized encode pipeline with reusable buffers.
+func (s segmentInvertedNode) KeyIndexAndWriteToCompaction(w io.Writer, buf []byte, bufs *compactorInvertedBuffers, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) (segmentindex.KeyRedux, error) {
+	written := 0
+
+	blocksEncoded, _ := createAndEncodeBlocksCompaction(s.values, s.propLengths, bufs, deltaEnc, tfEnc, k1, b, avgPropLen)
+	n, err := w.Write(blocksEncoded)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write values for node")
+	}
+	written += n
+
+	keyLength := uint32(len(s.primaryKey))
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err = w.Write(s.primaryKey)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	return segmentindex.KeyRedux{
+		ValueEnd: s.offset + written,
+		Key:      s.primaryKey,
+	}, nil
+}
+
 // ParseInvertedNode reads from r and parses the Inverted values into a segmentCollectionNode
 //
 // When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the

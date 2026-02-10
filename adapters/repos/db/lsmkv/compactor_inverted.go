@@ -76,8 +76,9 @@ type compactorInverted struct {
 	maxNewFileSize int64
 
 	// reusable buffers to reduce allocations during compaction
-	writeBuf [8]byte  // reused by writeIndividualNode to avoid per-key allocation
-	arena    keyArena // arena allocator for key copies
+	writeBuf   [8]byte                  // reused by writeIndividualNode to avoid per-key allocation
+	arena      keyArena                 // arena allocator for key copies
+	encodeBufs compactorInvertedBuffers // reusable encode pipeline buffers
 }
 
 func newCompactorInverted(w io.WriteSeeker,
@@ -113,6 +114,7 @@ func newCompactorInverted(w io.WriteSeeker,
 		enableChecksumValidation: enableChecksumValidation,
 		maxNewFileSize:           maxNewFileSize,
 		allocChecker:             allocChecker,
+		encodeBufs:               newCompactorInvertedBuffers(),
 	}
 }
 
@@ -392,8 +394,8 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 	values []MapPair, propertyLengths map[uint64]uint32,
 ) (segmentindex.KeyRedux, error) {
 	// With reusable cursors, the key buffer is shared across iterations.
-	// We must copy it before writing, as KeyIndexAndWriteToRedux stores
-	// a reference. See: https://github.com/weaviate/weaviate/issues/3517
+	// We must copy it before writing, as the KeyRedux stores a reference.
+	// See: https://github.com/weaviate/weaviate/issues/3517
 	keyCopy := c.arena.CopyKey(key)
 
 	return segmentInvertedNode{
@@ -401,7 +403,7 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteToRedux(c.segmentFile.BodyWriter(), c.writeBuf[:], c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
+	}.KeyIndexAndWriteToCompaction(c.segmentFile.BodyWriter(), c.writeBuf[:], &c.encodeBufs, c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
 func (c *compactorInverted) writeIndices(keys []segmentindex.KeyRedux) error {
