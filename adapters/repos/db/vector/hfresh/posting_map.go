@@ -18,8 +18,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
@@ -29,52 +29,38 @@ import (
 type PostingMetadata struct {
 	sync.RWMutex
 	PackedPostingMetadata
-	// whether this cached entry has been loaded from disk
-	// or has been refreshed by a background operation.
-	fromDisk bool
 }
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
 	metrics *Metrics
-	cache   *otter.Cache[uint64, *PostingMetadata]
+	data    *xsync.Map[uint64, *PostingMetadata]
 	bucket  *PostingMapStore
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
-	cache, _ := otter.New[uint64, *PostingMetadata](nil)
-
 	return &PostingMap{
-		cache:   cache,
+		data:    xsync.NewMap[uint64, *PostingMetadata](),
 		metrics: metrics,
 		bucket:  b,
 	}
 }
 
+// Iter returns an iterator over all postings in the map.
+func (v *PostingMap) Iter() iter.Seq2[uint64, *PostingMetadata] {
+	return v.data.AllRelaxed()
+}
+
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
-		data, err := v.bucket.Get(ctx, postingID)
-		if err != nil {
-			if errors.Is(err, ErrPostingNotFound) {
-				return nil, otter.ErrNotFound
-			}
-
-			return nil, err
-		}
-
-		return &PostingMetadata{PackedPostingMetadata: data, fromDisk: true}, nil
-	}))
-	if errors.Is(err, otter.ErrNotFound) {
+	m, ok := v.data.Load(postingID)
+	if !ok {
 		return nil, ErrPostingNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
 
-	return m, err
+	return m, nil
 }
 
 // CountVectorIDs returns the number of vector IDs in the posting with the given ID.
@@ -105,7 +91,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		if err != nil {
 			return err
 		}
-		v.cache.Invalidate(postingID)
+		v.data.Delete(postingID)
 		return nil
 	}
 
@@ -118,7 +104,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, &PostingMetadata{PackedPostingMetadata: pm})
+	v.data.Store(postingID, &PostingMetadata{PackedPostingMetadata: pm})
 	v.metrics.ObservePostingSize(float64(pm.Count()))
 
 	return nil
@@ -143,24 +129,19 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		m = &PostingMetadata{
 			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
-		v.cache.Set(postingID, m)
+		v.data.Store(postingID, m)
 	}
 
 	v.metrics.ObservePostingSize(float64(m.Count()))
 	return uint32(m.Count()), nil
 }
 
-// Persist the vector IDs for the posting with the given ID to disk.
-func (v *PostingMap) Persist(ctx context.Context, postingID uint64) error {
-	m, err := v.Get(ctx, postingID)
-	if err != nil {
-		return err
-	}
-
-	m.RLock()
-	defer m.RUnlock()
-
-	return v.bucket.Set(ctx, postingID, m.PackedPostingMetadata)
+// Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
+func (v *PostingMap) Restore(ctx context.Context) error {
+	return v.bucket.Iter(ctx, func(u uint64, ppm PackedPostingMetadata) error {
+		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})
+		return nil
+	})
 }
 
 // PostingMapStore is a persistent store for vector IDs.
@@ -407,4 +388,30 @@ func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata Pa
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
 	key := p.key(postingID)
 	return p.bucket.Delete(key[:])
+}
+
+func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostingMetadata) error) error {
+	c := p.bucket.Cursor()
+	defer c.Close()
+
+	var i int
+	prefix := []byte{p.keyPrefix}
+	for k, v := c.Seek(prefix); len(k) > 0 && k[0] == p.keyPrefix; k, v = c.Next() {
+		i++
+		if len(v) == 0 {
+			continue
+		}
+
+		if i%1000 == 0 && ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		postingID := binary.LittleEndian.Uint64(k[1:])
+		err := fn(postingID, PackedPostingMetadata(v))
+		if err != nil {
+			return err
+		}
+	}
+
+	return ctx.Err()
 }
