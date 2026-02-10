@@ -18,12 +18,15 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/hashicorp/raft"
 	"github.com/klauspost/compress/s2"
 	"github.com/sirupsen/logrus"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -32,6 +35,21 @@ import (
 type shard interface {
 	// PutObject stores an object in the shard.
 	PutObject(ctx context.Context, obj *storobj.Object) error
+
+	// DeleteObject deletes an object from the shard by UUID.
+	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
+
+	// MergeObject applies a partial update to an existing object.
+	MergeObject(ctx context.Context, merge objects.MergeDocument) error
+
+	// PutObjectBatch stores multiple objects in the shard.
+	PutObjectBatch(ctx context.Context, objects []*storobj.Object) []error
+
+	// DeleteObjectBatch deletes multiple objects from the shard.
+	DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
+
+	// AddReferencesBatch adds cross-references in batch.
+	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 
 	// FlushMemtables flushes all in-memory memtables to disk segments.
 	// Called before RAFT snapshots to ensure all applied entries are durable
@@ -118,6 +136,16 @@ func (f *FSM) Apply(l *raft.Log) any {
 	switch req.Type {
 	case shardproto.ApplyRequest_TYPE_PUT_OBJECT:
 		applyErr = f.putObject(shard, &req)
+	case shardproto.ApplyRequest_TYPE_DELETE_OBJECT:
+		applyErr = f.deleteObject(shard, &req)
+	case shardproto.ApplyRequest_TYPE_MERGE_OBJECT:
+		applyErr = f.mergeObject(shard, &req)
+	case shardproto.ApplyRequest_TYPE_PUT_OBJECTS_BATCH:
+		applyErr = f.putObjectsBatch(shard, &req)
+	case shardproto.ApplyRequest_TYPE_DELETE_OBJECTS_BATCH:
+		applyErr = f.deleteObjectsBatch(shard, &req)
+	case shardproto.ApplyRequest_TYPE_ADD_REFERENCES:
+		applyErr = f.addReferences(shard, &req)
 	default:
 		applyErr = fmt.Errorf("unknown command type: %v", req.Type)
 		f.log.WithField("type", req.Type).Error("unknown command type")
@@ -152,6 +180,126 @@ func (f *FSM) putObject(shard shard, req *shardproto.ApplyRequest) error {
 
 	if err := shard.PutObject(ctx, obj); err != nil {
 		return fmt.Errorf("put object: %w", err)
+	}
+
+	return nil
+}
+
+// deleteObject applies a DELETE_OBJECT command to the shard.
+func (f *FSM) deleteObject(shard shard, req *shardproto.ApplyRequest) error {
+	var subreq shardproto.DeleteObjectRequest
+	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
+		return fmt.Errorf("unmarshal DeleteObject subcommand: %w", err)
+	}
+
+	id := strfmt.UUID(subreq.Id)
+
+	var deletionTime time.Time
+	if subreq.DeletionTimeUnix != 0 {
+		deletionTime = time.Unix(0, subreq.DeletionTimeUnix)
+	}
+
+	ctx := context.Background()
+	if err := shard.DeleteObject(ctx, id, deletionTime); err != nil {
+		return fmt.Errorf("delete object: %w", err)
+	}
+
+	return nil
+}
+
+// mergeObject applies a MERGE_OBJECT command to the shard.
+func (f *FSM) mergeObject(shard shard, req *shardproto.ApplyRequest) error {
+	var subreq shardproto.MergeObjectRequest
+	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
+		return fmt.Errorf("unmarshal MergeObject subcommand: %w", err)
+	}
+
+	var doc objects.MergeDocument
+	if err := json.Unmarshal(subreq.MergeDocumentJson, &doc); err != nil {
+		return fmt.Errorf("unmarshal merge document: %w", err)
+	}
+
+	ctx := context.Background()
+	if err := shard.MergeObject(ctx, doc); err != nil {
+		return fmt.Errorf("merge object: %w", err)
+	}
+
+	return nil
+}
+
+// putObjectsBatch applies a PUT_OBJECTS_BATCH command to the shard.
+func (f *FSM) putObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
+	var subreq shardproto.PutObjectsBatchRequest
+	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
+		return fmt.Errorf("unmarshal PutObjectsBatch subcommand: %w", err)
+	}
+
+	objs := make([]*storobj.Object, len(subreq.Objects))
+	for i, raw := range subreq.Objects {
+		obj, err := storobj.FromBinary(raw)
+		if err != nil {
+			return fmt.Errorf("deserialize object %d: %w", i, err)
+		}
+		objs[i] = obj
+	}
+
+	ctx := context.Background()
+	errs := shard.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		if err != nil {
+			return fmt.Errorf("put objects batch: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// deleteObjectsBatch applies a DELETE_OBJECTS_BATCH command to the shard.
+func (f *FSM) deleteObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
+	var subreq shardproto.DeleteObjectsBatchRequest
+	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
+		return fmt.Errorf("unmarshal DeleteObjectsBatch subcommand: %w", err)
+	}
+
+	uuids := make([]strfmt.UUID, len(subreq.Uuids))
+	for i, id := range subreq.Uuids {
+		uuids[i] = strfmt.UUID(id)
+	}
+
+	var deletionTime time.Time
+	if subreq.DeletionTimeUnix != 0 {
+		deletionTime = time.Unix(0, subreq.DeletionTimeUnix)
+	}
+
+	ctx := context.Background()
+	results := shard.DeleteObjectBatch(ctx, uuids, deletionTime, subreq.DryRun)
+	for _, r := range results {
+		if r.Err != nil {
+			return fmt.Errorf("delete objects batch: %w", r.Err)
+		}
+	}
+
+	return nil
+}
+
+// addReferences applies an ADD_REFERENCES command to the shard.
+func (f *FSM) addReferences(shard shard, req *shardproto.ApplyRequest) error {
+	var subreq shardproto.AddReferencesRequest
+	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
+		return fmt.Errorf("unmarshal AddReferences subcommand: %w", err)
+	}
+
+	var refs objects.BatchReferences
+	if err := json.Unmarshal(subreq.ReferencesJson, &refs); err != nil {
+		return fmt.Errorf("unmarshal references: %w", err)
+	}
+
+	ctx := context.Background()
+	errs := shard.AddReferencesBatch(ctx, refs)
+	for _, err := range errs {
+		if err != nil {
+			return fmt.Errorf("add references: %w", err)
+		}
 	}
 
 	return nil
