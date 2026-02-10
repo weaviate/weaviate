@@ -93,15 +93,20 @@ func (db *DB) init(ctx context.Context) error {
 				// to enable lazy load shards
 				localShardsCount, err = db.schemaReader.LocalShardsCount(class.Class)
 				if err != nil {
-					return fmt.Errorf("get local shards for class %q: %w", class.Class, err)
+					return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 				}
-				// we do need to calculate shard size if it's MT to be able to decide
-				// to enable lazy load shards
-				localShards, err := db.schemaReader.LocalShards(class.Class)
-				if err != nil {
-					return fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
+				// Only calculate shard sizes if the shard-count condition alone wouldn't
+				// already trigger lazy-loading. This avoids walking all shard directories
+				// on large MT setups where the count exceeds the threshold.
+				if localShardsCount <= db.config.LazyLoadShardCountThreshold {
+					// we do need to calculate shard size if it's MT to be able to decide
+					// to enable lazy load shards based on total size
+					localShards, err := db.schemaReader.LocalShards(class.Class)
+					if err != nil {
+						return fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
+					}
+					totalShardSizeBytes = db.totalShardSizeBytes(schema.ClassName(class.Class), localShards)
 				}
-				totalShardSizeBytes = db.totalShardSizeBytes(schema.ClassName(class.Class), localShards)
 			}
 
 			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)

@@ -127,8 +127,8 @@ func FromEnv(config *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse LAZY_LOAD_SHARD_COUNT_THRESHOLD as int: %w", err)
 		}
-		if asInt < 1 {
-			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 1")
+		if asInt < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 0")
 		}
 		config.LazyLoadShardCountThreshold = asInt
 		if config.LazyLoadShardCountThreshold == 0 {

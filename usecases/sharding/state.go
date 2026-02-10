@@ -344,7 +344,13 @@ func (s *State) PhysicalShard(in []byte) string {
 
 // LocalPhysicalShardsCount return a count of physical shards
 func (s *State) LocalPhysicalShardsCount() int {
-	return len(s.AllLocalPhysicalShards())
+	count := 0
+	for _, physical := range s.Physical {
+		if s.IsLocalShard(physical.Name) {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *State) AllPhysicalShards() []string {
