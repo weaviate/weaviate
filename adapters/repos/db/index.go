@@ -1036,17 +1036,12 @@ const (
 // The shard will be nil if the shard is not found, or if the local shard should not be used.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName string, shardName string, operation localShardOperation, schemaVersion uint64) (ShardLike, func(), error) {
-	// Get shard without initializing first
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Get shard without initializing first and initialize if auto tenant activation is enabled
+	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
 	// see Index.getOptInitLocalShard for more details.
 	if err != nil {
 		return nil, release, err
-	}
-
-	// if the router is nil, just use the default behavior
-	if i.router == nil {
-		return shard, release, nil
 	}
 
 	// get the replicas for the shard
@@ -1950,7 +1945,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, tenantName string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1981,7 +1976,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	var outObjects []*storobj.Object
 	var outScores []float32
 
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2087,7 +2082,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil
 	}
 	localSearch := func(shardName string) error {
-		shard, release, err := i.GetShard(ctx, shardName)
+		shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 		defer release()
 		if err != nil {
 			return err
