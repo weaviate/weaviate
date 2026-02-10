@@ -136,6 +136,14 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 	return uint32(m.Count()), nil
 }
 
+// Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
+func (v *PostingMap) Restore(ctx context.Context) error {
+	return v.bucket.Iter(ctx, func(u uint64, ppm PackedPostingMetadata) error {
+		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})
+		return nil
+	})
+}
+
 // PostingMapStore is a persistent store for vector IDs.
 type PostingMapStore struct {
 	bucket    *lsmkv.Bucket

@@ -152,6 +152,12 @@ func (h *HFresh) restoreMetadata() error {
 		}
 	})
 
+	// restore posting map
+	err = h.PostingMap.Restore(h.ctx)
+	if err != nil {
+		return err
+	}
+
 	err = h.restoreBackgroundMetrics()
 	if err != nil {
 		return err
