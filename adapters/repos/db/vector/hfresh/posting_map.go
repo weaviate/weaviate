@@ -407,7 +407,9 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 		}
 
 		postingID := binary.LittleEndian.Uint64(k[1:])
-		err := fn(postingID, PackedPostingMetadata(v))
+		metadata := make(PackedPostingMetadata, len(v))
+		copy(metadata, v)
+		err := fn(postingID, metadata)
 		if err != nil {
 			return err
 		}
