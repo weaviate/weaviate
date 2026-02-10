@@ -56,6 +56,7 @@ type compactorSet struct {
 	setDecoder   setDecoder
 
 	writeBuf [9]byte // reused by writeIndividualNode to avoid per-key allocation
+	arena    keyArena
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
@@ -221,8 +222,7 @@ func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
 	// With reusable cursors, the key buffer is shared across iterations.
 	// We must copy it before writing, as KeyIndexAndWriteTo may store
 	// a reference. See: https://github.com/weaviate/weaviate/issues/3517
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
+	keyCopy := c.arena.CopyKey(key)
 
 	return (&segmentCollectionNode{
 		values:     values,
