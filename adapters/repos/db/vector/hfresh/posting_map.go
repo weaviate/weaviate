@@ -29,9 +29,6 @@ import (
 type PostingMetadata struct {
 	sync.RWMutex
 	PackedPostingMetadata
-	// whether this cached entry has been loaded from disk
-	// or has been refreshed by a background operation.
-	fromDisk bool
 }
 
 // PostingMap manages various information about postings.
