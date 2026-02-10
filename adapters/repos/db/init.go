@@ -126,6 +126,7 @@ func (db *DB) init(ctx context.Context) error {
 				db.replicationFSM,
 			).Build()
 			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
+			var lazyLoadShardEnabled bool
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                      schema.ClassName(class.Class),
 				RootPath:                       db.config.RootPath,
@@ -160,14 +161,15 @@ func (db *DB) init(ctx context.Context) error {
 					if db.config.EnableLazyLoadShards {
 						return true
 					}
-					db.config.EnableLazyLoadShards = shouldAutoLazyLoadShards(
+
+					lazyLoadShardEnabled = shouldAutoLazyLoadShards(
 						isMultiTenant,
 						localShardsCount,
 						totalShardSizeBytes,
 						db.config.LazyLoadShardCountThreshold,
 						db.config.LazyLoadShardSizeThresholdGB,
 					)
-					return db.config.EnableLazyLoadShards
+					return lazyLoadShardEnabled
 				}(),
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
@@ -187,7 +189,7 @@ func (db *DB) init(ctx context.Context) error {
 				HNSWSnapshotMinDeltaCommitlogsSizePercentage: db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
 				HNSWWaitForCachePrefill: func() bool {
 					// don't wait if lazy load shard is enabled
-					if db.config.EnableLazyLoadShards {
+					if lazyLoadShardEnabled {
 						return false
 					}
 					return db.config.HNSWWaitForCachePrefill

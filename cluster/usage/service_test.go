@@ -210,13 +210,6 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		},
 	)
 	mockSchemaReader.EXPECT().LocalShardsCount(className).Return(len(shardingState.Physical), nil)
-	mockSchemaReader.EXPECT().LocalShards(className).RunAndReturn(func(string) ([]string, error) {
-		names := make([]string, 0, len(shardingState.Physical))
-		for name := range shardingState.Physical {
-			names = append(names, name)
-		}
-		return names, nil
-	})
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	putObjectAndFlush(t, repo, className, hotTenant, map[string][]float32{vectorName: {0.1, 0.2, 0.3}}, map[string][]float32{vectorName: {0.4, 0.5, 0.6}})

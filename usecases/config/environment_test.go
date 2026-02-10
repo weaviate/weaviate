@@ -275,6 +275,8 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "")
+
 			if tt.value != "" {
 				t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", tt.value)
 			}
@@ -312,6 +314,9 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Ensure hermetic behavior regardless of outer environment
+			t.Setenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB", "")
+
 			if tt.value != "" {
 				t.Setenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB", tt.value)
 			}
