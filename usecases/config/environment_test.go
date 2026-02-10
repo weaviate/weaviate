@@ -269,7 +269,7 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 		{"default when not set", "", DefaultLazyLoadShardCountThreshold, false},
 		{"invalid string", "not-a-number", 0, true},
 		{"negative rejected", "-1", 0, true},
-		{"zero rejected", "0", 0, true},
+		{"zero is valid", "0", 0, false},
 		{"one is valid", "1", 1, false},
 	}
 
@@ -287,6 +287,9 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, conf.LazyLoadShardCountThreshold)
+				if tt.name == "zero is valid" {
+					assert.True(t, conf.EnableLazyLoadShards)
+				}
 			}
 		})
 	}
