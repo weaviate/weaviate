@@ -1105,6 +1105,19 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, tenantName 
 		if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
 			return nil, release, nil
 		}
+		// Router says this node is a read replica for this shard.
+		// In non-replicated (RF=1) / single-node setups there is no
+		// other replica to fall back to, so if the shard is not yet
+		// loaded locally we should synchronously initialize it instead
+		// of forcing callers to bounce through the remote path.
+		if shard == nil && !i.replicationEnabled() {
+			// Release the previous handle from the initial getOptInitLocalShard
+			// call before re-acquiring with ensureInit=true.
+			shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
+			if err != nil {
+				return nil, release, err
+			}
+		}
 		return shard, release, nil
 	default:
 		return nil, func() {}, fmt.Errorf("invalid local shard operation: %s", operation)
