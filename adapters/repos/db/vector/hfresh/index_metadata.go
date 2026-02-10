@@ -151,6 +151,15 @@ func (h *HFresh) restoreMetadata() error {
 			err = h.restoreQuantizationData(&quantization.RQ)
 		}
 	})
+	if err != nil {
+		return err
+	}
+
+	// restore posting map
+	err = h.PostingMap.Restore(h.ctx)
+	if err != nil {
+		return err
+	}
 
 	err = h.restoreBackgroundMetrics()
 	if err != nil {

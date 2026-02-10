@@ -1595,6 +1595,12 @@
           },
           "type": "array",
           "x-omitempty": true
+        },
+        "disableDuplicatedReferences": {
+          "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
+          "type": "boolean",
+          "x-nullable": true,
+          "default": true
         }
       },
       "type": "object"
@@ -7894,6 +7900,73 @@
           },
           "500": {
             "description": "An error occurred while adding the property. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "delete": {
+        "summary": "Deletes collection's property index",
+        "description": "Deletes collection's property index.",
+        "operationId": "schema.objects.properties.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "propertyName",
+            "description": "The name of collection's property to be deleted.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "indexName",
+            "description": "The name of property's index to be deleted.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Property updated successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid property definition provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while updating property. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
