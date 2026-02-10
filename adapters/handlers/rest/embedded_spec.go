@@ -5015,23 +5015,23 @@ func init() {
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}": {
       "delete": {
-        "description": "Deletes collection's property index.",
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
         "tags": [
           "schema"
         ],
-        "summary": "Deletes collection's property index",
+        "summary": "Delete a property's inverted index",
         "operationId": "schema.objects.properties.delete",
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the collection (class).",
+            "description": "The name of the collection (class) containing the property.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The name of collection's property to be deleted.",
+            "description": "The name of the property whose inverted index should be deleted.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -5043,7 +5043,7 @@ func init() {
               "rangeFilters"
             ],
             "type": "string",
-            "description": "The name of property's index to be deleted.",
+            "description": "The name of the inverted index to delete from the property.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -5051,7 +5051,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Property updated successfully."
+            "description": "Index deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5063,13 +5063,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid property definition provided.",
+            "description": "Invalid index, property or collection provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error occurred while updating property. Check the ErrorResponse for details.",
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14625,23 +14625,23 @@ func init() {
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}": {
       "delete": {
-        "description": "Deletes collection's property index.",
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
         "tags": [
           "schema"
         ],
-        "summary": "Deletes collection's property index",
+        "summary": "Delete a property's inverted index",
         "operationId": "schema.objects.properties.delete",
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the collection (class).",
+            "description": "The name of the collection (class) containing the property.",
             "name": "className",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "The name of collection's property to be deleted.",
+            "description": "The name of the property whose inverted index should be deleted.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -14653,7 +14653,7 @@ func init() {
               "rangeFilters"
             ],
             "type": "string",
-            "description": "The name of property's index to be deleted.",
+            "description": "The name of the inverted index to delete from the property.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -14661,7 +14661,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Property updated successfully."
+            "description": "Index deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -14673,13 +14673,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid property definition provided.",
+            "description": "Invalid index, property or collection provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error occurred while updating property. Check the ErrorResponse for details.",
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

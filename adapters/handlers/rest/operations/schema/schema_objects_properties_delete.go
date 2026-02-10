@@ -45,9 +45,9 @@ func NewSchemaObjectsPropertiesDelete(ctx *middleware.Context, handler SchemaObj
 /*
 	SchemaObjectsPropertiesDelete swagger:route DELETE /schema/{className}/properties/{propertyName}/index/{indexName} schema schemaObjectsPropertiesDelete
 
-# Deletes collection's property index
+# Delete a property's inverted index
 
-Deletes collection's property index.
+Deletes an inverted index of a specific property within a collection (`className`). The index to delete is identified by `indexName` and must be one of `filterable`, `searchable`, or `rangeFilters`.
 */
 type SchemaObjectsPropertiesDelete struct {
 	Context *middleware.Context

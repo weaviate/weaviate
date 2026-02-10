@@ -495,9 +495,9 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 }
 
 /*
-SchemaObjectsPropertiesDelete deletes collection s property index
+SchemaObjectsPropertiesDelete deletes a property s inverted index
 
-Deletes collection's property index.
+Deletes an inverted index of a specific property within a collection (`className`). The index to delete is identified by `indexName` and must be one of `filterable`, `searchable`, or `rangeFilters`.
 */
 func (a *Client) SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending

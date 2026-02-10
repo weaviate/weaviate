@@ -42,17 +42,17 @@ type SchemaObjectsPropertiesDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The name of the collection (class).
+	/*The name of the collection (class) containing the property.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*The name of property's index to be deleted.
+	/*The name of the inverted index to delete from the property.
 	  Required: true
 	  In: path
 	*/
 	IndexName string
-	/*The name of collection's property to be deleted.
+	/*The name of the property whose inverted index should be deleted.
 	  Required: true
 	  In: path
 	*/
