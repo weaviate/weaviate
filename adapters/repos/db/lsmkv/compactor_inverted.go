@@ -177,7 +177,7 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "write property lengths")
 	}
 	treeOffset := uint64(c.offset)
-	if err := c.writeIndices(kis); err != nil {
+	if err := c.writeIndices(kis, uint64(keysOffset)); err != nil {
 		return errors.Wrap(err, "write index")
 	}
 
@@ -406,11 +406,11 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 	}.KeyIndexAndWriteToCompaction(c.segmentFile.BodyWriter(), c.writeBuf[:], &c.encodeBufs, c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
-func (c *compactorInverted) writeIndices(keys []segmentindex.KeyRedux) error {
+func (c *compactorInverted) writeIndices(keys []segmentindex.KeyRedux, dataStartOffset uint64) error {
 	if c.secondaryIndexCount > 0 {
 		return fmt.Errorf("unsupported secondary indexes in compactorInverted")
 	}
-	_, err := segmentindex.MarshalSortedKeys(c.segmentFile.BodyWriter(), keys)
+	_, err := segmentindex.MarshalSortedKeys(c.segmentFile.BodyWriter(), keys, dataStartOffset)
 	return err
 }
 
