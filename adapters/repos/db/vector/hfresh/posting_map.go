@@ -237,8 +237,7 @@ func schemeFor(value uint64) Scheme {
 type PackedPostingMetadata []byte
 
 func NewPackedPostingMetadata(vectorIDs []uint64, versions []VectorVersion) PackedPostingMetadata {
-	scheme := determineScheme(vectorIDs)
-	data := PackedPostingMetadata(make([]byte, 0, 5+len(vectorIDs)*(scheme.BytesPerValue()+1)))
+	var data PackedPostingMetadata
 	for i, id := range vectorIDs {
 		data = data.AddVector(id, versions[i])
 	}
@@ -258,12 +257,12 @@ func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 	data := p[start:]
 
 	return func(yield func(uint64, VectorVersion) bool) {
-		for i := uint32(0); i < count; i++ {
+		for i := range count {
 			offset := i * uint32(bytesPerValue)
 
 			// Decode ID
 			vID := uint64(0)
-			for j := 0; j < bytesPerID; j++ {
+			for j := range bytesPerID {
 				vID |= uint64(data[offset+uint32(j)]) << (j * 8)
 			}
 
