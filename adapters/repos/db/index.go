@@ -1119,7 +1119,7 @@ func (i *Index) getShardForRead(
 	// loaded locally we should synchronously initialize it instead
 	// of forcing callers to bounce through the remote path.
 	if shard == nil && !i.replicationEnabled() {
-		shard, release, err = i.getOptInitLocalShard(ctx, shardName, true)
+		shard, release, err = i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 		if err != nil {
 			return nil, release, err
 		}
@@ -1487,7 +1487,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1507,7 +1507,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1653,7 +1653,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return false, err
 	}
@@ -2198,7 +2198,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2558,7 +2558,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	params aggregation.Params, mods interface{},
 ) (*aggregation.Result, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -2820,7 +2820,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return 0, err
 	}
@@ -2883,7 +2883,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return "", err
 	}
@@ -2986,7 +2986,7 @@ func (i *Index) consistencyLevel(
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
-	shard, release, err := i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, err
 	}
