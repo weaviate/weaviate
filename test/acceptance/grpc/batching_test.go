@@ -345,16 +345,16 @@ func TestGRPC_Batching(t *testing.T) {
 		t.Log("Done adding objects to stream")
 
 		// Stop the node
-		// t.Log("Stopping node...")
-		// common.StopNodeAtWithTimeout(ctx, t, compose, 0, 300*time.Second)
-		// t.Log("Stopped node")
+		t.Log("Stopping node...")
+		common.StopNodeAtWithTimeout(ctx, t, compose, 0, 300*time.Second)
+		t.Log("Stopped node")
 
-		// // Restart the node
-		// t.Log("Restarting node...")
-		// common.StartNodeAt(ctx, t, compose, 0)
-		// t.Log("Restarted node")
-		// helper.SetupClient(compose.GetWeaviate().URI())
-		// grpcClient, _ = client(t, compose.GetWeaviate().GrpcURI())
+		// Restart the node
+		t.Log("Restarting node...")
+		common.StartNodeAt(ctx, t, compose, 0)
+		t.Log("Restarted node")
+		helper.SetupClient(compose.GetWeaviate().URI())
+		grpcClient, _ = client(t, compose.GetWeaviate().GrpcURI())
 
 		// Verify that all objects are present after shutdown and restart
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
