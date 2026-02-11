@@ -462,3 +462,43 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 
 	return ctx.Err()
 }
+
+type oncePer struct {
+	d    time.Duration
+	t    *time.Ticker
+	mu   sync.Mutex
+	once sync.Once
+}
+
+func OncePer(d time.Duration) *oncePer {
+	return &oncePer{
+		d: d,
+	}
+}
+
+func (o *oncePer) do(f func()) {
+	o.once.Do(func() {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		f()
+		o.t = time.NewTicker(o.d)
+	})
+
+	select {
+	case <-o.t.C:
+		if o.mu.TryLock() {
+			defer o.mu.Unlock()
+			f()
+		}
+	default:
+	}
+}
+
+func (o *oncePer) stop() {
+	o.mu.Lock()
+	if o.t != nil {
+		o.t.Stop()
+		o.t = nil
+	}
+	o.mu.Unlock()
+}
