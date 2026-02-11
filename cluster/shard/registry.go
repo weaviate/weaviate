@@ -56,6 +56,9 @@ type RegistryConfig struct {
 	SnapshotInterval   time.Duration
 	SnapshotThreshold  uint64
 	TrailingLogs       uint64
+
+	// StateTransferer handles out-of-band state transfer for snapshot restore.
+	StateTransferer StateTransferer
 }
 
 // Registry manages all per-index Raft instances on a node.
@@ -153,6 +156,7 @@ func (reg *Registry) GetOrCreateRaft(className string) (*Raft, error) {
 		SnapshotInterval:   reg.config.SnapshotInterval,
 		SnapshotThreshold:  reg.config.SnapshotThreshold,
 		TrailingLogs:       reg.config.TrailingLogs,
+		StateTransferer:    reg.config.StateTransferer,
 	}
 
 	raft := NewRaft(raftConfig)
@@ -224,6 +228,26 @@ func (reg *Registry) LeaderAddress(className, shardName string) string {
 		return ""
 	}
 	return raft.LeaderAddress(shardName)
+}
+
+// SetStateTransferer sets the state transferer for late-binding. This is
+// needed because the StateTransfer depends on components (DB, reinitializer)
+// that may not be available at Registry creation time.
+func (reg *Registry) SetStateTransferer(st StateTransferer) {
+	reg.config.StateTransferer = st
+
+	// Also propagate to any already-created Raft instances
+	reg.indices.Range(func(key, value interface{}) bool {
+		r := value.(*Raft)
+		r.config.StateTransferer = st
+		// Propagate to existing stores
+		r.stores.Range(func(key, value interface{}) bool {
+			store := value.(*Store)
+			store.SetStateTransferer(st)
+			return true
+		})
+		return true
+	})
 }
 
 // Leader returns the leader node ID for a shard.

@@ -61,8 +61,15 @@ message ShardRaftSnapshot {
 
 // ShardReplicationService handles forwarding of shard operations from
 // followers to leaders in per-shard RAFT clusters.
-service ShardReplicationService {                                                                                                                                                                                  
-  rpc Apply(ApplyRequest) returns (ApplyResponse) {}                                                                                                                                                     
+service ShardReplicationService {
+  rpc Apply(ApplyRequest) returns (ApplyResponse) {}
+
+  // State transfer RPCs for out-of-band snapshot restore.
+  // When a follower falls too far behind and needs a full state transfer,
+  // these RPCs allow it to download shard data from the leader.
+  rpc CreateTransferSnapshot(CreateTransferSnapshotRequest) returns (CreateTransferSnapshotResponse) {}
+  rpc GetSnapshotFile(GetSnapshotFileRequest) returns (stream SnapshotFileChunk) {}
+  rpc ReleaseTransferSnapshot(ReleaseTransferSnapshotRequest) returns (ReleaseTransferSnapshotResponse) {}
 }
 
 // PutObjectRequest is sent from a follower to the leader to apply a PutObject operation.
@@ -124,3 +131,47 @@ message AddReferencesRequest {
   bytes references_json = 1;
   uint64 schema_version = 2;
 }
+
+// CreateTransferSnapshotRequest asks the leader to create a hardlink snapshot
+// of the specified shard's files for out-of-band state transfer.
+message CreateTransferSnapshotRequest {
+  string class = 1;
+  string shard = 2;
+}
+
+// SnapshotFileInfo describes a single file in a transfer snapshot.
+message SnapshotFileInfo {
+  string name = 1;    // relative file path within staging dir
+  int64 size = 2;     // file size in bytes
+  uint32 crc32 = 3;   // CRC32 checksum
+}
+
+// CreateTransferSnapshotResponse returns the snapshot ID and list of files
+// available for download.
+message CreateTransferSnapshotResponse {
+  string snapshot_id = 1;
+  repeated SnapshotFileInfo files = 2;
+}
+
+// GetSnapshotFileRequest asks the leader to stream a specific file from
+// a previously created transfer snapshot.
+message GetSnapshotFileRequest {
+  string snapshot_id = 1;
+  string file_name = 2;
+}
+
+// SnapshotFileChunk is a streamed chunk of a snapshot file.
+message SnapshotFileChunk {
+  int64 offset = 1;
+  bytes data = 2;
+  bool eof = 3;
+}
+
+// ReleaseTransferSnapshotRequest tells the leader to clean up the staging
+// directory for a completed (or failed) transfer snapshot.
+message ReleaseTransferSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+// ReleaseTransferSnapshotResponse is empty — success is indicated by a nil error.
+message ReleaseTransferSnapshotResponse {}

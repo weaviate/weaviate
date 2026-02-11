@@ -32,7 +32,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ShardReplicationService_Apply_FullMethodName = "/weaviate.internal.data.ShardReplicationService/Apply"
+	ShardReplicationService_Apply_FullMethodName                   = "/weaviate.internal.data.ShardReplicationService/Apply"
+	ShardReplicationService_CreateTransferSnapshot_FullMethodName  = "/weaviate.internal.data.ShardReplicationService/CreateTransferSnapshot"
+	ShardReplicationService_GetSnapshotFile_FullMethodName         = "/weaviate.internal.data.ShardReplicationService/GetSnapshotFile"
+	ShardReplicationService_ReleaseTransferSnapshot_FullMethodName = "/weaviate.internal.data.ShardReplicationService/ReleaseTransferSnapshot"
 )
 
 // ShardReplicationServiceClient is the client API for ShardReplicationService service.
@@ -43,6 +46,12 @@ const (
 // followers to leaders in per-shard RAFT clusters.
 type ShardReplicationServiceClient interface {
 	Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
+	// State transfer RPCs for out-of-band snapshot restore.
+	// When a follower falls too far behind and needs a full state transfer,
+	// these RPCs allow it to download shard data from the leader.
+	CreateTransferSnapshot(ctx context.Context, in *CreateTransferSnapshotRequest, opts ...grpc.CallOption) (*CreateTransferSnapshotResponse, error)
+	GetSnapshotFile(ctx context.Context, in *GetSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotFileChunk], error)
+	ReleaseTransferSnapshot(ctx context.Context, in *ReleaseTransferSnapshotRequest, opts ...grpc.CallOption) (*ReleaseTransferSnapshotResponse, error)
 }
 
 type shardReplicationServiceClient struct {
@@ -63,6 +72,45 @@ func (c *shardReplicationServiceClient) Apply(ctx context.Context, in *ApplyRequ
 	return out, nil
 }
 
+func (c *shardReplicationServiceClient) CreateTransferSnapshot(ctx context.Context, in *CreateTransferSnapshotRequest, opts ...grpc.CallOption) (*CreateTransferSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateTransferSnapshotResponse)
+	err := c.cc.Invoke(ctx, ShardReplicationService_CreateTransferSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *shardReplicationServiceClient) GetSnapshotFile(ctx context.Context, in *GetSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotFileChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ShardReplicationService_ServiceDesc.Streams[0], ShardReplicationService_GetSnapshotFile_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GetSnapshotFileRequest, SnapshotFileChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ShardReplicationService_GetSnapshotFileClient = grpc.ServerStreamingClient[SnapshotFileChunk]
+
+func (c *shardReplicationServiceClient) ReleaseTransferSnapshot(ctx context.Context, in *ReleaseTransferSnapshotRequest, opts ...grpc.CallOption) (*ReleaseTransferSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseTransferSnapshotResponse)
+	err := c.cc.Invoke(ctx, ShardReplicationService_ReleaseTransferSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ShardReplicationServiceServer is the server API for ShardReplicationService service.
 // All implementations should embed UnimplementedShardReplicationServiceServer
 // for forward compatibility.
@@ -71,6 +119,12 @@ func (c *shardReplicationServiceClient) Apply(ctx context.Context, in *ApplyRequ
 // followers to leaders in per-shard RAFT clusters.
 type ShardReplicationServiceServer interface {
 	Apply(context.Context, *ApplyRequest) (*ApplyResponse, error)
+	// State transfer RPCs for out-of-band snapshot restore.
+	// When a follower falls too far behind and needs a full state transfer,
+	// these RPCs allow it to download shard data from the leader.
+	CreateTransferSnapshot(context.Context, *CreateTransferSnapshotRequest) (*CreateTransferSnapshotResponse, error)
+	GetSnapshotFile(*GetSnapshotFileRequest, grpc.ServerStreamingServer[SnapshotFileChunk]) error
+	ReleaseTransferSnapshot(context.Context, *ReleaseTransferSnapshotRequest) (*ReleaseTransferSnapshotResponse, error)
 }
 
 // UnimplementedShardReplicationServiceServer should be embedded to have
@@ -82,6 +136,15 @@ type UnimplementedShardReplicationServiceServer struct{}
 
 func (UnimplementedShardReplicationServiceServer) Apply(context.Context, *ApplyRequest) (*ApplyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Apply not implemented")
+}
+func (UnimplementedShardReplicationServiceServer) CreateTransferSnapshot(context.Context, *CreateTransferSnapshotRequest) (*CreateTransferSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateTransferSnapshot not implemented")
+}
+func (UnimplementedShardReplicationServiceServer) GetSnapshotFile(*GetSnapshotFileRequest, grpc.ServerStreamingServer[SnapshotFileChunk]) error {
+	return status.Error(codes.Unimplemented, "method GetSnapshotFile not implemented")
+}
+func (UnimplementedShardReplicationServiceServer) ReleaseTransferSnapshot(context.Context, *ReleaseTransferSnapshotRequest) (*ReleaseTransferSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseTransferSnapshot not implemented")
 }
 func (UnimplementedShardReplicationServiceServer) testEmbeddedByValue() {}
 
@@ -121,6 +184,53 @@ func _ShardReplicationService_Apply_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ShardReplicationService_CreateTransferSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateTransferSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ShardReplicationServiceServer).CreateTransferSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ShardReplicationService_CreateTransferSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ShardReplicationServiceServer).CreateTransferSnapshot(ctx, req.(*CreateTransferSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ShardReplicationService_GetSnapshotFile_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetSnapshotFileRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ShardReplicationServiceServer).GetSnapshotFile(m, &grpc.GenericServerStream[GetSnapshotFileRequest, SnapshotFileChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ShardReplicationService_GetSnapshotFileServer = grpc.ServerStreamingServer[SnapshotFileChunk]
+
+func _ShardReplicationService_ReleaseTransferSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseTransferSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ShardReplicationServiceServer).ReleaseTransferSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ShardReplicationService_ReleaseTransferSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ShardReplicationServiceServer).ReleaseTransferSnapshot(ctx, req.(*ReleaseTransferSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ShardReplicationService_ServiceDesc is the grpc.ServiceDesc for ShardReplicationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -132,7 +242,21 @@ var ShardReplicationService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Apply",
 			Handler:    _ShardReplicationService_Apply_Handler,
 		},
+		{
+			MethodName: "CreateTransferSnapshot",
+			Handler:    _ShardReplicationService_CreateTransferSnapshot_Handler,
+		},
+		{
+			MethodName: "ReleaseTransferSnapshot",
+			Handler:    _ShardReplicationService_ReleaseTransferSnapshot_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "GetSnapshotFile",
+			Handler:       _ShardReplicationService_GetSnapshotFile_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "messages.proto",
 }

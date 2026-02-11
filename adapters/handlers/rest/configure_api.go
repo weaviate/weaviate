@@ -76,6 +76,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
+	entityschema "github.com/weaviate/weaviate/entities/schema"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -488,6 +489,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+
+	// Wire out-of-band state transfer for shard RAFT snapshot restore.
+	// This must happen after DB is created (needs repo for reinit) but before
+	// any shards are loaded (which triggers RAFT and potential Restore calls).
+	stateTransfer := &shard.StateTransfer{
+		RpcClientMaker:  rpcClientMaker,
+		AddressResolver: appState.Cluster,
+		Reinitializer:   &shardReinitAdapter{db: repo},
+		LeaderFunc:      appState.ShardRegistry.Leader,
+		RootDataPath:    appState.ServerConfig.Config.Persistence.DataPath,
+		Log:             appState.Logger,
+	}
+	appState.ShardRegistry.SetStateTransferer(stateTransfer)
+
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
@@ -2192,4 +2207,18 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 			}
 		}, appState.Logger)
 	}
+}
+
+// shardReinitAdapter adapts *db.DB to the shard.ShardReinitializer interface
+// for reinitializing a shard after out-of-band state transfer.
+type shardReinitAdapter struct {
+	db *db.DB
+}
+
+func (a *shardReinitAdapter) ReinitShard(ctx context.Context, className, shardName string) error {
+	idx := a.db.GetIndex(entityschema.ClassName(className))
+	if idx == nil {
+		return fmt.Errorf("index for class %s not found", className)
+	}
+	return idx.IncomingReinitShard(ctx, shardName)
 }

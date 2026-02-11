@@ -136,6 +136,31 @@ func (s *Store) SetShard(shard shard) {
 	s.fsm.SetShard(shard)
 }
 
+// CreateTransferSnapshot delegates to the underlying shard to create a
+// hardlink snapshot for out-of-band state transfer.
+func (s *Store) CreateTransferSnapshot(ctx context.Context) (TransferSnapshot, error) {
+	sh := s.fsm.getShard()
+	if sh == nil {
+		return TransferSnapshot{}, fmt.Errorf("shard not set")
+	}
+	return sh.CreateTransferSnapshot(ctx)
+}
+
+// ReleaseTransferSnapshot delegates to the underlying shard to clean up a
+// transfer snapshot's staging directory.
+func (s *Store) ReleaseTransferSnapshot(snapshotID string) error {
+	sh := s.fsm.getShard()
+	if sh == nil {
+		return fmt.Errorf("shard not set")
+	}
+	return sh.ReleaseTransferSnapshot(snapshotID)
+}
+
+// SetStateTransferer sets the state transferer on the FSM.
+func (s *Store) SetStateTransferer(st StateTransferer) {
+	s.fsm.SetStateTransferer(st)
+}
+
 // Start initializes and starts the RAFT cluster.
 func (s *Store) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -239,10 +264,10 @@ func (s *Store) raftConfig() *raft.Config {
 	if s.config.TrailingLogs > 0 {
 		cfg.TrailingLogs = s.config.TrailingLogs
 	} else {
-		// Shard-level default: keep fewer trailing logs than schema-level.
-		// WAL cleanup has zero trailing entries; RAFT needs some until
-		// out-of-band state transfer is implemented.
-		cfg.TrailingLogs = 4096
+		// Shard-level default: zero trailing logs. Out-of-band state transfer
+		// handles followers that fall behind, so no trailing logs are needed
+		// for catch-up via log replay.
+		cfg.TrailingLogs = 0
 	}
 
 	cfg.LocalID = raft.ServerID(s.config.NodeID)

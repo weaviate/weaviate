@@ -56,8 +56,37 @@ type shard interface {
 	// in LSM segments before the RAFT log is truncated.
 	FlushMemtables(ctx context.Context) error
 
+	// CreateTransferSnapshot creates a hardlink snapshot of all shard files
+	// for out-of-band state transfer. Returns snapshot metadata including the
+	// staging directory path. Caller must call ReleaseTransferSnapshot when done.
+	CreateTransferSnapshot(ctx context.Context) (TransferSnapshot, error)
+
+	// ReleaseTransferSnapshot deletes the staging directory for a snapshot.
+	ReleaseTransferSnapshot(snapshotID string) error
+
 	// Name returns the shard name.
 	Name() string
+}
+
+// TransferSnapshot holds metadata for a hardlink snapshot created for
+// out-of-band state transfer.
+type TransferSnapshot struct {
+	ID    string             // unique snapshot identifier
+	Dir   string             // staging directory path containing hardlinks
+	Files []TransferFileInfo // file list with sizes and checksums
+}
+
+// TransferFileInfo describes a single file within a transfer snapshot.
+type TransferFileInfo struct {
+	Name  string // relative path within staging dir
+	Size  int64
+	CRC32 uint32
+}
+
+// StateTransferer handles downloading shard data from a leader when a
+// follower needs a full state transfer (e.g. after falling too far behind).
+type StateTransferer interface {
+	TransferState(ctx context.Context, className, shardName string) error
 }
 
 // FSM implements raft.FSM for per-shard object replication.
@@ -72,6 +101,10 @@ type FSM struct {
 	// It's set via SetShard after the FSM is created.
 	shard shard
 	mu    sync.RWMutex
+
+	// stateTransferer handles downloading shard data from the leader when
+	// Restore() detects a foreign snapshot. Set via SetStateTransferer.
+	stateTransferer StateTransferer
 
 	// lastAppliedIndex tracks the last RAFT log index that was applied.
 	// This is used for catch-up detection and snapshot consistency.
@@ -98,6 +131,21 @@ func (f *FSM) SetShard(shard shard) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.shard = shard
+}
+
+// getShard returns the current shard operator, or nil if not set.
+func (f *FSM) getShard() shard {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.shard
+}
+
+// SetStateTransferer sets the state transferer used by Restore() to download
+// shard data from the leader when a foreign snapshot is detected.
+func (f *FSM) SetStateTransferer(st StateTransferer) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stateTransferer = st
 }
 
 // Apply implements raft.FSM. It processes committed log entries and applies
@@ -327,8 +375,11 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 }
 
 // Restore implements raft.FSM. It restores the FSM state from a snapshot.
-// Since the actual object data is persisted in the LSM store, we only need
-// to restore the last applied index.
+// If the snapshot was created by a different node (foreign snapshot), it
+// triggers an out-of-band state transfer to download shard data from the
+// current leader. The StateTransferer determines the leader dynamically —
+// we don't use snap.NodeID for leader determination since the leader may
+// have changed between snapshot creation and restore.
 func (f *FSM) Restore(rc io.ReadCloser) error {
 	defer rc.Close()
 
@@ -341,6 +392,23 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	if snap.ClassName != f.className || snap.ShardName != f.shardName {
 		return fmt.Errorf("snapshot class/shard mismatch: expected %s/%s, got %s/%s",
 			f.className, f.shardName, snap.ClassName, snap.ShardName)
+	}
+
+	// Trigger state transfer if this is a foreign snapshot (from another node).
+	f.mu.RLock()
+	st := f.stateTransferer
+	f.mu.RUnlock()
+
+	if snap.NodeID != f.nodeID && st != nil {
+		f.log.WithFields(logrus.Fields{
+			"snapshot_node_id": snap.NodeID,
+			"local_node_id":   f.nodeID,
+		}).Info("foreign snapshot detected, initiating state transfer")
+
+		ctx := context.Background()
+		if err := st.TransferState(ctx, f.className, f.shardName); err != nil {
+			return fmt.Errorf("state transfer for %s/%s: %w", f.className, f.shardName, err)
+		}
 	}
 
 	f.lastAppliedIndex.Store(snap.LastAppliedIndex)

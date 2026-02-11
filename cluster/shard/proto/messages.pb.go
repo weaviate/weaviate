@@ -736,6 +736,373 @@ func (x *AddReferencesRequest) GetSchemaVersion() uint64 {
 	return 0
 }
 
+// CreateTransferSnapshotRequest asks the leader to create a hardlink snapshot
+// of the specified shard's files for out-of-band state transfer.
+type CreateTransferSnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Class         string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
+	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateTransferSnapshotRequest) Reset() {
+	*x = CreateTransferSnapshotRequest{}
+	mi := &file_messages_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateTransferSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateTransferSnapshotRequest) ProtoMessage() {}
+
+func (x *CreateTransferSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateTransferSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*CreateTransferSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *CreateTransferSnapshotRequest) GetClass() string {
+	if x != nil {
+		return x.Class
+	}
+	return ""
+}
+
+func (x *CreateTransferSnapshotRequest) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
+// SnapshotFileInfo describes a single file in a transfer snapshot.
+type SnapshotFileInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`    // relative file path within staging dir
+	Size          int64                  `protobuf:"varint,2,opt,name=size,proto3" json:"size,omitempty"`   // file size in bytes
+	Crc32         uint32                 `protobuf:"varint,3,opt,name=crc32,proto3" json:"crc32,omitempty"` // CRC32 checksum
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnapshotFileInfo) Reset() {
+	*x = SnapshotFileInfo{}
+	mi := &file_messages_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnapshotFileInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnapshotFileInfo) ProtoMessage() {}
+
+func (x *SnapshotFileInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnapshotFileInfo.ProtoReflect.Descriptor instead.
+func (*SnapshotFileInfo) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SnapshotFileInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SnapshotFileInfo) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *SnapshotFileInfo) GetCrc32() uint32 {
+	if x != nil {
+		return x.Crc32
+	}
+	return 0
+}
+
+// CreateTransferSnapshotResponse returns the snapshot ID and list of files
+// available for download.
+type CreateTransferSnapshotResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SnapshotId    string                 `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	Files         []*SnapshotFileInfo    `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateTransferSnapshotResponse) Reset() {
+	*x = CreateTransferSnapshotResponse{}
+	mi := &file_messages_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateTransferSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateTransferSnapshotResponse) ProtoMessage() {}
+
+func (x *CreateTransferSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateTransferSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*CreateTransferSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *CreateTransferSnapshotResponse) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *CreateTransferSnapshotResponse) GetFiles() []*SnapshotFileInfo {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+// GetSnapshotFileRequest asks the leader to stream a specific file from
+// a previously created transfer snapshot.
+type GetSnapshotFileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SnapshotId    string                 `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	FileName      string                 `protobuf:"bytes,2,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSnapshotFileRequest) Reset() {
+	*x = GetSnapshotFileRequest{}
+	mi := &file_messages_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSnapshotFileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSnapshotFileRequest) ProtoMessage() {}
+
+func (x *GetSnapshotFileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSnapshotFileRequest.ProtoReflect.Descriptor instead.
+func (*GetSnapshotFileRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetSnapshotFileRequest) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *GetSnapshotFileRequest) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+// SnapshotFileChunk is a streamed chunk of a snapshot file.
+type SnapshotFileChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Offset        int64                  `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	Eof           bool                   `protobuf:"varint,3,opt,name=eof,proto3" json:"eof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnapshotFileChunk) Reset() {
+	*x = SnapshotFileChunk{}
+	mi := &file_messages_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnapshotFileChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnapshotFileChunk) ProtoMessage() {}
+
+func (x *SnapshotFileChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnapshotFileChunk.ProtoReflect.Descriptor instead.
+func (*SnapshotFileChunk) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SnapshotFileChunk) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *SnapshotFileChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *SnapshotFileChunk) GetEof() bool {
+	if x != nil {
+		return x.Eof
+	}
+	return false
+}
+
+// ReleaseTransferSnapshotRequest tells the leader to clean up the staging
+// directory for a completed (or failed) transfer snapshot.
+type ReleaseTransferSnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SnapshotId    string                 `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseTransferSnapshotRequest) Reset() {
+	*x = ReleaseTransferSnapshotRequest{}
+	mi := &file_messages_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseTransferSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseTransferSnapshotRequest) ProtoMessage() {}
+
+func (x *ReleaseTransferSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseTransferSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseTransferSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ReleaseTransferSnapshotRequest) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+// ReleaseTransferSnapshotResponse is empty — success is indicated by a nil error.
+type ReleaseTransferSnapshotResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseTransferSnapshotResponse) Reset() {
+	*x = ReleaseTransferSnapshotResponse{}
+	mi := &file_messages_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseTransferSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseTransferSnapshotResponse) ProtoMessage() {}
+
+func (x *ReleaseTransferSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseTransferSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*ReleaseTransferSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{16}
+}
+
 var File_messages_proto protoreflect.FileDescriptor
 
 const file_messages_proto_rawDesc = "" +
@@ -797,9 +1164,35 @@ const file_messages_proto_rawDesc = "" +
 	"\x0eschema_version\x18\x04 \x01(\x04R\rschemaVersion\"f\n" +
 	"\x14AddReferencesRequest\x12'\n" +
 	"\x0freferences_json\x18\x01 \x01(\fR\x0ereferencesJson\x12%\n" +
-	"\x0eschema_version\x18\x02 \x01(\x04R\rschemaVersion2q\n" +
+	"\x0eschema_version\x18\x02 \x01(\x04R\rschemaVersion\"K\n" +
+	"\x1dCreateTransferSnapshotRequest\x12\x14\n" +
+	"\x05class\x18\x01 \x01(\tR\x05class\x12\x14\n" +
+	"\x05shard\x18\x02 \x01(\tR\x05shard\"P\n" +
+	"\x10SnapshotFileInfo\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04size\x18\x02 \x01(\x03R\x04size\x12\x14\n" +
+	"\x05crc32\x18\x03 \x01(\rR\x05crc32\"\x81\x01\n" +
+	"\x1eCreateTransferSnapshotResponse\x12\x1f\n" +
+	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
+	"snapshotId\x12>\n" +
+	"\x05files\x18\x02 \x03(\v2(.weaviate.internal.data.SnapshotFileInfoR\x05files\"V\n" +
+	"\x16GetSnapshotFileRequest\x12\x1f\n" +
+	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
+	"snapshotId\x12\x1b\n" +
+	"\tfile_name\x18\x02 \x01(\tR\bfileName\"Q\n" +
+	"\x11SnapshotFileChunk\x12\x16\n" +
+	"\x06offset\x18\x01 \x01(\x03R\x06offset\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x10\n" +
+	"\x03eof\x18\x03 \x01(\bR\x03eof\"A\n" +
+	"\x1eReleaseTransferSnapshotRequest\x12\x1f\n" +
+	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
+	"snapshotId\"!\n" +
+	"\x1fReleaseTransferSnapshotResponse2\xfe\x03\n" +
 	"\x17ShardReplicationService\x12V\n" +
-	"\x05Apply\x12$.weaviate.internal.data.ApplyRequest\x1a%.weaviate.internal.data.ApplyResponse\"\x00B\xd6\x01\n" +
+	"\x05Apply\x12$.weaviate.internal.data.ApplyRequest\x1a%.weaviate.internal.data.ApplyResponse\"\x00\x12\x89\x01\n" +
+	"\x16CreateTransferSnapshot\x125.weaviate.internal.data.CreateTransferSnapshotRequest\x1a6.weaviate.internal.data.CreateTransferSnapshotResponse\"\x00\x12p\n" +
+	"\x0fGetSnapshotFile\x12..weaviate.internal.data.GetSnapshotFileRequest\x1a).weaviate.internal.data.SnapshotFileChunk\"\x000\x01\x12\x8c\x01\n" +
+	"\x17ReleaseTransferSnapshot\x126.weaviate.internal.data.ReleaseTransferSnapshotRequest\x1a7.weaviate.internal.data.ReleaseTransferSnapshotResponse\"\x00B\xd6\x01\n" +
 	"\x1acom.weaviate.internal.dataB\rMessagesProtoP\x01Z/github.com/weaviate/weaviate/cluster/data/proto\xa2\x02\x03WID\xaa\x02\x16Weaviate.Internal.Data\xca\x02\x16Weaviate\\Internal\\Data\xe2\x02\"Weaviate\\Internal\\Data\\GPBMetadata\xea\x02\x18Weaviate::Internal::Datab\x06proto3"
 
 var (
@@ -815,29 +1208,43 @@ func file_messages_proto_rawDescGZIP() []byte {
 }
 
 var file_messages_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_messages_proto_goTypes = []any{
-	(ApplyRequest_Type)(0),            // 0: weaviate.internal.data.ApplyRequest.Type
-	(*ApplyRequest)(nil),              // 1: weaviate.internal.data.ApplyRequest
-	(*ApplyResponse)(nil),             // 2: weaviate.internal.data.ApplyResponse
-	(*ShardRaftSnapshot)(nil),         // 3: weaviate.internal.data.ShardRaftSnapshot
-	(*PutObjectRequest)(nil),          // 4: weaviate.internal.data.PutObjectRequest
-	(*PutObjectResponse)(nil),         // 5: weaviate.internal.data.PutObjectResponse
-	(*DeleteObjectRequest)(nil),       // 6: weaviate.internal.data.DeleteObjectRequest
-	(*MergeObjectRequest)(nil),        // 7: weaviate.internal.data.MergeObjectRequest
-	(*PutObjectsBatchRequest)(nil),    // 8: weaviate.internal.data.PutObjectsBatchRequest
-	(*DeleteObjectsBatchRequest)(nil), // 9: weaviate.internal.data.DeleteObjectsBatchRequest
-	(*AddReferencesRequest)(nil),      // 10: weaviate.internal.data.AddReferencesRequest
+	(ApplyRequest_Type)(0),                  // 0: weaviate.internal.data.ApplyRequest.Type
+	(*ApplyRequest)(nil),                    // 1: weaviate.internal.data.ApplyRequest
+	(*ApplyResponse)(nil),                   // 2: weaviate.internal.data.ApplyResponse
+	(*ShardRaftSnapshot)(nil),               // 3: weaviate.internal.data.ShardRaftSnapshot
+	(*PutObjectRequest)(nil),                // 4: weaviate.internal.data.PutObjectRequest
+	(*PutObjectResponse)(nil),               // 5: weaviate.internal.data.PutObjectResponse
+	(*DeleteObjectRequest)(nil),             // 6: weaviate.internal.data.DeleteObjectRequest
+	(*MergeObjectRequest)(nil),              // 7: weaviate.internal.data.MergeObjectRequest
+	(*PutObjectsBatchRequest)(nil),          // 8: weaviate.internal.data.PutObjectsBatchRequest
+	(*DeleteObjectsBatchRequest)(nil),       // 9: weaviate.internal.data.DeleteObjectsBatchRequest
+	(*AddReferencesRequest)(nil),            // 10: weaviate.internal.data.AddReferencesRequest
+	(*CreateTransferSnapshotRequest)(nil),   // 11: weaviate.internal.data.CreateTransferSnapshotRequest
+	(*SnapshotFileInfo)(nil),                // 12: weaviate.internal.data.SnapshotFileInfo
+	(*CreateTransferSnapshotResponse)(nil),  // 13: weaviate.internal.data.CreateTransferSnapshotResponse
+	(*GetSnapshotFileRequest)(nil),          // 14: weaviate.internal.data.GetSnapshotFileRequest
+	(*SnapshotFileChunk)(nil),               // 15: weaviate.internal.data.SnapshotFileChunk
+	(*ReleaseTransferSnapshotRequest)(nil),  // 16: weaviate.internal.data.ReleaseTransferSnapshotRequest
+	(*ReleaseTransferSnapshotResponse)(nil), // 17: weaviate.internal.data.ReleaseTransferSnapshotResponse
 }
 var file_messages_proto_depIdxs = []int32{
-	0, // 0: weaviate.internal.data.ApplyRequest.type:type_name -> weaviate.internal.data.ApplyRequest.Type
-	1, // 1: weaviate.internal.data.ShardReplicationService.Apply:input_type -> weaviate.internal.data.ApplyRequest
-	2, // 2: weaviate.internal.data.ShardReplicationService.Apply:output_type -> weaviate.internal.data.ApplyResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0,  // 0: weaviate.internal.data.ApplyRequest.type:type_name -> weaviate.internal.data.ApplyRequest.Type
+	12, // 1: weaviate.internal.data.CreateTransferSnapshotResponse.files:type_name -> weaviate.internal.data.SnapshotFileInfo
+	1,  // 2: weaviate.internal.data.ShardReplicationService.Apply:input_type -> weaviate.internal.data.ApplyRequest
+	11, // 3: weaviate.internal.data.ShardReplicationService.CreateTransferSnapshot:input_type -> weaviate.internal.data.CreateTransferSnapshotRequest
+	14, // 4: weaviate.internal.data.ShardReplicationService.GetSnapshotFile:input_type -> weaviate.internal.data.GetSnapshotFileRequest
+	16, // 5: weaviate.internal.data.ShardReplicationService.ReleaseTransferSnapshot:input_type -> weaviate.internal.data.ReleaseTransferSnapshotRequest
+	2,  // 6: weaviate.internal.data.ShardReplicationService.Apply:output_type -> weaviate.internal.data.ApplyResponse
+	13, // 7: weaviate.internal.data.ShardReplicationService.CreateTransferSnapshot:output_type -> weaviate.internal.data.CreateTransferSnapshotResponse
+	15, // 8: weaviate.internal.data.ShardReplicationService.GetSnapshotFile:output_type -> weaviate.internal.data.SnapshotFileChunk
+	17, // 9: weaviate.internal.data.ShardReplicationService.ReleaseTransferSnapshot:output_type -> weaviate.internal.data.ReleaseTransferSnapshotResponse
+	6,  // [6:10] is the sub-list for method output_type
+	2,  // [2:6] is the sub-list for method input_type
+	2,  // [2:2] is the sub-list for extension type_name
+	2,  // [2:2] is the sub-list for extension extendee
+	0,  // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_messages_proto_init() }
@@ -852,7 +1259,7 @@ func file_messages_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_messages_proto_rawDesc), len(file_messages_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
