@@ -18,15 +18,17 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-func testDeletePropertyIndexMultiTenant() func(t *testing.T) {
+func testDeletePropertyIndexMultiTenant(compose *docker.DockerCompose) func(t *testing.T) {
 	return func(t *testing.T) {
 		bookClass := "BooksMT"
 		tenantName := "tenant1"
@@ -230,7 +232,6 @@ func testDeletePropertyIndexMultiTenant() func(t *testing.T) {
 		objCreateResp, err = helper.Client(t).Objects.ObjectsCreate(objCreateParams, nil)
 		helper.AssertRequestOk(t, objCreateResp, err, nil)
 
-		// Step 1: Verify all searches work
 		t.Run("perform search", func(t *testing.T) {
 			filterByTitle(t, true)
 			filterByTitleOnlyFilterable(t, true)
@@ -238,7 +239,6 @@ func testDeletePropertyIndexMultiTenant() func(t *testing.T) {
 			filterByYear(t, true)
 		})
 
-		// Step 2: Deactivate tenant
 		t.Run("deactivate tenant", func(t *testing.T) {
 			helper.UpdateTenants(t, bookClass, []*models.Tenant{
 				{
@@ -248,7 +248,6 @@ func testDeletePropertyIndexMultiTenant() func(t *testing.T) {
 			})
 		})
 
-		// Step 3: Remove title_only_filterable's filterable index while tenant is inactive
 		t.Run("delete title_only_filterable filterable index", func(t *testing.T) {
 			updateParams := clschema.NewSchemaObjectsPropertiesDeleteParams().
 				WithClassName(bookClass).
@@ -259,7 +258,47 @@ func testDeletePropertyIndexMultiTenant() func(t *testing.T) {
 			require.Equal(t, 200, updateOk.Code())
 		})
 
-		// Step 4: Activate tenant and verify search results
+		if compose != nil {
+			t.Run("check that title_only_filterable filterable bucket still exists on disk", func(t *testing.T) {
+				exists := checkFolderExistence(t, compose, bookClass, tenantName, helpers.BucketFromPropNameLSM(title_only_filterable))
+				assert.True(t, exists)
+			})
+		}
+
+		t.Run("delete author searchable index", func(t *testing.T) {
+			updateParams := clschema.NewSchemaObjectsPropertiesDeleteParams().
+				WithClassName(bookClass).
+				WithPropertyName(author).
+				WithIndexName("searchable")
+			updateOk, err := helper.Client(t).Schema.SchemaObjectsPropertiesDelete(updateParams, nil)
+			helper.AssertRequestOk(t, updateOk, err, nil)
+			require.Equal(t, 200, updateOk.Code())
+		})
+
+		if compose != nil {
+			t.Run("check that author searchable bucket still exists on disk", func(t *testing.T) {
+				exists := checkFolderExistence(t, compose, bookClass, tenantName, helpers.BucketSearchableFromPropNameLSM(author))
+				assert.True(t, exists)
+			})
+		}
+
+		t.Run("delete year rangeFilters index", func(t *testing.T) {
+			updateParams := clschema.NewSchemaObjectsPropertiesDeleteParams().
+				WithClassName(bookClass).
+				WithPropertyName(year).
+				WithIndexName("rangeFilters")
+			updateOk, err := helper.Client(t).Schema.SchemaObjectsPropertiesDelete(updateParams, nil)
+			helper.AssertRequestOk(t, updateOk, err, nil)
+			require.Equal(t, 200, updateOk.Code())
+		})
+
+		if compose != nil {
+			t.Run("check that year rangeFilters bucket still exists on disk", func(t *testing.T) {
+				exists := checkFolderExistence(t, compose, bookClass, tenantName, helpers.BucketRangeableFromPropNameLSM(year))
+				assert.True(t, exists)
+			})
+		}
+
 		t.Run("activate tenant and perform search", func(t *testing.T) {
 			helper.UpdateTenants(t, bookClass, []*models.Tenant{
 				{
@@ -273,12 +312,30 @@ func testDeletePropertyIndexMultiTenant() func(t *testing.T) {
 			})
 			t.Run("title_only_filterable - should not work", func(t *testing.T) {
 				filterByTitleOnlyFilterable(t, false)
+				if compose != nil {
+					t.Run("check that title_only_filterable filterable bucket doesn't exists on disk", func(t *testing.T) {
+						exists := checkFolderExistence(t, compose, bookClass, tenantName, helpers.BucketFromPropNameLSM(title_only_filterable))
+						assert.False(t, exists)
+					})
+				}
 			})
 			t.Run("author", func(t *testing.T) {
-				searchByAuthor(t, true)
+				searchByAuthor(t, false)
+				if compose != nil {
+					t.Run("check that author searchable bucket doesn't exists on disk", func(t *testing.T) {
+						exists := checkFolderExistence(t, compose, bookClass, tenantName, helpers.BucketSearchableFromPropNameLSM(author))
+						assert.False(t, exists)
+					})
+				}
 			})
 			t.Run("year", func(t *testing.T) {
 				filterByYear(t, true)
+				if compose != nil {
+					t.Run("check that year rangeFilters bucket doesn't exists on disk", func(t *testing.T) {
+						exists := checkFolderExistence(t, compose, bookClass, tenantName, helpers.BucketRangeableFromPropNameLSM(year))
+						assert.False(t, exists)
+					})
+				}
 			})
 		})
 	}
