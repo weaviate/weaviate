@@ -399,11 +399,13 @@ func Test_DeleteAndRecreateS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify created object", func(t *testing.T) {
-			resp, err := helper.TenantListObjects(t, className, tenantNames[0])
-			require.Nil(t, err)
-			assert.Equal(t, 1, len(resp.Objects))
-			assert.Equal(t, tenantObjects[0].Class, resp.Objects[0].Class)
-			assert.Equal(t, tenantObjects[0].Properties, resp.Objects[0].Properties)
+			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+				resp, err := helper.TenantListObjects(t, className, tenantNames[0])
+				require.NoError(ct, err)
+				require.Equal(ct, 1, len(resp.Objects))
+				assert.Equal(ct, tenantObjects[0].Class, resp.Objects[0].Class)
+				assert.Equal(ct, tenantObjects[0].Properties, resp.Objects[0].Properties)
+			}, 30*time.Second, 500*time.Millisecond, "object not available after unfreezing tenant")
 		})
 	})
 }

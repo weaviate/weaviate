@@ -209,6 +209,14 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
 		})
 
+		t.Run("wait for objects available after unfreeze", func(t *testing.T) {
+			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exists, err := helper.TenantObjectExists(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
+				assert.NoError(ct, err)
+				assert.True(ct, exists)
+			}, 30*time.Second, 500*time.Millisecond, "objects not available after unfreezing tenant")
+		})
+
 		t.Run("verify object creation", func(t *testing.T) {
 			for i, obj := range tenantObjects {
 				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
