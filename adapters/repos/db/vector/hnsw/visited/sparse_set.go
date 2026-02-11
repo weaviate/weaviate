@@ -12,151 +12,196 @@
 package visited
 
 import (
+	"math"
 	"math/bits"
 	"sync"
 )
 
 type segment struct {
-	bitSet []byte
-}
-
-func newSegment(size int) *segment {
-	return &segment{
-		bitSet: make([]byte, size),
-	}
-}
-
-func (s *segment) setMasked(byteInSegment uint64, mask byte) {
-	s.bitSet[byteInSegment] = s.bitSet[byteInSegment] | mask
-}
-
-func (s *segment) getMasked(byteInSegment uint64, mask byte) bool {
-	return s.bitSet[byteInSegment]&mask != 0
+	words []uint64
 }
 
 type segmentedBitSet struct {
-	segments []*segment
-	pool     *sync.Pool
+	segments    []segment
+	pool        *sync.Pool
+	wordsPerSeg int
 }
 
 func newSegmentedBitSet(size, collisionRate int) *segmentedBitSet {
+	cr := uint64(collisionRate)
+	wordsPerSeg := int((cr + 63) >> 6)
+
 	return &segmentedBitSet{
-		segments: make([]*segment, size/collisionRate+1),
+		segments:    make([]segment, size/collisionRate+1),
+		wordsPerSeg: wordsPerSeg,
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return newSegment(collisionRate/8 + 1)
+				return make([]uint64, wordsPerSeg)
 			},
 		},
 	}
 }
 
-func (s *segmentedBitSet) set(segmentedInded, byteInSegment uint64, mask byte) {
-	s.segments[segmentedInded].setMasked(byteInSegment, mask)
-}
-
-func (s *segmentedBitSet) get(segmentedInded, byteInSegment uint64, mask byte) bool {
-	return s.segments[segmentedInded].getMasked(byteInSegment, mask)
-}
-
-func (s *segmentedBitSet) grow(size uint64) {
-	s.segments = append(s.segments, make([]*segment, size)...)
-}
-
 type SparseSet struct {
-	segmentedBitSets *segmentedBitSet // Most frequently accessed
-	collidingBitSet  []byte           // Second most frequent
-	collisionRate    uint64           // Used in calculations
+	segmentedBitSets *segmentedBitSet
+	collidingBitSet  []uint64
+	collisionRate    uint64
+	collisionShift   uint8
+	maxNodeExclusive uint64
 }
 
 func NewSparseSet(size, collisionRate int) *SparseSet {
-	masks := make([]byte, 8)
-	for i := range masks {
-		masks[i] = 1 << i
-	}
-	return &SparseSet{
-		collisionRate:    uint64(collisionRate),
-		collidingBitSet:  make([]byte, (size/collisionRate)/8+1),
+	cr := uint64(collisionRate)
+
+	cb := make([]uint64, (size/int(cr))/64+1)
+
+	s := &SparseSet{
+		collisionRate:    cr,
+		collisionShift:   uint8(bits.TrailingZeros64(cr)),
+		collidingBitSet:  cb,
 		segmentedBitSets: newSegmentedBitSet(size, collisionRate),
 	}
+	s.maxNodeExclusive = uint64(len(cb)) * 64 * cr
+	return s
 }
 
-func (s SparseSet) Len() int { return len(s.collidingBitSet) * int(s.collisionRate*8) }
-
-func (s *SparseSet) Visit(node uint64) {
-	if node >= uint64(s.Len()) {
-		s.grow(node)
+func growToUint64SliceLen(slc []uint64, need uint64) []uint64 {
+	if uint64(len(slc)) >= need {
+		return slc
 	}
-
-	// Pre-compute bit shift values for collisionRate (assuming it's a power of 2)
-	collisionShift := uint64(bits.TrailingZeros64(s.collisionRate))
-
-	// Optimized address calculations using bit operations
-	segment := node >> (collisionShift + 3)      // node / (collisionRate * 8)
-	segmentIndex := (node >> collisionShift) & 7 // (node / collisionRate) % 8
-	segmentedIndex := node >> collisionShift     // node / collisionRate
-
-	// Check if segment is already marked as having visited nodes
-	segmentMask := byte(1 << segmentIndex)
-	if s.collidingBitSet[segment]&segmentMask == 0 {
-		s.resetSegment(segmentedIndex)
-		s.collidingBitSet[segment] |= segmentMask
+	newLen := uint64(len(slc))
+	if newLen == 0 {
+		newLen = 1
 	}
-
-	// Set the bit in the segment's bitset
-	byteInSegment := (node & (s.collisionRate - 1)) >> 3 // (node % collisionRate) / 8
-	bitMask := byte(1 << (node & 7))                     // 1 << (node % 8)
-
-	// Inline the segment access to avoid function call overhead
-	s.segmentedBitSets.segments[segmentedIndex].bitSet[byteInSegment] |= bitMask
+	for newLen < need {
+		newLen *= 2
+	}
+	if newLen > uint64(math.MaxInt) {
+		panic("growToUint64SliceLen: requested length over MaxInt")
+	}
+	extra := int(newLen - uint64(len(slc)))
+	return append(slc, make([]uint64, extra)...)
 }
 
-func (s *SparseSet) Visited(node uint64) bool {
-	if node >= uint64(s.Len()) {
-		return false
+func growToSegmentSliceLen(slc []segment, need uint64) []segment {
+	if uint64(len(slc)) >= need {
+		return slc
 	}
-
-	// Assuming collisionRate is a power of 2, use bit shifts
-	collisionShift := uint64(bits.TrailingZeros64(s.collisionRate))
-
-	segment := node >> (collisionShift + 3)      // divide by collisionRate * 8
-	segmentIndex := (node >> collisionShift) & 7 // mod 8
-
-	if s.collidingBitSet[segment]&(1<<segmentIndex) == 0 {
-		return false
+	newLen := uint64(len(slc))
+	if newLen == 0 {
+		newLen = 1
 	}
-
-	segmentedIndex := node >> collisionShift
-	byteInSegment := (node & (s.collisionRate - 1)) >> 3 // mod collisionRate, then div 8
-	bitMask := byte(1 << (node & 7))                     // mod 8
-
-	return s.segmentedBitSets.segments[segmentedIndex].bitSet[byteInSegment]&bitMask != 0
+	for newLen < need {
+		newLen *= 2
+	}
+	if newLen > uint64(math.MaxInt) {
+		panic("growToSegmentSliceLen: requested length over MaxInt")
+	}
+	extra := int(newLen - uint64(len(slc)))
+	return append(slc, make([]segment, extra)...)
 }
 
-func (s *SparseSet) Reset() {
-	for i := range s.collidingBitSet {
-		s.collidingBitSet[i] = 0
-	}
-	for i, segment := range s.segmentedBitSets.segments {
-		if segment != nil {
-			s.segmentedBitSets.pool.Put(segment)
-			s.segmentedBitSets.segments[i] = nil
-		}
-	}
+func (s *SparseSet) grow(node uint64) {
+	segmentedIndex := node >> s.collisionShift
+	needCBWords := (segmentedIndex >> 6) + 1
+	needSegs := segmentedIndex + 1
+
+	s.collidingBitSet = growToUint64SliceLen(s.collidingBitSet, needCBWords)
+	s.segmentedBitSets.segments = growToSegmentSliceLen(s.segmentedBitSets.segments, needSegs)
+
+	s.maxNodeExclusive = uint64(len(s.collidingBitSet)) * 64 * s.collisionRate
 }
 
 func (s *SparseSet) resetSegment(segmentId uint64) {
 	if segmentId >= uint64(len(s.segmentedBitSets.segments)) {
-		s.segmentedBitSets.grow(segmentId - uint64(len(s.segmentedBitSets.segments)) + 1)
+		s.grow(segmentId << s.collisionShift)
 	}
-	s.segmentedBitSets.segments[segmentId] = s.segmentedBitSets.pool.Get().(*segment)
-	segment := s.segmentedBitSets.segments[segmentId]
-	for i := range segment.bitSet {
-		segment.bitSet[i] = 0
+
+	seg := &s.segmentedBitSets.segments[segmentId]
+	if seg.words == nil {
+		seg.words = s.segmentedBitSets.pool.Get().([]uint64)
+	}
+	clear(seg.words)
+}
+
+func (s *SparseSet) Reset() {
+	clear(s.collidingBitSet)
+	for i := range s.segmentedBitSets.segments {
+		seg := &s.segmentedBitSets.segments[i]
+		if seg.words != nil {
+			s.segmentedBitSets.pool.Put(seg.words)
+			seg.words = nil
+		}
 	}
 }
 
-func (s *SparseSet) grow(size uint64) {
-	growSize := (size-uint64(s.Len()))/s.collisionRate + 8
-	s.collidingBitSet = append(s.collidingBitSet, make([]byte, growSize/8)...)
-	s.segmentedBitSets.grow(growSize)
+func (s *SparseSet) Visit(node uint64) {
+	if node >= s.maxNodeExclusive {
+		s.grow(node)
+	}
+
+	cb := s.collidingBitSet
+	segs := s.segmentedBitSets.segments
+	shift := s.collisionShift
+	cr := s.collisionRate
+
+	segmentedIndex := node >> shift
+
+	cbWord := segmentedIndex >> 6
+	cbBit := segmentedIndex & 63
+	cbMask := uint64(1) << cbBit
+
+	if cbWord >= uint64(len(cb)) || segmentedIndex >= uint64(len(segs)) {
+		s.grow(node)
+		cb = s.collidingBitSet
+		segs = s.segmentedBitSets.segments
+		if cbWord >= uint64(len(cb)) || segmentedIndex >= uint64(len(segs)) {
+			return
+		}
+	}
+
+	if cb[cbWord]&cbMask == 0 {
+		s.resetSegment(segmentedIndex)
+		cb = s.collidingBitSet
+		segs = s.segmentedBitSets.segments
+		cb[cbWord] |= cbMask
+	}
+
+	seg := &segs[segmentedIndex]
+	if seg.words == nil {
+		return
+	}
+
+	off := node & (cr - 1)
+	wordInSeg := off >> 6
+	seg.words[wordInSeg] |= uint64(1) << (off & 63)
+}
+
+func (s *SparseSet) Visited(node uint64) bool {
+	max := s.maxNodeExclusive
+	if node >= max {
+		return false
+	}
+
+	cb := s.collidingBitSet
+	segs := s.segmentedBitSets.segments
+
+	segmentedIndex := node >> s.collisionShift
+	cbWord := segmentedIndex >> 6
+	if cbWord >= uint64(len(cb)) {
+		return false
+	}
+
+	if cb[cbWord]&(uint64(1)<<(segmentedIndex&63)) == 0 {
+		return false
+	}
+
+	if segmentedIndex >= uint64(len(segs)) {
+		return false
+	}
+
+	seg := &segs[segmentedIndex]
+
+	off := node & (s.collisionRate - 1)
+	return seg.words[off>>6]&(uint64(1)<<(off&63)) != 0
 }
