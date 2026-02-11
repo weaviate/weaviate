@@ -23,9 +23,11 @@ import (
 )
 
 const (
+	apiEndpointProperty          = "apiEndpoint"
 	locationProperty             = "location"
 	projectIDProperty            = "projectId"
 	modelIDProperty              = "modelId"
+	modelProperty                = "model"
 	dimensionsProperty           = "dimensions"
 	videoIntervalSecondsProperty = "videoIntervalSeconds"
 )
@@ -35,6 +37,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
+	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaultModelID               = "multimodalembedding@001"
 )
 
@@ -60,6 +63,10 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 // Google params
+func (ic *classSettings) ApiEndpoint() string {
+	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
+}
+
 func (ic *classSettings) Location() string {
 	return ic.getStringProperty(locationProperty, "")
 }
@@ -68,7 +75,10 @@ func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) ModelID() string {
+func (ic *classSettings) Model() string {
+	if model := ic.getStringProperty(modelProperty, ""); model != "" {
+		return model
+	}
 	return ic.getStringProperty(modelIDProperty, DefaultModelID)
 }
 
@@ -117,7 +127,7 @@ func (ic *classSettings) Validate() error {
 
 	var errorMessages []string
 
-	model := ic.ModelID()
+	model := ic.Model()
 	location := ic.Location()
 	if location == "" {
 		errorMessages = append(errorMessages, "location setting needs to be present")

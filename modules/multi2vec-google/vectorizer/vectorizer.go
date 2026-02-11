@@ -179,9 +179,10 @@ func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
 func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	settings := NewClassSettings(cfg)
 	return ent.VectorizationConfig{
+		ApiEndpoint:          settings.ApiEndpoint(),
 		Location:             settings.Location(),
 		ProjectID:            settings.ProjectID(),
-		Model:                settings.ModelID(),
+		Model:                settings.Model(),
 		Dimensions:           settings.Dimensions(),
 		VideoIntervalSeconds: settings.VideoIntervalSeconds(),
 	}

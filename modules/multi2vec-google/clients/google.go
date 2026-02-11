@@ -28,7 +28,10 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-func buildURL(location, projectID, model string) string {
+func buildURL(apiEndpoint, location, projectID, model string) string {
+	if apiEndpoint == "generativelanguage.googleapis.com" {
+		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:embedContent", model)
+	}
 	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
 		location, projectID, location, model)
 }
@@ -38,7 +41,7 @@ type google struct {
 	useGoogleAuth bool
 	googleApiKey  *apikey.GoogleApiKey
 	httpClient    *http.Client
-	urlBuilderFn  func(location, projectID, model string) string
+	urlBuilderFn  func(apiEndpoint, location, projectID, model string) string
 	logger        logrus.FieldLogger
 }
 
@@ -144,7 +147,11 @@ func (v *google) sendRequest(ctx context.Context,
 }
 
 func (v *google) getURL(config ent.VectorizationConfig) string {
-	return v.urlBuilderFn(config.Location, config.ProjectID, config.Model)
+	return v.urlBuilderFn(config.ApiEndpoint, config.Location, config.ProjectID, config.Model)
+}
+
+func (v *google) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
+	return config.ApiEndpoint == "generativelanguage.googleapis.com"
 }
 
 func (v *google) getPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
@@ -165,7 +172,7 @@ func (v *google) getPayload(text, img, vid string, config ent.VectorizationConfi
 		Instances: []instance{inst},
 	}
 	if inst.Video == nil {
-		req.Parameters = parameters{Dimension: config.Dimensions}
+		req.Parameters = &parameters{Dimension: config.Dimensions}
 	}
 	return req
 }
@@ -232,8 +239,8 @@ func (v *google) getResponse(textVectors, imageVectors, videoVectors [][]float32
 }
 
 type embeddingsRequest struct {
-	Instances  []instance `json:"instances,omitempty"`
-	Parameters parameters `json:"parameters,omitempty"`
+	Instances  []instance  `json:"instances,omitempty"`
+	Parameters *parameters `json:"parameters,omitempty"`
 }
 
 type parameters struct {
