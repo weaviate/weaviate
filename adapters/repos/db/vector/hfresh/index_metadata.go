@@ -190,7 +190,7 @@ func (h *HFresh) restoreMetrics() error {
 	h.metrics.SetReassignCount(reassignCount)
 	h.metrics.SetAnalyzeCount(analyzeCount)
 
-	postingsCount := h.postingCount()
+	postingsCount := h.PostingMap.Size()
 	h.Centroids.counter.Store(int32(postingsCount))
 	h.metrics.SetPostings(postingsCount)
 
@@ -218,16 +218,6 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 	h.distancer = NewDistancer(rq, h.config.DistanceProvider)
 
 	return nil
-}
-
-func (h *HFresh) postingCount() int {
-	count := 0
-	for id := range h.PostingMap.Iter() {
-		if h.Centroids.Exists(id) {
-			count++
-		}
-	}
-	return count
 }
 
 // BucketStore is a SequenceStore implementation that uses the LSM store as the backend.
