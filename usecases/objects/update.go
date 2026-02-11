@@ -83,26 +83,23 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		}
 	}
 
+	maxSchemaVersion := max(fetchedClasses[className].Version, activationVersion)
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	maxSchemaVersion := max(fetchedClasses[className].Version, activationVersion)
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
+	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
-
-	if updates.Tenant != "" {
-		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, className, updates.Tenant)
-		if err != nil {
-			return nil, err
-		}
-		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
-	}
+	// to be used later on PutObject call
+	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 
 	m.logger.
 		WithField("object", "kinds_update_requested").
@@ -110,10 +107,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("updated", updates).
 		WithField("id", id).
 		Debug("received update kind request")
-
-	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
 
 	class := fetchedClasses[className].Class
 

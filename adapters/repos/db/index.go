@@ -1054,7 +1054,7 @@ func (i *Index) getShardForDirectLocalOperation(
 	case localShardOperationRead:
 		return i.getShardForRead(ctx, className, tenantName, shardName, shard, release)
 	default:
-		return nil, func() {}, fmt.Errorf("invalid local shard operation: %s", operation)
+		return nil, release, fmt.Errorf("invalid local shard operation: %s", operation)
 	}
 }
 
@@ -1067,7 +1067,7 @@ func (i *Index) getShardForWrite(
 ) (ShardLike, func(), error) {
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return nil, func() {}, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+			return nil, release, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
 		}
 	}
 
