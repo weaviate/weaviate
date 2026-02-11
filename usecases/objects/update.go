@@ -72,18 +72,17 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	// Ensure tenant is active before read when AutoTenantActivation is enabled.
-	// Otherwise replicas with loading shards can fail QUORUM reads.
-	var activationVersion uint64
+	maxSchemaVersion := fetchedClasses[className].Version
 	if updates.Tenant != "" {
-		var err error
-		activationVersion, err = m.schemaManager.EnsureTenantActiveForWrite(ctx, className, updates.Tenant)
+		// Ensure tenant is active before read when AutoTenantActivation is enabled.
+		// Otherwise replicas with loading shards can fail QUORUM reads.
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, className, updates.Tenant)
 		if err != nil {
 			return nil, err
 		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
 	}
 
-	maxSchemaVersion := max(fetchedClasses[className].Version, activationVersion)
 	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
@@ -97,9 +96,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
-
-	// to be used later on PutObject call
-	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 
 	m.logger.
 		WithField("object", "kinds_update_requested").
@@ -132,6 +128,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
 	}
+
+	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
