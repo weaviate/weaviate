@@ -493,12 +493,3 @@ func (o *oncePer) do(f func()) {
 	default:
 	}
 }
-
-func (o *oncePer) stop() {
-	o.mu.Lock()
-	if o.t != nil {
-		o.t.Stop()
-		o.t = nil
-	}
-	o.mu.Unlock()
-}
