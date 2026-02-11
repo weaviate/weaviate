@@ -17,6 +17,8 @@ import (
 	"iter"
 	"slices"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
@@ -24,7 +26,6 @@ import (
 )
 
 // PostingMetadata holds the list of vector IDs associated with a posting.
-// This value is cached in memory for fast access.
 // Any read or modification to the vectors slice must be protected by the mutex.
 type PostingMetadata struct {
 	sync.RWMutex
@@ -33,9 +34,10 @@ type PostingMetadata struct {
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
-	metrics *Metrics
-	data    *xsync.Map[uint64, *PostingMetadata]
-	bucket  *PostingMapStore
+	metrics              *Metrics
+	data                 *xsync.Map[uint64, *PostingMetadata]
+	bucket               *PostingMapStore
+	nextSizeMetricUpdate atomic.Int64
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
@@ -162,6 +164,26 @@ func (v *PostingMap) Restore(ctx context.Context) error {
 		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})
 		return nil
 	})
+}
+
+func (v *PostingMap) setSizeMetricIfDue() {
+	now := time.Now().UnixNano()
+	due := v.nextSizeMetricUpdate.Load()
+	if now < due {
+		return
+	}
+
+	// only one goroutine should update the metric at a time
+	if !v.nextSizeMetricUpdate.CompareAndSwap(due, now+int64(time.Minute)) {
+		return
+	}
+
+	count, err := v.CountAllVectors(context.Background())
+	if err != nil {
+		return
+	}
+
+	v.metrics.SetSize(int(count))
 }
 
 // PostingMapStore is a persistent store for vector IDs.
