@@ -166,6 +166,8 @@ func (v *PostingMap) Restore(ctx context.Context) error {
 	})
 }
 
+// setSizeMetricIfDue updates the size metric if the next update is due.
+// It is called after any operation that modifies the postings to ensure the metric is reasonably up-to-date without causing too much overhead.
 func (v *PostingMap) setSizeMetricIfDue() {
 	now := time.Now().UnixNano()
 	due := v.nextSizeMetricUpdate.Load()
