@@ -18,6 +18,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/interval"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -53,8 +54,10 @@ func (d *DB) scanResourceUsage() {
 				return
 			case <-t.C:
 				updateMappings := i%(memwatch.MappingDelayInS*2) == 0
-				if !d.resourceScanState.isReadOnly {
-					du := d.getDiskUse(d.config.RootPath)
+				du := d.getDiskUse(d.config.RootPath)
+				if d.resourceScanState.isReadOnly {
+					d.resourceUseRecovery(d.memMonitor, du)
+				} else {
 					d.resourceUseWarn(d.memMonitor, du, updateMappings)
 					d.resourceUseReadonly(d.memMonitor, du)
 				}
@@ -167,4 +170,47 @@ func (db *DB) setShardsReadOnly(reason string) {
 	}
 	db.indexLock.Unlock()
 	db.resourceScanState.isReadOnly = true
+}
+
+// resourceUseRecovery checks whether resource usage has dropped below the
+// configured thresholds and, if so, transitions all READONLY shards back to
+// READY.  Both disk and memory must be below their respective thresholds (or
+// the threshold must be disabled, i.e. set to 0) for recovery to trigger.
+func (db *DB) resourceUseRecovery(mon *memwatch.Monitor, du diskUse) {
+	if db.diskAboveReadonlyThreshold(du) || db.memAboveReadonlyThreshold(mon) {
+		return
+	}
+	db.setShardsReady()
+}
+
+func (db *DB) diskAboveReadonlyThreshold(du diskUse) bool {
+	p := db.config.ResourceUsage.DiskUse.ReadOnlyPercentage
+	return p > 0 && du.percentUsed() > float64(p)
+}
+
+func (db *DB) memAboveReadonlyThreshold(mon *memwatch.Monitor) bool {
+	p := db.config.ResourceUsage.MemUse.ReadOnlyPercentage
+	return p > 0 && (mon.Ratio()*100) > float64(p)
+}
+
+func (db *DB) setShardsReady() {
+	db.indexLock.Lock()
+	for _, index := range db.indices {
+		index.ForEachShard(func(name string, shard ShardLike) error {
+			if shard.GetStatus() == storagestate.StatusReadOnly {
+				err := shard.UpdateStatus(storagestate.StatusReady.String(), "resource usage below threshold")
+				if err != nil {
+					db.logger.WithField("action", "set_shard_ready").
+						WithField("path", db.config.RootPath).
+						WithError(err).
+						Error("failed to set to READY")
+				}
+			}
+			return nil
+		})
+	}
+	db.indexLock.Unlock()
+	db.resourceScanState.isReadOnly = false
+	db.logger.WithField("action", "set_shard_ready").
+		Info("Resource usage below threshold. Set shards back to READY")
 }
