@@ -33,21 +33,20 @@ type PostingMetadata struct {
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
-	metrics              *Metrics
-	data                 *xsync.Map[uint64, *PostingMetadata]
-	bucket               *PostingMapStore
-	nextSizeMetricUpdate *time.Ticker
-	nextSizeMetricMu     sync.Mutex
+	metrics    *Metrics
+	data       *xsync.Map[uint64, *PostingMetadata]
+	bucket     *PostingMapStore
+	sizeMetric *oncePer
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
 	return &PostingMap{
-		data:                 xsync.NewMap[uint64, *PostingMetadata](),
-		metrics:              metrics,
-		bucket:               b,
-		nextSizeMetricUpdate: time.NewTicker(time.Minute),
+		data:       xsync.NewMap[uint64, *PostingMetadata](),
+		metrics:    metrics,
+		bucket:     b,
+		sizeMetric: OncePer(time.Minute),
 	}
 }
 
@@ -174,19 +173,16 @@ func (v *PostingMap) Restore(ctx context.Context) error {
 // setSizeMetricIfDue updates the size metric if the next update is due.
 // It is called after any operation that modifies the postings to ensure the metric is reasonably up-to-date without causing too much overhead.
 func (v *PostingMap) setSizeMetricIfDue(ctx context.Context) {
-	select {
-	case <-v.nextSizeMetricUpdate.C:
-		if v.nextSizeMetricMu.TryLock() {
-			defer v.nextSizeMetricMu.Unlock()
-			count, err := v.CountAllVectors(ctx)
-			if err != nil {
-				return
-			}
-
-			v.metrics.SetSize(int(count))
+	var err error
+	v.sizeMetric.do(func() {
+		var count uint64
+		count, err = v.CountAllVectors(ctx)
+		if err != nil {
+			return
 		}
-	default:
-	}
+
+		v.metrics.SetSize(int(count))
+	})
 }
 
 // PostingMapStore is a persistent store for vector IDs.
