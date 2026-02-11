@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"sync"
 
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -361,7 +362,17 @@ func (t *JsonShardMetaData) lockFreeFlush() error {
 
 	err = os.WriteFile(tempfile, bytes, 0o666)
 	if err != nil {
-		return err
+		if !os.IsNotExist(err) {
+			return err
+		}
+		// Parent directory may not exist yet if the shard is still being
+		// set up (race between tenant creation and first object insert).
+		if mkdirErr := os.MkdirAll(filepath.Dir(tempfile), os.ModePerm); mkdirErr != nil {
+			return mkdirErr
+		}
+		if err = os.WriteFile(tempfile, bytes, 0o666); err != nil {
+			return err
+		}
 	}
 
 	err = os.Rename(tempfile, filename)
