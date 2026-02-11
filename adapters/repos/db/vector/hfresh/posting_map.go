@@ -91,6 +91,10 @@ func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
 	vectorIDSet := make(map[uint64]struct{})
 
 	for _, m := range v.data.AllRelaxed() {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+
 		m.RLock()
 		for id, version := range m.Iter() {
 			if version.Deleted() {
