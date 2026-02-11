@@ -50,11 +50,6 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	}
 }
 
-// Size returns the total number of postings in the map.
-func (v *PostingMap) Size() int {
-	return v.data.Size()
-}
-
 // Iter returns an iterator over all postings in the map.
 func (v *PostingMap) Iter() iter.Seq2[uint64, *PostingMetadata] {
 	return v.data.AllRelaxed()
