@@ -17,7 +17,6 @@ import (
 	"iter"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -37,16 +36,18 @@ type PostingMap struct {
 	metrics              *Metrics
 	data                 *xsync.Map[uint64, *PostingMetadata]
 	bucket               *PostingMapStore
-	nextSizeMetricUpdate atomic.Int64
+	nextSizeMetricUpdate *time.Ticker
+	nextSizeMetricMu     sync.Mutex
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
 	return &PostingMap{
-		data:    xsync.NewMap[uint64, *PostingMetadata](),
-		metrics: metrics,
-		bucket:  b,
+		data:                 xsync.NewMap[uint64, *PostingMetadata](),
+		metrics:              metrics,
+		bucket:               b,
+		nextSizeMetricUpdate: time.NewTicker(time.Minute),
 	}
 }
 
@@ -108,6 +109,8 @@ func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	defer v.setSizeMetricIfDue(ctx)
+
 	if len(posting) == 0 {
 		err := v.bucket.Delete(ctx, postingID)
 		if err != nil {
@@ -160,6 +163,8 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 
 // Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
 func (v *PostingMap) Restore(ctx context.Context) error {
+	defer v.setSizeMetricIfDue(ctx)
+
 	return v.bucket.Iter(ctx, func(u uint64, ppm PackedPostingMetadata) error {
 		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})
 		return nil
