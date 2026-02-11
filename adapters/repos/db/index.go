@@ -1041,9 +1041,6 @@ func (i *Index) getShardForDirectLocalOperation(
 	operation localShardOperation,
 	schemaVersion uint64,
 ) (ShardLike, func(), error) {
-	// Initial local shard handle (may be nil). When AutoTenantActivation is enabled
-	// we allow this first call to initialize the shard eagerly; subsequent logic may
-	// still decide not to use it depending on router results.
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, release, err
@@ -1068,9 +1065,6 @@ func (i *Index) getShardForWrite(
 	release func(),
 	schemaVersion uint64,
 ) (ShardLike, func(), error) {
-	// For multi-tenant classes, we may get a specific schemaVersion to wait for before trusting
-	// router results. This is important for implicit tenant activation flows where RAFT/schema
-	// might have applied an update that the router has not yet fully reflected.
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 			return nil, func() {}, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
@@ -1087,24 +1081,6 @@ func (i *Index) getShardForWrite(
 	}
 
 	isReplica := slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName())
-	if !isReplica && schemaVersion > 0 && len(ws.NodeNames()) > 0 {
-		var localAndHot bool
-		_ = i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-			if state != nil {
-				if physical, ok := state.Physical[shardName]; ok {
-					localAndHot = state.IsLocalShard(shardName) &&
-						physical.ActivityStatus() == models.TenantActivityStatusHOT
-				}
-			}
-			return nil
-		})
-		if localAndHot {
-			isReplica = true
-		}
-	}
-
-	// If we should have the shard but it doesn't exist, initialize it.
-	// Only initialize if tenant is HOT (router check passed) and we're a replica.
 	if isReplica && shard == nil {
 		shard, release, err = i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 		if err != nil {
@@ -1112,10 +1088,10 @@ func (i *Index) getShardForWrite(
 		}
 	}
 
-	// Return shard only if we should have it.
 	if isReplica {
 		return shard, release, nil
 	}
+
 	return nil, release, nil
 }
 
