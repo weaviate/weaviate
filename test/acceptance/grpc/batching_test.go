@@ -42,18 +42,16 @@ import (
 func TestGRPC_Batching(t *testing.T) {
 	ctx := context.Background()
 
-	// compose, err := docker.New().
-	// 	WithWeaviateWithGRPC().
-	// 	Start(ctx)
-	// require.NoError(t, err)
-	// defer func() {
-	// 	require.NoError(t, compose.Terminate(ctx))
-	// }()
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	// grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
-	helper.SetupClient("localhost:8080")
-	grpcClient, _ := client(t, "localhost:50051")
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
 
 	clsA := articles.ArticlesClass()
 	clsP := articles.ParagraphsClass()
