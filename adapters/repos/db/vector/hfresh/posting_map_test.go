@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,8 @@ func makePostingMetadataStore(t *testing.T) *PostingMap {
 	return NewPostingMap(bucket, makeTestMetrics())
 }
 
+var idCounter atomic.Uint64
+
 func makeVectors(n, dims int) []Vector {
 	vectors, _ := testinghelpers.RandomVecsFixedSeed(n, 0, dims)
 	result := make([]Vector, n)
@@ -38,7 +41,7 @@ func makeVectors(n, dims int) []Vector {
 
 	for i := 0; i < n; i++ {
 		compressed := quantizer.CompressedBytes(quantizer.Encode(vectors[i]))
-		result[i] = NewVector(uint64(i+1), 1, compressed)
+		result[i] = NewVector(idCounter.Add(1), 1, compressed)
 	}
 	return result
 }
@@ -541,5 +544,39 @@ func TestPostingMetadataStore(t *testing.T) {
 		id, v = m.GetAt(1)
 		require.Equal(t, uint64(200), id)
 		require.Equal(t, VectorVersion(1), v)
+	})
+
+	t.Run("CountAllVectors deduplicates", func(t *testing.T) {
+		store := makePostingMetadataStore(t)
+		posting := Posting(makeVectors(5, 16))
+		err := store.SetVectorIDs(ctx, 42, posting)
+		require.NoError(t, err)
+
+		count, err := store.CountAllVectors(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 5, count)
+
+		err = store.SetVectorIDs(ctx, 43, posting)
+		require.NoError(t, err)
+
+		count, err = store.CountAllVectors(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 5, count)
+	})
+
+	t.Run("CountAllVectors with multiple postings", func(t *testing.T) {
+		store := makePostingMetadataStore(t)
+
+		posting1 := Posting(makeVectors(5, 16))
+		err := store.SetVectorIDs(ctx, 42, posting1)
+		require.NoError(t, err)
+
+		posting2 := Posting(makeVectors(5, 16))
+		err = store.SetVectorIDs(ctx, 43, posting2)
+		require.NoError(t, err)
+
+		count, err := store.CountAllVectors(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 10, count)
 	})
 }
