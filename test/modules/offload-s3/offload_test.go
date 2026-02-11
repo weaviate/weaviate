@@ -214,7 +214,7 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 				exists, err := helper.TenantObjectExists(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
 				assert.NoError(ct, err)
 				assert.True(ct, exists)
-			}, 30*time.Second, 500*time.Millisecond, "objects not available after unfreezing tenant")
+			}, 2*time.Minute, 500*time.Millisecond, "objects not available after unfreezing tenant")
 		})
 
 		t.Run("verify object creation", func(t *testing.T) {

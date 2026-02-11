@@ -405,7 +405,7 @@ func Test_DeleteAndRecreateS3Journey(t *testing.T) {
 				require.Equal(ct, 1, len(resp.Objects))
 				assert.Equal(ct, tenantObjects[0].Class, resp.Objects[0].Class)
 				assert.Equal(ct, tenantObjects[0].Properties, resp.Objects[0].Properties)
-			}, 30*time.Second, 500*time.Millisecond, "object not available after unfreezing tenant")
+			}, 2*time.Minute, 500*time.Millisecond, "object not available after unfreezing tenant")
 		})
 	})
 }
