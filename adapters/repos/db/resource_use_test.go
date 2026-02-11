@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -365,4 +366,26 @@ func TestSetShardsReady_MultipleIndices(t *testing.T) {
 	assert.False(t, db.resourceScanState.isReadOnly)
 	shard1.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
 	shard2.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+}
+
+func TestSetShardsReady_PartialFailure(t *testing.T) {
+	successShard := NewMockShardLike(t)
+	successShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
+	successShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+
+	failingShard := NewMockShardLike(t)
+	failingShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
+	failingShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(fmt.Errorf("disk I/O error"))
+
+	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{
+		"success_shard": successShard,
+		"failing_shard": failingShard,
+	})
+	db.resourceScanState.isReadOnly = true
+
+	db.setShardsReady()
+
+	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should remain true when some shards fail to transition")
+	successShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+	failingShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
 }

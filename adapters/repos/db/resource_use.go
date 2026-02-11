@@ -194,22 +194,33 @@ func (db *DB) memAboveReadonlyThreshold(mon *memwatch.Monitor) bool {
 }
 
 func (db *DB) setShardsReady() {
-	db.indexLock.Lock()
-	for _, index := range db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
-			if shard.GetStatus() == storagestate.StatusReadOnly {
-				err := shard.UpdateStatus(storagestate.StatusReady.String(), "resource usage below threshold")
-				if err != nil {
-					db.logger.WithField("action", "set_shard_ready").
-						WithField("path", db.config.RootPath).
-						WithError(err).
-						Error("failed to set to READY")
+	var failedCount int
+	func() {
+		db.indexLock.Lock()
+		defer db.indexLock.Unlock()
+		for _, index := range db.indices {
+			index.ForEachShard(func(name string, shard ShardLike) error {
+				if shard.GetStatus() == storagestate.StatusReadOnly {
+					err := shard.UpdateStatus(storagestate.StatusReady.String(), "resource usage below threshold")
+					if err != nil {
+						failedCount++
+						db.logger.WithField("action", "set_shard_ready").
+							WithField("path", db.config.RootPath).
+							WithError(err).
+							Error("failed to set to READY")
+					}
 				}
-			}
-			return nil
-		})
+				return nil
+			})
+		}
+	}()
+
+	if failedCount > 0 {
+		db.logger.WithField("action", "set_shard_ready").
+			WithField("failed_count", failedCount).
+			Warn("Resource usage below threshold, but some shards failed to transition to READY")
+		return
 	}
-	db.indexLock.Unlock()
 	db.resourceScanState.isReadOnly = false
 	db.logger.WithField("action", "set_shard_ready").
 		Info("Resource usage below threshold. Set shards back to READY")
