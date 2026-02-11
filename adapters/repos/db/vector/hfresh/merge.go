@@ -141,7 +141,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			continue
 		}
 		// check if the combined size of the postings is within limits
-		count, err := h.PostingMap.CountVectorIDs(ctx, candidateID)
+		count, err := h.PostingMap.CountVectors(ctx, candidateID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get posting size for candidate %d", candidateID)
 		}
