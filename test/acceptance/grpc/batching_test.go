@@ -531,7 +531,9 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			batch := make([]*pb.BatchObject, 0, batchSize)
 			for i := 0; i < numObjs; i++ {
 				for shuttingDown.Load() {
+					streamRestartLock.RLock()
 					stream.CloseSend()
+					streamRestartLock.RUnlock()
 					t.Logf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
 					time.Sleep(5 * time.Second)
 					continue
@@ -553,7 +555,6 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					}
 					batch = make([]*pb.BatchObject, 0, batchSize)
 				}
-				<-acked
 			}
 			fmt.Printf("%s Done sending objects\n", time.Now().Format("15:04:05"))
 			stop(stream)
