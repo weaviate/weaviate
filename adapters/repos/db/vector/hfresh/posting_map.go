@@ -168,24 +168,20 @@ func (v *PostingMap) Restore(ctx context.Context) error {
 
 // setSizeMetricIfDue updates the size metric if the next update is due.
 // It is called after any operation that modifies the postings to ensure the metric is reasonably up-to-date without causing too much overhead.
-func (v *PostingMap) setSizeMetricIfDue() {
-	now := time.Now().UnixNano()
-	due := v.nextSizeMetricUpdate.Load()
-	if now < due {
-		return
-	}
+func (v *PostingMap) setSizeMetricIfDue(ctx context.Context) {
+	select {
+	case <-v.nextSizeMetricUpdate.C:
+		if v.nextSizeMetricMu.TryLock() {
+			defer v.nextSizeMetricMu.Unlock()
+			count, err := v.CountAllVectors(ctx)
+			if err != nil {
+				return
+			}
 
-	// only one goroutine should update the metric at a time
-	if !v.nextSizeMetricUpdate.CompareAndSwap(due, now+int64(time.Minute)) {
-		return
+			v.metrics.SetSize(int(count))
+		}
+	default:
 	}
-
-	count, err := v.CountAllVectors(context.Background())
-	if err != nil {
-		return
-	}
-
-	v.metrics.SetSize(int(count))
 }
 
 // PostingMapStore is a persistent store for vector IDs.
