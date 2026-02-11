@@ -402,7 +402,7 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	if snap.NodeID != f.nodeID && st != nil {
 		f.log.WithFields(logrus.Fields{
 			"snapshot_node_id": snap.NodeID,
-			"local_node_id":   f.nodeID,
+			"local_node_id":    f.nodeID,
 		}).Info("foreign snapshot detected, initiating state transfer")
 
 		ctx := context.Background()
