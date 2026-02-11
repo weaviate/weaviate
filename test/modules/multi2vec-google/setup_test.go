@@ -24,7 +24,7 @@ const (
 	location = "us-central1"
 )
 
-func TestMulti2VecGoogle_SingleNode(t *testing.T) {
+func TestMulti2VecGoogle_Vertex_SingleNode(t *testing.T) {
 	gcpProject := os.Getenv("GCP_PROJECT")
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
@@ -41,8 +41,8 @@ func TestMulti2VecGoogle_SingleNode(t *testing.T) {
 	}()
 	endpoint := compose.GetWeaviate().URI()
 
-	t.Run("multi2vec-google", testMulti2VecGoogle(endpoint, gcpProject, location, "multi2vec-google"))
-	t.Run("multi2vec-palm", testMulti2VecGoogle(endpoint, gcpProject, location, "multi2vec-palm"))
+	t.Run("multi2vec-google", testMulti2VecGoogleVertex(endpoint, gcpProject, location, "multi2vec-google"))
+	t.Run("multi2vec-palm", testMulti2VecGoogleVertex(endpoint, gcpProject, location, "multi2vec-palm"))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
