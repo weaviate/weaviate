@@ -581,7 +581,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	}
 	defer release()
 
-	if s.GetStatus() == storagestate.StatusLoading {
+	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard))
 	}
 
@@ -732,7 +732,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
 
-	if s.GetStatus() == storagestate.StatusLoading {
+	if s.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
