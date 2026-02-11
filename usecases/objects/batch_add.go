@@ -114,9 +114,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		if err != nil {
 			return nil, fmt.Errorf("ensure tenant active: %w", err)
 		}
-		if activationVersion > maxSchemaVersion {
-			maxSchemaVersion = activationVersion
-		}
+		maxSchemaVersion = max(maxSchemaVersion, activationVersion)
 	}
 
 	b.metrics.BatchTenants(tenantCount)

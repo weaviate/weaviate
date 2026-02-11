@@ -93,8 +93,15 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
-	if schemaVersion > maxSchemaVersion {
-		maxSchemaVersion = schemaVersion
+
+	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
+
+	if updates.Tenant != "" {
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, className, updates.Tenant)
+		if err != nil {
+			return nil, err
+		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
 	}
 
 	m.logger.

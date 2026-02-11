@@ -73,6 +73,14 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, errors.Wrap(err, "validate")
 	}
 
+	if tenant != "" {
+		tenantSchemaVersion, err := b.schemaManager.EnsureTenantActiveForWrite(ctx, string(params.ClassName), tenant)
+		if err != nil {
+			return nil, fmt.Errorf("error ensuring tenant active for write: %w", err)
+		}
+		schemaVersion = max(schemaVersion, tenantSchemaVersion)
+	}
+
 	// Ensure that the local schema has caught up to the version we used to validate
 	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)

@@ -60,6 +60,19 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
+	maxSchemaVersion := fetchedClasses[object.Class].Version
+	if object.Tenant != "" {
+		activationVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, object.Class, object.Tenant)
+		if err != nil {
+			return nil, err
+		}
+		maxSchemaVersion = max(maxSchemaVersion, activationVersion)
+	}
+
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
 	if err != nil {
 		return nil, err
@@ -97,9 +110,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		if err != nil {
 			return nil, err
 		}
-		if activationVersion > maxSchemaVersion {
-			maxSchemaVersion = activationVersion
-		}
+		maxSchemaVersion = max(maxSchemaVersion, activationVersion)
 	}
 
 	class := fetchedClasses[object.Class].Class
@@ -125,6 +136,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
+
 	vectors, multiVectors, err := dto.GetVectors(object.Vectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)

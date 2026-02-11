@@ -17,13 +17,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -64,11 +63,21 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return fmt.Errorf("could not get class %s: %w", className, err)
 	}
 
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, fetchedClasses[className].Version); err != nil {
-		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", fetchedClasses[className].Version, err)
+	maxSchemaVersion := fetchedClasses[className].Version
+	if tenant != "" {
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, className, tenant)
+		if err != nil {
+			return fmt.Errorf("error ensuring tenant active for write: %w", err)
+		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
 	}
-	if err = m.vectorRepo.DeleteObject(ctx, className, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, fetchedClasses[className].Version); err != nil {
+
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
+	if err = m.vectorRepo.DeleteObject(ctx, className, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, maxSchemaVersion); err != nil {
 		var e1 ErrMultiTenancy
 		if errors.As(err, &e1) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))

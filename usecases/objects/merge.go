@@ -185,6 +185,14 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
+	if tenant != "" {
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, cls, tenant)
+		if err != nil {
+			return &Error{"repo.merge", StatusInternalServerError, err}
+		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
+	}
+
 	// Ensure that the local schema has caught up to the version we used to validate
 	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return &Error{
