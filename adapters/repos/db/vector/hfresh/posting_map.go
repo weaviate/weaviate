@@ -63,9 +63,9 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadat
 	return m, nil
 }
 
-// CountVectorIDs returns the number of vector IDs in the posting with the given ID.
+// CountVectors returns the number of vector IDs in the posting with the given ID.
 // If the posting does not exist, it returns 0.
-func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
+func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32, error) {
 	m, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err

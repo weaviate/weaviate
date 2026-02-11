@@ -80,7 +80,7 @@ func TestAnalyzeWithInMemoryMetadata(t *testing.T) {
 	err = tf.Index.doAnalyze(t.Context(), postingID)
 	require.NoError(t, err)
 
-	count, err := tf.Index.PostingMap.CountVectorIDs(t.Context(), postingID)
+	count, err := tf.Index.PostingMap.CountVectors(t.Context(), postingID)
 	require.NoError(t, err)
 	require.Equal(t, uint32(5), count)
 }

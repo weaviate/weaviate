@@ -502,7 +502,7 @@ func TestPostingMetadataStore(t *testing.T) {
 			i++
 		}
 
-		count, err := store.CountVectorIDs(ctx, 42)
+		count, err := store.CountVectors(ctx, 42)
 		require.NoError(t, err)
 		require.EqualValues(t, 10, count)
 
@@ -518,7 +518,7 @@ func TestPostingMetadataStore(t *testing.T) {
 
 	t.Run("CountVectorIDs on non-existing posting", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
-		count, err := store.CountVectorIDs(ctx, 42)
+		count, err := store.CountVectors(ctx, 42)
 		require.NoError(t, err)
 		require.EqualValues(t, 0, count)
 	})
