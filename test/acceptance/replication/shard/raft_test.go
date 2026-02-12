@@ -12,6 +12,7 @@
 package shard
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
@@ -29,7 +31,19 @@ const (
 )
 
 func Test_RaftShardReplication(t *testing.T) {
-	helper.SetupClient("localhost:8080")
+	ctx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	// Point client at node-0
+	helper.SetupClient(compose.GetWeaviate().URI())
+	hosts := []string{compose.GetWeaviate().URI(), compose.GetWeaviate().URI(), compose.GetWeaviate().URI()}
 
 	cls := articles.ParagraphsClass()
 	cls.ReplicationConfig = &models.ReplicationConfig{
@@ -44,10 +58,10 @@ func Test_RaftShardReplication(t *testing.T) {
 		helper.CreateObject(t, articles.NewParagraph().WithContents("RAFT").WithID(UUID1).Object())
 		// Verify the object eventually exists on all nodes
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			for _, port := range []string{"8080", "8081", "8082"} {
-				obj, err := getObj(t, port, cls.Class, UUID1)
-				assert.Nil(ct, err, "Object should exist on node at port %s", port)
-				assert.NotNil(ct, obj, "Object should exist on node at port %s", port)
+			for _, host := range hosts {
+				obj, err := getObj(t, host, cls.Class, UUID1)
+				assert.Nil(ct, err, "Object should exist on node at host %s", host)
+				assert.NotNil(ct, obj, "Object should exist on node at host %s", host)
 			}
 		}, 10*time.Second, 1*time.Second)
 	})
@@ -56,11 +70,11 @@ func Test_RaftShardReplication(t *testing.T) {
 		helper.UpdateObject(t, articles.NewParagraph().WithContents("RAFT Updated").WithID(UUID1).Object())
 		// Verify the update eventually exists on all nodes
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			for _, port := range []string{"8080", "8081", "8082"} {
-				obj, err := getObj(t, port, cls.Class, UUID1)
-				assert.Nil(ct, err, "Object should exist on node at port %s", port)
-				assert.NotNil(ct, obj, "Object should exist on node at port %s", port)
-				assert.Equal(ct, "RAFT Updated", obj.Properties.(map[string]any)["contents"], "Object should be updated on node at port %s", port)
+			for _, host := range hosts {
+				obj, err := getObj(t, host, cls.Class, UUID1)
+				assert.Nil(ct, err, "Object should exist on node at host %s", host)
+				assert.NotNil(ct, obj, "Object should exist on node at host %s", host)
+				assert.Equal(ct, "RAFT Updated", obj.Properties.(map[string]any)["contents"], "Object should be updated on node at host %s", host)
 			}
 		}, 10*time.Second, 1*time.Second)
 	})
@@ -71,11 +85,11 @@ func Test_RaftShardReplication(t *testing.T) {
 
 		// Verify the new object and update eventually exist on all nodes
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			for _, port := range []string{"8080", "8081", "8082"} {
-				obj, err := getObj(t, port, cls.Class, UUID2)
-				assert.Nil(ct, err, "Object should exist on node at port %s", port)
-				assert.NotNil(ct, obj, "Object should exist on node at port %s", port)
-				assert.Equal(ct, "RAFT New Updated", obj.Properties.(map[string]any)["contents"], "Object should be updated on node at port %s", port)
+			for _, host := range hosts {
+				obj, err := getObj(t, host, cls.Class, UUID2)
+				assert.Nil(ct, err, "Object should exist on node at host %s", host)
+				assert.NotNil(ct, obj, "Object should exist on node at host %s", host)
+				assert.Equal(ct, "RAFT New Updated", obj.Properties.(map[string]any)["contents"], "Object should be updated on node at host %s", host)
 			}
 		}, 10*time.Second, 1*time.Second)
 	})
@@ -84,15 +98,15 @@ func Test_RaftShardReplication(t *testing.T) {
 		helper.DeleteObject(t, &models.Object{Class: cls.Class, ID: UUID2})
 		// Verify the object is eventually deleted on all nodes
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			for _, port := range []string{"8080", "8081", "8082"} {
-				_, err := getObj(t, port, cls.Class, UUID2)
-				assert.NotNil(ct, err, "Object should be deleted on node at port %s", port)
+			for _, host := range hosts {
+				_, err := getObj(t, host, cls.Class, UUID2)
+				assert.NotNil(ct, err, "Object should be deleted on node at host %s", host)
 			}
 		}, 10*time.Second, 1*time.Second)
 	})
 }
 
-func getObj(t *testing.T, port, cls string, uuid strfmt.UUID) (*models.Object, error) {
-	helper.SetupClient("localhost:" + port)
+func getObj(t *testing.T, host, cls string, uuid strfmt.UUID) (*models.Object, error) {
+	helper.SetupClient(host)
 	return helper.GetObject(t, cls, uuid)
 }
