@@ -168,10 +168,10 @@ def test_mt(collection_factory: CollectionFactory, auto_activation: bool):
     # deactivated tenants remain inactive
     tenants = collection.tenants.get()
     for i in range(num_tenants):
-         status = tenants["Tenant" + str(i)].activity_status
-         if i % 2 == 0:
+        status = tenants["Tenant" + str(i)].activity_status
+        if i % 2 == 0:
             assert status == TenantActivityStatus.INACTIVE
-         else:
+        else:
             assert status == TenantActivityStatus.ACTIVE
 
     # activate tenants again

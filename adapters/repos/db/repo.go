@@ -468,9 +468,8 @@ func (db *DB) batchWorker(first bool) {
 	}
 }
 
-func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
+func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
 	db.reindexer = reindexer
-	return db
 }
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
@@ -485,13 +484,11 @@ func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicat
 	db.replicationFSM = replicationFsm
 }
 
-func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
+func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 	db.bitmapBufPool = bufPool
 	db.bitmapBufPoolClose = close
-	return db
 }
 
-func (db *DB) WithTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) *DB {
+func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
 	db.tenantsManager = tenantsManager
-	return db
 }
