@@ -293,7 +293,7 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 
 func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	h.resumeTaskQueues()
-	return nil
+	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
