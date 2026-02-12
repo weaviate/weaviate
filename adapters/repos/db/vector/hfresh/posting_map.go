@@ -432,7 +432,10 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPost
 //   - count * (bytesPerScheme + 1): vector IDs and version
 func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
-	return p.bucket.Put(key[:], metadata)
+	// copy metadata to a new array
+	metadataCopy := make([]byte, len(metadata))
+	copy(metadataCopy, metadata)
+	return p.bucket.Put(key[:], metadataCopy)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
