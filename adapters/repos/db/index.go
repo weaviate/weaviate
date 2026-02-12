@@ -1046,11 +1046,17 @@ func (i *Index) getShardForDirectLocalOperation(
 		return nil, release, err
 	}
 
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return nil, release, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
+
 	className := i.Config.ClassName.String()
 
 	switch operation {
 	case localShardOperationWrite:
-		return i.getShardForWrite(ctx, className, tenantName, shardName, shard, release, schemaVersion)
+		return i.getShardForWrite(ctx, className, tenantName, shardName, shard, release)
 	case localShardOperationRead:
 		return i.getShardForRead(ctx, className, tenantName, shardName, shard, release)
 	default:
@@ -1063,36 +1069,26 @@ func (i *Index) getShardForWrite(
 	className, tenantName, shardName string,
 	shard ShardLike,
 	release func(),
-	schemaVersion uint64,
 ) (ShardLike, func(), error) {
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return nil, release, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
-		}
+	ws, err := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
+	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
+		return nil, release, err
 	}
 
-	ws, err := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
-	if err != nil {
-		// Router check failed (e.g., tenant is not HOT)
-		// Don't initialize or return shard for writes if tenant is not active.
-		// we don't return error here as replication would check for nil shard
-		// and redirect the request to remote path.
+	if !slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
+		// This node is not a write replica for this shard.
 		return nil, release, nil
 	}
 
-	isReplica := slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName())
-	if isReplica && shard == nil {
+	// if the shard is not found, initialize it based on AutoTenantActivation
+	if shard == nil {
 		shard, release, err = i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 		if err != nil {
 			return nil, release, err
 		}
 	}
 
-	if isReplica {
-		return shard, release, nil
-	}
-
-	return nil, release, nil
+	return shard, release, nil
 }
 
 func (i *Index) getShardForRead(
@@ -1102,10 +1098,8 @@ func (i *Index) getShardForRead(
 	release func(),
 ) (ShardLike, func(), error) {
 	rs, err := i.router.GetReadReplicasLocation(className, tenantName, shardName)
-	if err != nil {
-		// Router couldn't resolve (e.g. tenant inactive); keep existing shard
-		// handle (which may be nil) and let caller decide what to do.
-		return shard, release, nil
+	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
+		return nil, release, err
 	}
 
 	if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
@@ -1113,12 +1107,7 @@ func (i *Index) getShardForRead(
 		return nil, release, nil
 	}
 
-	// Router says this node is a read replica for this shard.
-	// In non-replicated (RF=1) / single-node setups there is no
-	// other replica to fall back to, so if the shard is not yet
-	// loaded locally we should synchronously initialize it instead
-	// of forcing callers to bounce through the remote path.
-	if shard == nil && !i.replicationEnabled() {
+	if shard == nil {
 		shard, release, err = i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
 		if err != nil {
 			return nil, release, err

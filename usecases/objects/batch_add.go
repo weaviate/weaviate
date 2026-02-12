@@ -90,14 +90,15 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	var maxSchemaVersion uint64
-	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
+	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
+	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
+
 	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects, fetchedClasses)
 	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
 	}
-	if schemaVersion > maxSchemaVersion {
-		maxSchemaVersion = schemaVersion
-	}
+
+	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 
 	// ensure tenants are active when AutoTenantActivation is enabled
 	classTenants := make(map[string][]string)
