@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
@@ -124,7 +125,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error
+	SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
@@ -158,9 +159,9 @@ type ShardLike interface {
 	addJobToQueue(job job)
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
-	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
-	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
+	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
@@ -224,7 +225,8 @@ type Shard struct {
 
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
-	asyncReplicationConfig          asyncReplicationConfig
+	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig          AsyncReplicationConfig
 	hashtree                        hashtree.AggregatedHashTree
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
@@ -383,8 +385,10 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	}
 
 	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, updated); err != nil {
-		s.index.logger.WithField("action", "update_vector_index_configs").
-			Errorf("failed to migrate vectors compressed folder: %v", err)
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_target_vectors",
+			"shard_id": s.ID(),
+		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	i := 0

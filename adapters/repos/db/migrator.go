@@ -110,6 +110,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
+	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig)
+	if err != nil {
+		return fmt.Errorf("async replication config: %w", err)
+	}
+
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
@@ -120,7 +125,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.replicationFSM,
 	).Build()
 	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
-	idx, err := NewIndex(ctx,
+	idx, err = NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
 			RootPath:                                     m.db.config.RootPath,
@@ -153,6 +158,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+			AsyncReplicationConfig:                       asyncConfig,
+			AsyncReplicationWorkersLimiter:               m.db.asyncReplicationWorkersLimiter,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,

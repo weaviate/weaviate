@@ -269,10 +269,38 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// Ensure that if non-default values for properties is stored in raft we fix them before processing an update to
 		// avoid triggering diff on properties and therefore discarding a legitimate update.
 		migratePropertiesIfNecessary(&meta.Class)
+
 		u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
 		}
+
+		// Capture previous and updated replication factors
+		var initialRF int64
+		if meta.Class.ReplicationConfig != nil {
+			initialRF = meta.Class.ReplicationConfig.Factor
+		}
+
+		var updatedRF int64
+		if u.ReplicationConfig != nil {
+			updatedRF = u.ReplicationConfig.Factor
+		}
+
+		// validate replication factor increase
+		if initialRF < updatedRF {
+			for _, physical := range meta.Sharding.Physical {
+				if int64(len(physical.BelongsToNodes)) < updatedRF {
+					return fmt.Errorf(
+						"not enough replicas in shard %q to increase replication factor to %d for class %q",
+						physical.Name,
+						updatedRF,
+						meta.Class.Class,
+					)
+				}
+			}
+		}
+
+		// Apply updates
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
@@ -281,25 +309,14 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.Description = u.Description
 		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
+
 		if req.State != nil {
 			meta.Sharding = *req.State
 		}
 
-		// validate replication factor change
-		if meta.Class.ReplicationConfig != nil && u.ReplicationConfig != nil {
-			initialRF := meta.Class.ReplicationConfig.Factor
-			updatedRF := u.ReplicationConfig.Factor
-
-			if initialRF < updatedRF {
-				for _, physical := range meta.Sharding.Physical {
-					if int64(len(physical.BelongsToNodes)) < updatedRF {
-						return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, meta.Class.Class)
-					}
-				}
-			}
-
-			// set the updated replication factor
-			meta.Sharding.ReplicationFactor = u.ReplicationConfig.Factor
+		// update sharding replication factor
+		if u.ReplicationConfig != nil {
+			meta.Sharding.ReplicationFactor = updatedRF
 		}
 
 		return nil

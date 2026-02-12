@@ -364,7 +364,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 			return false, err
 		}
 	case segmentindex.StrategySetCollection:
-		c := newCompactorSetCollection(f, left.newCollectionCursor(), right.newCollectionCursor(),
+		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
 			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
