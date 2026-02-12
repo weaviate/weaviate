@@ -238,7 +238,7 @@ func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
 		return nil
 	}
 
-	if dims := int(dims); len(vector) != dims {
+	if len(vector) != int(dims) {
 		return fmt.Errorf("new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
