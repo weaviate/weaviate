@@ -207,8 +207,8 @@ func (r *replicator) forwardToLeader(
 		// Check if error indicates leader change - should retry
 		if errors.Is(err, ErrNotLeader) || strings.Contains(err.Error(), "not leader") {
 			r.log.WithFields(logrus.Fields{
-				"class":  req.Class,
-				"shard":  req.Shard,
+				"class":    req.Class,
+				"shard":    req.Shard,
 				"leaderID": leaderID,
 			}).Debug("leader changed, will retry")
 			return err // Retry
