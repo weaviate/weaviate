@@ -1071,7 +1071,8 @@ func (i *Index) getShardForWrite(
 	release func(),
 ) (ShardLike, func(), error) {
 	ws, err := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
-	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
+	tenantInactiveWithAutoActivation := errors.Is(err, enterrors.ErrTenantNotActive) && i.Config.AutoTenantActivation
+	if err != nil && !tenantInactiveWithAutoActivation {
 		i.logger.WithFields(logrus.Fields{
 			"error":      err,
 			"tenantName": tenantName,
@@ -1108,7 +1109,8 @@ func (i *Index) getShardForRead(
 	release func(),
 ) (ShardLike, func(), error) {
 	rs, err := i.router.GetReadReplicasLocation(className, tenantName, shardName)
-	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
+	tenantInactiveWithAutoActivation := errors.Is(err, enterrors.ErrTenantNotActive) && i.Config.AutoTenantActivation
+	if err != nil && !tenantInactiveWithAutoActivation {
 		i.logger.WithFields(logrus.Fields{
 			"error":      err,
 			"tenantName": tenantName,
