@@ -3351,7 +3351,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.36.0-dev"
+    "version": "1.36.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -7909,8 +7909,8 @@
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}": {
       "delete": {
-        "summary": "Deletes collection's property index",
-        "description": "Deletes collection's property index.",
+        "summary": "Delete a property's inverted index",
+        "description": "Deletes an inverted index of a specific property within a collection (`className`). The index to delete is identified by `indexName` and must be one of `filterable`, `searchable`, or `rangeFilters`.",
         "operationId": "schema.objects.properties.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -7921,21 +7921,21 @@
         "parameters": [
           {
             "name": "className",
-            "description": "The name of the collection (class).",
+            "description": "The name of the collection (class) containing the property.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "propertyName",
-            "description": "The name of collection's property to be deleted.",
+            "description": "The name of the property whose inverted index should be deleted.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "indexName",
-            "description": "The name of property's index to be deleted.",
+            "description": "The name of the inverted index to delete from the property.",
             "in": "path",
             "required": true,
             "type": "string",
@@ -7948,7 +7948,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Property updated successfully."
+            "description": "Index deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -7960,13 +7960,13 @@
             }
           },
           "422": {
-            "description": "Invalid property definition provided.",
+            "description": "Invalid index, property or collection provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error occurred while updating property. Check the ErrorResponse for details.",
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

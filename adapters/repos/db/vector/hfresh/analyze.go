@@ -64,7 +64,7 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	h.taskQueue.AnalyzeDone(postingID)
 
 	// check if the posting needs to be split
-	size, err := h.PostingMap.CountVectorIDs(ctx, postingID)
+	size, err := h.PostingMap.CountVectors(ctx, postingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get size of posting %d", postingID)
 	}

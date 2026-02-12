@@ -74,19 +74,19 @@ type SchemaObjectsPropertiesDeleteParams struct {
 
 	/* ClassName.
 
-	   The name of the collection (class).
+	   The name of the collection (class) containing the property.
 	*/
 	ClassName string
 
 	/* IndexName.
 
-	   The name of property's index to be deleted.
+	   The name of the inverted index to delete from the property.
 	*/
 	IndexName string
 
 	/* PropertyName.
 
-	   The name of collection's property to be deleted.
+	   The name of the property whose inverted index should be deleted.
 	*/
 	PropertyName string
 

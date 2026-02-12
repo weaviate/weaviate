@@ -77,7 +77,7 @@ func NewSchemaObjectsPropertiesDeleteOK() *SchemaObjectsPropertiesDeleteOK {
 /*
 SchemaObjectsPropertiesDeleteOK describes a response with status code 200, with default header values.
 
-Property updated successfully.
+Index deleted successfully.
 */
 type SchemaObjectsPropertiesDeleteOK struct {
 }
@@ -257,7 +257,7 @@ func NewSchemaObjectsPropertiesDeleteUnprocessableEntity() *SchemaObjectsPropert
 /*
 SchemaObjectsPropertiesDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid property definition provided.
+Invalid index, property or collection provided.
 */
 type SchemaObjectsPropertiesDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -325,7 +325,7 @@ func NewSchemaObjectsPropertiesDeleteInternalServerError() *SchemaObjectsPropert
 /*
 SchemaObjectsPropertiesDeleteInternalServerError describes a response with status code 500, with default header values.
 
-An error occurred while updating property. Check the ErrorResponse for details.
+An error occurred while deleting the index. Check the ErrorResponse for details.
 */
 type SchemaObjectsPropertiesDeleteInternalServerError struct {
 	Payload *models.ErrorResponse

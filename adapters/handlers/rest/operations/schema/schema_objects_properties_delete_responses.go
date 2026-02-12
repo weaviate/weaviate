@@ -28,7 +28,7 @@ import (
 const SchemaObjectsPropertiesDeleteOKCode int = 200
 
 /*
-SchemaObjectsPropertiesDeleteOK Property updated successfully.
+SchemaObjectsPropertiesDeleteOK Index deleted successfully.
 
 swagger:response schemaObjectsPropertiesDeleteOK
 */
@@ -123,7 +123,7 @@ func (o *SchemaObjectsPropertiesDeleteForbidden) WriteResponse(rw http.ResponseW
 const SchemaObjectsPropertiesDeleteUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsPropertiesDeleteUnprocessableEntity Invalid property definition provided.
+SchemaObjectsPropertiesDeleteUnprocessableEntity Invalid index, property or collection provided.
 
 swagger:response schemaObjectsPropertiesDeleteUnprocessableEntity
 */
@@ -168,7 +168,7 @@ func (o *SchemaObjectsPropertiesDeleteUnprocessableEntity) WriteResponse(rw http
 const SchemaObjectsPropertiesDeleteInternalServerErrorCode int = 500
 
 /*
-SchemaObjectsPropertiesDeleteInternalServerError An error occurred while updating property. Check the ErrorResponse for details.
+SchemaObjectsPropertiesDeleteInternalServerError An error occurred while deleting the index. Check the ErrorResponse for details.
 
 swagger:response schemaObjectsPropertiesDeleteInternalServerError
 */

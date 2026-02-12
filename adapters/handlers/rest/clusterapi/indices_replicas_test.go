@@ -441,22 +441,22 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 			if err != nil {
 				return
 			}
-
 			res, err := http.DefaultClient.Do(req)
 			if err != nil {
 				return
 			}
 			defer func() { _ = res.Body.Close() }()
-
 			if res.StatusCode == http.StatusServiceUnavailable {
 				got503.Store(true)
 			}
 		}()
 	}
 
-	// Unblock the first request so shutdown can complete
+	// Unblock all workers blocked on the mock. close() unblocks every
+	// receiver, not just one, so even if multiple workers picked up
+	// requests before isShutdown was set, they all get released.
 	time.Sleep(10 * time.Millisecond)
-	doneSignal <- struct{}{}
+	close(doneSignal)
 
 	// Wait for all requests to finish
 	wg.Wait()
