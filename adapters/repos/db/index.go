@@ -1072,7 +1072,11 @@ func (i *Index) getShardForWrite(
 ) (ShardLike, func(), error) {
 	ws, err := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
 	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
-		return nil, release, err
+		i.logger.Error("get write replicas location", "error", err, "tenantName", tenantName, "shardName", shardName)
+		// we don't return error here because we want to continue the operation
+		// and let the caller handle nil shard and request from remote
+		// TODO: we should fix the underlying validator
+		return shard, release, nil
 	}
 
 	if !slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
@@ -1082,7 +1086,9 @@ func (i *Index) getShardForWrite(
 
 	// if the shard is not found, initialize it based on AutoTenantActivation
 	if shard == nil {
-		shard, release, err = i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+		// this to handle MT auto enable and RF=1 case
+		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
+		shard, release, err = i.getOptInitLocalShard(ctx, shardName, ensureInit)
 		if err != nil {
 			return nil, release, err
 		}
@@ -1099,7 +1105,11 @@ func (i *Index) getShardForRead(
 ) (ShardLike, func(), error) {
 	rs, err := i.router.GetReadReplicasLocation(className, tenantName, shardName)
 	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
-		return nil, release, err
+		i.logger.Error("get read replicas location", "error", err, "tenantName", tenantName, "shardName", shardName)
+		// we don't return error here because we want to continue the operation
+		// and let the caller handle nil shard and request from remote
+		// TODO: we should fix the underlying validator
+		return shard, release, nil
 	}
 
 	if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
@@ -1108,7 +1118,9 @@ func (i *Index) getShardForRead(
 	}
 
 	if shard == nil {
-		shard, release, err = i.getOptInitLocalShard(ctx, shardName, i.Config.AutoTenantActivation)
+		// this to handle MT auto enable and RF=1 case
+		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
+		shard, release, err = i.getOptInitLocalShard(ctx, shardName, ensureInit)
 		if err != nil {
 			return nil, release, err
 		}
