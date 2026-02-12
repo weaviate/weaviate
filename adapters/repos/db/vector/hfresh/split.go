@@ -37,8 +37,6 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}()
 
 	if !h.Centroids.Exists(postingID) {
-		h.logger.WithField("postingID", postingID).
-			Debug("centroid not found, skipping split operation")
 		return nil
 	}
 
