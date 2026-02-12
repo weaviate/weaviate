@@ -1080,7 +1080,7 @@ func (i *Index) getShardForWrite(
 		// we don't return error here because we want to continue the operation
 		// and let the caller handle nil shard and request from remote
 		// TODO: we should fix the underlying validator
-		return nil, release, nil
+		return shard, release, nil
 	}
 
 	if !slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
@@ -1117,7 +1117,7 @@ func (i *Index) getShardForRead(
 		// we don't return error here because we want to continue the operation
 		// and let the caller handle nil shard and request from remote
 		// TODO: we should fix the underlying validator
-		return nil, release, nil
+		return shard, release, nil
 	}
 
 	if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
