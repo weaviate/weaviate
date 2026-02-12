@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -59,6 +60,11 @@ type RegistryConfig struct {
 
 	// StateTransferer handles out-of-band state transfer for snapshot restore.
 	StateTransferer StateTransferer
+
+	// IsLocalCluster indicates whether the cluster is running on a single host.
+	IsLocalCluster bool
+	// NodeNameToPortMap maps node names to their shard RAFT ports (for local clusters).
+	NodeNameToPortMap map[string]int
 }
 
 // Registry manages all per-index Raft instances on a node.
@@ -67,6 +73,8 @@ type Registry struct {
 	config         RegistryConfig
 	log            logrus.FieldLogger
 	RpcClientMaker rpcClientMaker
+
+	muxTransport *MuxTransport
 
 	indices sync.Map // key: className -> *Raft
 
@@ -100,6 +108,26 @@ func (reg *Registry) Start() error {
 		return fmt.Errorf("could not resolve advertise address for local node %s", reg.config.NodeID)
 	}
 
+	// Create the multiplexed transport for shard RAFT traffic
+	advertiseAddrStr := fmt.Sprintf("%s:%d", advertiseAddr, reg.config.RaftPort)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddrStr)
+	if err != nil {
+		return fmt.Errorf("resolve advertise addr %s: %w", advertiseAddrStr, err)
+	}
+
+	bindAddr := fmt.Sprintf("0.0.0.0:%d", reg.config.RaftPort)
+	provider := &ShardAddressProvider{
+		resolver:         reg.config.AddressResolver,
+		raftPort:         reg.config.RaftPort,
+		isLocalCluster:   reg.config.IsLocalCluster,
+		nodeNameToPortMap: reg.config.NodeNameToPortMap,
+	}
+
+	reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.log)
+	if err != nil {
+		return fmt.Errorf("create mux transport: %w", err)
+	}
+
 	reg.started = true
 	reg.log.WithFields(logrus.Fields{
 		"port":      reg.config.RaftPort,
@@ -125,6 +153,15 @@ func (reg *Registry) Shutdown() error {
 		reg.indices.Delete(key)
 		return true
 	})
+
+	// Close the mux transport after all Raft instances are stopped
+	if reg.muxTransport != nil {
+		if err := reg.muxTransport.Close(); err != nil {
+			reg.log.WithError(err).Error("error closing mux transport")
+			lastErr = err
+		}
+		reg.muxTransport = nil
+	}
 
 	reg.started = false
 	reg.log.Info("shard RAFT registry shutdown complete")
@@ -157,6 +194,7 @@ func (reg *Registry) GetOrCreateRaft(className string) (*Raft, error) {
 		SnapshotThreshold:  reg.config.SnapshotThreshold,
 		TrailingLogs:       reg.config.TrailingLogs,
 		StateTransferer:    reg.config.StateTransferer,
+		MuxTransport:       reg.muxTransport,
 	}
 
 	raft := NewRaft(raftConfig)

@@ -54,8 +54,10 @@ Implements `raft.ServerAddressProvider`. Resolves node ID → `host:shardRaftPor
 
 ```go
 type ShardAddressProvider struct {
-    resolver addressResolver
-    raftPort int
+    resolver         addressResolver
+    raftPort         int
+    isLocalCluster   bool
+    nodeNameToPortMap map[string]int
 }
 
 func (p *ShardAddressProvider) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) {
@@ -63,7 +65,15 @@ func (p *ShardAddressProvider) ServerAddr(id raft.ServerID) (raft.ServerAddress,
     if addr == "" {
         return "", fmt.Errorf("could not resolve node %s", id)
     }
-    return raft.ServerAddress(fmt.Sprintf("%s:%d", addr, p.raftPort)), nil
+    if !p.isLocalCluster {
+        return raft.ServerAddress(fmt.Sprintf("%s:%d", addr, p.raftPort)), nil
+    }
+    // Local cluster: each node has a different port
+    port, exists := p.nodeNameToPortMap[string(id)]
+    if !exists {
+        port = p.raftPort
+    }
+    return raft.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
 }
 ```
 
@@ -89,10 +99,10 @@ type MuxTransport struct {
 ```
 
 Key methods:
-- `NewMuxTransport(bindAddr string, advertise net.Addr, provider *ShardAddressProvider, logger) (*MuxTransport, error)` — binds TCP listener, starts `acceptLoop` goroutine
-- `acceptLoop()` — accepts TCP connections, wraps each in `yamux.Server(conn, cfg)`, starts `handleSession` goroutine per session
+- `NewMuxTransport(bindAddr string, advertise net.Addr, provider *ShardAddressProvider, logger) (*MuxTransport, error)` — binds TCP listener, starts `acceptLoop` goroutine. Uses custom yamux config: `AcceptBacklog: 1024`, `ConnectionWriteTimeout: 10s`, `KeepAliveInterval: 15s`. Stores the yamux config in the struct for reuse by both server and client sessions.
+- `acceptLoop()` — accepts TCP connections, wraps each in `yamux.Server(conn, yamuxCfg)`, starts `handleSession` goroutine per session
 - `handleSession(session)` — accepts yamux streams from session, reads shard key header via `readShardKeyHeader()`, dispatches stream to matching `ShardStreamLayer.incomingCh`. If shard key not found (race during startup), logs warning and closes stream.
-- `getOrDialSession(address raft.ServerAddress) (*yamux.Session, error)` — returns existing outbound yamux session or dials new TCP connection + `yamux.Client(conn, cfg)`. Checks `session.IsClosed()` to handle stale sessions from peer restarts.
+- `getOrDialSession(address raft.ServerAddress) (*yamux.Session, error)` — returns existing outbound yamux session or dials new TCP connection via `net.DialTimeout("tcp", addr, 10*time.Second)` + `yamux.Client(conn, yamuxCfg)`. Checks `session.IsClosed()` to handle stale sessions from peer restarts.
 - `CreateShardTransport(className, shardName string, logger) (raft.Transport, error)` — creates `ShardStreamLayer`, registers it, wraps in `raft.NewNetworkTransportWithConfig()` with `ShardAddressProvider` and `maxPool=3`
 - `DestroyShardTransport(className, shardName string)` — unregisters `ShardStreamLayer`, closes it
 - `Close() error` — closes listener, all sessions, signals shutdown
@@ -127,13 +137,19 @@ func shardKey(className, shardName string) string             // "className/shar
 
 ### Step 3: Modify `cluster/shard/registry.go`
 
+- Add `IsLocalCluster bool` and `NodeNameToPortMap map[string]int` fields to `RegistryConfig` (lines 36-62)
 - Add `muxTransport *MuxTransport` field to `Registry` struct (line 66-75)
 - In `Start()` (lines 89-109): after resolving advertise address, create `MuxTransport`:
   ```go
   advertiseAddr := fmt.Sprintf("%s:%d", advertiseAddr, reg.config.RaftPort)
   tcpAddr, _ := net.ResolveTCPAddr("tcp", advertiseAddr)
   bindAddr := fmt.Sprintf("0.0.0.0:%d", reg.config.RaftPort)
-  provider := &ShardAddressProvider{resolver: reg.config.AddressResolver, raftPort: reg.config.RaftPort}
+  provider := &ShardAddressProvider{
+      resolver:         reg.config.AddressResolver,
+      raftPort:         reg.config.RaftPort,
+      isLocalCluster:   reg.config.IsLocalCluster,
+      nodeNameToPortMap: reg.config.NodeNameToPortMap,
+  }
   reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.log)
   ```
 - In `Shutdown()` (lines 112-132): after stopping all Raft instances, call `reg.muxTransport.Close()`
@@ -142,19 +158,47 @@ func shardKey(className, shardName string) string             // "className/shar
 ### Step 4: Modify `cluster/shard/raft.go`
 
 - Add `MuxTransport *MuxTransport` field to `RaftConfig` (lines 24-44)
-- In `GetOrCreateStore()` (lines 127-141): after building `StoreConfig`, create shard transport:
+- In `GetOrCreateStore()` (lines 127-141): after building `StoreConfig`, create shard transport. **Handle concurrent creation race**: if `LoadOrStore` returns `loaded=true`, destroy the orphaned transport:
   ```go
   transport, err := r.config.MuxTransport.CreateShardTransport(r.config.ClassName, shardName, r.config.Logger)
+  if err != nil {
+      return nil, fmt.Errorf("create shard transport: %w", err)
+  }
   storeConfig.Transport = transport
+  // ... create store ...
+  actual, loaded := r.stores.LoadOrStore(shardName, store)
+  if loaded {
+      // Lost the race — clean up orphaned transport
+      r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)
+      return actual.(*Store), nil
+  }
   ```
 - In `Shutdown()` (lines 85-105): after stopping each store, call `r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)`
+- In `StopStore()` (line 168): after stopping the store, also destroy the shard transport
+- In `OnShardDeleted()` (line 207): transport cleanup happens via `StopStore()`
 
 ### Step 5: Modify `cluster/shard/store.go`
 
 - Remove the `// TODO: init transport properly` comment at line 237
 - No other changes — `Store` already receives and uses `Transport` from `StoreConfig`
 
-### Step 6: Create `cluster/shard/transport_test.go`
+### Step 6: Modify `adapters/handlers/rest/configure_api.go`
+
+Wire `IsLocalCluster` and `NodeNameToPortMap` (shard port variant) into `RegistryConfig` (lines 391-407):
+```go
+// Compute shard port map: schema RAFT port + 1 for each node
+shardServer2port := make(map[string]int, len(server2port))
+for name, port := range server2port {
+    shardServer2port[name] = port + 1
+}
+sConfig := shard.RegistryConfig{
+    // ... existing fields ...
+    IsLocalCluster:    appState.ServerConfig.Config.Cluster.Localhost,
+    NodeNameToPortMap: shardServer2port,
+}
+```
+
+### Step 7: Create `cluster/shard/transport_test.go`
 
 Unit and integration tests:
 
@@ -162,9 +206,10 @@ Unit and integration tests:
 2. **TestMuxTransport_SingleShard_ThreeNodes** — 3 MuxTransport instances on different ports, one shard each, form RAFT cluster, verify leader election
 3. **TestMuxTransport_MultipleShards_SharedConnections** — 2 MuxTransport instances, 10 shards each, verify all 10 RAFT clusters elect leaders (validates multiplexing)
 4. **TestMuxTransport_SessionReconnect** — close a yamux session, verify next Dial creates new session
-5. **TestShardAddressProvider_Resolution** — verify node ID → host:port resolution
+5. **TestShardAddressProvider_Resolution** — verify node ID → host:port resolution for both distributed and local cluster modes
+6. **TestShardAddressProvider_LocalCluster** — verify local cluster port mapping works with `NodeNameToPortMap`
 
-### Step 7: Verify no regressions
+### Step 8: Verify no regressions
 
 - `go test ./cluster/shard/...` — existing tests use `InmemTransport` directly via `StoreConfig`, bypassing `MuxTransport` entirely
 - `go test -race ./cluster/shard/...` — race detection
@@ -177,9 +222,10 @@ Unit and integration tests:
 |------|--------|
 | `cluster/shard/transport.go` | **NEW** — MuxTransport, ShardStreamLayer, ShardAddressProvider, helpers |
 | `cluster/shard/transport_test.go` | **NEW** — transport unit + integration tests |
-| `cluster/shard/registry.go` | Add `muxTransport` field, create in `Start()`, close in `Shutdown()`, pass to `RaftConfig` |
-| `cluster/shard/raft.go` | Add `MuxTransport` to `RaftConfig`, call `CreateShardTransport` in `GetOrCreateStore()`, destroy in `Shutdown()` |
+| `cluster/shard/registry.go` | Add `muxTransport` field + `IsLocalCluster`/`NodeNameToPortMap` to config, create in `Start()`, close in `Shutdown()`, pass to `RaftConfig` |
+| `cluster/shard/raft.go` | Add `MuxTransport` to `RaftConfig`, create/destroy transport in `GetOrCreateStore()` (with race cleanup), destroy in `Shutdown()`/`StopStore()` |
 | `cluster/shard/store.go` | Remove TODO comment (line 237) |
+| `adapters/handlers/rest/configure_api.go` | Wire `IsLocalCluster`, `NodeNameToPortMap` (shard port +1 variant) into `RegistryConfig` |
 | `go.mod` / `go.sum` | Add `github.com/hashicorp/yamux` |
 
 ## Existing Code Reused
@@ -189,6 +235,8 @@ Unit and integration tests:
 - `addressResolver` interface (registry.go:30-32) — already available, resolves node names to addresses
 - `cluster/log.NewHCLogrusLogger()` — existing logrus → hclog adapter
 - `raft.NewInmemTransport()` — tests continue using this unchanged
+- Port mapping pattern from `cluster/resolver/raft.go:60-84` and `configure_api.go:922-936`
+- `IsLocalHost` / `NodeNameToPortMap` wiring pattern from schema RAFT in `configure_api.go:641-644`
 
 ## Verification
 
@@ -204,4 +252,8 @@ Unit and integration tests:
 - **Unknown shard key on accept** (startup race): log warning, close stream — remote RAFT retries automatically
 - **Full incomingCh buffer**: use select with default to avoid blocking `handleSession`, close stream if buffer full
 - **Graceful shutdown ordering**: Stop all Raft/Store instances first (closes NetworkTransports → ShardStreamLayers), then close MuxTransport (listener + sessions)
-- **Concurrent store creation**: `GetOrCreateStore` already uses `LoadOrStore` for thread safety; `RegisterShardLayer` uses mutex
+- **Concurrent store creation**: `GetOrCreateStore` uses `LoadOrStore`; if race is lost, orphaned transport is destroyed via `DestroyShardTransport()`
+- **Transport cleanup on shard deletion**: `StopStore()` and `Shutdown()` both destroy the shard transport after stopping the store, preventing ghost entries in `MuxTransport.shardLayers`
+- **Local cluster port mapping**: `ShardAddressProvider` supports `IsLocalCluster` mode with per-node port mapping, mirroring `cluster/resolver/raft.go`
+- **Dial timeout**: `getOrDialSession` uses `net.DialTimeout` (10s) to avoid hanging on unreachable peers
+- **yamux tuning**: Custom config with `AcceptBacklog: 1024` (up from default 256) to handle many shards opening streams during startup, `KeepAliveInterval: 15s` for faster dead peer detection

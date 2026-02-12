@@ -234,7 +234,6 @@ func (s *Store) initRaft() error {
 	cfg := s.raftConfig()
 
 	var err error
-	// TODO: init transport properly
 	s.raft, err = raft.NewRaft(cfg, s.fsm, s.logCache, s.logStore, s.snapshotStore, s.transport)
 	if err != nil {
 		return fmt.Errorf("new raft: %w", err)

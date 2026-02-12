@@ -41,6 +41,9 @@ type RaftConfig struct {
 
 	// StateTransferer handles out-of-band state transfer for snapshot restore.
 	StateTransferer StateTransferer
+
+	// MuxTransport is the shared multiplexed transport for creating per-shard transports.
+	MuxTransport *MuxTransport
 }
 
 // Raft manages all per-shard RAFT clusters (Stores) for a single index.
@@ -88,12 +91,15 @@ func (r *Raft) Shutdown() error {
 
 	var lastErr error
 
-	// Stop all shard stores
+	// Stop all shard stores and destroy their transports
 	r.stores.Range(func(key, value interface{}) bool {
 		store := value.(*Store)
 		if err := store.Stop(); err != nil {
 			r.log.WithError(err).WithField("shard", key).Error("error stopping store")
 			lastErr = err
+		}
+		if r.config.MuxTransport != nil {
+			r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, key.(string))
 		}
 		r.stores.Delete(key)
 		return true
@@ -124,6 +130,14 @@ func (r *Raft) GetOrCreateStore(
 		return existing.(*Store), nil
 	}
 
+	// Create shard transport via the multiplexed transport
+	transport, err := r.config.MuxTransport.CreateShardTransport(
+		r.config.ClassName, shardName, r.config.Logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create shard transport: %w", err)
+	}
+
 	storeConfig := StoreConfig{
 		ClassName:          r.config.ClassName,
 		ShardName:          shardName,
@@ -138,17 +152,20 @@ func (r *Raft) GetOrCreateStore(
 		SnapshotInterval:   r.config.SnapshotInterval,
 		SnapshotThreshold:  r.config.SnapshotThreshold,
 		TrailingLogs:       r.config.TrailingLogs,
+		Transport:          transport,
 	}
 
 	store, err := NewStore(storeConfig)
 	if err != nil {
+		r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)
 		return nil, fmt.Errorf("create shard raft store: %w", err)
 	}
 
 	// Store the new store (use LoadOrStore to handle concurrent creation)
 	actual, loaded := r.stores.LoadOrStore(shardName, store)
 	if loaded {
-		// Another goroutine created the store first, return that one
+		// Lost the race — clean up orphaned transport
+		r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)
 		return actual.(*Store), nil
 	}
 
@@ -167,7 +184,11 @@ func (r *Raft) GetStore(shardName string) *Store {
 // StopStore stops and removes a shard's Store.
 func (r *Raft) StopStore(shardName string) error {
 	if store, ok := r.stores.LoadAndDelete(shardName); ok {
-		return store.(*Store).Stop()
+		err := store.(*Store).Stop()
+		if r.config.MuxTransport != nil {
+			r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)
+		}
+		return err
 	}
 	return nil
 }
