@@ -257,6 +257,15 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		})
 	})
 
+	g.Go(func() error {
+		return s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			if err := index.ResumeAfterBackup(ctx); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+			return nil
+		})
+	})
+
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}

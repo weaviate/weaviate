@@ -291,6 +291,11 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	return h.stopTaskQueues()
 }
 
+func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
+	h.resumeTaskQueues()
+	return nil
+}
+
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
 	if err != nil {
