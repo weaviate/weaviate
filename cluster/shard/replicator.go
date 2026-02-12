@@ -105,39 +105,6 @@ func Newreplicator(config RouterConfig) *replicator {
 	}
 }
 
-// PutObject routes a PutObject operation to the appropriate shard leader.
-// If this node is the leader, the operation is applied locally via RAFT.
-// If this node is not the leader and a forwarding client is configured,
-// the operation is forwarded to the leader.
-func (r *replicator) PutObject(ctx context.Context, shard string, obj *storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) error {
-	// Build the PutObject sub-command
-	objBytes, err := obj.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("marshal object: %w", err)
-	}
-
-	putReq := &shardproto.PutObjectRequest{
-		Object:        objBytes,
-		SchemaVersion: schemaVersion,
-	}
-	subCmd, err := proto.Marshal(putReq)
-	if err != nil {
-		return fmt.Errorf("marshal put request: %w", err)
-	}
-
-	compressed := s2.Encode(nil, subCmd)
-
-	req := &shardproto.ApplyRequest{
-		Type:       shardproto.ApplyRequest_TYPE_PUT_OBJECT,
-		Class:      r.class,
-		Shard:      shard,
-		SubCommand: compressed,
-		Compressed: true,
-	}
-	_, err = r.apply(ctx, req)
-	return err
-}
-
 func (r *replicator) apply(ctx context.Context, req *shardproto.ApplyRequest) (*shardproto.ApplyResponse, error) {
 	store := r.raft.GetStore(req.Shard)
 	if store == nil {
@@ -226,6 +193,39 @@ func (r *replicator) forwardToLeader(
 	}
 
 	return resp, nil
+}
+
+// PutObject routes a PutObject operation to the appropriate shard leader.
+// If this node is the leader, the operation is applied locally via RAFT.
+// If this node is not the leader and a forwarding client is configured,
+// the operation is forwarded to the leader.
+func (r *replicator) PutObject(ctx context.Context, shard string, obj *storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) error {
+	// Build the PutObject sub-command
+	objBytes, err := obj.MarshalBinary()
+	if err != nil {
+		return fmt.Errorf("marshal object: %w", err)
+	}
+
+	putReq := &shardproto.PutObjectRequest{
+		Object:        objBytes,
+		SchemaVersion: schemaVersion,
+	}
+	subCmd, err := proto.Marshal(putReq)
+	if err != nil {
+		return fmt.Errorf("marshal put request: %w", err)
+	}
+
+	compressed := s2.Encode(nil, subCmd)
+
+	req := &shardproto.ApplyRequest{
+		Type:       shardproto.ApplyRequest_TYPE_PUT_OBJECT,
+		Class:      r.class,
+		Shard:      shard,
+		SubCommand: compressed,
+		Compressed: true,
+	}
+	_, err = r.apply(ctx, req)
+	return err
 }
 
 // DeleteObject routes a DeleteObject operation to the appropriate shard leader.
