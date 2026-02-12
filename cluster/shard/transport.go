@@ -23,15 +23,16 @@ import (
 	"github.com/hashicorp/yamux"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // ShardAddressProvider implements raft.ServerAddressProvider.
 // It resolves a RAFT server ID (node name) to a host:port address
 // for the shard RAFT transport layer.
 type ShardAddressProvider struct {
-	resolver         addressResolver
-	raftPort         int
-	isLocalCluster   bool
+	resolver          addressResolver
+	raftPort          int
+	isLocalCluster    bool
 	nodeNameToPortMap map[string]int
 }
 
@@ -101,7 +102,7 @@ func NewMuxTransport(
 		shutdownCh:   make(chan struct{}),
 	}
 
-	go m.acceptLoop()
+	enterrors.GoWrapper(m.acceptLoop, logger)
 
 	logger.WithFields(logrus.Fields{
 		"bind":      bindAddr,
@@ -133,7 +134,9 @@ func (m *MuxTransport) acceptLoop() {
 			continue
 		}
 
-		go m.handleSession(session)
+		enterrors.GoWrapper(func() {
+			m.handleSession(session)
+		}, m.logger)
 	}
 }
 
