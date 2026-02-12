@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
