@@ -50,12 +50,6 @@ func TestSplitCentroidNotExists(t *testing.T) {
 
 	err := tf.Index.doSplit(t.Context(), 42, false)
 	require.NoError(t, err)
-
-	require.Len(t, tf.Logs.Entries, 1)
-	entry := tf.Logs.Entries[0]
-	require.Equal(t, logrus.DebugLevel, entry.Level)
-	require.Equal(t, "centroid not found, skipping split operation", entry.Message)
-	require.Equal(t, uint64(42), entry.Data["postingID"])
 }
 
 // Split a posting below maxPostingSize

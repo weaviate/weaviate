@@ -33,9 +33,9 @@ const (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 const (
-	indexMetadataBucketPrefix  = 'm'
+	indexMetadataBucketPrefix  = 'i'
 	versionMapBucketPrefix     = 'v'
-	postingMapBucketPrefix     = 'p'
+	postingMapBucketPrefix     = 'm'
 	postingVersionBucketPrefix = 'l'
 	reassignBucketKey          = "pending_reassignments"
 )
