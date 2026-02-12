@@ -479,7 +479,7 @@ func TestStore_RaftConfig_TrailingLogs(t *testing.T) {
 			LeaderLeaseTimeout: 100 * time.Millisecond,
 			SnapshotInterval:   10 * time.Second,
 			SnapshotThreshold:  1024,
-			// TrailingLogs intentionally left at zero -> should default to 4096
+			// TrailingLogs intentionally left at zero -> should default to 0
 		}
 
 		store, err := shard.NewStore(cfg)
@@ -488,7 +488,7 @@ func TestStore_RaftConfig_TrailingLogs(t *testing.T) {
 		mockShard := mocks.NewMockshard(t)
 		store.SetShard(mockShard)
 
-		// Store should start successfully with the default TrailingLogs (4096)
+		// Store should start successfully with the default TrailingLogs (0)
 		startAndWaitForLeader(t, store)
 		assert.True(t, store.IsLeader())
 	})

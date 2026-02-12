@@ -1196,7 +1196,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"SHARD_RAFT_TRAILING_LOGS",
 		func(val int) { cfg.ShardTrailingLogs = uint64(val) },
-		4096,
+		0,
 	); err != nil {
 		return cfg, err
 	}

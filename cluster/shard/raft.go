@@ -38,6 +38,9 @@ type RaftConfig struct {
 	SnapshotInterval   time.Duration
 	SnapshotThreshold  uint64
 	TrailingLogs       uint64
+
+	// StateTransferer handles out-of-band state transfer for snapshot restore.
+	StateTransferer StateTransferer
 }
 
 // Raft manages all per-shard RAFT clusters (Stores) for a single index.
@@ -185,6 +188,11 @@ func (r *Raft) OnShardCreated(
 
 	// Set the shard operator
 	store.SetShard(shard)
+
+	// Set the state transferrer for out-of-band snapshot restore
+	if r.config.StateTransferer != nil {
+		store.SetStateTransferer(r.config.StateTransferer)
+	}
 
 	// Start the store
 	if err := store.Start(ctx); err != nil {

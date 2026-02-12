@@ -19,6 +19,8 @@ import (
 	mock "github.com/stretchr/testify/mock"
 	objects "github.com/weaviate/weaviate/usecases/objects"
 
+	shard "github.com/weaviate/weaviate/cluster/shard"
+
 	storobj "github.com/weaviate/weaviate/entities/storobj"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -84,6 +86,62 @@ func (_c *Mockshard_AddReferencesBatch_Call) Return(_a0 []error) *Mockshard_AddR
 }
 
 func (_c *Mockshard_AddReferencesBatch_Call) RunAndReturn(run func(context.Context, objects.BatchReferences) []error) *Mockshard_AddReferencesBatch_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateTransferSnapshot provides a mock function with given fields: ctx
+func (_m *Mockshard) CreateTransferSnapshot(ctx context.Context) (shard.TransferSnapshot, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateTransferSnapshot")
+	}
+
+	var r0 shard.TransferSnapshot
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (shard.TransferSnapshot, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) shard.TransferSnapshot); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(shard.TransferSnapshot)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Mockshard_CreateTransferSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateTransferSnapshot'
+type Mockshard_CreateTransferSnapshot_Call struct {
+	*mock.Call
+}
+
+// CreateTransferSnapshot is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Mockshard_Expecter) CreateTransferSnapshot(ctx interface{}) *Mockshard_CreateTransferSnapshot_Call {
+	return &Mockshard_CreateTransferSnapshot_Call{Call: _e.mock.On("CreateTransferSnapshot", ctx)}
+}
+
+func (_c *Mockshard_CreateTransferSnapshot_Call) Run(run func(ctx context.Context)) *Mockshard_CreateTransferSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Mockshard_CreateTransferSnapshot_Call) Return(_a0 shard.TransferSnapshot, _a1 error) *Mockshard_CreateTransferSnapshot_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Mockshard_CreateTransferSnapshot_Call) RunAndReturn(run func(context.Context) (shard.TransferSnapshot, error)) *Mockshard_CreateTransferSnapshot_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -417,6 +475,52 @@ func (_c *Mockshard_PutObjectBatch_Call) Return(_a0 []error) *Mockshard_PutObjec
 }
 
 func (_c *Mockshard_PutObjectBatch_Call) RunAndReturn(run func(context.Context, []*storobj.Object) []error) *Mockshard_PutObjectBatch_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReleaseTransferSnapshot provides a mock function with given fields: snapshotID
+func (_m *Mockshard) ReleaseTransferSnapshot(snapshotID string) error {
+	ret := _m.Called(snapshotID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReleaseTransferSnapshot")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string) error); ok {
+		r0 = rf(snapshotID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Mockshard_ReleaseTransferSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReleaseTransferSnapshot'
+type Mockshard_ReleaseTransferSnapshot_Call struct {
+	*mock.Call
+}
+
+// ReleaseTransferSnapshot is a helper method to define mock.On call
+//   - snapshotID string
+func (_e *Mockshard_Expecter) ReleaseTransferSnapshot(snapshotID interface{}) *Mockshard_ReleaseTransferSnapshot_Call {
+	return &Mockshard_ReleaseTransferSnapshot_Call{Call: _e.mock.On("ReleaseTransferSnapshot", snapshotID)}
+}
+
+func (_c *Mockshard_ReleaseTransferSnapshot_Call) Run(run func(snapshotID string)) *Mockshard_ReleaseTransferSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *Mockshard_ReleaseTransferSnapshot_Call) Return(_a0 error) *Mockshard_ReleaseTransferSnapshot_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Mockshard_ReleaseTransferSnapshot_Call) RunAndReturn(run func(string) error) *Mockshard_ReleaseTransferSnapshot_Call {
 	_c.Call.Return(run)
 	return _c
 }
