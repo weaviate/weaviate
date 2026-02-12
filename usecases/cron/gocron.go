@@ -112,25 +112,24 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 	errors.GoWrapper(func() {
 		jobName := "trigger_objects_ttl_deletion"
 		jobLogger := c.logger.WithField("job", jobName)
-		var jobCtx context.Context
-		var cancel context.CancelFunc = func() {} // noop
-		wgRunning := new(sync.WaitGroup)
+		job := c.createJob(jobLogger, c.gocronLogger, clusterService, coordinator)
 
 		for {
 			select {
 			case schedule := <-c.scheduleCh:
-				cancel()
-				if cr.RemoveByName(jobName) {
-					jobLogger.Info("cron job removed")
-				}
-
 				if schedule == "" {
+					if cr.RemoveByName(jobName) {
+						jobLogger.Info("cron job removed")
+					}
 					jobLogger.Info("cron job skipped, no schedule")
 					continue
 				}
 
-				// ensure removed job is no longer running before adding one with new schedule
-				wgRunning.Wait()
+				// WaitForJobByName (go-cron#317) blocks until the running
+				// invocation finishes. UpsertJob (go-cron#316) then atomically
+				// creates or replaces the entry — canceling the old per-entry
+				// context and issuing a fresh one for the next invocation.
+				cr.WaitForJobByName(jobName)
 				// ensure context still valid after waiting
 				select {
 				case <-c.serverShutdownCtx.Done():
@@ -139,21 +138,17 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 				default:
 				}
 
-				jobCtx, cancel = context.WithCancel(c.serverShutdownCtx)
-				job := c.createJob(jobCtx, jobLogger, c.gocronLogger, clusterService, coordinator, wgRunning)
-
-				entryId, err := cr.AddJob(schedule, job, gocron.WithName(jobName))
+				entryId, err := cr.UpsertJob(schedule, job, gocron.WithName(jobName))
 				if err != nil {
-					jobLogger.WithError(err).Error("cron job not added")
+					jobLogger.WithError(err).Error("cron job upsert failed")
 					continue
 				}
 				jobLogger.WithFields(logrus.Fields{
 					"entry_id": entryId,
 					"schedule": schedule,
-				}).Info("cron job added")
+				}).Info("cron job upserted")
 
 			case <-c.serverShutdownCtx.Done():
-				cancel()
 				jobLogger.Debug("server shutdown context cancelled")
 				return
 			}
@@ -163,15 +158,15 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 	return nil
 }
 
-func (c *cronsObjectsTTL) createJob(ctx context.Context, jobLogger logrus.FieldLogger, gocronLogger gocron.Logger,
-	clusterService *cluster.Service, coordinator *objectttl.Coordinator, wgRunning *sync.WaitGroup,
+func (c *cronsObjectsTTL) createJob(jobLogger logrus.FieldLogger, gocronLogger gocron.Logger,
+	clusterService *cluster.Service, coordinator *objectttl.Coordinator,
 ) gocron.Job {
+	// FuncJobWithContext receives the per-entry context (go-cron#315), which is
+	// automatically canceled when the entry is removed or replaced via UpsertJob.
+	// Context propagates through SkipIfStillRunning (go-cron#316).
 	return gocron.NewChain(
 		gocron.SkipIfStillRunning(gocronLogger),
-	).Then(gocron.FuncJob(func() {
-		wgRunning.Add(1)
-		defer wgRunning.Done()
-
+	).Then(gocron.FuncJobWithContext(func(ctx context.Context) {
 		if !clusterService.IsLeader() {
 			jobLogger.Debug("not a ttl scheduler - skipping")
 			return

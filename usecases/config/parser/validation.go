@@ -62,9 +62,7 @@ func ValidateDurationGreaterThanEqual0(val time.Duration) error {
 
 func ValidateGocronSchedule(val string) error {
 	if val != "" {
-		if _, err := cron.FullParser().Parse(val); err != nil {
-			return err
-		}
+		return cron.ValidateSpecWith(val, cron.FullParser())
 	}
 	return nil
 }
