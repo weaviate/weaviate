@@ -657,6 +657,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
+	repo.WithTenantsActivityManager(appState.SchemaManager)
 
 	// initialize needed services after all components are ready
 	postInitModules(appState)
