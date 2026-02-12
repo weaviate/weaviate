@@ -189,7 +189,7 @@ func (r *Raft) OnShardCreated(
 	// Set the shard operator
 	store.SetShard(shard)
 
-	// Set the state transferer for out-of-band snapshot restore
+	// Set the state transferrer for out-of-band snapshot restore
 	if r.config.StateTransferer != nil {
 		store.SetStateTransferer(r.config.StateTransferer)
 	}

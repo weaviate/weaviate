@@ -140,7 +140,7 @@ func (f *FSM) getShard() shard {
 	return f.shard
 }
 
-// SetStateTransferer sets the state transferer used by Restore() to download
+// SetStateTransferer sets the state transferrer used by Restore() to download
 // shard data from the leader when a foreign snapshot is detected.
 func (f *FSM) SetStateTransferer(st StateTransferer) {
 	f.mu.Lock()

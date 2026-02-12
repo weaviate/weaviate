@@ -230,7 +230,7 @@ func (reg *Registry) LeaderAddress(className, shardName string) string {
 	return raft.LeaderAddress(shardName)
 }
 
-// SetStateTransferer sets the state transferer for late-binding. This is
+// SetStateTransferer sets the state transferrer for late-binding. This is
 // needed because the StateTransfer depends on components (DB, reinitializer)
 // that may not be available at Registry creation time.
 func (reg *Registry) SetStateTransferer(st StateTransferer) {
