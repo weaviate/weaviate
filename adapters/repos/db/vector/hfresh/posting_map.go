@@ -137,8 +137,11 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	if err != nil {
 		return err
 	}
+
+	count := pm.Count()
+
 	v.data.Store(postingID, &PostingMetadata{PackedPostingMetadata: pm})
-	v.metrics.ObservePostingSize(float64(pm.Count()))
+	v.metrics.ObservePostingSize(float64(count))
 
 	return nil
 }
@@ -154,19 +157,22 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		return 0, err
 	}
 
+	var count uint32
 	if m != nil {
 		m.Lock()
 		m.PackedPostingMetadata = m.AddVector(vectorID, version)
+		count = m.Count()
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
 			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
+		count = m.Count()
 		v.data.Store(postingID, m)
 	}
 
-	v.metrics.ObservePostingSize(float64(m.Count()))
-	return uint32(m.Count()), nil
+	v.metrics.ObservePostingSize(float64(count))
+	return uint32(count), nil
 }
 
 // Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
