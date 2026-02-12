@@ -19,7 +19,7 @@ func Test_RaftShardReplication(t *testing.T) {
 
 	cls := articles.ParagraphsClass()
 	cls.ReplicationConfig = &models.ReplicationConfig{
-		Factor:      1,
+		Factor:      3,
 		RaftEnabled: true,
 	}
 

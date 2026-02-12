@@ -165,10 +165,9 @@ func TestStateTransfer_HappyPath(t *testing.T) {
 
 	reinitCalled := false
 	st := &shard.StateTransfer{
-		RpcClientMaker: func(ctx context.Context, addr string) (shardproto.ShardReplicationServiceClient, error) {
+		RpcClientMaker: func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
 			return mockClient, nil
 		},
-		AddressResolver: &fakeAddrResolver{addr: "10.0.0.1:8080"},
 		Reinitializer: &fakeReinitializer{fn: func(ctx context.Context, className, shardName string) error {
 			reinitCalled = true
 			assert.Equal(t, testClassName, className)
@@ -205,14 +204,13 @@ func TestStateTransfer_CreateSnapshotFails(t *testing.T) {
 	}
 
 	st := &shard.StateTransfer{
-		RpcClientMaker: func(ctx context.Context, addr string) (shardproto.ShardReplicationServiceClient, error) {
+		RpcClientMaker: func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
 			return mockClient, nil
 		},
-		AddressResolver: &fakeAddrResolver{addr: "10.0.0.1:8080"},
-		Reinitializer:   &fakeReinitializer{},
-		LeaderFunc:      func(className, shardName string) string { return "leader-node" },
-		RootDataPath:    t.TempDir(),
-		Log:             logger,
+		Reinitializer: &fakeReinitializer{},
+		LeaderFunc:    func(className, shardName string) string { return "leader-node" },
+		RootDataPath:  t.TempDir(),
+		Log:           logger,
 	}
 
 	err := st.TransferState(context.Background(), testClassName, testShardName)
@@ -226,11 +224,10 @@ func TestStateTransfer_NoLeader_RetriesAndFails(t *testing.T) {
 
 	callCount := 0
 	st := &shard.StateTransfer{
-		RpcClientMaker: func(ctx context.Context, addr string) (shardproto.ShardReplicationServiceClient, error) {
+		RpcClientMaker: func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
 			return nil, nil
 		},
-		AddressResolver: &fakeAddrResolver{addr: "10.0.0.1:8080"},
-		Reinitializer:   &fakeReinitializer{},
+		Reinitializer: &fakeReinitializer{},
 		LeaderFunc: func(className, shardName string) string {
 			callCount++
 			return "" // no leader
@@ -261,10 +258,9 @@ func TestStateTransfer_ReinitFails(t *testing.T) {
 	}
 
 	st := &shard.StateTransfer{
-		RpcClientMaker: func(ctx context.Context, addr string) (shardproto.ShardReplicationServiceClient, error) {
+		RpcClientMaker: func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
 			return mockClient, nil
 		},
-		AddressResolver: &fakeAddrResolver{addr: "10.0.0.1:8080"},
 		Reinitializer: &fakeReinitializer{fn: func(ctx context.Context, className, shardName string) error {
 			return errors.New("reinit failed")
 		}},
@@ -297,14 +293,13 @@ func TestStateTransfer_ReleaseCalledOnDownloadError(t *testing.T) {
 	}
 
 	st := &shard.StateTransfer{
-		RpcClientMaker: func(ctx context.Context, addr string) (shardproto.ShardReplicationServiceClient, error) {
+		RpcClientMaker: func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
 			return mockClient, nil
 		},
-		AddressResolver: &fakeAddrResolver{addr: "10.0.0.1:8080"},
-		Reinitializer:   &fakeReinitializer{},
-		LeaderFunc:      func(className, shardName string) string { return "leader-node" },
-		RootDataPath:    t.TempDir(),
-		Log:             logger,
+		Reinitializer: &fakeReinitializer{},
+		LeaderFunc:    func(className, shardName string) string { return "leader-node" },
+		RootDataPath:  t.TempDir(),
+		Log:           logger,
 	}
 
 	err := st.TransferState(context.Background(), testClassName, testShardName)
@@ -349,10 +344,9 @@ func TestStateTransfer_IncrementalSkipsMatchingFiles(t *testing.T) {
 
 	reinitCalled := false
 	st := &shard.StateTransfer{
-		RpcClientMaker: func(ctx context.Context, addr string) (shardproto.ShardReplicationServiceClient, error) {
+		RpcClientMaker: func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
 			return mockClient, nil
 		},
-		AddressResolver: &fakeAddrResolver{addr: "10.0.0.1:8080"},
 		Reinitializer: &fakeReinitializer{fn: func(ctx context.Context, cn, sn string) error {
 			reinitCalled = true
 			return nil
@@ -413,14 +407,13 @@ func TestStateTransfer_CleanupRemovesStaleFiles(t *testing.T) {
 	}
 
 	st := &shard.StateTransfer{
-		RpcClientMaker: func(ctx context.Context, addr string) (shardproto.ShardReplicationServiceClient, error) {
+		RpcClientMaker: func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
 			return mockClient, nil
 		},
-		AddressResolver: &fakeAddrResolver{addr: "10.0.0.1:8080"},
-		Reinitializer:   &fakeReinitializer{},
-		LeaderFunc:      func(cn, sn string) string { return "leader-node" },
-		RootDataPath:    rootDir,
-		Log:             logger,
+		Reinitializer: &fakeReinitializer{},
+		LeaderFunc:    func(cn, sn string) string { return "leader-node" },
+		RootDataPath:  rootDir,
+		Log:           logger,
 	}
 
 	err = st.TransferState(context.Background(), testClassName, testShardName)
@@ -451,14 +444,6 @@ type mockStateTransferer struct {
 
 func (m *mockStateTransferer) TransferState(ctx context.Context, className, shardName string) error {
 	return m.fn(ctx, className, shardName)
-}
-
-type fakeAddrResolver struct {
-	addr string
-}
-
-func (f *fakeAddrResolver) NodeAddress(nodeName string) string {
-	return f.addr
 }
 
 type fakeReinitializer struct {

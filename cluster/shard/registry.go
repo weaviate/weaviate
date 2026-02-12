@@ -32,7 +32,10 @@ type addressResolver interface {
 	NodeAddress(nodeName string) string
 }
 
-type rpcClientMaker func(ctx context.Context, address string) (shardproto.ShardReplicationServiceClient, error)
+// rpcClientMaker creates a gRPC client to the shard replication service on
+// the node identified by nodeID. The closure resolves the nodeID to the
+// correct gRPC address internally.
+type rpcClientMaker func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error)
 
 // RegistryConfig holds configuration for the global Registry.
 type RegistryConfig struct {
@@ -357,16 +360,16 @@ func (reg *Registry) Execute(ctx context.Context, req *shardproto.ApplyRequest) 
 			return backoff.Permanent(err)
 		}
 
-		leader := store.Leader()
-		if leader == "" {
+		leaderID := store.LeaderID()
+		if leaderID == "" {
 			err = reg.leaderErr(req.Class, req.Shard)
 			reg.log.Warnf("apply: could not find leader: %s", err)
 			return err
 		}
 
-		client, err := reg.RpcClientMaker(ctx, leader)
+		client, err := reg.RpcClientMaker(ctx, leaderID)
 		if err != nil {
-			err = fmt.Errorf("create RPC client for leader %s: %w", leader, err)
+			err = fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
 			reg.log.Warnf("apply: %s", err)
 			return backoff.Permanent(err)
 		}
