@@ -109,27 +109,34 @@ func newCronsObjectsTTL(serverShutdownCtx context.Context,
 func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 	coordinator *objectttl.Coordinator,
 ) error {
+	// Parser matching the Cron's WithSeconds() configuration, used to parse
+	// spec strings into Schedule objects for UpdateEntryByName.
+	parser := gocron.NewParser(
+		gocron.Second | gocron.Minute | gocron.Hour | gocron.Dom | gocron.Month | gocron.Dow | gocron.Descriptor,
+	)
+
 	errors.GoWrapper(func() {
 		jobName := "trigger_objects_ttl_deletion"
 		jobLogger := c.logger.WithField("job", jobName)
-		var jobCtx context.Context
 		var cancel context.CancelFunc = func() {} // noop
 		wgRunning := new(sync.WaitGroup)
+		entryExists := false
 
 		for {
 			select {
 			case schedule := <-c.scheduleCh:
 				cancel()
-				if cr.RemoveByName(jobName) {
-					jobLogger.Info("cron job removed")
-				}
 
 				if schedule == "" {
+					if cr.RemoveByName(jobName) {
+						entryExists = false
+						jobLogger.Info("cron job removed")
+					}
 					jobLogger.Info("cron job skipped, no schedule")
 					continue
 				}
 
-				// ensure removed job is no longer running before adding one with new schedule
+				// ensure previous job is no longer running before replacing
 				wgRunning.Wait()
 				// ensure context still valid after waiting
 				select {
@@ -139,14 +146,33 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 				default:
 				}
 
+				var jobCtx context.Context
 				jobCtx, cancel = context.WithCancel(c.serverShutdownCtx)
 				job := c.createJob(jobCtx, jobLogger, c.gocronLogger, clusterService, coordinator, wgRunning)
+
+				if entryExists {
+					// Atomic schedule+job replacement — preserves EntryID, no race window
+					sched, err := parser.Parse(schedule)
+					if err != nil {
+						jobLogger.WithError(err).Error("cron job schedule parse failed")
+						continue
+					}
+					if err := cr.UpdateEntryByName(jobName, sched, job); err != nil {
+						jobLogger.WithError(err).Error("cron job update failed")
+						// Entry may have been removed externally; fall through to AddJob
+						entryExists = false
+					} else {
+						jobLogger.WithField("schedule", schedule).Info("cron job updated")
+						continue
+					}
+				}
 
 				entryId, err := cr.AddJob(schedule, job, gocron.WithName(jobName))
 				if err != nil {
 					jobLogger.WithError(err).Error("cron job not added")
 					continue
 				}
+				entryExists = true
 				jobLogger.WithFields(logrus.Fields{
 					"entry_id": entryId,
 					"schedule": schedule,
