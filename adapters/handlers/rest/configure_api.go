@@ -378,20 +378,37 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Metrics = promMetrics
 	}
 
-	rpcClientMaker := func(ctx context.Context, address string) (shardproto.ShardReplicationServiceClient, error) {
-		clientConn, err := appState.GRPCConnManager.GetConn(address)
+	rpcClientMaker := func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
+		addr, ok := appState.Cluster.NodeHostname(nodeID)
+		if !ok {
+			return nil, fmt.Errorf("could not resolve hostname for node %s", nodeID)
+		}
+		clientConn, err := appState.GRPCConnManager.GetConn(addr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get gRPC connection: %w", err)
+			return nil, fmt.Errorf("failed to get gRPC connection to %s: %w", addr, err)
 		}
 		return shardproto.NewShardReplicationServiceClient(clientConn), nil
 	}
 
 	nodeName := appState.Cluster.LocalName()
 	raftCfg := appState.ServerConfig.Config.Raft
+
+	// Compute shard RAFT port map for local cluster mode where each node has a different port.
+	// Each node's shard RAFT port is offset from its schema RAFT port by the same delta.
+	shardRaftPortOffset := raftCfg.ShardRaftPort - raftCfg.Port
+	shardServer2port, err := parseNode2Port(appState)
+	if err != nil {
+		appState.Logger.WithError(err).Warn("could not parse shard raft port map, using defaults")
+		shardServer2port = nil
+	}
+	for name, port := range shardServer2port {
+		shardServer2port[name] = port + shardRaftPortOffset
+	}
+
 	sConfig := shard.RegistryConfig{
 		NodeID:          nodeName,
 		Logger:          appState.Logger,
-		RaftPort:        raftCfg.Port + 1,
+		RaftPort:        raftCfg.ShardRaftPort,
 		AddressResolver: appState.Cluster,
 		RpcClientMaker:  rpcClientMaker,
 
@@ -401,6 +418,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		SnapshotInterval:   raftCfg.ShardSnapshotInterval,
 		SnapshotThreshold:  raftCfg.ShardSnapshotThreshold,
 		TrailingLogs:       raftCfg.ShardTrailingLogs,
+
+		IsLocalCluster:    appState.ServerConfig.Config.Cluster.Localhost,
+		NodeNameToPortMap: shardServer2port,
 	}
 
 	// Initialize shard RAFT registry (lifecycle managed by Server in clusterapi/serve.go)
@@ -494,12 +514,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// This must happen after DB is created (needs repo for reinit) but before
 	// any shards are loaded (which triggers RAFT and potential Restore calls).
 	stateTransfer := &shard.StateTransfer{
-		RpcClientMaker:  rpcClientMaker,
-		AddressResolver: appState.Cluster,
-		Reinitializer:   &shardReinitAdapter{db: repo},
-		LeaderFunc:      appState.ShardRegistry.Leader,
-		RootDataPath:    appState.ServerConfig.Config.Persistence.DataPath,
-		Log:             appState.Logger,
+		RpcClientMaker: rpcClientMaker,
+		Reinitializer:  &shardReinitAdapter{db: repo},
+		LeaderFunc:     appState.ShardRegistry.Leader,
+		RootDataPath:   appState.ServerConfig.Config.Persistence.DataPath,
+		Log:            appState.Logger,
 	}
 	appState.ShardRegistry.SetStateTransferer(stateTransfer)
 
