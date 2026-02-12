@@ -294,9 +294,10 @@ type Index struct {
 
 	shardReindexer ShardReindexerV3
 
-	router        routerTypes.Router
-	shardResolver *resolver.ShardResolver
-	bitmapBufPool roaringset.BitmapBufPool
+	router         routerTypes.Router
+	shardResolver  *resolver.ShardResolver
+	bitmapBufPool  roaringset.BitmapBufPool
+	tenantsManager schemaUC.TenantsActivityManager
 }
 
 func (i *Index) ID() string {
@@ -334,6 +335,7 @@ func NewIndex(
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 	asyncIndexingEnabled bool,
+	tenantsManager schemaUC.TenantsActivityManager,
 ) (*Index, error) {
 	err := tokenizer.AddCustomDict(class.Class, invertedIndexConfig.TokenizerUserDict)
 	if err != nil {
@@ -386,6 +388,7 @@ func NewIndex(
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
 		HFreshEnabled:           cfg.HFreshEnabled,
+		tenantsManager:          tenantsManager,
 	}
 
 	getDeletionStrategy := func() string {
@@ -2294,6 +2297,17 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
 
+	timer := func(ctx context.Context, d time.Duration) (val time.Time, err error) {
+		timer := time.NewTimer(d)
+		select {
+		case t := <-timer.C:
+			return t, nil
+		case <-ctx.Done():
+			timer.Stop()
+			return time.Time{}, ctx.Err()
+		}
+	}
+
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
@@ -2301,38 +2315,35 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 			return
 		}
 
+		autoActivationEnabled := schema.AutoTenantActivationEnabled(class)
+
 		for _, tenant := range tenants {
 			eg.Go(func() error {
+				deactivate := false
+				activityChecked := false
 				processedBatches := 0
 				// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 				for {
-					pauseEveryNoBatches := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
-					pauseDuration := i.Config.ObjectsTTLPauseDuration.Get()
-					if pauseDuration > 0 && pauseEveryNoBatches > 0 && processedBatches >= pauseEveryNoBatches {
-						timer := time.NewTimer(pauseDuration)
-						t1 := time.Now()
-						select {
-						case t2 := <-timer.C:
-							i.logger.WithFields(logrus.Fields{
-								"action":     "objects_ttl_deletion",
-								"collection": class.Class,
-								"shard":      tenant,
-							}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
-							processedBatches = 0
-						case <-ctx.Done():
-							timer.Stop()
-							ec.AddGroups(ctx.Err(), class.Class, tenant)
-							return nil
-						}
-					}
-
 					if err := ctx.Err(); err != nil {
 						ec.AddGroups(err, class.Class, tenant)
 						return nil
 					}
 
+					// if autoActivationEnabled, findUUIDsForExpiredObjects will activate tenants.
+					// activated tenant should be deactivated back after finished deletions
+					if autoActivationEnabled && !activityChecked {
+						tenants2status, err := i.tenantsManager.TenantsStatus(class.Class, tenant)
+						if err != nil {
+							ec.AddGroups(fmt.Errorf("check activity status: %w", err), class.Class, tenant)
+							return nil
+						}
+						deactivate = tenants2status[tenant] == models.TenantActivityStatusCOLD
+						activityChecked = true
+					}
+
 					perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
-					tenants2uuids, err := i.findUUIDsForExpiredObjects(ctx, filter, tenant, replProps, perShardLimit)
+					// fetch 1 additional id (to be ignored) to evalute if there are ids left for processing
+					tenants2uuids, err := i.findUUIDsForExpiredObjects(ctx, filter, tenant, replProps, perShardLimit+1)
 					if err != nil {
 						// skip inactive tenants
 						if !errors.Is(err, enterrors.ErrTenantNotActive) {
@@ -2341,16 +2352,46 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						return nil
 					}
 
-					if len(tenants2uuids[tenant]) == 0 {
+					uuidsLeft := false
+					uuids := tenants2uuids[tenant]
+					if ln := len(uuids); ln > 0 {
+						if ln > perShardLimit {
+							uuids = uuids[:perShardLimit]
+							uuidsLeft = true
+						}
+
+						if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, "", tenant,
+							uuids, countDeleted, replProps, schemaVersion); err != nil {
+							ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, tenant)
+						}
+						processedBatches++
+					}
+
+					if !uuidsLeft {
+						if deactivate {
+							if err := i.tenantsManager.DeactivateTenants(ctx, class.Class, tenant); err != nil {
+								ec.AddGroups(fmt.Errorf("deactivate tenant: %w", err), class.Class, tenant)
+							}
+						}
 						return nil
 					}
 
-					if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, "", tenant,
-						tenants2uuids[tenant], countDeleted, replProps, schemaVersion); err != nil {
-						ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, tenant)
+					pauseEveryNoBatches := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
+					pauseDuration := i.Config.ObjectsTTLPauseDuration.Get()
+					if pauseDuration > 0 && pauseEveryNoBatches > 0 && processedBatches >= pauseEveryNoBatches {
+						t1 := time.Now()
+						t2, err := timer(ctx, pauseDuration)
+						if err != nil {
+							ec.AddGroups(ctx.Err(), class.Class, tenant)
+							return nil
+						}
+						i.logger.WithFields(logrus.Fields{
+							"action":     "objects_ttl_deletion",
+							"collection": class.Class,
+							"shard":      tenant,
+						}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
+						processedBatches = 0
 					}
-
-					processedBatches++
 				}
 			})
 			if ctx.Err() != nil {
@@ -2364,39 +2405,21 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		processedBatches := 0
 		// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 		for {
-			pauseEveryNoBatches := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
-			pauseDuration := i.Config.ObjectsTTLPauseDuration.Get()
-			if pauseDuration > 0 && pauseEveryNoBatches > 0 && processedBatches >= pauseEveryNoBatches {
-				timer := time.NewTimer(pauseDuration)
-				t1 := time.Now()
-				select {
-				case t2 := <-timer.C:
-					i.logger.WithFields(logrus.Fields{
-						"action":     "objects_ttl_deletion",
-						"collection": class.Class,
-					}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
-					processedBatches = 0
-				case <-ctx.Done():
-					timer.Stop()
-					ec.AddGroups(ctx.Err(), class.Class)
-					return nil
-				}
-			}
-
 			if err := ctx.Err(); err != nil {
 				ec.AddGroups(err, class.Class)
 				return nil
 			}
 
 			perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
-			shards2uuids, err := i.findUUIDsForExpiredObjects(ctx, filter, "", replProps, perShardLimit)
+			// fetch 1 additional id (to be ignored) to evalute if there are ids left for processing
+			shards2uuids, err := i.findUUIDsForExpiredObjects(ctx, filter, "", replProps, perShardLimit+1)
 			if err != nil {
 				ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class)
 				return nil
 			}
 
 			shardIdx := len(shards2uuids) - 1
-			anyUuidsFound := false
+			uuidsLeft := false
 			wg := new(sync.WaitGroup)
 			f := func(shard string, uuids []strfmt.UUID) {
 				defer wg.Done()
@@ -2407,34 +2430,52 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 			}
 
 			for shard, uuids := range shards2uuids {
-				shardIdx--
-				if len(uuids) == 0 {
-					continue
-				}
-
-				anyUuidsFound = true
-				wg.Add(1)
-				isLastShard := shardIdx == 0
-				// if possible run in separate routine, if not run in current one
-				// always run last in current one (not to start other routine,
-				// while current one have to wait for the results anyway)
-				if isLastShard || !eg.TryGo(func() error {
-					f(shard, uuids)
-					return nil
-				}) {
-					f(shard, uuids)
-				}
 				if ctx.Err() != nil {
 					return nil
 				}
+
+				shardIdx--
+				if ln := len(uuids); ln > 0 {
+					if ln > perShardLimit {
+						uuids = uuids[:perShardLimit]
+						uuidsLeft = true
+					}
+
+					wg.Add(1)
+					isLastShard := shardIdx == 0
+					// if possible run in separate routine, if not run in current one
+					// always run last in current one (not to start other routine,
+					// while current one have to wait for the results anyway)
+					if isLastShard || !eg.TryGo(func() error {
+						f(shard, uuids)
+						return nil
+					}) {
+						f(shard, uuids)
+					}
+				}
 			}
 			wg.Wait()
+			processedBatches++
 
-			if !anyUuidsFound {
+			if !uuidsLeft {
 				return nil
 			}
 
-			processedBatches++
+			pauseEveryNoBatches := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
+			pauseDuration := i.Config.ObjectsTTLPauseDuration.Get()
+			if pauseDuration > 0 && pauseEveryNoBatches > 0 && processedBatches >= pauseEveryNoBatches {
+				t1 := time.Now()
+				t2, err := timer(ctx, pauseDuration)
+				if err != nil {
+					ec.AddGroups(ctx.Err(), class.Class)
+					return nil
+				}
+				i.logger.WithFields(logrus.Fields{
+					"action":     "objects_ttl_deletion",
+					"collection": class.Class,
+				}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
+				processedBatches = 0
+			}
 		}
 	})
 }
