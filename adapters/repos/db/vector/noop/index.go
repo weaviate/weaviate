@@ -124,6 +124,10 @@ func (i *Index) PrepareForBackup(context.Context) error {
 	return nil
 }
 
+func (i *Index) ResumeAfterBackup(context.Context) error {
+	return nil
+}
+
 func (i *Index) ListFiles(context.Context, string) ([]string, error) {
 	return nil, nil
 }
