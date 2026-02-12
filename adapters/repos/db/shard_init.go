@@ -72,6 +72,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shutdownLock:  new(sync.RWMutex),
 		shutCtx:       shutCtx,
 		shutCtxCancel: shutCtxCancel,
+		inUseCounter:  atomic.Int64{},
 
 		status:                          ShardStatus{Status: storagestate.StatusLoading},
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
@@ -80,6 +81,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		bitmapBufPool:                   bitmapBufPool,
 		SPFreshEnabled:                  index.SPFreshEnabled,
 	}
+	s.refCountAdd()
+	defer s.refCountSub()
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
