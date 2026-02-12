@@ -42,12 +42,11 @@ type ShardReinitializer interface {
 // needs a full state transfer (e.g. after falling too far behind and having
 // its RAFT log entries truncated).
 type StateTransfer struct {
-	RpcClientMaker  rpcClientMaker
-	AddressResolver addressResolver
-	Reinitializer   ShardReinitializer
-	LeaderFunc      func(className, shardName string) string // returns leader node ID
-	RootDataPath    string
-	Log             logrus.FieldLogger
+	RpcClientMaker rpcClientMaker
+	Reinitializer  ShardReinitializer
+	LeaderFunc     func(className, shardName string) string // returns leader node ID
+	RootDataPath   string
+	Log            logrus.FieldLogger
 }
 
 // TransferState downloads all shard data from the current leader and
@@ -61,15 +60,15 @@ func (st *StateTransfer) TransferState(ctx context.Context, className, shardName
 	})
 
 	// 1. Determine the current leader with retry/backoff.
-	leaderAddr, err := st.resolveLeaderAddr(ctx, className, shardName, log)
+	leaderNodeID, err := st.resolveLeaderNodeID(ctx, className, shardName, log)
 	if err != nil {
 		return fmt.Errorf("resolve leader: %w", err)
 	}
 
-	// 2. Create gRPC client to the leader.
-	client, err := st.RpcClientMaker(ctx, leaderAddr)
+	// 2. Create gRPC client to the leader (rpcClientMaker resolves nodeID → gRPC address).
+	client, err := st.RpcClientMaker(ctx, leaderNodeID)
 	if err != nil {
-		return fmt.Errorf("create RPC client to leader %s: %w", leaderAddr, err)
+		return fmt.Errorf("create RPC client to leader %s: %w", leaderNodeID, err)
 	}
 
 	// 3. Create a transfer snapshot on the leader.
@@ -118,9 +117,9 @@ func (st *StateTransfer) TransferState(ctx context.Context, className, shardName
 	return nil
 }
 
-// resolveLeaderAddr determines the current leader's gRPC address with
+// resolveLeaderNodeID determines the current leader's node ID with
 // exponential backoff retry (the leader may not be elected yet).
-func (st *StateTransfer) resolveLeaderAddr(ctx context.Context, className, shardName string, log logrus.FieldLogger) (string, error) {
+func (st *StateTransfer) resolveLeaderNodeID(ctx context.Context, className, shardName string, log logrus.FieldLogger) (string, error) {
 	bo := backoff.NewExponentialBackOff()
 	bo.InitialInterval = 100 * time.Millisecond
 	bo.MaxInterval = 2 * time.Second
@@ -129,7 +128,7 @@ func (st *StateTransfer) resolveLeaderAddr(ctx context.Context, className, shard
 
 	ctxBackoff := backoff.WithContext(bo, ctx)
 
-	var leaderAddr string
+	var leaderNodeID string
 	err := backoff.Retry(func() error {
 		nodeID := st.LeaderFunc(className, shardName)
 		if nodeID == "" {
@@ -137,21 +136,15 @@ func (st *StateTransfer) resolveLeaderAddr(ctx context.Context, className, shard
 			return fmt.Errorf("no leader found for %s/%s", className, shardName)
 		}
 
-		addr := st.AddressResolver.NodeAddress(nodeID)
-		if addr == "" {
-			log.WithField("node_id", nodeID).Debug("could not resolve leader address, will retry")
-			return fmt.Errorf("could not resolve address for leader %s", nodeID)
-		}
-
-		leaderAddr = addr
+		leaderNodeID = nodeID
 		return nil
 	}, ctxBackoff)
 	if err != nil {
 		return "", err
 	}
 
-	log.WithField("leader_addr", leaderAddr).Info("resolved leader for state transfer")
-	return leaderAddr, nil
+	log.WithField("leader_node_id", leaderNodeID).Info("resolved leader for state transfer")
+	return leaderNodeID, nil
 }
 
 // downloadFiles downloads all snapshot files from the leader using a pool of

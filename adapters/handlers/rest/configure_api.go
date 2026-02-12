@@ -378,10 +378,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Metrics = promMetrics
 	}
 
-	rpcClientMaker := func(ctx context.Context, address string) (shardproto.ShardReplicationServiceClient, error) {
-		clientConn, err := appState.GRPCConnManager.GetConn(address)
+	rpcClientMaker := func(ctx context.Context, nodeID string) (shardproto.ShardReplicationServiceClient, error) {
+		addr, ok := appState.Cluster.NodeHostname(nodeID)
+		if !ok {
+			return nil, fmt.Errorf("could not resolve hostname for node %s", nodeID)
+		}
+		clientConn, err := appState.GRPCConnManager.GetConn(addr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get gRPC connection: %w", err)
+			return nil, fmt.Errorf("failed to get gRPC connection to %s: %w", addr, err)
 		}
 		return shardproto.NewShardReplicationServiceClient(clientConn), nil
 	}
@@ -510,12 +514,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// This must happen after DB is created (needs repo for reinit) but before
 	// any shards are loaded (which triggers RAFT and potential Restore calls).
 	stateTransfer := &shard.StateTransfer{
-		RpcClientMaker:  rpcClientMaker,
-		AddressResolver: appState.Cluster,
-		Reinitializer:   &shardReinitAdapter{db: repo},
-		LeaderFunc:      appState.ShardRegistry.Leader,
-		RootDataPath:    appState.ServerConfig.Config.Persistence.DataPath,
-		Log:             appState.Logger,
+		RpcClientMaker: rpcClientMaker,
+		Reinitializer:  &shardReinitAdapter{db: repo},
+		LeaderFunc:     appState.ShardRegistry.Leader,
+		RootDataPath:   appState.ServerConfig.Config.Persistence.DataPath,
+		Log:            appState.Logger,
 	}
 	appState.ShardRegistry.SetStateTransferer(stateTransfer)
 

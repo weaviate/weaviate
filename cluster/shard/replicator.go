@@ -176,8 +176,8 @@ func (r *replicator) forwardToLeader(
 	var lastErr error
 	operation := func() error {
 		// Get the current leader (may change between retries)
-		leader := store.Leader()
-		if leader == "" {
+		leaderID := store.LeaderID()
+		if leaderID == "" {
 			r.log.WithFields(logrus.Fields{
 				"class": req.Class,
 				"shard": req.Shard,
@@ -186,14 +186,14 @@ func (r *replicator) forwardToLeader(
 		}
 
 		r.log.WithFields(logrus.Fields{
-			"class":  req.Class,
-			"shard":  req.Shard,
-			"leader": leader,
+			"class":    req.Class,
+			"shard":    req.Shard,
+			"leaderID": leaderID,
 		}).Debug("forwarding PutObject to leader")
 
-		client, err := r.rpcClientMaker(ctx, leader)
+		client, err := r.rpcClientMaker(ctx, leaderID)
 		if err != nil {
-			return fmt.Errorf("create RPC client for leader %s: %w", leader, err)
+			return fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
 		}
 
 		// Forward to the leader
@@ -209,7 +209,7 @@ func (r *replicator) forwardToLeader(
 			r.log.WithFields(logrus.Fields{
 				"class":  req.Class,
 				"shard":  req.Shard,
-				"leader": leader,
+				"leaderID": leaderID,
 			}).Debug("leader changed, will retry")
 			return err // Retry
 		}
