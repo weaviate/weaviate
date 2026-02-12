@@ -321,16 +321,50 @@ func TestQueryHybridReturnMetadata(t *testing.T) {
 		ReturnMetadata: []string{"id", "score", "creationTimeUnix"},
 	}, 3)
 
-	// Verify metadata is present
-	result := results.Results[0].(map[string]any)
-	assert.Contains(t, result, "id")
+	for i, r := range results.Results {
+		result := r.(map[string]any)
 
-	// Check for additional metadata
-	if additional, hasAdditional := result["_additional"].(map[string]any); hasAdditional {
-		// score might be present in additional
-		if score, hasScore := additional["score"]; hasScore {
-			assert.IsType(t, float64(0), score)
-		}
+		// id is always returned at the top level
+		assert.Contains(t, result, "id", "result %d: id must be present", i)
+
+		// score and creationTimeUnix are returned inside _additional
+		additional, hasAdditional := result["_additional"].(map[string]any)
+		require.True(t, hasAdditional, "result %d: _additional must be present", i)
+
+		score, hasScore := additional["score"]
+		require.True(t, hasScore, "result %d: score must be present in _additional", i)
+		assert.IsType(t, float64(0), score, "result %d: score must be a float64", i)
+
+		creationTime, hasCreationTime := additional["creationTimeUnix"]
+		require.True(t, hasCreationTime, "result %d: creationTimeUnix must be present in _additional", i)
+		assert.IsType(t, float64(0), creationTime, "result %d: creationTimeUnix must be a number", i)
+	}
+}
+
+// Test 5b: Return additional metadata types (explainScore, lastUpdateTimeUnix)
+func TestQueryHybridReturnMetadataAdditionalTypes(t *testing.T) {
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
+	defer cleanup()
+
+	// Note: distance is a vector-only metric and is not returned for pure BM25 (alpha=0.0)
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
+		CollectionName: cls.Class,
+		Query:          "learning",
+		Alpha:          &alpha,
+		ReturnMetadata: []string{"explainScore", "lastUpdateTimeUnix"},
+	}, 3)
+
+	for i, r := range results.Results {
+		result := r.(map[string]any)
+		additional, hasAdditional := result["_additional"].(map[string]any)
+		require.True(t, hasAdditional, "result %d: _additional must be present", i)
+
+		_, hasExplainScore := additional["explainScore"]
+		assert.True(t, hasExplainScore, "result %d: explainScore must be present in _additional", i)
+
+		lastUpdateTime, hasLastUpdateTime := additional["lastUpdateTimeUnix"]
+		require.True(t, hasLastUpdateTime, "result %d: lastUpdateTimeUnix must be present in _additional", i)
+		assert.IsType(t, float64(0), lastUpdateTime, "result %d: lastUpdateTimeUnix must be a number", i)
 	}
 }
 
@@ -745,4 +779,122 @@ func TestQueryHybridEmptyResults(t *testing.T) {
 	})
 
 	assert.Len(t, results.Results, 0, "should return empty results")
+}
+
+// Test 21: Target specific named vector
+func TestQueryHybridTargetVectors(t *testing.T) {
+	helper.SetupClient(testServerAddr)
+
+	className := "TestNamedVectorArticle"
+
+	// Create a collection with two named vectors using text2vec-transformers.
+	// title_vector vectorizes only the "title" property, content_vector only "contents".
+	// This means the vector spaces are different and targeting one vs the other
+	// should produce different ranking when the vector component is active.
+	cls := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "contents", DataType: []string{"text"}},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"title_vector": {
+				Vectorizer: map[string]interface{}{
+					"text2vec-transformers": map[string]interface{}{
+						"vectorizeClassName": false,
+						"properties":         []interface{}{"title"},
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			"content_vector": {
+				Vectorizer: map[string]interface{}{
+					"text2vec-transformers": map[string]interface{}{
+						"vectorizeClassName": false,
+						"properties":         []interface{}{"contents"},
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+
+	helper.DeleteClassAuth(t, className, testAPIKey)
+	helper.CreateClassAuth(t, cls, testAPIKey)
+	defer helper.DeleteClassAuth(t, className, testAPIKey)
+
+	// Insert objects where title and contents are semantically different.
+	// Object 1: title about cooking, contents about machine learning
+	// Object 2: title about machine learning, contents about cooking
+	// This way, searching "machine learning" with title_vector should rank Object 2 higher,
+	// while searching with content_vector should rank Object 1 higher.
+	objects := []*models.Object{
+		{
+			Class: className,
+			Properties: map[string]interface{}{
+				"title":    "Italian Pasta Recipes and Cooking Techniques",
+				"contents": "Machine learning algorithms are transforming artificial intelligence research",
+			},
+		},
+		{
+			Class: className,
+			Properties: map[string]interface{}{
+				"title":    "Machine Learning Algorithms and Neural Networks",
+				"contents": "Italian pasta recipes require fresh ingredients and proper cooking techniques",
+			},
+		},
+	}
+	helper.CreateObjectsBatchAuth(t, objects, testAPIKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Use alpha=1.0 (pure vector) so ranking is entirely based on the targeted vector space
+	pureVector := 1.0
+	limit := 2
+
+	// Search targeting title_vector: "machine learning" should rank Object 2 first
+	// because its title ("Machine Learning Algorithms...") is closer to the query
+	titleResults := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
+		CollectionName:   className,
+		Query:            "machine learning",
+		Alpha:            &pureVector,
+		Limit:            &limit,
+		TargetVectors:    []string{"title_vector"},
+		ReturnProperties: []string{"title"},
+	}, 2)
+
+	titleFirst := titleResults.Results[0].(map[string]any)["title"].(string)
+	assert.Contains(t, titleFirst, "Machine Learning",
+		"targeting title_vector: object with ML title should rank first")
+
+	// Search targeting content_vector: "machine learning" should rank Object 1 first
+	// because its contents ("Machine learning algorithms...") is closer to the query
+	contentResults := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
+		CollectionName:   className,
+		Query:            "machine learning",
+		Alpha:            &pureVector,
+		Limit:            &limit,
+		TargetVectors:    []string{"content_vector"},
+		ReturnProperties: []string{"title"},
+	}, 2)
+
+	contentFirst := contentResults.Results[0].(map[string]any)["title"].(string)
+	assert.Contains(t, contentFirst, "Pasta",
+		"targeting content_vector: object with ML contents (pasta title) should rank first")
+
+	// Verify the two searches produced different rankings
+	assert.NotEqual(t, titleFirst, contentFirst,
+		"targeting different vectors should produce different rankings")
+
+	// Search with non-existent vector name using pure vector search
+	// should fail since the vector component tries to resolve the target
+	var errResults *search.QueryHybridResp
+	err := helper.CallToolOnce(ctx, t, toolNameQueryHybrid, &search.QueryHybridArgs{
+		CollectionName: className,
+		Query:          "learning",
+		Alpha:          &pureVector,
+		TargetVectors:  []string{"nonexistent_vector"},
+	}, &errResults, testAPIKey)
+	assert.NotNil(t, err, "should return error for non-existent target vector")
 }
