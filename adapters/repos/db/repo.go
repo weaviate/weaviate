@@ -116,6 +116,8 @@ type DB struct {
 	bitmapBufPoolClose func()
 
 	AsyncIndexingEnabled bool
+
+	tenantsManager schemaUC.TenantsActivityManager
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -486,5 +488,10 @@ func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicat
 func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
 	db.bitmapBufPool = bufPool
 	db.bitmapBufPoolClose = close
+	return db
+}
+
+func (db *DB) WithTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) *DB {
+	db.tenantsManager = tenantsManager
 	return db
 }
