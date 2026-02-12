@@ -450,7 +450,7 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 		if len(v) == 0 {
 			continue
 		}
-
+		i++
 		if i%1000 == 0 && ctx.Err() != nil {
 			return ctx.Err()
 		}
