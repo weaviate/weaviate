@@ -174,4 +174,5 @@ message ReleaseTransferSnapshotRequest {
 }
 
 // ReleaseTransferSnapshotResponse is empty — success is indicated by a nil error.
-message ReleaseTransferSnapshotResponse {}
+message ReleaseTransferSnapshotResponse {
+}
