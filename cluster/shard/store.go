@@ -156,7 +156,7 @@ func (s *Store) ReleaseTransferSnapshot(snapshotID string) error {
 	return sh.ReleaseTransferSnapshot(snapshotID)
 }
 
-// SetStateTransferer sets the state transferer on the FSM.
+// SetStateTransferer sets the state transferrer on the FSM.
 func (s *Store) SetStateTransferer(st StateTransferer) {
 	s.fsm.SetStateTransferer(st)
 }
