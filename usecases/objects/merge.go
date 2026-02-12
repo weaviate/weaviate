@@ -87,6 +87,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
 	}
 
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return &Error{"repo.object", StatusInternalServerError, err}
+	}
+
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch {
