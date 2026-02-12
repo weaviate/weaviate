@@ -3106,7 +3106,7 @@ func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, ta
 		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 	}
 	defer release()
-	return shard.UpdateStatus(targetStatus, "manually set by user")
+	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -3116,7 +3116,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	}
 	defer release()
 
-	return shard.UpdateStatus(targetStatus, "manually set by user")
+	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }
 
 func (i *Index) findUUIDsForExpiredObjects(ctx context.Context,

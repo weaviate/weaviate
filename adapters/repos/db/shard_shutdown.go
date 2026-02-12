@@ -139,7 +139,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
-		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
+		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()

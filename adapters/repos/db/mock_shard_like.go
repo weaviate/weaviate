@@ -2619,6 +2619,51 @@ func (_c *MockShardLike_SetStatusReadonly_Call) RunAndReturn(run func(string) er
 	return _c
 }
 
+// GetStatusReason provides a mock function with no fields
+func (_m *MockShardLike) GetStatusReason() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetStatusReason")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockShardLike_GetStatusReason_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatusReason'
+type MockShardLike_GetStatusReason_Call struct {
+	*mock.Call
+}
+
+// GetStatusReason is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) GetStatusReason() *MockShardLike_GetStatusReason_Call {
+	return &MockShardLike_GetStatusReason_Call{Call: _e.mock.On("GetStatusReason")}
+}
+
+func (_c *MockShardLike_GetStatusReason_Call) Run(run func()) *MockShardLike_GetStatusReason_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_GetStatusReason_Call) Return(_a0 string) *MockShardLike_GetStatusReason_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_GetStatusReason_Call) RunAndReturn(run func() string) *MockShardLike_GetStatusReason_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Shutdown provides a mock function with given fields: _a0
 func (_m *MockShardLike) Shutdown(_a0 context.Context) error {
 	ret := _m.Called(_a0)

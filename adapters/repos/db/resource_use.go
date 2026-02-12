@@ -158,7 +158,7 @@ func (db *DB) setShardsReadOnly(reason string) {
 	db.indexLock.Lock()
 	for _, index := range db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			err := shard.SetStatusReadonly(reason)
+			err := shard.SetStatusReadonly(statusReasonResourcePressure)
 			if err != nil {
 				db.logger.WithField("action", "set_shard_read_only").
 					WithField("path", db.config.RootPath).
@@ -200,8 +200,9 @@ func (db *DB) setShardsReady() {
 		defer db.indexLock.Unlock()
 		for _, index := range db.indices {
 			index.ForEachShard(func(name string, shard ShardLike) error {
-				if shard.GetStatus() == storagestate.StatusReadOnly {
-					err := shard.UpdateStatus(storagestate.StatusReady.String(), "resource usage below threshold")
+				if shard.GetStatus() == storagestate.StatusReadOnly &&
+					shard.GetStatusReason() == statusReasonResourcePressure {
+					err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonResourceRecovery)
 					if err != nil {
 						failedCount++
 						db.logger.WithField("action", "set_shard_ready").
