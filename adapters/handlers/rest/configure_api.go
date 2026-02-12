@@ -388,6 +388,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	nodeName := appState.Cluster.LocalName()
 	raftCfg := appState.ServerConfig.Config.Raft
+
+	// Compute shard RAFT port map: schema RAFT port + 1 for each node.
+	// This is needed for local cluster mode where each node has a different port.
+	shardServer2port, err := parseNode2Port(appState)
+	if err != nil {
+		appState.Logger.WithError(err).Warn("could not parse shard raft port map, using defaults")
+		shardServer2port = nil
+	}
+	for name, port := range shardServer2port {
+		shardServer2port[name] = port + 1
+	}
+
 	sConfig := shard.RegistryConfig{
 		NodeID:          nodeName,
 		Logger:          appState.Logger,
@@ -401,6 +413,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		SnapshotInterval:   raftCfg.ShardSnapshotInterval,
 		SnapshotThreshold:  raftCfg.ShardSnapshotThreshold,
 		TrailingLogs:       raftCfg.ShardTrailingLogs,
+
+		IsLocalCluster:    appState.ServerConfig.Config.Cluster.Localhost,
+		NodeNameToPortMap: shardServer2port,
 	}
 
 	// Initialize shard RAFT registry (lifecycle managed by Server in clusterapi/serve.go)
