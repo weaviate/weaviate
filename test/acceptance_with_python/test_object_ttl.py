@@ -7,6 +7,7 @@ import pytest
 import weaviate.classes as wvc
 from weaviate.classes.config import Configure
 from weaviate.collections.classes.config import Reconfigure
+from weaviate.collections.classes.tenants import TenantActivityStatus
 
 from .conftest import CollectionFactory
 
@@ -132,14 +133,15 @@ def test_creation_time(collection_factory: CollectionFactory):
     assert len(collection) == 6
 
 
-def test_mt(collection_factory: CollectionFactory):
+@pytest.mark.parametrize("auto_activation", [False, True])
+def test_mt(collection_factory: CollectionFactory, auto_activation: bool):
     collection = collection_factory(
         properties=[
             wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
             wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
         ],
         object_ttl=Configure.ObjectTTL.delete_by_date_property("custom_date"),
-        multi_tenancy_config=Configure.multi_tenancy(enabled=True),
+        multi_tenancy_config=Configure.multi_tenancy(enabled=True, auto_tenant_activation=auto_activation),
     )
 
     base_time = datetime.datetime.now(datetime.timezone.utc)
@@ -163,20 +165,33 @@ def test_mt(collection_factory: CollectionFactory):
 
     delete(base_time + datetime.timedelta(minutes=2))
 
+    # deactivated tenants remain inactive
+    tenants = collection.tenants.get()
+    for i in range(num_tenants):
+        status = tenants["Tenant" + str(i)].activity_status
+        if i % 2 == 0:
+            assert status == TenantActivityStatus.INACTIVE
+        else:
+            assert status == TenantActivityStatus.ACTIVE
+
     # activate tenants again
     for i in range(num_tenants):
         if i % 2 == 0:
             collection.tenants.activate("Tenant" + str(i))
 
     # now check the number of remaining objects per tenant
+    expected_num_objects_active = num_objects - 3
+    expected_num_objects_inactive = num_objects
+    if auto_activation:
+        expected_num_objects_inactive = num_objects - 3
     for i in range(num_tenants):
         tenant_collection = collection.with_tenant("Tenant" + str(i))
         if i % 2 == 0:
-            # deactivated tenants have no objects deleted
-            assert len(tenant_collection) == num_objects
+            # inactive tenants have no objects (auto=False) or expired (auto=True) objects deleted
+            assert len(tenant_collection) == expected_num_objects_inactive
         else:
-            # activated tenants should have expired objects deleted
-            assert len(tenant_collection) == num_objects - 3
+            # activate tenants should have expired objects deleted
+            assert len(tenant_collection) == expected_num_objects_active
 
 
 @pytest.mark.parametrize(
