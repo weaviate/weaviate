@@ -1072,11 +1072,7 @@ func (i *Index) getShardForWrite(
 ) (ShardLike, func(), error) {
 	ws, err := i.router.GetWriteReplicasLocation(className, tenantName, shardName)
 	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
-		i.logger.Error("get write replicas location", "error", err, "tenantName", tenantName, "shardName", shardName)
-		// we don't return error here because we want to continue the operation
-		// and let the caller handle nil shard and request from remote
-		// TODO: we should fix the underlying validator
-		return shard, release, nil
+		return nil, release, err
 	}
 
 	if !slices.Contains(ws.NodeNames(), i.replicator.LocalNodeName()) {
@@ -1105,11 +1101,7 @@ func (i *Index) getShardForRead(
 ) (ShardLike, func(), error) {
 	rs, err := i.router.GetReadReplicasLocation(className, tenantName, shardName)
 	if err != nil && (!errors.Is(err, enterrors.ErrTenantNotActive) || !i.Config.AutoTenantActivation) {
-		i.logger.Error("get read replicas location", "error", err, "tenantName", tenantName, "shardName", shardName)
-		// we don't return error here because we want to continue the operation
-		// and let the caller handle nil shard and request from remote
-		// TODO: we should fix the underlying validator
-		return shard, release, nil
+		return nil, release, err
 	}
 
 	if !slices.Contains(rs.NodeNames(), i.replicator.LocalNodeName()) {
