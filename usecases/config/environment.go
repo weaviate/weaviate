@@ -35,6 +35,7 @@ import (
 const (
 	DefaultRaftPort         = 8300
 	DefaultRaftInternalPort = 8301
+	DefaultShardRaftPort    = 8302
 	DefaultRaftGRPCMaxSize  = 1024 * 1024 * 1024
 	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
 	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
@@ -1177,6 +1178,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	}
 
 	// Shard-level RAFT parameters with tuned defaults for per-shard RAFT clusters.
+	if err := parsePositiveInt(
+		"SHARD_RAFT_PORT",
+		func(val int) { cfg.ShardRaftPort = val },
+		DefaultShardRaftPort,
+	); err != nil {
+		return cfg, err
+	}
+
 	if err := parsePositiveInt(
 		"SHARD_RAFT_SNAPSHOT_THRESHOLD",
 		func(val int) { cfg.ShardSnapshotThreshold = uint64(val) },

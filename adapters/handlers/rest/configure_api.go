@@ -389,21 +389,22 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	nodeName := appState.Cluster.LocalName()
 	raftCfg := appState.ServerConfig.Config.Raft
 
-	// Compute shard RAFT port map: schema RAFT port + 1 for each node.
-	// This is needed for local cluster mode where each node has a different port.
+	// Compute shard RAFT port map for local cluster mode where each node has a different port.
+	// Each node's shard RAFT port is offset from its schema RAFT port by the same delta.
+	shardRaftPortOffset := raftCfg.ShardRaftPort - raftCfg.Port
 	shardServer2port, err := parseNode2Port(appState)
 	if err != nil {
 		appState.Logger.WithError(err).Warn("could not parse shard raft port map, using defaults")
 		shardServer2port = nil
 	}
 	for name, port := range shardServer2port {
-		shardServer2port[name] = port + 1
+		shardServer2port[name] = port + shardRaftPortOffset
 	}
 
 	sConfig := shard.RegistryConfig{
 		NodeID:          nodeName,
 		Logger:          appState.Logger,
-		RaftPort:        raftCfg.Port + 1,
+		RaftPort:        raftCfg.ShardRaftPort,
 		AddressResolver: appState.Cluster,
 		RpcClientMaker:  rpcClientMaker,
 
