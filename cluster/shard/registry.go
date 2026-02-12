@@ -120,9 +120,9 @@ func (reg *Registry) Start() error {
 
 	bindAddr := fmt.Sprintf("0.0.0.0:%d", reg.config.RaftPort)
 	provider := &ShardAddressProvider{
-		resolver:         reg.config.AddressResolver,
-		raftPort:         reg.config.RaftPort,
-		isLocalCluster:   reg.config.IsLocalCluster,
+		resolver:          reg.config.AddressResolver,
+		raftPort:          reg.config.RaftPort,
+		isLocalCluster:    reg.config.IsLocalCluster,
 		nodeNameToPortMap: reg.config.NodeNameToPortMap,
 	}
 
