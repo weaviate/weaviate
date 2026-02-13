@@ -18,6 +18,7 @@ import (
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
@@ -80,24 +81,33 @@ func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
 
 // Get returns the size of the vector with the given ID.
 func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	loader := otter.LoaderFunc[uint64, VectorVersion](func(ctx context.Context, key uint64) (VectorVersion, error) {
-		version, err := v.store.Get(ctx, key)
-		if err != nil {
-			if errors.Is(err, ErrVectorNotFound) {
-				return v1, nil
-			}
-
-			return 0, err
-		}
-
-		return version, nil
-	})
-	version, err := v.cache.Get(ctx, vectorID, loader)
-	if errors.Is(err, otter.ErrNotFound) {
-		return 0, ErrVectorNotFound
+	page, slot := v.data.GetPageFor(vectorID)
+	if page == nil {
+		return v1, nil
 	}
 
-	return version, err
+	v.locks.RLock(vectorID)
+	version := page[slot]
+	v.locks.RUnlock(vectorID)
+
+	if version == 0 {
+		// not in cache, check store
+		var err error
+		version, err = v.store.Get(ctx, vectorID)
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
+		}
+		if errors.Is(err, ErrVectorNotFound) {
+			version = v1
+		}
+
+		// update cache
+		v.locks.Lock(vectorID)
+		page[slot] = version
+		v.locks.Unlock(vectorID)
+	}
+
+	return version, nil
 }
 
 // Incr increments the version of the vector and returns the new version.
