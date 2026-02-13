@@ -58,11 +58,9 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 		h.cache.Grow(uint64(len(newIndex)))
 	}
 
-	h.pools.visitedListsLock.Lock()
-	h.pools.visitedLists.Destroy()
-	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, len(newIndex)+512, h.visitedListPoolMaxSize)
-	h.pools.visitedListsLock.Unlock()
+	h.pools.visitedSetsLock.Lock()
+	h.pools.visitedSets = visited.NewFastPool(h.visitedListPoolMaxSize, 512, h.visitedListPoolMaxSize)
+	h.pools.visitedSetsLock.Unlock()
 
 	h.nodes = newIndex
 	h.shardedNodeLocks.UnlockAll()
