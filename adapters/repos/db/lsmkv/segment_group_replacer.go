@@ -91,6 +91,7 @@ func (sr *segmentReplacer) switchInMemory() error {
 	if !sr.replaceSingleSegment {
 		sr.sg.segments = append(sr.sg.segments[:sr.oldLeftPos], sr.sg.segments[sr.oldLeftPos+1:]...)
 	}
+	sr.sg.postSegmentsChange()
 
 	sr.observeReplaceDuration(start)
 	return nil
