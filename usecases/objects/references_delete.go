@@ -58,6 +58,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
+	if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, input.Class, input.ID, tenant); err != nil {
+		return &Error{"ensure replica caught up", StatusInternalServerError, err}
+	}
+
 	deprecatedEndpoint := input.Class == ""
 	// we need to know which collection an object belongs to, so for the deprecated case we first need to fetch the
 	// object from any collection, to then know its collection to check for the correct permissions after wards

@@ -63,6 +63,10 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		}
 	}
 
+	if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, input.Class, input.ID, tenant); err != nil {
+		return &Error{"ensure replica caught up", StatusInternalServerError, err}
+	}
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
