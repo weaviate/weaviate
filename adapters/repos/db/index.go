@@ -1977,10 +1977,10 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	if err != nil {
 		return nil, nil, err
 	}
+	defer release()
 	if shard == nil {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
-	defer release()
 
 	localCtx := helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
@@ -2270,10 +2270,10 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	}
 
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationWrite, schemaVersion)
-	defer release()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	// no replication, remote shard (or local not yet inited)
 	if shard == nil {
@@ -2490,10 +2490,10 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	}
 
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationWrite, schemaVersion)
-	defer release()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	// no replication, remote shard (or local not yet inited)
 	if shard == nil {
@@ -2916,10 +2916,10 @@ func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, ta
 	if err != nil {
 		return err
 	}
+	defer release()
 	if shard == nil {
 		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 	}
-	defer release()
 	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
 
@@ -3187,10 +3187,10 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	if err != nil {
 		return err
 	}
+	defer release()
 	if shard == nil {
 		return errors.New("shard not found")
 	}
-	defer release()
 
 	// Get the vector index
 	vidx, ok := shard.GetVectorIndex(targetVector)
@@ -3225,10 +3225,10 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	if err != nil {
 		return err
 	}
+	defer release()
 	if shard == nil {
 		return errors.New("shard not found")
 	}
-	defer release()
 
 	// Repair in the background
 	enterrors.GoWrapper(func() {
@@ -3272,10 +3272,10 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 	if err != nil {
 		return err
 	}
+	defer release()
 	if shard == nil {
 		return errors.New("shard not found")
 	}
-	defer release()
 
 	// Repair in the background
 	enterrors.GoWrapper(func() {

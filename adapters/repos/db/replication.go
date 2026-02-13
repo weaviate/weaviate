@@ -296,10 +296,11 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	if err != nil {
 		return nil, fmt.Errorf("incoming file putter get shard %s err: %w", shardName, err)
 	}
+	defer release()
+
 	if shard == nil {
 		return nil, fmt.Errorf("incoming file putter get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	return shard.filePutter(ctx, filePath)
 }
@@ -351,10 +352,11 @@ func (i *Index) IncomingPauseFileActivity(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("incoming pause file activity get shard %s err: %w", shardName, err)
 	}
+	defer release()
+
 	if shard == nil {
 		return fmt.Errorf("incoming pause file activity get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	err = shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout)
 	if err != nil {
@@ -372,10 +374,11 @@ func (i *Index) IncomingResumeFileActivity(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("incoming resume file activity get shard %s err: %w", shardName, err)
 	}
+	defer release()
+
 	if shard == nil {
 		return fmt.Errorf("incoming resume file activity get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	err = shard.resumeMaintenanceCycles(ctx)
 	if err != nil {
@@ -396,10 +399,10 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("incoming list files get shard %s: %w", shardName, err)
 	}
+	defer release()
 	if shard == nil {
 		return nil, fmt.Errorf("incoming list files get shard is nil: %s", shardName)
 	}
-	defer release()
 
 	sd := backup.ShardDescriptor{Name: shardName}
 
@@ -454,10 +457,10 @@ func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relative
 	if err != nil {
 		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s err: %w", shardName, err)
 	}
+	defer release()
 	if shard == nil {
 		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
 		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
@@ -476,10 +479,10 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	if err != nil {
 		return nil, fmt.Errorf("incoming get file get shard %s err: %w", shardName, err)
 	}
+	defer release()
 	if shard == nil {
 		return nil, fmt.Errorf("incoming get file get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
 		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
@@ -502,10 +505,10 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	if err != nil {
 		return fmt.Errorf("incoming add async replication get shard %s err: %w", shardName, err)
 	}
+	defer release()
 	if shard == nil {
 		return fmt.Errorf("incoming add async replication get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	return shard.addTargetNodeOverride(ctx, targetNodeOverride)
 }
@@ -523,10 +526,10 @@ func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("incoming remove async replication get shard %s err: %w", shardName, err)
 	}
+	defer release()
 	if shard == nil {
 		return fmt.Errorf("incoming remove async replication get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	return shard.removeTargetNodeOverride(ctx, targetNodeOverride)
 }
@@ -540,10 +543,10 @@ func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context
 	if err != nil {
 		return fmt.Errorf("incoming remove all async replication get shard %s err: %w", shardName, err)
 	}
+	defer release()
 	if shard == nil {
 		return fmt.Errorf("incoming remove all async replication get shard %s: shard not found", shardName)
 	}
-	defer release()
 
 	return shard.removeAllTargetNodeOverrides(ctx)
 }
@@ -577,10 +580,10 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
+	defer release()
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
-	defer release()
 
 	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
 		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shard))
@@ -792,11 +795,10 @@ func (i *Index) DigestObjectsInRange(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
+	defer release()
 	if shard == nil {
 		return nil, nil
 	}
-
-	defer release()
 
 	return shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
@@ -814,11 +816,10 @@ func (i *Index) HashTreeLevel(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
+	defer release()
 	if shard == nil {
 		return nil, nil
 	}
-
-	defer release()
 
 	return shard.HashTreeLevel(ctx, level, discriminant)
 }
@@ -884,10 +885,10 @@ func (i *Index) FetchObjects(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
+	defer release()
 	if shard == nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
-	defer release()
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
