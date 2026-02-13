@@ -72,6 +72,12 @@ type SchemaGetter interface {
 	ShardReplicas(class, shard string) ([]string, error)
 }
 
+type TenantsActivityManager interface {
+	ActivateTenants(ctx context.Context, class string, tenants ...string) error
+	DeactivateTenants(ctx context.Context, class string, tenants ...string) error
+	TenantsStatus(class string, tenants ...string) (map[string]string, error)
+}
+
 type VectorizerValidator interface {
 	ValidateVectorizer(moduleName string) error
 }
@@ -365,6 +371,45 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 	})
 
 	return allow
+}
+
+func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
+	tenantsMap, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	return tenantsMap, err
+}
+
+func (m *Manager) ActivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusHOT)
+}
+
+func (m *Manager) DeactivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusCOLD)
+}
+
+func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string, tenants []string, status string) error {
+	switch ln := len(tenants); ln {
+	case 0:
+		return nil
+	case 1:
+		// proceed
+	default:
+		slices.Sort(tenants)
+		tenants = slices.Compact(tenants)
+	}
+
+	req := &api.UpdateTenantsRequest{
+		Tenants:               make([]*api.Tenant, len(tenants)),
+		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ImplicitUpdateRequest: true,
+	}
+	for i := range tenants {
+		req.Tenants[i] = &api.Tenant{Name: tenants[i], Status: status}
+	}
+
+	if _, err := m.schemaManager.UpdateTenants(ctx, class, req); err != nil {
+		return fmt.Errorf("change tenants %s status to %s: %w", tenants, status, err)
+	}
+	return nil
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {

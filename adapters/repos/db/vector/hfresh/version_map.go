@@ -77,7 +77,7 @@ func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
 // Get returns the size of the vector with the given ID.
 func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
 	loader := otter.LoaderFunc[uint64, VectorVersion](func(ctx context.Context, key uint64) (VectorVersion, error) {
-		version, err := v.store.Get(ctx, vectorID)
+		version, err := v.store.Get(ctx, key)
 		if err != nil {
 			if errors.Is(err, ErrVectorNotFound) {
 				return v1, nil

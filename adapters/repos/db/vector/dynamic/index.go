@@ -67,6 +67,7 @@ type VectorIndex interface {
 	Shutdown(ctx context.Context) error
 	Flush() error
 	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
@@ -418,6 +419,12 @@ func (dynamic *dynamic) PrepareForBackup(ctx context.Context) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.PrepareForBackup(ctx)
+}
+
+func (dynamic *dynamic) ResumeAfterBackup(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ResumeAfterBackup(ctx)
 }
 
 func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {

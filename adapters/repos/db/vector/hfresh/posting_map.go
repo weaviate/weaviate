@@ -50,6 +50,11 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	}
 }
 
+// Size returns the total number of postings in the map.
+func (v *PostingMap) Size() int {
+	return v.data.Size()
+}
+
 // Iter returns an iterator over all postings in the map.
 func (v *PostingMap) Iter() iter.Seq2[uint64, *PostingMetadata] {
 	return v.data.AllRelaxed()
@@ -132,8 +137,11 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	if err != nil {
 		return err
 	}
+
+	count := pm.Count()
+
 	v.data.Store(postingID, &PostingMetadata{PackedPostingMetadata: pm})
-	v.metrics.ObservePostingSize(float64(pm.Count()))
+	v.metrics.ObservePostingSize(float64(count))
 
 	return nil
 }
@@ -149,19 +157,22 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		return 0, err
 	}
 
+	var count uint32
 	if m != nil {
 		m.Lock()
 		m.PackedPostingMetadata = m.AddVector(vectorID, version)
+		count = m.Count()
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
 			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
+		count = m.Count()
 		v.data.Store(postingID, m)
 	}
 
-	v.metrics.ObservePostingSize(float64(m.Count()))
-	return uint32(m.Count()), nil
+	v.metrics.ObservePostingSize(float64(count))
+	return uint32(count), nil
 }
 
 // Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
@@ -427,7 +438,10 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPost
 //   - count * (bytesPerScheme + 1): vector IDs and version
 func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
-	return p.bucket.Put(key[:], metadata)
+	// copy metadata to a new array
+	metadataCopy := make([]byte, len(metadata))
+	copy(metadataCopy, metadata)
+	return p.bucket.Put(key[:], metadataCopy)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
