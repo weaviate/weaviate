@@ -917,6 +917,20 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
+// ensureReplicaCaughtUp waits for the local RAFT replica to catch up to the
+// leader's applied index for the shard that owns the given object. This
+// prevents stale reads on followers after a write on the leader.
+func (i *Index) ensureReplicaCaughtUp(ctx context.Context, id strfmt.UUID, tenant string) error {
+	if i.Config.ShardRegistry == nil {
+		return nil // RAFT not enabled
+	}
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
+	if err != nil {
+		return nil // let the actual read handle shard resolution errors
+	}
+	return i.Config.ShardRegistry.WaitForShardReady(ctx, i.Config.ClassName.String(), shardName)
+}
+
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties, tenantName string, schemaVersion uint64,
 ) error {

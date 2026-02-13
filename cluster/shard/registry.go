@@ -291,6 +291,41 @@ func (reg *Registry) SetStateTransferer(st StateTransferer) {
 	})
 }
 
+// WaitForShardReady ensures the local replica for a shard has caught up to
+// the leader's applied index. If this node is the leader, it returns
+// immediately. This is used before local reads that follow a write to avoid
+// reading stale state on followers.
+func (reg *Registry) WaitForShardReady(ctx context.Context, className, shardName string) error {
+	store := reg.GetStore(className, shardName)
+	if store == nil {
+		return nil // RAFT not configured for this shard
+	}
+
+	if store.IsLeader() {
+		return nil // leader is always caught up
+	}
+
+	leaderID := store.LeaderID()
+	if leaderID == "" {
+		return nil // no leader yet, let the actual operation handle the error
+	}
+
+	client, err := reg.RpcClientMaker(ctx, leaderID)
+	if err != nil {
+		return fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
+	}
+
+	resp, err := client.GetLastAppliedIndex(ctx, &shardproto.GetLastAppliedIndexRequest{
+		Class: className,
+		Shard: shardName,
+	})
+	if err != nil {
+		return fmt.Errorf("get leader applied index: %w", err)
+	}
+
+	return store.WaitForAppliedIndex(ctx, resp.LastAppliedIndex)
+}
+
 // Leader returns the leader node ID for a shard.
 func (reg *Registry) Leader(className, shardName string) string {
 	raft := reg.GetRaft(className)

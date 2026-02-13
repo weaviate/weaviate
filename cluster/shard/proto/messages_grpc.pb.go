@@ -36,6 +36,7 @@ const (
 	ShardReplicationService_CreateTransferSnapshot_FullMethodName  = "/weaviate.internal.data.ShardReplicationService/CreateTransferSnapshot"
 	ShardReplicationService_GetSnapshotFile_FullMethodName         = "/weaviate.internal.data.ShardReplicationService/GetSnapshotFile"
 	ShardReplicationService_ReleaseTransferSnapshot_FullMethodName = "/weaviate.internal.data.ShardReplicationService/ReleaseTransferSnapshot"
+	ShardReplicationService_GetLastAppliedIndex_FullMethodName     = "/weaviate.internal.data.ShardReplicationService/GetLastAppliedIndex"
 )
 
 // ShardReplicationServiceClient is the client API for ShardReplicationService service.
@@ -52,6 +53,10 @@ type ShardReplicationServiceClient interface {
 	CreateTransferSnapshot(ctx context.Context, in *CreateTransferSnapshotRequest, opts ...grpc.CallOption) (*CreateTransferSnapshotResponse, error)
 	GetSnapshotFile(ctx context.Context, in *GetSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SnapshotFileChunk], error)
 	ReleaseTransferSnapshot(ctx context.Context, in *ReleaseTransferSnapshotRequest, opts ...grpc.CallOption) (*ReleaseTransferSnapshotResponse, error)
+	// GetLastAppliedIndex returns the leader's last applied RAFT log index.
+	// Used by followers to determine how far they need to catch up before
+	// performing a local read.
+	GetLastAppliedIndex(ctx context.Context, in *GetLastAppliedIndexRequest, opts ...grpc.CallOption) (*GetLastAppliedIndexResponse, error)
 }
 
 type shardReplicationServiceClient struct {
@@ -111,6 +116,16 @@ func (c *shardReplicationServiceClient) ReleaseTransferSnapshot(ctx context.Cont
 	return out, nil
 }
 
+func (c *shardReplicationServiceClient) GetLastAppliedIndex(ctx context.Context, in *GetLastAppliedIndexRequest, opts ...grpc.CallOption) (*GetLastAppliedIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetLastAppliedIndexResponse)
+	err := c.cc.Invoke(ctx, ShardReplicationService_GetLastAppliedIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ShardReplicationServiceServer is the server API for ShardReplicationService service.
 // All implementations should embed UnimplementedShardReplicationServiceServer
 // for forward compatibility.
@@ -125,6 +140,10 @@ type ShardReplicationServiceServer interface {
 	CreateTransferSnapshot(context.Context, *CreateTransferSnapshotRequest) (*CreateTransferSnapshotResponse, error)
 	GetSnapshotFile(*GetSnapshotFileRequest, grpc.ServerStreamingServer[SnapshotFileChunk]) error
 	ReleaseTransferSnapshot(context.Context, *ReleaseTransferSnapshotRequest) (*ReleaseTransferSnapshotResponse, error)
+	// GetLastAppliedIndex returns the leader's last applied RAFT log index.
+	// Used by followers to determine how far they need to catch up before
+	// performing a local read.
+	GetLastAppliedIndex(context.Context, *GetLastAppliedIndexRequest) (*GetLastAppliedIndexResponse, error)
 }
 
 // UnimplementedShardReplicationServiceServer should be embedded to have
@@ -145,6 +164,9 @@ func (UnimplementedShardReplicationServiceServer) GetSnapshotFile(*GetSnapshotFi
 }
 func (UnimplementedShardReplicationServiceServer) ReleaseTransferSnapshot(context.Context, *ReleaseTransferSnapshotRequest) (*ReleaseTransferSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseTransferSnapshot not implemented")
+}
+func (UnimplementedShardReplicationServiceServer) GetLastAppliedIndex(context.Context, *GetLastAppliedIndexRequest) (*GetLastAppliedIndexResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetLastAppliedIndex not implemented")
 }
 func (UnimplementedShardReplicationServiceServer) testEmbeddedByValue() {}
 
@@ -231,6 +253,24 @@ func _ShardReplicationService_ReleaseTransferSnapshot_Handler(srv interface{}, c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ShardReplicationService_GetLastAppliedIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLastAppliedIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ShardReplicationServiceServer).GetLastAppliedIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ShardReplicationService_GetLastAppliedIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ShardReplicationServiceServer).GetLastAppliedIndex(ctx, req.(*GetLastAppliedIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ShardReplicationService_ServiceDesc is the grpc.ServiceDesc for ShardReplicationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -249,6 +289,10 @@ var ShardReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseTransferSnapshot",
 			Handler:    _ShardReplicationService_ReleaseTransferSnapshot_Handler,
+		},
+		{
+			MethodName: "GetLastAppliedIndex",
+			Handler:    _ShardReplicationService_GetLastAppliedIndex_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -70,6 +70,11 @@ service ShardReplicationService {
   rpc CreateTransferSnapshot(CreateTransferSnapshotRequest) returns (CreateTransferSnapshotResponse) {}
   rpc GetSnapshotFile(GetSnapshotFileRequest) returns (stream SnapshotFileChunk) {}
   rpc ReleaseTransferSnapshot(ReleaseTransferSnapshotRequest) returns (ReleaseTransferSnapshotResponse) {}
+
+  // GetLastAppliedIndex returns the leader's last applied RAFT log index.
+  // Used by followers to determine how far they need to catch up before
+  // performing a local read.
+  rpc GetLastAppliedIndex(GetLastAppliedIndexRequest) returns (GetLastAppliedIndexResponse) {}
 }
 
 // PutObjectRequest is sent from a follower to the leader to apply a PutObject operation.
@@ -175,4 +180,16 @@ message ReleaseTransferSnapshotRequest {
 
 // ReleaseTransferSnapshotResponse is empty — success is indicated by a nil error.
 message ReleaseTransferSnapshotResponse {
+}
+
+// GetLastAppliedIndexRequest asks a node for its last applied RAFT log index
+// for a specific shard.
+message GetLastAppliedIndexRequest {
+  string class = 1;
+  string shard = 2;
+}
+
+// GetLastAppliedIndexResponse returns the node's last applied RAFT log index.
+message GetLastAppliedIndexResponse {
+  uint64 last_applied_index = 1;
 }

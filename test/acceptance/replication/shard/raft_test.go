@@ -12,7 +12,6 @@
 package shard
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
@@ -31,19 +29,21 @@ const (
 )
 
 func Test_RaftShardReplication(t *testing.T) {
-	ctx := context.Background()
+	// ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
+	// compose, err := docker.New().
+	// 	WithWeaviateCluster(3).
+	// 	Start(ctx)
+	// require.NoError(t, err)
+	// defer func() {
+	// 	require.NoError(t, compose.Terminate(ctx))
+	// }()
 
-	// Point client at node-0
-	helper.SetupClient(compose.GetWeaviate().URI())
-	hosts := []string{compose.GetWeaviate().URI(), compose.GetWeaviate().URI(), compose.GetWeaviate().URI()}
+	// // Point client at node-0
+	// helper.SetupClient(compose.GetWeaviate().URI())
+	// hosts := []string{compose.GetWeaviate().URI(), compose.GetWeaviate().URI(), compose.GetWeaviate().URI()}
+	helper.SetupClient("localhost:8080")
+	hosts := []string{"localhost:8080", "localhost:8081", "localhost:8082"}
 
 	cls := articles.ParagraphsClass()
 	cls.ReplicationConfig = &models.ReplicationConfig{
@@ -54,7 +54,7 @@ func Test_RaftShardReplication(t *testing.T) {
 	helper.DeleteClass(t, cls.Class)
 	helper.CreateClass(t, cls)
 
-	t.Run("add object", func(t *testing.T) {
+	t.Run("create object", func(t *testing.T) {
 		helper.CreateObject(t, articles.NewParagraph().WithContents("RAFT").WithID(UUID1).Object())
 		// Verify the object eventually exists on all nodes
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {

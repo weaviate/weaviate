@@ -121,6 +121,9 @@ type timeSource interface {
 }
 
 type VectorRepo interface {
+	// EnsureReplicaCaughtUp waits for the local RAFT replica to catch up to
+	// the leader before a local read. No-op when RAFT replication is disabled.
+	EnsureReplicaCaughtUp(ctx context.Context, class string, id strfmt.UUID, tenant string) error
 	PutObject(ctx context.Context, concept *models.Object, vector []float32,
 		vectors map[string][]float32, multiVectors map[string][][]float32,
 		repl *additional.ReplicationProperties, schemaVersion uint64) error
