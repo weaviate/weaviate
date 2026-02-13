@@ -286,9 +286,8 @@ func (m compressedVectorsMigrator) isVectorsCompressedFolderSymlink(lsmDir strin
 }
 
 func (m compressedVectorsMigrator) createVectorsCompressedFolderSymlink(lsmDir, targetVectorBucket string) error {
-	sourcePath := filepath.Join(lsmDir, targetVectorBucket)
 	linkPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
-	if err := os.Symlink(sourcePath, linkPath); err != nil {
+	if err := os.Symlink(targetVectorBucket, linkPath); err != nil {
 		return fmt.Errorf("failed to create a symlink: %w", err)
 	}
 	return nil
