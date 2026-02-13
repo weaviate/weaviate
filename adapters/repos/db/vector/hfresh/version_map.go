@@ -91,6 +91,15 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 	v.locks.RUnlock(vectorID)
 
 	if version == 0 {
+		v.locks.Lock(vectorID)
+		defer v.locks.Unlock(vectorID)
+
+		// double-check after acquiring the lock
+		version = page[slot]
+		if version != 0 {
+			return version, nil
+		}
+
 		// not in cache, check store
 		var err error
 		version, err = v.store.Get(ctx, vectorID)
@@ -102,9 +111,7 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 		}
 
 		// update cache
-		v.locks.Lock(vectorID)
 		page[slot] = version
-		v.locks.Unlock(vectorID)
 	}
 
 	return version, nil
