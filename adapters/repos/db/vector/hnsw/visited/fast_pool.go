@@ -25,10 +25,14 @@ type FastPool struct {
 }
 
 // NewFastPool creates a new pool with the specified initial size.
-// poolSize: number of sets to pre-allocate
+// poolSize: number of sets to pre-allocate (if <1, no pre-allocation)
 // setCapacity: initial capacity for each set
 // maxStorage: maximum number of sets to keep in the pool. If <1, unlimited storage is used.
 func NewFastPool(poolSize, setCapacity, maxStorage int) *FastPool {
+	if poolSize < 0 {
+		poolSize = 0
+	}
+
 	if maxStorage < 1 {
 		maxStorage = math.MaxInt
 	}
