@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -217,6 +218,14 @@ func (db *DB) init(ctx context.Context) error {
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()
+			db.logger.WithFields(logrus.Fields{
+				"action":                  "lazy_shard_auto_detection",
+				"enable_lazy_load_shards": db.config.EnableLazyLoadShards,
+				"local_shard_count":       localShardsCount,
+				"total_shard_size_bytes":  totalShardSizeBytes,
+				"count_threshold":         db.config.LazyLoadShardCountThreshold,
+				"size_threshold_gb":       db.config.LazyLoadShardSizeThresholdGB,
+			}).Info("lazy load shard auto-detection ")
 		}
 	}
 
