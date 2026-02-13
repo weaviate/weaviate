@@ -234,7 +234,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	if meta.ID != req.ID {
 		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
 	}
-	if meta.Status != string(backup.Success) {
+	if meta.Status != backup.Success {
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}

@@ -98,7 +98,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
 		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
 		req := newReq(classes, backendName, backupID)
@@ -182,7 +182,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
 		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
 
 		req := newReq(classes, backendName, backupID)

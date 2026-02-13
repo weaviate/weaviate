@@ -221,7 +221,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 			backup.BackupDescriptor{
 				StartedAt:   starTime,
 				CompletedAt: completedAt,
-				Status:      string(backup.Success),
+				Status:      backup.Success,
 				// 1.5Gb
 				PreCompressionSizeBytes: 1610612736,
 			},
@@ -289,7 +289,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 	t.Run("ReadFromMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		completedAt := starTime.Add(time.Hour)
-		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: backup.Success})
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
@@ -413,7 +413,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.client.On("Commit", any, node, sReq).Return(nil)
 		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
 		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil)
 
 		s := fs.scheduler()
@@ -483,7 +483,7 @@ func TestSchedulerRestoration(t *testing.T) {
 	rawClassBytes, _ := json.Marshal(&models.Class{Class: cls})
 	meta1 := backup.BackupDescriptor{
 		ID:     backupID,
-		Status: string(backup.Success),
+		Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
@@ -492,7 +492,7 @@ func TestSchedulerRestoration(t *testing.T) {
 	}
 	meta2 := backup.BackupDescriptor{
 		ID:     backupID,
-		Status: string(backup.Success),
+		Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
@@ -781,7 +781,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("FailedBackup", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Failed})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -815,7 +815,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -827,7 +827,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	t.Run("WrongBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 
-		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: backup.Success})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -1093,7 +1093,7 @@ func TestCancellingBackup(t *testing.T) {
 	t.Run("CancellingSucceeded", func(t *testing.T) {
 		fakeScheduler := newFakeScheduler(nil)
 		ds := backup.BackupDescriptor{
-			Status: string(backup.Success),
+			Status: backup.Success,
 		}
 		b, err := json.Marshal(ds)
 		assert.Nil(t, err)

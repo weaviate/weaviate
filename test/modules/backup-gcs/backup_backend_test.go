@@ -114,7 +114,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 						Name: className,
 					},
 				},
-				Status:  string(backup.Started),
+				Status:  backup.Started,
 				Version: ubak.Version,
 			}
 

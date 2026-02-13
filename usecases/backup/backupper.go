@@ -161,9 +161,10 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	return ret, nil
 }
 
-type BackupChainDescriptor interface {
+type ChainDescriptor interface {
 	GetBaseBackupId() string
 	GetCompressionType() backup.CompressionType
+	GetStatus() backup.Status
 }
 
 // resolveBaseBackupChain follows the chain of base backups and validates them.
@@ -174,7 +175,7 @@ type BackupChainDescriptor interface {
 // - All backups in the chain exist
 // - All backups have compression type set
 // - All backups have the same compression type as requested
-func resolveBaseBackupChain[T BackupChainDescriptor](
+func resolveBaseBackupChain[T ChainDescriptor](
 	ctx context.Context,
 	baseBackupID string,
 	bucket, path string,
@@ -204,6 +205,10 @@ func resolveBaseBackupChain[T BackupChainDescriptor](
 
 		if baseDescr.GetCompressionType() != compression {
 			return nil, fmt.Errorf("backup %q has compression type %q, expected %q", nextId, baseDescr.GetCompressionType(), compression)
+		}
+
+		if baseDescr.GetStatus() != backup.Success {
+			return nil, fmt.Errorf("backup %q has status %q, expected %q", nextId, baseDescr.GetStatus(), backup.Success)
 		}
 
 		baseDescrs = append(baseDescrs, baseDescr)

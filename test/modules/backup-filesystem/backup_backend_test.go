@@ -109,7 +109,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, backupsPath string, override bool,
 						Name: className,
 					},
 				},
-				Status:  string(backup.Started),
+				Status:  backup.Started,
 				Version: ubak.Version,
 			}
 

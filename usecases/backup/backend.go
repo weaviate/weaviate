@@ -234,7 +234,7 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
-	desc.Status = string(backup.Transferring)
+	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
@@ -248,7 +248,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if err == nil {
 			u.log.Info("start uploading metadata")
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
-				desc.Status = string(backup.Transferred)
+				desc.Status = backup.Transferred
 			}
 			u.setStatus(backup.Success)
 			u.log.Info("finish uploading metadata")
@@ -260,7 +260,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// Handle error cases
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			u.setStatus(backup.Cancelled)
-			desc.Status = string(backup.Cancelled)
+			desc.Status = backup.Cancelled
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
@@ -276,7 +276,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		ctxerr := ctx.Err()
 		if ctxerr != nil {
 			u.setStatus(backup.Cancelled)
-			desc.Status = string(backup.Cancelled)
+			desc.Status = backup.Cancelled
 			u.releaseIndexes(classes, desc.ID)
 		}
 		return ctxerr
@@ -331,7 +331,7 @@ Loop:
 	}
 
 	u.setStatus(backup.Transferred)
-	desc.Status = string(backup.Success)
+	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil

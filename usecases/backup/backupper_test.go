@@ -118,7 +118,7 @@ func TestBackupOnStatus(t *testing.T) {
 			Status: backup.Success,
 		}
 		backend := &fakeBackend{}
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		m := createManager(nil, nil, backend, nil)
@@ -452,6 +452,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
 						BaseBackupId:    "",
+						Status:          backup.Success,
 					}, nil
 				}
 			},
@@ -467,16 +468,19 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
 						BaseBackupId:    "",
+						Status:          backup.Success,
 					},
 					"backup-2": {
 						ID:              "backup-2",
 						CompressionType: &gzipCompression,
 						BaseBackupId:    "backup-1",
+						Status:          backup.Success,
 					},
 					"backup-3": {
 						ID:              "backup-3",
 						CompressionType: &gzipCompression,
 						BaseBackupId:    "backup-2",
+						Status:          backup.Success,
 					},
 				}
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -495,11 +499,13 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
 						BaseBackupId:    "backup-2",
+						Status:          backup.Success,
 					},
 					"backup-2": {
 						ID:              "backup-2",
 						CompressionType: &gzipCompression,
 						BaseBackupId:    "backup-1",
+						Status:          backup.Success,
 					},
 				}
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -529,6 +535,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
 						BaseBackupId:    "backup-1",
+						Status:          backup.Success,
 					}, nil
 				}
 			},
@@ -545,6 +552,24 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						ID:              "backup-1",
 						CompressionType: &noneCompression,
 						BaseBackupId:    "",
+						Status:          backup.Success,
+					}, nil
+				}
+			},
+			errorContains: []string{"backup \"backup-1\" has compression type", "expected"},
+		},
+		{
+			name:            "FailedBackupStatus",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				noneCompression := backup.CompressionNone
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &noneCompression,
+						BaseBackupId:    "",
+						Status:          backup.Failed,
 					}, nil
 				}
 			},

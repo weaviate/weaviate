@@ -231,6 +231,10 @@ func (d *DistributedBackupDescriptor) GetBaseBackupId() string {
 	return d.BaseBackupId
 }
 
+func (d *DistributedBackupDescriptor) GetStatus() Status {
+	return d.Status
+}
+
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
 	return d.CompressionType
 }
@@ -414,7 +418,7 @@ type BackupDescriptor struct {
 	Classes                 []ClassDescriptor `json:"classes"`
 	RbacBackups             []byte            `json:"rbacBackups"`
 	UserBackups             []byte            `json:"userBackups"`
-	Status                  string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
+	Status                  Status            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
 	Version                 string            `json:"version"` //
 	ServerVersion           string            `json:"serverVersion"`
 	Error                   string            `json:"error"`
@@ -423,13 +427,16 @@ type BackupDescriptor struct {
 	BaseBackupId            string            `json:"baseBackupId,omitempty"`
 }
 
-// List all existing classes in d
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
 	if d.CompressionType == nil {
 		// backward compatibility with old backups that don't have this field and default to gzip
 		return CompressionGZIP
 	}
 	return *d.CompressionType
+}
+
+func (d *BackupDescriptor) GetStatus() Status {
+	return d.Status
 }
 
 // List all existing classes in d
