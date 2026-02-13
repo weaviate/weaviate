@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -62,17 +61,13 @@ var v1 = VectorVersion(0).Increment()
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
 type VersionMap struct {
-	cache *otter.Cache[uint64, VectorVersion]
 	data  *common.PagedArray[VectorVersion]
 	locks *common.ShardedRWLocks
 	store *VersionStore
 }
 
 func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
-	cache, _ := otter.New[uint64, VectorVersion](nil)
-
 	return &VersionMap{
-		cache: cache,
 		data:  common.NewPagedArray[VectorVersion](16384, 64*1024), // 1 billion entries with 64k per page
 		locks: common.NewShardedRWLocks(512),
 		store: NewVersionStore(bucket),
