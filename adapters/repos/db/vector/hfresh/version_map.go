@@ -62,6 +62,8 @@ var v1 = VectorVersion(0).Increment()
 // cache for fast access.
 type VersionMap struct {
 	cache *otter.Cache[uint64, VectorVersion]
+	data  *common.PagedArray[VectorVersion]
+	locks *common.ShardedRWLocks
 	store *VersionStore
 }
 
@@ -70,6 +72,8 @@ func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
 
 	return &VersionMap{
 		cache: cache,
+		data:  common.NewPagedArray[VectorVersion](16384, 64*1024), // 1 billion entries with 64k per page
+		locks: common.NewShardedRWLocks(512),
 		store: NewVersionStore(bucket),
 	}
 }
