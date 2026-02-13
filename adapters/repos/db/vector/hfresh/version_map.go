@@ -113,30 +113,33 @@ func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, e
 // Incr increments the version of the vector and returns the new version.
 func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, error) {
 	var err error
-	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
-		if !found {
-			oldVersion, err = v.store.Get(ctx, vectorID)
-			if err != nil && !errors.Is(err, ErrVectorNotFound) {
-				return 0, otter.CancelOp
-			}
-			if err != nil {
-				oldVersion = v1
-			}
-		}
-		if oldVersion.Deleted() || oldVersion != previousVersion {
-			err = ErrVersionIncrementFailed
-			return oldVersion, otter.CancelOp
-		}
 
-		newVersion := oldVersion.Increment()
-		err = v.store.Set(ctx, vectorID, newVersion)
-		if err != nil {
-			return oldVersion, otter.CancelOp
-		}
+	page, slot := v.data.EnsurePageFor(vectorID)
+	v.locks.Lock(vectorID)
+	defer v.locks.Unlock(vectorID)
 
-		return newVersion, otter.WriteOp
-	})
-	return version, err
+	old := page[slot]
+	if old == 0 {
+		// not in cache, check store
+		old, err = v.store.Get(ctx, vectorID)
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
+		}
+		if errors.Is(err, ErrVectorNotFound) {
+			old = v1
+		}
+	}
+
+	if old.Deleted() || old != previousVersion {
+		return old, ErrVersionIncrementFailed
+	}
+
+	newVersion := old.Increment()
+	err = v.store.Set(ctx, vectorID, newVersion)
+	if err != nil {
+		return old, err
+	}
+	return newVersion, nil
 }
 
 func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, error) {
