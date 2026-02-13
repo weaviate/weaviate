@@ -451,6 +451,24 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	return newData
 }
 
+// Get retrieves the vector IDs for the given posting ID.
+// Disk format:
+//   - 1 byte: scheme for vector IDs
+//   - 4 bytes: count (uint32, little endian)
+//   - count * (bytesPerScheme + 1): vector IDs and version
+func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPostingMetadata, error) {
+	key := p.key(postingID)
+	v, err := p.bucket.Get(key[:])
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+	}
+	if len(v) == 0 {
+		return nil, ErrPostingNotFound
+	}
+
+	return PackedPostingMetadata(v), nil
+}
+
 // Set adds or replaces the vector IDs for the given posting ID.
 // Disk format:
 //   - 1 byte: scheme for vector IDs
