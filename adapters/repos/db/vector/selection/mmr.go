@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package diversity
+package selection
 
 import (
 	"context"
