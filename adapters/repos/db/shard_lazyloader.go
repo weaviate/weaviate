@@ -177,6 +177,16 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	return storagestate.StatusLazyLoading
 }
 
+func (l *LazyLoadShard) GetStatusReason() string {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded {
+		return l.shard.GetStatusReason()
+	}
+	return storagestate.StatusLazyLoading.String()
+}
+
 func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	l.mustLoad()
 	return l.shard.UpdateStatus(status, reason)
@@ -185,11 +195,6 @@ func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
 	l.mustLoad()
 	return l.shard.SetStatusReadonly(reason)
-}
-
-func (l *LazyLoadShard) GetStatusReason() string {
-	l.mustLoad()
-	return l.shard.GetStatusReason()
 }
 
 func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {

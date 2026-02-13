@@ -13,6 +13,7 @@ package db
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -194,17 +195,17 @@ func (db *DB) memAboveReadonlyThreshold(mon *memwatch.Monitor) bool {
 }
 
 func (db *DB) setShardsReady() {
-	var failedCount int
+	var failedCount atomic.Int64
 	func() {
 		db.indexLock.Lock()
 		defer db.indexLock.Unlock()
 		for _, index := range db.indices {
-			index.ForEachShard(func(name string, shard ShardLike) error {
+			index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
 				if shard.GetStatus() == storagestate.StatusReadOnly &&
 					shard.GetStatusReason() == statusReasonResourcePressure {
 					err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonResourceRecovery)
 					if err != nil {
-						failedCount++
+						failedCount.Add(1)
 						db.logger.WithField("action", "set_shard_ready").
 							WithField("path", db.config.RootPath).
 							WithError(err).
@@ -216,9 +217,9 @@ func (db *DB) setShardsReady() {
 		}
 	}()
 
-	if failedCount > 0 {
+	if count := failedCount.Load(); count > 0 {
 		db.logger.WithField("action", "set_shard_ready").
-			WithField("failed_count", failedCount).
+			WithField("failed_count", count).
 			Warn("Resource usage below threshold, but some shards failed to transition to READY")
 		return
 	}
