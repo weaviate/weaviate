@@ -812,7 +812,7 @@ func (i *indices) postSearchObjects() http.Handler {
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
 			// shard is not ready means it's transient, use 503 so replication client retries
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
@@ -922,7 +922,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
 
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
 			// shard is not ready means it's transient, use 503 so replication client retries
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
@@ -982,7 +982,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters)
 
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
 			// shard is not ready means it's transient, use 503 so replication client retries
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
@@ -1081,7 +1081,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 		}).Debug("digest objects ...")
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
 			// shard is not ready means it's transient, use 503 so replication client retries
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return

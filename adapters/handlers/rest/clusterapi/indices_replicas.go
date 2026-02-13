@@ -512,7 +512,7 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 		}
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
 			// shard is not ready means it's transient, use 503 so replication client retries
 			http.Error(w, "digest objects: "+err.Error(), http.StatusServiceUnavailable)
 			return
@@ -876,7 +876,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 		)
 
 		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
 			// shard is not ready means it's transient, use 503 so replication client retries
 			http.Error(w, "fetch objects: "+err.Error(), http.StatusServiceUnavailable)
 			return
@@ -933,7 +933,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		}
 
 		resp, err := i.shards.FetchObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
 			// shard is not ready means it's transient, use 503 so replication client retries
 			http.Error(w, "fetch objects: "+err.Error(), http.StatusServiceUnavailable)
 			return

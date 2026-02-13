@@ -257,13 +257,13 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
+	defer release()
 	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
 
-	defer release()
 	i.backupLock.RLock(shard)
 	defer i.backupLock.RUnlock(shard)
 
@@ -277,13 +277,13 @@ func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) i
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
+	defer release()
+
 	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
-
-	defer release()
 
 	return localShard.abortReplication(ctx, requestID)
 }
@@ -582,7 +582,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	defer release()
 
 	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard))
+		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shard))
 	}
 
 	var result []types.RepairResponse
@@ -733,7 +733,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 	}
 
 	if s.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	multiIDs := make([]multi.Identifier, len(ids))
@@ -843,7 +843,7 @@ func (i *Index) FetchObject(ctx context.Context,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return replica.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return replica.Replica{}, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
@@ -889,7 +889,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 	defer release()
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
