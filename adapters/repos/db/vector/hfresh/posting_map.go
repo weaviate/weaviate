@@ -354,7 +354,7 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	if len(p) == 0 {
 		currentScheme = schemeFor(vectorID)
 		newScheme = currentScheme
-		p = make([]byte, headerSize, headerSize+currentScheme.BytesPerValue()+1)
+		p = bufferPool.Get(headerSize, headerSize+currentScheme.BytesPerValue()+1)
 		p[0] = byte(currentScheme)
 	} else {
 		currentScheme = Scheme(p[0])
@@ -368,6 +368,14 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	// using the current scheme's byte width (not the new one)
 	if currentScheme >= newScheme {
 		currentBytesPerValue := currentScheme.BytesPerValue()
+		newSize := headerSize + int(newCount)*(currentBytesPerValue+1)
+		if cap(p) < newSize {
+			newP := bufferPool.Get(len(p), newSize)
+			copy(newP, p)
+			bufferPool.Put(p)
+			p = newP
+		}
+
 		for i := range currentBytesPerValue {
 			p = append(p, byte(vectorID>>(i*8)))
 		}
@@ -382,8 +390,9 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	bytesPerValue := newScheme.BytesPerValue()
 	idsSize := int(newCount) * bytesPerValue
 	versionsSize := int(newCount) // 1 byte per version
+	newSize := headerSize + idsSize + versionsSize
 
-	newData := make([]byte, headerSize+idsSize+versionsSize)
+	newData := bufferPool.Get(newSize, newSize)
 	// write new header
 	newData[0] = byte(newScheme)
 	// write count
@@ -410,25 +419,9 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	// write the new version
 	newData[offset] = byte(version)
 
+	bufferPool.Put(p)
+
 	return newData
-}
-
-// Get retrieves the vector IDs for the given posting ID.
-// Disk format:
-//   - 1 byte: scheme for vector IDs
-//   - 4 bytes: count (uint32, little endian)
-//   - count * (bytesPerScheme + 1): vector IDs and version
-func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPostingMetadata, error) {
-	key := p.key(postingID)
-	v, err := p.bucket.Get(key[:])
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
-	}
-	if len(v) == 0 {
-		return nil, ErrPostingNotFound
-	}
-
-	return PackedPostingMetadata(v), nil
 }
 
 // Set adds or replaces the vector IDs for the given posting ID.
@@ -439,7 +432,7 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPost
 func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
 	// copy metadata to a new array
-	metadataCopy := make([]byte, len(metadata))
+	metadataCopy := bufferPool.Get(len(metadata), len(metadata))
 	copy(metadataCopy, metadata)
 	return p.bucket.Put(key[:], metadataCopy)
 }
@@ -466,7 +459,7 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 		}
 
 		postingID := binary.LittleEndian.Uint64(k[1:])
-		metadata := make(PackedPostingMetadata, len(v))
+		metadata := bufferPool.Get(len(v), len(v))
 		copy(metadata, v)
 		err := fn(postingID, metadata)
 		if err != nil {
