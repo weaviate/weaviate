@@ -132,7 +132,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			var querying time.Duration = 0
 			compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 				before = time.Now()
-				results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
+				results, _, _ := index.SearchByVector(ctx, queries[i], k, nil, nil)
 				querying += time.Since(before)
 				retrieved += k
 				relevant += testinghelpers.MatchesInLists(truths[i], results)
