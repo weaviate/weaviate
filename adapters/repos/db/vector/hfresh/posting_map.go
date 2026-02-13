@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"iter"
@@ -133,14 +134,40 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		pm = pm.AddVector(vector.ID(), vector.Version())
 	}
 
-	err := v.bucket.Set(ctx, postingID, pm)
+	existing, err := v.bucket.Get(ctx, postingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return errors.Wrapf(err, "failed to get existing posting metadata for posting %d", postingID)
+	}
+	if err == nil && bytes.Equal(pm, existing) {
+		// no change, skip the update
+		return nil
+	}
+
+	// store the updated posting metadata on disk and update the in-memory cache
+	err = v.bucket.Set(ctx, postingID, pm)
 	if err != nil {
 		return err
 	}
 
 	count := pm.Count()
 
-	v.data.Store(postingID, &PostingMetadata{PackedPostingMetadata: pm})
+	// update the in-memory cache, if the posting metadata already exists,
+	// update it in-place to avoid unnecessary allocations
+	v.data.Compute(postingID, func(oldValue *PostingMetadata, loaded bool) (newValue *PostingMetadata, op xsync.ComputeOp) {
+		if !loaded {
+			return &PostingMetadata{PackedPostingMetadata: pm}, xsync.UpdateOp
+		}
+
+		oldValue.Lock()
+		if !bytes.Equal(oldValue.PackedPostingMetadata, pm) {
+			oldValue.PackedPostingMetadata = pm
+		}
+		oldValue.Unlock()
+
+		// we modified the internal pointer of the existing value, so we don't need to update the map
+		return oldValue, xsync.CancelOp
+	})
+
 	v.metrics.ObservePostingSize(float64(count))
 
 	return nil
