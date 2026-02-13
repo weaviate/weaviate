@@ -79,6 +79,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 
@@ -129,6 +133,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -192,6 +200,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 
@@ -253,6 +265,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -317,6 +333,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 
@@ -376,6 +396,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -446,6 +470,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 
@@ -513,6 +541,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -601,6 +633,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -701,6 +737,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 		{
@@ -760,6 +800,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -836,6 +880,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 		{
@@ -886,6 +934,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -948,6 +1000,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 		{
@@ -1003,6 +1059,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
+				},
 			},
 		},
 		{
@@ -1056,6 +1116,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
@@ -1111,6 +1175,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				AdaptiveEF: AdaptiveConfig{
+					Enabled:      DefaultAdaptiveEFEnabled,
+					TargetRecall: DefaultAdaptiveEFTargetRecall,
 				},
 			},
 		},
