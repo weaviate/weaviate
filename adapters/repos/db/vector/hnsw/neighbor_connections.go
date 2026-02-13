@@ -116,7 +116,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited *visited.FastSet, level, top int) error {
 	if top <= 0 {
 		return nil
 	}
@@ -226,9 +226,11 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
-		n.graph.pools.visitedListsLock.RLock()
-		visited := n.graph.pools.visitedLists.Borrow()
-		n.graph.pools.visitedListsLock.RUnlock()
+		// Use FastSet for tombstone cleanup - more memory efficient for sparse visits
+		// Uses O(visited) memory vs O(maxNodeID) for ListSet
+		n.graph.pools.visitedFastSetsLock.RLock()
+		visited := n.graph.pools.visitedFastSets.Borrow()
+		n.graph.pools.visitedFastSetsLock.RUnlock()
 		n.node.Lock()
 		n.connectionsBuf = n.node.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
 		connections := n.connectionsBuf
@@ -250,17 +252,17 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		}
 		for _, id := range n.pendingBuf {
 			visited.Visit(id)
-			err := n.processRecursively(id, results, visited, level, top)
+			err := n.processRecursively(id, results, &visited, level, top)
 			if err != nil {
-				n.graph.pools.visitedListsLock.RLock()
-				n.graph.pools.visitedLists.Return(visited)
-				n.graph.pools.visitedListsLock.RUnlock()
+				n.graph.pools.visitedFastSetsLock.RLock()
+				n.graph.pools.visitedFastSets.Return(visited)
+				n.graph.pools.visitedFastSetsLock.RUnlock()
 				return err
 			}
 		}
-		n.graph.pools.visitedListsLock.RLock()
-		n.graph.pools.visitedLists.Return(visited)
-		n.graph.pools.visitedListsLock.RUnlock()
+		n.graph.pools.visitedFastSetsLock.RLock()
+		n.graph.pools.visitedFastSets.Return(visited)
+		n.graph.pools.visitedFastSetsLock.RUnlock()
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
