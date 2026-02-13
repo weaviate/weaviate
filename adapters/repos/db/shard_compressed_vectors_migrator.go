@@ -286,19 +286,10 @@ func (m compressedVectorsMigrator) isVectorsCompressedFolderSymlink(lsmDir strin
 }
 
 func (m compressedVectorsMigrator) createVectorsCompressedFolderSymlink(lsmDir, targetVectorBucket string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
-	}
-	if err := os.Chdir(lsmDir); err != nil {
-		return fmt.Errorf("failed to set the current working directory to %s: %w", lsmDir, err)
-	}
-	err = os.Symlink(targetVectorBucket, helpers.VectorsCompressedBucketLSM)
-	if err != nil {
+	sourcePath := filepath.Join(lsmDir, targetVectorBucket)
+	linkPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+	if err := os.Symlink(sourcePath, linkPath); err != nil {
 		return fmt.Errorf("failed to create a symlink: %w", err)
-	}
-	if err := os.Chdir(cwd); err != nil {
-		return fmt.Errorf("failed to set the current working back to %s: %w", cwd, err)
 	}
 	return nil
 }
