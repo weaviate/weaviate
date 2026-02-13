@@ -81,9 +81,10 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 		"key2": []byte("value2"),
 	})
 	sg := &SegmentGroup{
-		logger:   logger,
-		strategy: StrategyReplace,
-		segments: []Segment{segA, segB},
+		logger:             logger,
+		strategy:           StrategyReplace,
+		segments:           []Segment{segA, segB},
+		postSegmentsChange: func() {},
 	}
 
 	// control before segment changes
@@ -175,8 +176,9 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 		"key2": bitmapFromSlice([]uint64{2}),
 	})
 	sg := &SegmentGroup{
-		logger:   logger,
-		segments: []Segment{segA, segB},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		postSegmentsChange: func() {},
 	}
 
 	// control: take a consistent view before any switch
@@ -287,8 +289,9 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testi
 		key2: roaringset.NewBitmap(2),
 	}, sroar.NewBitmap())
 	sg := &SegmentGroup{
-		logger:   logger,
-		segments: []Segment{segA, segB},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		postSegmentsChange: func() {},
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
@@ -402,8 +405,9 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:   logger,
-		segments: []Segment{segA, segB},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		postSegmentsChange: func() {},
 	}
 
 	// take a consistent view before switch
@@ -518,8 +522,9 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:   logger,
-		segments: []Segment{segA, segB},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		postSegmentsChange: func() {},
 	}
 
 	// take a consistent view before switch
@@ -624,8 +629,9 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:   logger,
-		segments: []Segment{segA, segB},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		postSegmentsChange: func() {},
 	}
 
 	// take a consistent view before switch

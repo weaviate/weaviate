@@ -188,6 +188,8 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	consistentViewCache ConsistentViewCache
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -271,6 +273,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	b.consistentViewCache = NewConsistentViewCache(b.logger, b.GetConsistentView)
+
 	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
 			dir:                          dir,
@@ -291,6 +295,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			postSegmentsChange:           b.consistentViewCache.Invalidate,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -537,6 +542,10 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	}
 }
 
+func (b *Bucket) ConsistentViewCache() ConsistentViewCache {
+	return b.consistentViewCache
+}
+
 // viewMemtables returns the memtables from a view and the count of valid memtables.
 // This avoids allocating a slice on every call by returning a fixed-size array.
 func viewMemtables(view BucketConsistentView) ([2]memtable, int) {
@@ -567,7 +576,7 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
-	view := b.GetConsistentView()
+	view := b.consistentViewCache.Get()
 	defer view.ReleaseView()
 
 	return b.getWithConsistentView(key, view)
@@ -669,7 +678,7 @@ func (b *Bucket) GetBySecondaryWithBufferAndView(ctx context.Context, pos int, s
 
 func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	beforeAll := time.Now()
-	view := b.GetConsistentView()
+	view := b.consistentViewCache.Get()
 	defer view.ReleaseView()
 	tookView := time.Since(beforeAll)
 
@@ -833,7 +842,7 @@ func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer [
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
 // for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
-	view := b.GetConsistentView()
+	view := b.consistentViewCache.Get()
 	defer view.ReleaseView()
 
 	return b.setListFromConsistentView(view, key)
@@ -1026,7 +1035,7 @@ func MapListLegacySortingRequired() MapListOption {
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
 func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
-	view := b.GetConsistentView()
+	view := b.consistentViewCache.Get()
 	defer view.ReleaseView()
 
 	return b.mapListFromConsistentView(ctx, view, key, cfgs...)
@@ -1314,7 +1323,7 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
-	view := b.GetConsistentView()
+	view := b.consistentViewCache.Get()
 	defer view.ReleaseView()
 
 	return b.countFromCV(ctx, view)
@@ -1431,6 +1440,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
+	b.consistentViewCache.Invalidate()
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}
@@ -1759,6 +1769,8 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtab
 	b.active = mt
 	b.flushing = flushing
 
+	b.consistentViewCache.Invalidate()
+
 	return true, nil
 }
 
@@ -1833,6 +1845,8 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 	}
 
+	b.consistentViewCache.Invalidate()
+
 	return nil
 }
 
@@ -1858,7 +1872,7 @@ func (b *Bucket) WriteWAL() error {
 }
 
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
-	view := b.GetConsistentView()
+	view := b.consistentViewCache.Get()
 	defer view.ReleaseView()
 
 	return b.docPointerWithScoreListFromConsistentView(ctx, view, key, propBoost, cfgs...)
@@ -1961,7 +1975,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
-	view := b.GetConsistentView()
+	view := b.consistentViewCache.Get()
 	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
 }
 

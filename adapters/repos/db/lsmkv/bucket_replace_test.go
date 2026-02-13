@@ -25,6 +25,8 @@ func TestBucketReplaceWritePathRefCount(t *testing.T) {
 		active:         newTestMemtableReplace(nil),
 		keepTombstones: true,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	expectedRefs := 0
 

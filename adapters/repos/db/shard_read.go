@@ -252,7 +252,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 // GetObjectsBucketView returns a consistent view of the objects bucket that can
 // be reused for multiple reads without acquiring locks for each read.
 func (s *Shard) GetObjectsBucketView() common.BucketView {
-	return s.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+	return s.store.Bucket(helpers.ObjectsBucketLSM).ConsistentViewCache().Get()
 }
 
 func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]float32, error) {

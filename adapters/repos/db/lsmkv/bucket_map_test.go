@@ -24,6 +24,8 @@ func TestMapWritePathRefCount(t *testing.T) {
 		disk:     &SegmentGroup{segments: []Segment{}},
 		active:   newTestMemtableMap(nil),
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	expectedRefs := 0
 	assertWriterRefs := func() {
