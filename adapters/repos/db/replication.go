@@ -258,6 +258,7 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 		}}
 	}
 	defer release()
+
 	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},

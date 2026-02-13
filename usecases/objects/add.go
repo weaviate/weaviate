@@ -69,10 +69,6 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		maxSchemaVersion = max(maxSchemaVersion, activationVersion)
 	}
 
-	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
-
 	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses, maxSchemaVersion)
 	if err != nil {
 		return nil, err
