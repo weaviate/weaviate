@@ -460,6 +460,13 @@ func (s *Store) LastAppliedIndex() uint64 {
 	return s.fsm.LastAppliedIndex()
 }
 
+// WaitForAppliedIndex blocks until the local FSM has applied at least
+// targetIndex, or the context is cancelled. Used by followers to ensure
+// their local state has caught up before performing a local read.
+func (s *Store) WaitForAppliedIndex(ctx context.Context, targetIndex uint64) error {
+	return s.fsm.WaitForIndex(ctx, targetIndex)
+}
+
 type Response struct {
 	Error   error
 	Version uint64

@@ -490,6 +490,10 @@ func (f *fakeReplicationClient) ReleaseTransferSnapshot(ctx context.Context, in 
 	return f.releaseResp, f.releaseErr
 }
 
+func (f *fakeReplicationClient) GetLastAppliedIndex(ctx context.Context, in *shardproto.GetLastAppliedIndexRequest, opts ...grpc.CallOption) (*shardproto.GetLastAppliedIndexResponse, error) {
+	return &shardproto.GetLastAppliedIndexResponse{}, nil
+}
+
 // fakeSnapshotFileStream implements grpc.ServerStreamingClient[SnapshotFileChunk].
 type fakeSnapshotFileStream struct {
 	grpc.ClientStream

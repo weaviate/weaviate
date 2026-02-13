@@ -191,6 +191,18 @@ func (s *Server) ReleaseTransferSnapshot(ctx context.Context, req *shardproto.Re
 	return &shardproto.ReleaseTransferSnapshotResponse{}, nil
 }
 
+// GetLastAppliedIndex returns the last applied RAFT log index for a shard.
+// Used by followers to determine how far they need to catch up before a local read.
+func (s *Server) GetLastAppliedIndex(ctx context.Context, req *shardproto.GetLastAppliedIndexRequest) (*shardproto.GetLastAppliedIndexResponse, error) {
+	store := s.registry.GetStore(req.Class, req.Shard)
+	if store == nil {
+		return nil, status.Errorf(codes.NotFound, "store not found for %s/%s", req.Class, req.Shard)
+	}
+	return &shardproto.GetLastAppliedIndexResponse{
+		LastAppliedIndex: store.LastAppliedIndex(),
+	}, nil
+}
+
 // toRPCError returns a gRPC error with the right error code based on the error.
 func toRPCError(err error) error {
 	if err == nil {
