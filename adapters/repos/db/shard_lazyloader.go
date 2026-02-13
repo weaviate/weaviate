@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -419,6 +420,43 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 ) {
 	l.mustLoad()
 	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
+}
+
+func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	property *models.Property,
+) {
+	if l.isLoaded() {
+		l.shard.updatePropertyBuckets(ctx, eg, property)
+	} else {
+		l.updateUnloadedPropertyBuckets(ctx, eg, property)
+	}
+}
+
+func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
+	eg *enterrors.ErrorGroupWrapper,
+	prop *models.Property,
+) {
+	eg.Go(func() error {
+		if !inverted.HasFilterableIndex(prop) {
+			err := l.shard.removeBucketDir(helpers.BucketFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasSearchableIndex(prop) {
+			err := l.shard.removeBucketDir(helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasRangeableIndex(prop) {
+			err := l.shard.removeBucketDir(helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {

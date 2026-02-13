@@ -92,6 +92,71 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
+// DeleteClassPropertyIndex deletes collection's property index
+func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
+	class *models.Class, className, propertyName, indexName string,
+) error {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	if class == nil {
+		return fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
+	if propertyName == "" {
+		return fmt.Errorf("property name cannot be empty")
+	}
+	var prop *models.Property
+	for i := range class.Properties {
+		if class.Properties[i].Name == propertyName {
+			prop = class.Properties[i]
+			break
+		}
+	}
+	if prop == nil {
+		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
+	}
+
+	switch indexName {
+	case "filterable":
+		if prop.IndexFilterable != nil && *prop.IndexFilterable {
+			notExists := false
+			prop.IndexFilterable = &notExists
+		} else {
+			// nothing to do
+			return nil
+		}
+	case "searchable":
+		if prop.IndexSearchable != nil && *prop.IndexSearchable {
+			notExists := false
+			prop.IndexSearchable = &notExists
+		} else {
+			// nothing to do
+			return nil
+		}
+	case "rangeFilters":
+		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+			notExists := false
+			prop.IndexRangeFilters = &notExists
+		} else {
+			// nothing to do
+			return nil
+		}
+	default:
+		return fmt.Errorf("invalid property index type: %s", indexName)
+	}
+
+	if err := h.validatePropertyIndexing(prop); err != nil {
+		return err
+	}
+	_, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,

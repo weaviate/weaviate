@@ -33,9 +33,9 @@ const (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 const (
-	indexMetadataBucketPrefix  = 'm'
+	indexMetadataBucketPrefix  = 'i'
 	versionMapBucketPrefix     = 'v'
-	postingMapBucketPrefix     = 'p'
+	postingMapBucketPrefix     = 'm'
 	postingVersionBucketPrefix = 'l'
 	reassignBucketKey          = "pending_reassignments"
 )
@@ -151,8 +151,17 @@ func (h *HFresh) restoreMetadata() error {
 			err = h.restoreQuantizationData(&quantization.RQ)
 		}
 	})
+	if err != nil {
+		return err
+	}
 
-	err = h.restoreBackgroundMetrics()
+	// restore posting map
+	err = h.PostingMap.Restore(h.ctx)
+	if err != nil {
+		return err
+	}
+
+	err = h.restoreMetrics()
 	if err != nil {
 		return err
 	}
@@ -170,7 +179,7 @@ func (h *HFresh) persistQuantizationData() error {
 	})
 }
 
-func (h *HFresh) restoreBackgroundMetrics() error {
+func (h *HFresh) restoreMetrics() error {
 	splitCount := h.taskQueue.splitQueue.Size()
 	mergeCount := h.taskQueue.mergeQueue.Size()
 	reassignCount := h.taskQueue.reassignQueue.Size()
@@ -180,6 +189,10 @@ func (h *HFresh) restoreBackgroundMetrics() error {
 	h.metrics.SetMergeCount(mergeCount)
 	h.metrics.SetReassignCount(reassignCount)
 	h.metrics.SetAnalyzeCount(analyzeCount)
+
+	postingsCount := h.PostingMap.Size()
+	h.Centroids.counter.Store(int32(postingsCount))
+	h.metrics.AddPostings(postingsCount)
 
 	return nil
 }

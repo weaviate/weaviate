@@ -17,69 +17,62 @@ import (
 	"iter"
 	"slices"
 	"sync"
+	"time"
 
-	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 // PostingMetadata holds the list of vector IDs associated with a posting.
-// This value is cached in memory for fast access.
 // Any read or modification to the vectors slice must be protected by the mutex.
 type PostingMetadata struct {
 	sync.RWMutex
 	PackedPostingMetadata
-	// whether this cached entry has been loaded from disk
-	// or has been refreshed by a background operation.
-	fromDisk bool
 }
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
-	metrics *Metrics
-	cache   *otter.Cache[uint64, *PostingMetadata]
-	bucket  *PostingMapStore
+	metrics    *Metrics
+	data       *xsync.Map[uint64, *PostingMetadata]
+	bucket     *PostingMapStore
+	sizeMetric *oncePer
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
-	cache, _ := otter.New[uint64, *PostingMetadata](nil)
-
 	return &PostingMap{
-		cache:   cache,
-		metrics: metrics,
-		bucket:  b,
+		data:       xsync.NewMap[uint64, *PostingMetadata](),
+		metrics:    metrics,
+		bucket:     b,
+		sizeMetric: OncePer(5 * time.Second),
 	}
+}
+
+// Size returns the total number of postings in the map.
+func (v *PostingMap) Size() int {
+	return v.data.Size()
+}
+
+// Iter returns an iterator over all postings in the map.
+func (v *PostingMap) Iter() iter.Seq2[uint64, *PostingMetadata] {
+	return v.data.AllRelaxed()
 }
 
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
-	m, err := v.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, *PostingMetadata](func(ctx context.Context, key uint64) (*PostingMetadata, error) {
-		data, err := v.bucket.Get(ctx, postingID)
-		if err != nil {
-			if errors.Is(err, ErrPostingNotFound) {
-				return nil, otter.ErrNotFound
-			}
-
-			return nil, err
-		}
-
-		return &PostingMetadata{PackedPostingMetadata: data, fromDisk: true}, nil
-	}))
-	if errors.Is(err, otter.ErrNotFound) {
+	m, ok := v.data.Load(postingID)
+	if !ok {
 		return nil, ErrPostingNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
 
-	return m, err
+	return m, nil
 }
 
-// CountVectorIDs returns the number of vector IDs in the posting with the given ID.
+// CountVectors returns the number of vector IDs in the posting with the given ID.
 // If the posting does not exist, it returns 0.
-func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint32, error) {
+func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32, error) {
 	m, err := v.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return 0, err
@@ -96,16 +89,42 @@ func (v *PostingMap) CountVectorIDs(ctx context.Context, postingID uint64) (uint
 	return size, nil
 }
 
+// CountAllVectors returns the total number of vector IDs across all postings.
+// It deduplicates vector IDs across postings, so the count is an approximation of the total number of unique vectors in the index.
+// This is used for metrics and does not need to be exact, so it iterates over the in-memory cache without locking.
+func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
+	vectorIDSet := make(map[uint64]struct{})
+
+	for _, m := range v.data.AllRelaxed() {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+
+		m.RLock()
+		for id, version := range m.Iter() {
+			if version.Deleted() {
+				continue
+			}
+			vectorIDSet[id] = struct{}{}
+		}
+		m.RUnlock()
+	}
+
+	return uint64(len(vectorIDSet)), nil
+}
+
 // SetVectorIDs sets the vector IDs for the posting with the given ID in-memory and persists them to disk.
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	defer v.setSizeMetricIfDue(ctx)
+
 	if len(posting) == 0 {
 		err := v.bucket.Delete(ctx, postingID)
 		if err != nil {
 			return err
 		}
-		v.cache.Invalidate(postingID)
+		v.data.Delete(postingID)
 		return nil
 	}
 
@@ -118,8 +137,11 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	if err != nil {
 		return err
 	}
-	v.cache.Set(postingID, &PostingMetadata{PackedPostingMetadata: pm})
-	v.metrics.ObservePostingSize(float64(pm.Count()))
+
+	count := pm.Count()
+
+	v.data.Store(postingID, &PostingMetadata{PackedPostingMetadata: pm})
+	v.metrics.ObservePostingSize(float64(count))
 
 	return nil
 }
@@ -135,32 +157,47 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		return 0, err
 	}
 
+	var count uint32
 	if m != nil {
 		m.Lock()
 		m.PackedPostingMetadata = m.AddVector(vectorID, version)
+		count = m.Count()
 		m.Unlock()
 	} else {
 		m = &PostingMetadata{
 			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
-		v.cache.Set(postingID, m)
+		count = m.Count()
+		v.data.Store(postingID, m)
 	}
 
-	v.metrics.ObservePostingSize(float64(m.Count()))
-	return uint32(m.Count()), nil
+	v.metrics.ObservePostingSize(float64(count))
+	return uint32(count), nil
 }
 
-// Persist the vector IDs for the posting with the given ID to disk.
-func (v *PostingMap) Persist(ctx context.Context, postingID uint64) error {
-	m, err := v.Get(ctx, postingID)
-	if err != nil {
-		return err
-	}
+// Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
+func (v *PostingMap) Restore(ctx context.Context) error {
+	defer v.setSizeMetricIfDue(ctx)
 
-	m.RLock()
-	defer m.RUnlock()
+	return v.bucket.Iter(ctx, func(u uint64, ppm PackedPostingMetadata) error {
+		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})
+		return nil
+	})
+}
 
-	return v.bucket.Set(ctx, postingID, m.PackedPostingMetadata)
+// setSizeMetricIfDue updates the size metric if the next update is due.
+// It is called after any operation that modifies the postings to ensure the metric is reasonably up-to-date without causing too much overhead.
+func (v *PostingMap) setSizeMetricIfDue(ctx context.Context) {
+	var err error
+	v.sizeMetric.do(func() {
+		var count uint64
+		count, err = v.CountAllVectors(ctx)
+		if err != nil {
+			return
+		}
+
+		v.metrics.SetSize(int(count))
+	})
 }
 
 // PostingMapStore is a persistent store for vector IDs.
@@ -237,8 +274,7 @@ func schemeFor(value uint64) Scheme {
 type PackedPostingMetadata []byte
 
 func NewPackedPostingMetadata(vectorIDs []uint64, versions []VectorVersion) PackedPostingMetadata {
-	scheme := determineScheme(vectorIDs)
-	data := PackedPostingMetadata(make([]byte, 0, 5+len(vectorIDs)*(scheme.BytesPerValue()+1)))
+	var data PackedPostingMetadata
 	for i, id := range vectorIDs {
 		data = data.AddVector(id, versions[i])
 	}
@@ -258,12 +294,12 @@ func (p PackedPostingMetadata) Iter() iter.Seq2[uint64, VectorVersion] {
 	data := p[start:]
 
 	return func(yield func(uint64, VectorVersion) bool) {
-		for i := uint32(0); i < count; i++ {
+		for i := range count {
 			offset := i * uint32(bytesPerValue)
 
 			// Decode ID
 			vID := uint64(0)
-			for j := 0; j < bytesPerID; j++ {
+			for j := range bytesPerID {
 				vID |= uint64(data[offset+uint32(j)]) << (j * 8)
 			}
 
@@ -326,14 +362,13 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 		currentCount = binary.LittleEndian.Uint32(p[1:5])
 	}
 
-	bytesPerValue := newScheme.BytesPerValue()
 	newCount := currentCount + 1
-	idsSize := int(newCount) * bytesPerValue
-	versionsSize := int(newCount) // 1 byte per version
 
 	// same scheme or lower, just append the new ID and version
+	// using the current scheme's byte width (not the new one)
 	if currentScheme >= newScheme {
-		for i := range bytesPerValue {
+		currentBytesPerValue := currentScheme.BytesPerValue()
+		for i := range currentBytesPerValue {
 			p = append(p, byte(vectorID>>(i*8)))
 		}
 		p = append(p, byte(version))
@@ -344,6 +379,9 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	}
 
 	// new scheme needed, re-encode all existing IDs with the new scheme and append the new ID
+	bytesPerValue := newScheme.BytesPerValue()
+	idsSize := int(newCount) * bytesPerValue
+	versionsSize := int(newCount) // 1 byte per version
 
 	newData := make([]byte, headerSize+idsSize+versionsSize)
 	// write new header
@@ -400,10 +438,72 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPost
 //   - count * (bytesPerScheme + 1): vector IDs and version
 func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
-	return p.bucket.Put(key[:], metadata)
+	// copy metadata to a new array
+	metadataCopy := make([]byte, len(metadata))
+	copy(metadataCopy, metadata)
+	return p.bucket.Put(key[:], metadataCopy)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
 	key := p.key(postingID)
 	return p.bucket.Delete(key[:])
+}
+
+func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostingMetadata) error) error {
+	c := p.bucket.Cursor()
+	defer c.Close()
+
+	var i int
+	prefix := []byte{p.keyPrefix}
+	for k, v := c.Seek(prefix); len(k) > 0 && k[0] == p.keyPrefix; k, v = c.Next() {
+		i++
+		if len(v) == 0 {
+			continue
+		}
+
+		if i%1000 == 0 && ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		postingID := binary.LittleEndian.Uint64(k[1:])
+		metadata := make(PackedPostingMetadata, len(v))
+		copy(metadata, v)
+		err := fn(postingID, metadata)
+		if err != nil {
+			return err
+		}
+	}
+
+	return ctx.Err()
+}
+
+type oncePer struct {
+	d    time.Duration
+	t    *time.Ticker
+	mu   sync.Mutex
+	once sync.Once
+}
+
+func OncePer(d time.Duration) *oncePer {
+	return &oncePer{
+		d: d,
+	}
+}
+
+func (o *oncePer) do(f func()) {
+	o.once.Do(func() {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		f()
+		o.t = time.NewTicker(o.d)
+	})
+
+	select {
+	case <-o.t.C:
+		if o.mu.TryLock() {
+			defer o.mu.Unlock()
+			f()
+		}
+	default:
+	}
 }
