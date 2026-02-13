@@ -196,6 +196,7 @@ type hnsw struct {
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
+	calibrationInProgress   atomic.Bool
 
 	visitedListPoolMaxSize int
 
@@ -211,6 +212,10 @@ type hnsw struct {
 	makeBucketOptions lsmkv.MakeBucketOptions
 
 	fs common.FS
+
+	// adaptiveEF holds the precomputed adaptive ef configuration.
+	// When non-nil, search uses adaptive ef estimation instead of static ef.
+	adaptiveEF atomic.Pointer[AdaptiveEFConfig]
 }
 
 func (h *hnsw) Get(id uint64) ([]float32, error) {
@@ -443,6 +448,16 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
+	// Load persisted adaptive EF config if available.
+	if aefCfg, err := index.LoadAdaptiveEFConfig(); err != nil {
+		index.logger.WithError(err).Warn("failed to load adaptive ef config from metadata")
+	} else if aefCfg != nil {
+		index.adaptiveEF.Store(aefCfg)
+		index.logger.WithField("wae", aefCfg.WAE).
+			WithField("target_recall", aefCfg.TargetRecall).
+			Info("loaded adaptive ef config from metadata")
 	}
 
 	// TODO common_cycle_manager move to poststartup?
@@ -751,6 +766,8 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 	if err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
+
+	h.removeMetadataFile(keepFiles)
 
 	return nil
 }

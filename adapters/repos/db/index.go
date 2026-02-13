@@ -3451,3 +3451,45 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 
 	return nil
 }
+
+// DebugBuildAdaptiveEF builds the adaptive ef table for all shards.
+func (i *Index) DebugBuildAdaptiveEF(ctx context.Context, targetVector string, targetRecall float32) error {
+	return i.ForEachShard(func(name string, shard ShardLike) error {
+		enterrors.GoWrapper(func() {
+			err := shard.BuildAdaptiveEF(context.Background(), targetVector, targetRecall)
+			if err != nil {
+				i.logger.WithField("shard", name).WithError(err).Error("failed to build adaptive ef")
+			}
+		}, i.logger)
+		return nil
+	})
+}
+
+// CalibrateAdaptiveEF triggers async calibration on all shards and returns immediately.
+func (i *Index) CalibrateAdaptiveEF(ctx context.Context, targetVector string, targetRecall float32) error {
+	return i.ForEachShard(func(name string, shard ShardLike) error {
+		enterrors.GoWrapper(func() {
+			err := shard.BuildAdaptiveEF(context.Background(), targetVector, targetRecall)
+			if err != nil {
+				i.logger.WithField("shard", name).WithError(err).Error("failed to calibrate adaptive ef")
+			}
+		}, i.logger)
+		return nil
+	})
+}
+
+// GetVectorIndexStats returns per-shard vector index stats for the given target vector.
+func (i *Index) GetVectorIndexStats(targetVector string) models.VectorIndexStatsList {
+	var result models.VectorIndexStatsList
+
+	i.ForEachShard(func(name string, shard ShardLike) error {
+		stats := shard.GetVectorIndexStats(targetVector)
+		if stats != nil {
+			stats.Shard = name
+			result = append(result, stats)
+		}
+		return nil
+	})
+
+	return result
+}

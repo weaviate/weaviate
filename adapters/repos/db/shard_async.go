@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
@@ -589,4 +590,68 @@ func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error 
 		Info("requantized vector index")
 
 	return nil
+}
+
+// BuildAdaptiveEF calibrates the adaptive ef table for the given vector index.
+func (s *Shard) BuildAdaptiveEF(ctx context.Context, targetVector string, targetRecall float32) error {
+	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	if !ok {
+		return errors.New("vector index not found")
+	}
+
+	calibrator, ok := hnsw.AsAdaptiveEFCalibrator(vectorIndex)
+	if !ok {
+		return errors.New("vector index does not support adaptive ef calibration")
+	}
+
+	return calibrator.CalibrateAdaptiveEF(ctx, targetRecall)
+}
+
+// GetVectorIndexStats returns unified stats for the given vector index including
+// compression and adaptive EF information.
+func (s *Shard) GetVectorIndexStats(targetVector string) *models.VectorIndexStats {
+	displayVector := targetVector
+	if displayVector == "" {
+		displayVector = "default"
+	}
+
+	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	if !ok {
+		return &models.VectorIndexStats{
+			TargetVector: displayVector,
+		}
+	}
+
+	stats := &models.VectorIndexStats{
+		TargetVector: displayVector,
+	}
+
+	// Compression stats
+	compressed := vectorIndex.Compressed()
+	stats.Compression = &models.CompressionStats{
+		Compressed: compressed,
+	}
+
+	// Adaptive EF stats
+	provider, ok := hnsw.AsAdaptiveEFStatusProvider(vectorIndex)
+	if ok {
+		calibStatus := provider.GetAdaptiveEFStatus()
+
+		// Map the old status to the new boolean fields
+		enabled := calibStatus.Enabled
+		inProgress := calibStatus.Status == "calibrating"
+
+		stats.AdaptiveEf = &models.AdaptiveEfStats{
+			Enabled:    enabled,
+			InProgress: inProgress,
+		}
+
+		// Include config details if configured
+		if enabled && !inProgress {
+			stats.AdaptiveEf.TargetRecall = calibStatus.TargetRecall
+			stats.AdaptiveEf.WeightedAverageEf = calibStatus.WeightedAverageEF
+		}
+	}
+
+	return stats
 }

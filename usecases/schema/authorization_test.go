@@ -148,6 +148,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.Aliases("class", "aliasName"),
 		},
+		{
+			methodName:        "VectorIndexStats",
+			additionalArgs:    []interface{}{"classname", ""},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsMetadata("Classname", "*"),
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {

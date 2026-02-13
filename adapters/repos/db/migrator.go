@@ -487,6 +487,21 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 	return idx.getShardsStatus(ctx, tenant)
 }
 
+func (m *Migrator) GetVectorIndexStats(ctx context.Context, className, targetVector string) (models.VectorIndexStatsList, error) {
+	indexID := indexID(schema.ClassName(className))
+
+	m.classLocks.Lock(indexID)
+	defer m.classLocks.Unlock(indexID)
+
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("cannot get vector index stats for a non-existing index for %s", className)
+	}
+
+	stats := idx.GetVectorIndexStats(targetVector)
+	return stats, nil
+}
+
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
 	indexID := indexID(schema.ClassName(className))
 

@@ -693,6 +693,49 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
+	http.HandleFunc("/debug/index/adaptive-ef", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		targetVector := r.URL.Query().Get("vector")
+		recallStr := r.URL.Query().Get("recall")
+
+		if colName == "" || recallStr == "" {
+			http.Error(w, "collection and recall are required", http.StatusBadRequest)
+			return
+		}
+
+		recall, err := strconv.ParseFloat(recallStr, 32)
+		if err != nil || recall <= 0 || recall > 1.0 {
+			http.Error(w, "recall must be a float between 0 and 1", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err = idx.DebugBuildAdaptiveEF(context.Background(), targetVector, float32(recall))
+		if err != nil {
+			logger.
+				WithField("collection", colName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to build adaptive ef")
+			http.Error(w, "failed to build adaptive ef", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("collection", colName).
+			WithField("targetVector", targetVector).
+			WithField("recall", recall).
+			Info("adaptive ef build started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
 	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/stats/collection/"))
 		parts := strings.Split(path, "/")

@@ -712,6 +712,14 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 	return dynamic.index.Type()
 }
 
+// UnderlyingVectorIndex returns the underlying vector index object (flat or hnsw).
+// This is used by callers that need to type-assert to a specific implementation.
+func (dynamic *dynamic) UnderlyingVectorIndex() interface{} {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index
+}
+
 func (dynamic *dynamic) IsUpgraded() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()

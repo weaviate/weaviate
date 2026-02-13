@@ -41,6 +41,7 @@ type Indexer interface {
 	LoadShard(class, shard string)     // is a no-op
 	ShutdownShard(class, shard string) // is a no-op
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error)
 
 	TriggerSchemaUpdateCallbacks()
 

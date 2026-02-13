@@ -326,6 +326,11 @@ func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList
 	return resp, nil
 }
 
+func (e *executor) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	ctx := context.Background()
+	return e.migrator.GetVectorIndexStats(ctx, class, targetVector)
+}
+
 func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()

@@ -156,6 +156,10 @@ func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, 
 	return args.Get(0).(models.ShardStatusList), nil
 }
 
+func (f *fakeDB) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	return nil, nil
+}
+
 func (f *fakeDB) TriggerSchemaUpdateCallbacks() {
 	f.Called()
 }
@@ -336,6 +340,11 @@ func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants 
 func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	args := f.Called(ctx, className, tenant)
 	return args.Get(0).(map[string]string), args.Error(1)
+}
+
+func (f *fakeMigrator) GetVectorIndexStats(ctx context.Context, className, targetVector string) (models.VectorIndexStatsList, error) {
+	args := f.Called(ctx, className, targetVector)
+	return args.Get(0).(models.VectorIndexStatsList), args.Error(1)
 }
 
 func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {

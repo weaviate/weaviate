@@ -287,8 +287,13 @@ func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, 
 	return s.shardReader.GetShardsStatus(class, tenant)
 }
 
+func (s *schema) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	return s.shardReader.GetVectorIndexStats(class, targetVector)
+}
+
 type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error)
 }
 
 func (s *schema) len() int {

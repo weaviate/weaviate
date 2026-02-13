@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -115,6 +116,54 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
 	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
+
+	// Handle adaptive EF config changes
+	if parsed.AdaptiveEF.Enabled {
+		// Recalibrate if not yet calibrated or if targetRecall changed
+		needsCalibration := false
+		existing := h.adaptiveEF.Load()
+		if existing == nil {
+			needsCalibration = true
+		} else if existing.TargetRecall != parsed.AdaptiveEF.TargetRecall {
+			needsCalibration = true
+		}
+
+		if needsCalibration {
+			h.logger.WithFields(logrus.Fields{
+				"action":       "calibrate_adaptive_ef",
+				"shard":        h.shardName,
+				"collection":   h.className,
+				"targetVector": h.getTargetVector(),
+				"targetRecall": parsed.AdaptiveEF.TargetRecall,
+			}).Info("adaptive ef enabled, starting calibration")
+
+			// Set immediately so stats endpoint reflects in-progress state
+			// before the goroutine is scheduled.
+			h.calibrationInProgress.Store(true)
+
+			enterrors.GoWrapper(func() {
+				defer callback()
+				ctx := context.Background()
+				if err := h.CalibrateAdaptiveEF(ctx, parsed.AdaptiveEF.TargetRecall); err != nil {
+					h.logger.WithFields(logrus.Fields{
+						"action":       "calibrate_adaptive_ef",
+						"shard":        h.shardName,
+						"collection":   h.className,
+						"targetVector": h.getTargetVector(),
+					}).WithError(err).Error("adaptive ef calibration failed")
+				} else {
+					h.logger.WithFields(logrus.Fields{
+						"action":       "calibrate_adaptive_ef",
+						"shard":        h.shardName,
+						"collection":   h.className,
+						"targetVector": h.getTargetVector(),
+					}).Info("adaptive ef calibration complete")
+				}
+			}, h.logger)
+
+			return nil
+		}
+	}
 
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()

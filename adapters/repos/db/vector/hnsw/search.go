@@ -42,6 +42,11 @@ const (
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
+	// When adaptive ef is configured, return 0 as sentinel for adaptive mode.
+	if cfg := h.adaptiveEF.Load(); cfg != nil {
+		return 0
+	}
+
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
@@ -88,7 +93,60 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
+
+	ef := h.searchTimeEF(k)
+	if ef == 0 {
+		// Adaptive ef mode: build a callback that estimates ef from collected distances
+		cfg := h.adaptiveEF.Load()
+		if cfg == nil {
+			ef = h.autoEfFromK(k)
+			return h.knnSearchByVector(ctx, vector, k, ef, allowList, nil)
+		}
+
+		// Solution: Keep initial ef high to ensure good graph exploration,
+		// but reduce statistics collection length to save computation.
+		// The key insight: we need a large candidate pool to find good neighbors,
+		// but we don't need to score ALL of them to estimate query difficulty.
+
+		// Start with a conservative multiple of WAE to ensure adequate exploration
+		initialEF := int(float64(cfg.WAE) * 3.0)
+		if initialEF < 100 {
+			initialEF = 100 // Minimum for stable exploration
+		}
+		if initialEF < k {
+			initialEF = k
+		}
+		if initialEF > efUpperBound {
+			initialEF = efUpperBound
+		}
+
+		// Use adaptive statistics length based on target recall
+		// This controls how many distances we collect before scoring
+		statsLen := AdaptiveStatisticsLength(h.maximumConnectionsLayerZero, cfg.TargetRecall)
+
+		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_initial", initialEF)
+		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_wae", cfg.WAE)
+		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_target_recall", cfg.TargetRecall)
+		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_stats_len", statsLen)
+
+		return h.knnSearchByVector(ctx, vector, k, initialEF, allowList, &adaptiveConfig{
+			StatsLen: statsLen,
+			AdjustEF: func(dists []float32) int {
+				score := ComputeScore(vector, dists, cfg.MeanVec, cfg.VarianceVec)
+				estimated := cfg.EstimateEF(score)
+				if estimated < k {
+					estimated = k
+				}
+
+				helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_score", score)
+				helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_estimated", estimated)
+				helpers.AnnotateSlowQueryLog(ctx, "nodes_visited_before_adjust", len(dists))
+
+				return estimated
+			},
+		})
+	}
+	return h.knnSearchByVector(ctx, vector, k, ef, allowList, nil)
 }
 
 func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
@@ -212,6 +270,16 @@ func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 	return true
 }
 
+// adaptiveConfig holds the parameters for adaptive ef adjustment during search.
+// When non-nil and at level 0, the search collects distances from the first
+// StatsLen neighbors and calls AdjustEF to dynamically determine the ef value.
+type adaptiveConfig struct {
+	// AdjustEF is called with collected neighbor distances and returns the new ef.
+	AdjustEF func(collectedDistances []float32) int
+	// StatsLen is the number of distances to collect before calling AdjustEF.
+	StatsLen int
+}
+
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
@@ -219,16 +287,17 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 ) (*priorityqueue.Queue[any], error,
 ) {
 	if h.acornEnabled(allowList) {
-		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN)
+		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN, nil)
 	}
-	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING)
+	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING, nil)
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
-	strategy FilterStrategy) (*priorityqueue.Queue[any], error,
+	strategy FilterStrategy, adaptive *adaptiveConfig,
+) (*priorityqueue.Queue[any], error,
 ) {
 	start := time.Now()
 	defer func() {
@@ -271,6 +340,13 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	var sliceConnectionsReusable *common.VectorUint64Slice
 	var slicePendingNextRound *common.VectorUint64Slice
 	var slicePendingThisRound *common.VectorUint64Slice
+
+	// Adaptive ef: allocate collection state if config is provided and at level 0
+	var collectedDistances []float32
+	var efAdjusted bool
+	if adaptive != nil && level == 0 && adaptive.StatsLen > 0 {
+		collectedDistances = make([]float32, 0, adaptive.StatsLen)
+	}
 
 	if allowList == nil {
 		strategy = SWEEPING
@@ -506,6 +582,21 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				}
 			}
 
+			// Adaptive ef: collect distances and adjust ef when enough are gathered
+			if collectedDistances != nil && !efAdjusted {
+				collectedDistances = append(collectedDistances, distance)
+				if len(collectedDistances) >= cap(collectedDistances) {
+					efAdjusted = true
+					ef = adaptive.AdjustEF(collectedDistances)
+					for results.Len() > ef {
+						results.Pop()
+					}
+					if results.Len() > 0 {
+						worstResultDistance = results.Top().Dist
+					}
+				}
+			}
+
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
 				if strategy == SWEEPING && level == 0 && allowList != nil {
@@ -727,7 +818,7 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 }
 
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
-	ef int, allowList helpers.AllowList,
+	ef int, allowList helpers.AllowList, adaptive *adaptiveConfig,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
@@ -877,7 +968,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		}
 		h.shardedNodeLocks.RUnlockAll()
 	}
-	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
+	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy, adaptive)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
@@ -919,7 +1010,7 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList, nil)
 		if err != nil {
 			return nil, nil, err
 		}
