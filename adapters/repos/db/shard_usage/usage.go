@@ -295,6 +295,9 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek(ctx, []byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next(ctx) {
+			if ctx.Err() != nil {
+				break
+			}
 			// for named vectors we have to additionally check if the key is prefixed with the vector name
 			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
 				break
@@ -317,6 +320,9 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 			k, v = c.Seek([]byte(targetVector))
 		}
 		for ; k != nil; k, v = c.Next() {
+			if ctx.Err() != nil {
+				break
+			}
 			// for named vectors we have to additionally check if the key is prefixed with the vector name
 			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
 				break
@@ -328,6 +334,10 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 				dimensionality.Count = v.GetCardinality()
 			}
 		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return dimensionality, err
 	}
 
 	return dimensionality, nil
