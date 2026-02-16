@@ -29,12 +29,12 @@ import (
 
 func TestComputeScore(t *testing.T) {
 	t.Run("empty distances returns 0", func(t *testing.T) {
-		score := ComputeScore([]float32{1, 0, 0}, nil, []float64{0.5, 0.5, 0.5}, []float64{0.1, 0.1, 0.1})
+		score := computeScore([]float32{1, 0, 0}, nil, []float64{0.5, 0.5, 0.5}, []float64{0.1, 0.1, 0.1})
 		assert.Equal(t, float32(0), score)
 	})
 
 	t.Run("empty query returns 0", func(t *testing.T) {
-		score := ComputeScore(nil, []float32{0.1, 0.2}, []float64{}, []float64{})
+		score := computeScore(nil, []float32{0.1, 0.2}, []float64{}, []float64{})
 		assert.Equal(t, float32(0), score)
 	})
 
@@ -44,7 +44,7 @@ func TestComputeScore(t *testing.T) {
 		meanVec := []float64{0.5, 0.5, 0.5}
 		varianceVec := []float64{0, 0, 0}
 
-		score := ComputeScore(query, distances, meanVec, varianceVec)
+		score := computeScore(query, distances, meanVec, varianceVec)
 		assert.Equal(t, float32(0), score)
 	})
 
@@ -62,7 +62,7 @@ func TestComputeScore(t *testing.T) {
 			distances[i] = 0.001 // close to 0 = close to expected mean distance
 		}
 
-		score := ComputeScore(query, distances, meanVec, varianceVec)
+		score := computeScore(query, distances, meanVec, varianceVec)
 		// These distances are near the expected mean (0), not in the left tail
 		// so score should be low or zero
 		assert.True(t, score < 10, "score should be low, got %f", score)
@@ -84,7 +84,7 @@ func TestComputeScore(t *testing.T) {
 			distances[i] = 0.01 // Well below threshold[0] ≈ 0.024
 		}
 
-		score := ComputeScore(query, distances, meanVec, varianceVec)
+		score := computeScore(query, distances, meanVec, varianceVec)
 		// All 100 distances are in bin 0 with weight 100
 		// score ≈ (100/100) * 100 = 100
 		assert.True(t, score > 90, "score should be high when all distances are in the tightest bin, got %f", score)
@@ -92,42 +92,42 @@ func TestComputeScore(t *testing.T) {
 }
 
 func TestEstimateEF(t *testing.T) {
-	cfg := &AdaptiveEFConfig{
+	cfg := &adaptiveEfConfig{
 		TargetRecall: 0.95,
 		WAE:          50,
-		Table: []EFTableEntry{
-			{Score: 10, EFRecalls: []EFRecall{{EF: 20, Recall: 0.8}, {EF: 50, Recall: 0.96}}},
-			{Score: 50, EFRecalls: []EFRecall{{EF: 30, Recall: 0.85}, {EF: 100, Recall: 0.97}}},
-			{Score: 90, EFRecalls: []EFRecall{{EF: 10, Recall: 0.99}}},
+		Table: []efTableEntry{
+			{Score: 10, EFRecalls: []efRecall{{EF: 20, Recall: 0.8}, {EF: 50, Recall: 0.96}}},
+			{Score: 50, EFRecalls: []efRecall{{EF: 30, Recall: 0.85}, {EF: 100, Recall: 0.97}}},
+			{Score: 90, EFRecalls: []efRecall{{EF: 10, Recall: 0.99}}},
 		},
 	}
 	cfg.buildSketch()
 
 	t.Run("low score maps to higher ef", func(t *testing.T) {
-		ef := cfg.EstimateEF(10)
+		ef := cfg.estimateEf(10)
 		// Score 10 needs ef=50 to hit 0.96 >= 0.95 target
 		assert.True(t, ef >= 50, "ef should be at least 50, got %d", ef)
 	})
 
 	t.Run("high score maps to lower ef", func(t *testing.T) {
-		ef := cfg.EstimateEF(90)
+		ef := cfg.estimateEf(90)
 		// Score 90 needs ef=10 to hit 0.99 >= 0.95 target,
 		// but WAE=50 is the floor
 		assert.True(t, ef >= 50, "ef should be at least WAE=50, got %d", ef)
 	})
 
 	t.Run("boundary scores", func(t *testing.T) {
-		ef0 := cfg.EstimateEF(0)
+		ef0 := cfg.estimateEf(0)
 		assert.True(t, ef0 > 0, "ef at score 0 should be positive")
 
-		ef100 := cfg.EstimateEF(100)
+		ef100 := cfg.estimateEf(100)
 		assert.True(t, ef100 > 0, "ef at score 100 should be positive")
 	})
 }
 
 func TestSketch(t *testing.T) {
-	cfg := &AdaptiveEFConfig{
-		Table: []EFTableEntry{
+	cfg := &adaptiveEfConfig{
+		Table: []efTableEntry{
 			{Score: 0},
 			{Score: 25},
 			{Score: 50},
@@ -174,10 +174,10 @@ func TestComputeRecall(t *testing.T) {
 
 func TestStatisticsLength(t *testing.T) {
 	// For M0=32: 1 + 32 + 31*32 = 1 + 32 + 992 = 1025
-	assert.Equal(t, 1025, StatisticsLength(32))
+	assert.Equal(t, 1025, statisticsLength(32))
 
 	// For M0=64: 1 + 64 + 63*64 = 1 + 64 + 4032 = 4097
-	assert.Equal(t, 4097, StatisticsLength(64))
+	assert.Equal(t, 4097, statisticsLength(64))
 }
 
 func TestAdaptiveSearchEndToEnd(t *testing.T) {

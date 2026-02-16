@@ -41,7 +41,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 	}
 
 	numQueries := len(sampleQueries)
-	statsLen := StatisticsLength(h.maximumConnectionsLayerZero)
+	statsLen := statisticsLength(h.maximumConnectionsLayerZero)
 
 	// Phase 1: Run all queries at ef=k to collect scores.
 	type queryInfo struct {
@@ -72,7 +72,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 	}
 
 	// Phase 3: For each bin, progressively increase ef until average recall >= target.
-	var table []EFTableEntry
+	var table []efTableEntry
 	for bin := 0; bin < numCalibrationBins; bin++ {
 		start := bin * binSize
 		end := start + binSize
@@ -96,7 +96,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 		}
 
 		// Start at ef=k and progressively increase until target recall is met.
-		var efRecalls []EFRecall
+		var efRecalls []efRecall
 		ef := k
 		for ef <= efUpperBound {
 			if ctx.Err() != nil {
@@ -113,7 +113,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 			}
 			avgRecall := totalRecall / float32(len(binQueries))
 
-			efRecalls = append(efRecalls, EFRecall{EF: ef, Recall: avgRecall})
+			efRecalls = append(efRecalls, efRecall{EF: ef, Recall: avgRecall})
 
 			if avgRecall >= targetRecall {
 				break
@@ -127,7 +127,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 			ef = nextEF
 		}
 
-		table = append(table, EFTableEntry{
+		table = append(table, efTableEntry{
 			Score:     binScore,
 			EFRecalls: efRecalls,
 		})
@@ -147,7 +147,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 
 	wae := computeWAE(table, targetRecall)
 
-	cfg := &AdaptiveEFConfig{
+	cfg := &adaptiveEfConfig{
 		MeanVec:      meanVec,
 		VarianceVec:  varianceVec,
 		TargetRecall: targetRecall,
@@ -159,7 +159,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 	h.logger.WithField("wae", wae).WithField("num_bins", len(table)).Info("adaptive ef: calibration summary")
 	for _, entry := range table {
 		h.logger.WithField("score", entry.Score).
-			WithField("estimated_ef", cfg.EstimateEF(float32(entry.Score))).
+			WithField("estimated_ef", cfg.estimateEf(float32(entry.Score))).
 			Info("adaptive ef: table entry")
 	}
 
@@ -230,7 +230,7 @@ func (h *hnsw) searchWithDistanceCollection(ctx context.Context,
 	}
 
 	// Compute the difficulty score
-	score := ComputeScore(searchVec, collectedDistances, meanVec, varianceVec)
+	score := computeScore(searchVec, collectedDistances, meanVec, varianceVec)
 
 	// Trim results to k
 	for res.Len() > k {
@@ -397,7 +397,7 @@ func computeRecall(resultIDs []uint64, groundTruth []uint64, k int) float32 {
 // computeWAE computes the weighted average ef: the average of the minimum ef
 // achieving the target recall across all score groups, weighted by the number
 // of queries in each group (approximated here as uniform).
-func computeWAE(table []EFTableEntry, targetRecall float32) int {
+func computeWAE(table []efTableEntry, targetRecall float32) int {
 	if len(table) == 0 {
 		return calibrationK
 	}

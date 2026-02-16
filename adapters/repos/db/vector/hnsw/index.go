@@ -212,7 +212,7 @@ type hnsw struct {
 
 	fs common.FS
 
-	adaptiveEf            atomic.Pointer[AdaptiveEFConfig]
+	adaptiveEf            atomic.Pointer[adaptiveEfConfig]
 	adaptiveEfCalibrating atomic.Bool
 }
 

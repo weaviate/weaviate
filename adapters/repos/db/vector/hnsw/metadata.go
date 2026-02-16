@@ -55,7 +55,7 @@ func (h *hnsw) openMetadata() (*bolt.DB, error) {
 }
 
 // StoreAdaptiveEFConfig persists the adaptive EF config to the metadata bolt DB.
-func (h *hnsw) StoreAdaptiveEFConfig(cfg *AdaptiveEFConfig) error {
+func (h *hnsw) StoreAdaptiveEFConfig(cfg *adaptiveEfConfig) error {
 	db, err := h.openMetadata()
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ func (h *hnsw) StoreAdaptiveEFConfig(cfg *AdaptiveEFConfig) error {
 
 // LoadAdaptiveEFConfig loads the adaptive EF config from the metadata bolt DB.
 // Returns nil, nil if no config has been stored yet.
-func (h *hnsw) LoadAdaptiveEFConfig() (*AdaptiveEFConfig, error) {
+func (h *hnsw) LoadAdaptiveEFConfig() (*adaptiveEfConfig, error) {
 	path := filepath.Join(h.rootPath, h.getMetadataFile())
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, nil
@@ -90,7 +90,7 @@ func (h *hnsw) LoadAdaptiveEFConfig() (*AdaptiveEFConfig, error) {
 	}
 	defer db.Close()
 
-	var cfg *AdaptiveEFConfig
+	var cfg *adaptiveEfConfig
 	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(metadataBucket))
 		if b == nil {
@@ -100,7 +100,7 @@ func (h *hnsw) LoadAdaptiveEFConfig() (*AdaptiveEFConfig, error) {
 		if data == nil {
 			return nil
 		}
-		cfg = &AdaptiveEFConfig{}
+		cfg = &adaptiveEfConfig{}
 		if err := json.Unmarshal(data, cfg); err != nil {
 			return errors.Wrap(err, "unmarshal adaptive ef config")
 		}

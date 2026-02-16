@@ -42,29 +42,29 @@ var binWeights = [numBins]float64{
 	100.0 * math.Exp(-4), // 100 * e^-4 ≈ 1.832
 }
 
-// AdaptiveEFConfig holds precomputed statistics and the ef-estimation table.
-type AdaptiveEFConfig struct {
+// adaptiveEfConfig holds precomputed statistics and the ef-estimation table.
+type adaptiveEfConfig struct {
 	MeanVec      []float64      `json:"meanVec"`
 	VarianceVec  []float64      `json:"varianceVec"`
 	TargetRecall float32        `json:"targetRecall"`
 	WAE          int            `json:"wae"`   // weighted average ef
-	Table        []EFTableEntry `json:"table"` // sorted by score
+	Table        []efTableEntry `json:"table"` // sorted by score
 	Links        [101]int       `json:"-"`     // rebuilt via buildSketch()
 }
 
-// EFTableEntry holds the ef-recall pairs for a given integer score.
-type EFTableEntry struct {
+// efTableEntry holds the ef-recall pairs for a given integer score.
+type efTableEntry struct {
 	Score     int        `json:"score"`
-	EFRecalls []EFRecall `json:"efRecalls"`
+	EFRecalls []efRecall `json:"efRecalls"`
 }
 
-// EFRecall records the recall achieved at a given ef value.
-type EFRecall struct {
+// efRecall records the recall achieved at a given ef value.
+type efRecall struct {
 	EF     int     `json:"ef"`
 	Recall float32 `json:"recall"`
 }
 
-// ComputeScore computes the query difficulty score for a query vector
+// computeScore computes the query difficulty score for a query vector
 // given a set of distances collected during the initial search phase.
 // For cosine distance (bottom-based, lower is better):
 //
@@ -73,7 +73,7 @@ type EFRecall struct {
 //	std = sqrt(var_dist)
 //	Bin thresholds at quantiles using z-scores from the standard normal.
 //	Count distances below each threshold, compute weighted score.
-func ComputeScore(queryVec []float32, distances []float32, meanVec, varianceVec []float64) float32 {
+func computeScore(queryVec []float32, distances []float32, meanVec, varianceVec []float64) float32 {
 	if len(distances) == 0 {
 		return 0
 	}
@@ -133,9 +133,9 @@ func ComputeScore(queryVec []float32, distances []float32, meanVec, varianceVec 
 	return float32(score)
 }
 
-// EstimateEF looks up the estimated ef for a given score using the sketch.
+// estimateEf looks up the estimated ef for a given score using the sketch.
 // It averages the ef values for the neighboring integer scores for smoothing.
-func (cfg *AdaptiveEFConfig) EstimateEF(score float32) int {
+func (cfg *adaptiveEfConfig) estimateEf(score float32) int {
 	intScore := int(score)
 	if intScore < 0 {
 		intScore = 0
@@ -145,18 +145,18 @@ func (cfg *AdaptiveEFConfig) EstimateEF(score float32) int {
 	}
 
 	if intScore < 1 || intScore >= 100 {
-		return cfg.lookupEF(intScore)
+		return cfg.lookupEf(intScore)
 	}
 
 	// Average of neighbors for smoothing
-	ef1 := cfg.lookupEF(intScore - 1)
-	ef2 := cfg.lookupEF(intScore)
-	ef3 := cfg.lookupEF(intScore + 1)
+	ef1 := cfg.lookupEf(intScore - 1)
+	ef2 := cfg.lookupEf(intScore)
+	ef3 := cfg.lookupEf(intScore + 1)
 	return (ef1 + ef2 + ef3) / 3
 }
 
-// lookupEF returns the ef value for a given integer score using the table.
-func (cfg *AdaptiveEFConfig) lookupEF(intScore int) int {
+// lookupEf returns the ef value for a given integer score using the table.
+func (cfg *adaptiveEfConfig) lookupEf(intScore int) int {
 	if intScore < 0 {
 		intScore = 0
 	}
@@ -189,7 +189,7 @@ func (cfg *AdaptiveEFConfig) lookupEF(intScore int) int {
 
 // buildSketch builds the Links array that maps each integer score 0-100
 // to the nearest entry in the table.
-func (cfg *AdaptiveEFConfig) buildSketch() {
+func (cfg *adaptiveEfConfig) buildSketch() {
 	if len(cfg.Table) == 0 {
 		return
 	}
@@ -215,19 +215,19 @@ func abs(x int) int {
 	return x
 }
 
-// StatisticsLength computes the number of initial nodes to visit
+// statisticsLength computes the number of initial nodes to visit
 // before computing the difficulty score. This is approximately:
 // 1 + M0 + (M0-1) * M0
 // where M0 is the max connections at layer zero.
-func StatisticsLength(maxConnectionsLayerZero int) int {
+func statisticsLength(maxConnectionsLayerZero int) int {
 	m0 := maxConnectionsLayerZero
 	return 1 + m0 + (m0-1)*m0
 }
 
-// AdaptiveStatisticsLength computes the statistics length based on target recall.
+// adaptiveStatisticsLength computes the statistics length based on target recall.
 // For lower recall targets, we can use fewer samples to reduce unnecessary
 // distance computations, but we must be conservative to maintain scoring accuracy.
-func AdaptiveStatisticsLength(maxConnectionsLayerZero int, targetRecall float32) int {
+func adaptiveStatisticsLength(maxConnectionsLayerZero int, targetRecall float32) int {
 	m0 := maxConnectionsLayerZero
 	fullTwoHop := 1 + m0 + (m0-1)*m0
 
@@ -244,16 +244,6 @@ func AdaptiveStatisticsLength(maxConnectionsLayerZero int, targetRecall float32)
 
 	// For lower recall (< 0.90), use 1.5-hop
 	return 1 + m0 + m0/2
-}
-
-// NumSampleQueries returns the number of sample queries used for calibration.
-func NumSampleQueries() int {
-	return numSampleQueries
-}
-
-// CalibrationK returns the default k value used for calibration.
-func CalibrationK() int {
-	return calibrationK
 }
 
 // underlyingVectorIndex is an optional interface that wrapped indexes
