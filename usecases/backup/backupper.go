@@ -77,6 +77,10 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 	// check if backup is still active
 	st := b.lastOp.get()
 	if st.ID == req.ID {
+		// If the backup has failed or been cancelled, return the error
+		if st.Err != "" {
+			return st, errors.New(st.Err)
+		}
 		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
@@ -134,7 +138,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			b.lastAsyncError = err
 			return
 		}
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, store, req.ID, b.lastOp.set, b.lastOp.setErr, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
