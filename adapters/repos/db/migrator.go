@@ -246,7 +246,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 	m.logger.WithFields(logrus.Fields{
 		"action":                  "lazy_shard_auto_detection",
-		"enable_lazy_load_shards": m.db.config.EnableLazyLoadShards,
+		"class":                   class.Class,
+		"enable_lazy_load_shards": lazyLoadShardEnabled,
 		"local_shard_count":       localShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,

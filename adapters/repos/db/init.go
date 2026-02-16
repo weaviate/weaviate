@@ -220,12 +220,13 @@ func (db *DB) init(ctx context.Context) error {
 			db.indexLock.Unlock()
 			db.logger.WithFields(logrus.Fields{
 				"action":                  "lazy_shard_auto_detection",
-				"enable_lazy_load_shards": db.config.EnableLazyLoadShards,
+				"class":                   class.Class,
+				"enable_lazy_load_shards": lazyLoadShardEnabled,
 				"local_shard_count":       localShardsCount,
 				"total_shard_size_bytes":  totalShardSizeBytes,
 				"count_threshold":         db.config.LazyLoadShardCountThreshold,
 				"size_threshold_gb":       db.config.LazyLoadShardSizeThresholdGB,
-			}).Info("lazy load shard auto-detection ")
+			}).Info("lazy load shard auto-detection result")
 		}
 	}
 
