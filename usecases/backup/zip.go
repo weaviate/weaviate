@@ -166,7 +166,9 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, sizeExceeded, err := z.WriteRegular(ctx, sd, relPath, preCompressionSize, firstFile, chunkKey)
+		// Get pre-collected file size
+		fileSize := filesInShard.GetFileSize(relPath)
+		n, sizeExceeded, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
 		if err != nil {
 			return written, err
 		}
@@ -183,10 +185,20 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, preCompressionSize *atomic.Int64, firstFile bool, chunkKey string) (written int64, sizeExceeded bool, err error) {
+func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, fileSize int64, preCompressionSize *atomic.Int64, firstFile bool, chunkKey string) (written int64, sizeExceeded bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return written, false, err
 	}
+
+	// Use pre-collected file size for chunk size decisions if available
+	// fileSize == -1 means size was not pre-collected
+	if fileSize >= 0 {
+		// always write at least one file per chunk
+		if !firstFile && preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
+			return 0, true, nil
+		}
+	}
+
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
 	// check if file exists, if not check if the collection has been deleted and is now available with the delete marker
@@ -205,18 +217,24 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	if !info.Mode().IsRegular() {
 		return 0, false, nil // ignore directories
 	}
-	// always write at least one file per chunk
-	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
-		return 0, true, nil
+
+	// Use pre-collected size if available, otherwise fall back to stat
+	actualSize := fileSize
+	if actualSize < 0 {
+		actualSize = info.Size()
+		// Fallback: check chunk size if we didn't have pre-collected size
+		if !firstFile && preCompressionSize.Load()+actualSize > z.maxChunkSizeInBytes {
+			return 0, true, nil
+		}
 	}
 
-	if info.Size() > z.maxChunkSizeInBytes {
+	if actualSize > z.maxChunkSizeInBytes {
 		if sd.BigFilesChunk == nil {
 			sd.BigFilesChunk = make(map[string]entBackup.BigFileInfo)
 		}
 		// ChunkKeys already supports that single files might need to be split across multiple chunks. However currently
 		// we only support one chunk per big file.
-		sd.BigFilesChunk[relPath] = entBackup.BigFileInfo{ChunkKeys: []string{chunkKey}, Size: info.Size(), ModifiedAt: info.ModTime()}
+		sd.BigFilesChunk[relPath] = entBackup.BigFileInfo{ChunkKeys: []string{chunkKey}, Size: actualSize, ModifiedAt: info.ModTime()}
 	}
 
 	f, err := os.Open(absPath)
@@ -225,7 +243,7 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	}
 	defer f.Close()
 
-	preCompressionSize.Add(info.Size())
+	preCompressionSize.Add(actualSize)
 
 	written, err = z.writeOne(ctx, info, relPath, f)
 	return written, false, err

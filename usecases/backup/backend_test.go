@@ -71,3 +71,109 @@ func TestCalculateShardPreCompressionSize(t *testing.T) {
 
 	assert.Equal(t, int64(100+200+300), preCompressionSize)
 }
+
+func TestCreateFileList(t *testing.T) {
+	t.Run("success with existing files", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		testFiles := []string{"file1.db", "file2.db"}
+		for i, filename := range testFiles {
+			content := make([]byte, 100*(i+1))
+			err := os.WriteFile(filepath.Join(tempDir, filename), content, 0o644)
+			require.NoError(t, err)
+		}
+
+		shard := &backup.ShardDescriptor{
+			Name:  "test-shard",
+			Node:  "test-node",
+			Files: testFiles,
+		}
+
+		mockBackend := modulecapabilities.NewMockBackupBackend(t)
+		mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+
+		u := &uploader{
+			backend: nodeStore{
+				objectStore: objectStore{
+					backend: mockBackend,
+				},
+			},
+			log: logrus.New(),
+		}
+
+		fileList, err := u.createFileList(shard)
+		require.NoError(t, err)
+		require.NotNil(t, fileList)
+		assert.Equal(t, testFiles, fileList.Files)
+		assert.Equal(t, int64(100), fileList.FileSizes["file1.db"])
+		assert.Equal(t, int64(200), fileList.FileSizes["file2.db"])
+	})
+
+	t.Run("success with delete marker file", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Create a file with delete marker prefix
+		deletedFile := "deleted.db"
+		deletedFilePath := filepath.Join(tempDir, backup.DeleteMarkerAdd(deletedFile))
+		err := os.WriteFile(deletedFilePath, make([]byte, 150), 0o644)
+		require.NoError(t, err)
+
+		shard := &backup.ShardDescriptor{
+			Name:  "test-shard",
+			Node:  "test-node",
+			Files: []string{deletedFile},
+		}
+
+		mockBackend := modulecapabilities.NewMockBackupBackend(t)
+		mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+
+		u := &uploader{
+			backend: nodeStore{
+				objectStore: objectStore{
+					backend: mockBackend,
+				},
+			},
+			log: logrus.New(),
+		}
+
+		fileList, err := u.createFileList(shard)
+		require.NoError(t, err)
+		require.NotNil(t, fileList)
+		assert.Equal(t, int64(150), fileList.FileSizes[deletedFile])
+	})
+
+	t.Run("error when file not found at either path", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Create one existing file
+		existingFile := "existing.db"
+		err := os.WriteFile(filepath.Join(tempDir, existingFile), make([]byte, 100), 0o644)
+		require.NoError(t, err)
+
+		// Reference a file that doesn't exist
+		missingFile := "missing.db"
+		shard := &backup.ShardDescriptor{
+			Name:  "test-shard",
+			Node:  "test-node",
+			Files: []string{existingFile, missingFile},
+		}
+
+		mockBackend := modulecapabilities.NewMockBackupBackend(t)
+		mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+
+		u := &uploader{
+			backend: nodeStore{
+				objectStore: objectStore{
+					backend: mockBackend,
+				},
+			},
+			log: logrus.New(),
+		}
+
+		fileList, err := u.createFileList(shard)
+		require.Error(t, err)
+		require.Nil(t, fileList)
+		assert.Contains(t, err.Error(), "missing.db")
+		assert.Contains(t, err.Error(), "not found")
+	})
+}

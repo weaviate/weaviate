@@ -352,10 +352,12 @@ type QueryDefaults struct {
 	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
-const DefaultBackupChunkTargetSize = 1024 * 1024 * 100 // 100MB
+// DefaultBackupMinChunkSize is the default minimum size for backup chunks
+const DefaultBackupMinChunkSize = 1024 * 1024 // 1MB
 
+// Backup contains backup-related configuration
 type Backup struct {
-	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
+	MinChunkSize int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

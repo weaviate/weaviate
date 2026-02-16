@@ -268,12 +268,6 @@ func (s *ShardDescriptor) ClearTemporary() {
 	s.PropLengthTracker = nil
 }
 
-func (s *ShardDescriptor) CopyFilesInShard() *FileList {
-	filesInShard := &FileList{Files: make([]string, len(s.Files))}
-	copy(filesInShard.Files, s.Files)
-	return filesInShard
-}
-
 func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndId, rootPath string) error {
 	if len(shardBaseDescrs) == 0 {
 		s.Files = files
@@ -321,8 +315,12 @@ type ShardAndId struct {
 
 // FileList holds a list of file paths and allows modification of the underlying slice
 type FileList struct {
-	Files []string
-	start int
+	Files     []string
+	FileSizes map[string]int64 // map of relative file path to file size in bytes
+	// Top100Size is the size of the 100th biggest file (or smallest if fewer than 100 files),
+	// with a minimum of 1MB. This can be used for chunk size optimization.
+	Top100Size int64
+	start      int
 }
 
 // Len returns the number of files in the list
@@ -357,6 +355,17 @@ func (f *FileList) Peek() string {
 		return ""
 	}
 	return f.Files[f.start]
+}
+
+// GetFileSize returns the pre-collected size for a file, or -1 if not found
+func (f *FileList) GetFileSize(relPath string) int64 {
+	if f == nil || f.FileSizes == nil {
+		return -1
+	}
+	if size, ok := f.FileSizes[relPath]; ok {
+		return size
+	}
+	return -1
 }
 
 type IncrementalBackupInfos struct {

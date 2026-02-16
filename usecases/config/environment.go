@@ -591,15 +591,15 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if v := os.Getenv("BACKUP_CHUNK_TARGET_SIZE"); v != "" {
+	if v := os.Getenv("BACKUP_MIN_CHUNK_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
-			return fmt.Errorf("parse BACKUP_CHUNK_TARGET_SIZE: %w", err)
+			return fmt.Errorf("parse BACKUP_MIN_CHUNK_SIZE: %w", err)
 		}
 
-		config.Backup.ChunkTargetSize = parsed
+		config.Backup.MinChunkSize = parsed
 	} else {
-		config.Backup.ChunkTargetSize = DefaultBackupChunkTargetSize
+		config.Backup.MinChunkSize = DefaultBackupMinChunkSize
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {

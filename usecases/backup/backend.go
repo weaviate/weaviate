@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,12 +27,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -215,14 +216,18 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
-		cfg, sourcer, rbacSourcer, dynUserSourcer, backend,
-		backupID,
-		newZipConfig(Compression{
+		cfg:            cfg,
+		sourcer:        sourcer,
+		rbacSourcer:    rbacSourcer,
+		dynUserSourcer: dynUserSourcer,
+		backend:        backend,
+		backupID:       backupID,
+		zipConfig: newZipConfig(Compression{
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setstatus,
-		l,
+		setStatus: setstatus,
+		log:       l,
 	}
 }
 
@@ -435,7 +440,10 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					}
 					for shard := range sender {
 						firstChunk := true
-						filesInShard := shard.CopyFilesInShard()
+						filesInShard, err := u.createFileList(shard)
+						if err != nil {
+							return fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
+						}
 						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
 						for {
 							chunk := atomic.AddInt32(&lastChunk, 1)
@@ -490,7 +498,11 @@ func (u *uploader) compress(ctx context.Context,
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, u.cfg.ChunkTargetSize)
+
+	// use the size of the 100th biggest file in the shard as the target chunk size, with a minimum of MinChunkSize.
+	// Files above this threshold will be compressed in their own chunk, while files below this threshold will be grouped together.
+	chunkTargetSize := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize)
 	if err != nil {
 		return shards, preCompressionSize.Load(), err
 	}
@@ -555,6 +567,91 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 	}).Debug("calculated pre-compression size for shard")
 
 	return totalSize
+}
+
+// createFileList creates a FileList from a ShardDescriptor with Files copied,
+// FileSizes map populated, and Top100Size calculated (size of 100th biggest file, minimum 1MB).
+// This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
+// Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
+func (u *uploader) createFileList(shard *backup.ShardDescriptor) (*backup.FileList, error) {
+	sourceDataPath := u.backend.SourceDataPath()
+	files := shard.Files
+	fileSizes := make(map[string]int64, len(files))
+
+	for _, relPath := range files {
+		fullPath := filepath.Join(sourceDataPath, relPath)
+		if info, err := os.Stat(fullPath); err == nil {
+			fileSizes[relPath] = info.Size()
+		} else if os.IsNotExist(err) {
+			// Check if the file exists with the delete marker prefix
+			deletedPath := filepath.Join(sourceDataPath, backup.DeleteMarkerAdd(relPath))
+			if info, err := os.Stat(deletedPath); err == nil {
+				fileSizes[relPath] = info.Size()
+			} else {
+				return nil, fmt.Errorf("file %q not found at %q or %q: %w", relPath, fullPath, deletedPath, err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to stat file %q: %w", fullPath, err)
+		}
+	}
+
+	// Copy files slice
+	filesCopy := make([]string, len(files))
+	copy(filesCopy, files)
+
+	return &backup.FileList{
+		Files:      filesCopy,
+		FileSizes:  fileSizes,
+		Top100Size: calculateTop100Size(fileSizes),
+	}, nil
+}
+
+// calculateTop100Size returns the size of the 100th biggest file (or smallest if fewer than 100),
+// with a minimum of 1MB. Uses a min-heap of size 100 for O(n) time and O(1) space complexity.
+func calculateTop100Size(fileSizes map[string]int64) int64 {
+	const minSize int64 = 1 << 20 // 1MB
+	const k = 100
+
+	if len(fileSizes) == 0 {
+		return minSize
+	}
+
+	// Use a min-heap to track the k largest file sizes
+	h := &int64MinHeap{}
+	heap.Init(h)
+
+	for _, size := range fileSizes {
+		if h.Len() < k {
+			heap.Push(h, size)
+		} else if size > (*h)[0] {
+			heap.Pop(h)
+			heap.Push(h, size)
+		}
+	}
+
+	// The root of the min-heap is the k-th largest (or smallest if < k files)
+	result := (*h)[0]
+	if result < minSize {
+		return minSize
+	}
+	return result
+}
+
+// int64MinHeap implements heap.Interface for a min-heap of int64 values.
+type int64MinHeap []int64
+
+func (h int64MinHeap) Len() int           { return len(h) }
+func (h int64MinHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h int64MinHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *int64MinHeap) Push(x interface{}) { *h = append(*h, x.(int64)) }
+
+func (h *int64MinHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
 }
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir

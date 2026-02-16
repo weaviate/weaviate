@@ -56,7 +56,8 @@ func TestZip(t *testing.T) {
 			require.NoError(t, err)
 			var zInputLen int64
 			go func() {
-				zInputLen, err = z.WriteShard(ctx, &sd, sd.CopyFilesInShard(), true, &atomic.Int64{}, "chunk")
+				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
+				zInputLen, err = z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				if err != nil {
 					t.Errorf("compress: %v", err)
 				}
@@ -397,7 +398,8 @@ func TestRenamingDuringBackup(t *testing.T) {
 			z, rc, err := NewZip(dir, int(compressionLevel), 0)
 			require.NoError(t, err)
 			go func() {
-				_, err := z.WriteShard(ctx, &sd, sd.CopyFilesInShard(), true, &atomic.Int64{}, "chunk")
+				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
+				_, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				require.NoError(t, err)
 				require.NoError(t, z.Close())
 			}()

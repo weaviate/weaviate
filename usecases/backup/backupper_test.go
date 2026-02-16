@@ -22,11 +22,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -237,7 +237,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
-		assert.Equal(t, string(backup.Success), backend.meta.Status)
+		assert.Equal(t, backup.Success, backend.meta.Status)
 		assert.Equal(t, "", backend.meta.Error)
 	})
 
@@ -307,7 +307,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
-		assert.Equal(t, string(backup.Cancelled), backend.meta.Status)
+		assert.Equal(t, backup.Cancelled, backend.meta.Status)
 		errMsg := context.Canceled.Error()
 		assert.Equal(t, errMsg, backend.meta.Error)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), errMsg)
