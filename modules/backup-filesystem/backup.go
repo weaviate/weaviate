@@ -177,7 +177,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 
 	written, err = io.Copy(f, r)
 	if err != nil {
-		return 0, fmt.Errorf("write file %q: %w", backupPath, err)
+		return written, fmt.Errorf("write file %q: %w", backupPath, err)
 	}
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
 		GetMetricWithLabelValues(m.Name(), "class"); err == nil {

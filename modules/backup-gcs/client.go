@@ -349,11 +349,11 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 	written, err = io.Copy(writer, r)
 	if err != nil {
 		writer.Close() // ignore error here as copy already failed
-		return 0, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
+		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return 0, fmt.Errorf("close writer for gcs write %q: %w", objectPath, err)
+		return written, fmt.Errorf("close writer for gcs write %q: %w", objectPath, err)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
