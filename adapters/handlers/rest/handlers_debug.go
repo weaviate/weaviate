@@ -721,12 +721,13 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		defer release()
+
 		if shard == nil {
 			logger.WithField("shard", shardName).Error("shard not found")
 			http.Error(w, "shard not found", http.StatusNotFound)
 			return
 		}
-		defer release()
 
 		vidx, ok := shard.GetVectorIndex(targetVector)
 		if !ok {
