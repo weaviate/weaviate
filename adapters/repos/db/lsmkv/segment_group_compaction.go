@@ -170,6 +170,31 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 		return []int{leftoverPos, leftoverPos + 1}, leftoverLvl
 	}
 
+	// No matching or leftover pair was found, and levels are properly ordered
+	// (descending from oldest to newest). This typically occurs after mass
+	// deletion: insert-time compactions produced segments at increasing levels
+	// (e.g., L2, L1, L0), and now no same-level pairs exist. Without this
+	// fallback, compaction halts permanently and tombstones are never cleaned,
+	// preventing disk space reclamation (see github.com/weaviate/weaviate/issues/7360).
+	//
+	// This is gated on keepTombstones because that flag indicates the bucket
+	// retains tombstones across compaction rounds (e.g., the objects bucket for
+	// async replication). These buckets are the ones that get permanently stuck
+	// after mass deletion. Buckets without keepTombstones already clean
+	// tombstones at pair[0]==0 during normal compaction.
+	//
+	// Compact the two newest (rightmost) segments to make progress. Use the left
+	// segment's level for the result so that we don't inflate levels, and the
+	// merged segment can eventually pair with its left neighbour. The rightmost
+	// segments are always the smallest (lowest level), so the I/O cost is bounded.
+	if sg.keepTombstones && !isUnordered && !matchingPairFound && !leftoverPairFound && len(sg.segments) >= 2 {
+		rightmost := len(sg.segments) - 2
+		lSeg, rSeg = sg.segments[rightmost], sg.segments[rightmost+1]
+		if sg.compactionFitsSizeLimit(lSeg, rSeg) {
+			return []int{rightmost, rightmost + 1}, lSeg.getLevel()
+		}
+	}
+
 	// no pair found, but unordered levels discovered
 	if isUnordered {
 		// just one unordered segment (left). merge with right one, keep right one's level
@@ -348,7 +373,13 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 
 	scratchSpacePath := rightPath + "compaction.scratch.d"
 	secondaryIndices := left.getSecondaryIndexCount()
-	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
+	// Tombstones can be safely removed when compacting the bottom pair
+	// (pair[0] == 0) because there are no older segments that need the
+	// tombstones for shadowing. Previously this was gated on !sg.keepTombstones,
+	// which prevented the objects bucket (keepTombstones=true) from ever
+	// reclaiming disk space after deletions.
+	// See github.com/weaviate/weaviate/issues/7360.
+	cleanupTombstones := pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
 	switch strategy {

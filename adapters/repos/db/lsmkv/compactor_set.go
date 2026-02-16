@@ -227,6 +227,14 @@ func (c *compactorSet) processKey(f *segmentindex.SegmentFile, offset *int,
 		return err
 	}
 
+	// When cleaning up tombstones (bottom-most compaction), resolve
+	// intra-segment add/tombstone pairs first via DoPartial. Without this,
+	// cleanupValues would strip tombstones but leave the paired adds orphaned,
+	// resurrecting deleted values. See github.com/weaviate/weaviate/issues/7360.
+	if c.cleanupTombstones {
+		value = c.setDecoder.DoPartial(value)
+	}
+
 	if vals, skip := c.cleanupValues(value); !skip {
 		ki, err := c.writeIndividualNode(f, *offset, key, vals)
 		if err != nil {
