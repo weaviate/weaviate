@@ -299,9 +299,8 @@ func TestAdaptiveSearchEndToEnd(t *testing.T) {
 	assert.True(t, len(cfg.Table) > 0, "table should have entries")
 	assert.True(t, cfg.WAE > 0, "WAE should be positive")
 
-	// Now search with adaptive ef (searchTimeEF should return 0)
-	ef := index.searchTimeEF(k)
-	assert.Equal(t, 0, ef, "searchTimeEF should return 0 when adaptive ef is loaded")
+	_, adaptive := index.searchTimeEF(k)
+	assert.True(t, adaptive, "searchTimeEF should indicate adaptive mode when adaptive ef is loaded")
 
 	// Do actual searches and verify they return results
 	for qi := 0; qi < numQueries; qi++ {

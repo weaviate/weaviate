@@ -41,25 +41,22 @@ const (
 	RRE
 )
 
-func (h *hnsw) searchTimeEF(k int) int {
-	// When adaptive ef is configured, return 0 as sentinel for adaptive mode.
-	if cfg := h.adaptiveEF.Load(); cfg != nil {
-		return 0
-	}
+func (h *hnsw) searchTimeEF(k int) (int, bool) {
+	adaptive := h.adaptiveEF.Load() != nil
 
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
 	ef := int(atomic.LoadInt64(&h.ef))
 	if ef < 1 {
-		return h.autoEfFromK(k)
+		return h.autoEfFromK(k), adaptive
 	}
 
 	if ef < k {
 		ef = k
 	}
 
-	return ef
+	return ef, adaptive
 }
 
 func (h *hnsw) autoEfFromK(k int) int {
@@ -88,30 +85,23 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 
 	vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
+	ef, adaptive := h.searchTimeEF(k)
+
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
-		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
+		return h.flatSearch(ctx, vector, k, ef, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
 
-	ef := h.searchTimeEF(k)
-	if ef == 0 {
-		// Adaptive ef mode: build a callback that estimates ef from collected distances
+	if adaptive {
 		cfg := h.adaptiveEF.Load()
 		if cfg == nil {
-			ef = h.autoEfFromK(k)
 			return h.knnSearchByVector(ctx, vector, k, ef, allowList, nil)
 		}
 
-		// Solution: Keep initial ef high to ensure good graph exploration,
-		// but reduce statistics collection length to save computation.
-		// The key insight: we need a large candidate pool to find good neighbors,
-		// but we don't need to score ALL of them to estimate query difficulty.
-
-		// Start with a conservative multiple of WAE to ensure adequate exploration
 		initialEF := int(float64(cfg.WAE) * 3.0)
 		if initialEF < 100 {
-			initialEF = 100 // Minimum for stable exploration
+			initialEF = 100
 		}
 		if initialEF < k {
 			initialEF = k
@@ -120,8 +110,6 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 			initialEF = efUpperBound
 		}
 
-		// Use adaptive statistics length based on target recall
-		// This controls how many distances we collect before scoring
 		statsLen := AdaptiveStatisticsLength(h.maximumConnectionsLayerZero, cfg.TargetRecall)
 
 		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_initial", initialEF)
@@ -1010,7 +998,8 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList, nil)
+		efMulti, _ := h.searchTimeEF(kPrime)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, efMulti, allowList, nil)
 		if err != nil {
 			return nil, nil, err
 		}
