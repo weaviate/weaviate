@@ -81,6 +81,10 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		schemaVersion = max(schemaVersion, tenantSchemaVersion)
 	}
 
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
+
 	var deletionTime time.Time
 	if deletionTimeUnixMilli != nil {
 		deletionTime = time.UnixMilli(*deletionTimeUnixMilli)
