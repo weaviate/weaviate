@@ -86,10 +86,12 @@ func (s *backupStat) set(st backup.Status) {
 // setErr sets both the status and error message atomically.
 // This is used when a backup fails to ensure the error is captured
 // before lastOp.reset() is called.
-func (s *backupStat) setErr(st backup.Status, err string) {
+func (s *backupStat) setErr(st backup.Status, err error) {
 	s.Lock()
 	s.reqState.Status = st
-	s.reqState.Err = err
+	if err != nil {
+		s.reqState.Err = err.Error()
+	}
 	s.Unlock()
 }
 

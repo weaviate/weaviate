@@ -181,12 +181,12 @@ type uploader struct {
 	backupID       string
 	zipConfig
 	setStatus func(st backup.Status)
-	setErr    func(st backup.Status, err string)
+	setErr    func(st backup.Status, err error)
 	log       logrus.FieldLogger
 }
 
 func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
-	backupID string, setstatus func(st backup.Status), seterr func(st backup.Status, err string), l logrus.FieldLogger,
+	backupID string, setstatus func(st backup.Status), seterr func(st backup.Status, err error), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
 		cfg:            cfg,
@@ -238,12 +238,12 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 
 		// Handle error cases
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			u.setErr(backup.Cancelled, err.Error())
+			u.setErr(backup.Cancelled, err)
 			desc.Status = string(backup.Cancelled)
 		} else {
 			// For non-cancellation errors, set status to Failed with the error message.
 			// This ensures the error is available via OnStatus even before lastOp.reset().
-			u.setErr(backup.Failed, err.Error())
+			u.setErr(backup.Failed, err)
 			desc.Status = string(backup.Failed)
 		}
 
