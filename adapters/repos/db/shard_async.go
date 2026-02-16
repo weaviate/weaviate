@@ -592,21 +592,6 @@ func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error 
 	return nil
 }
 
-// BuildAdaptiveEF calibrates the adaptive ef table for the given vector index.
-func (s *Shard) BuildAdaptiveEF(ctx context.Context, targetVector string, targetRecall float32) error {
-	vectorIndex, ok := s.GetVectorIndex(targetVector)
-	if !ok {
-		return errors.New("vector index not found")
-	}
-
-	calibrator, ok := hnsw.AsAdaptiveEFCalibrator(vectorIndex)
-	if !ok {
-		return errors.New("vector index does not support adaptive ef calibration")
-	}
-
-	return calibrator.CalibrateAdaptiveEF(ctx, targetRecall)
-}
-
 // GetVectorIndexStats returns unified stats for the given vector index including
 // compression and adaptive EF information.
 func (s *Shard) GetVectorIndexStats(targetVector string) *models.VectorIndexStats {

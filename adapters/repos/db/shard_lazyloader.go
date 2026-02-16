@@ -554,11 +554,6 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 	return l.shard.RequantizeIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) BuildAdaptiveEF(ctx context.Context, targetVector string, targetRecall float32) error {
-	l.mustLoad()
-	return l.shard.BuildAdaptiveEF(ctx, targetVector, targetRecall)
-}
-
 func (l *LazyLoadShard) GetVectorIndexStats(targetVector string) *models.VectorIndexStats {
 	if !l.isLoaded() {
 		displayVector := targetVector

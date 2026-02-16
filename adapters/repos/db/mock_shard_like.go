@@ -2479,54 +2479,6 @@ func (_c *MockShardLike_RequantizeIndex_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// BuildAdaptiveEF provides a mock function with given fields: ctx, targetVector, targetRecall
-func (_m *MockShardLike) BuildAdaptiveEF(ctx context.Context, targetVector string, targetRecall float32) error {
-	ret := _m.Called(ctx, targetVector, targetRecall)
-
-	if len(ret) == 0 {
-		panic("no return value specified for BuildAdaptiveEF")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, float32) error); ok {
-		r0 = rf(ctx, targetVector, targetRecall)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_BuildAdaptiveEF_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BuildAdaptiveEF'
-type MockShardLike_BuildAdaptiveEF_Call struct {
-	*mock.Call
-}
-
-// BuildAdaptiveEF is a helper method to define mock.On call
-//   - ctx context.Context
-//   - targetVector string
-//   - targetRecall float32
-func (_e *MockShardLike_Expecter) BuildAdaptiveEF(ctx interface{}, targetVector interface{}, targetRecall interface{}) *MockShardLike_BuildAdaptiveEF_Call {
-	return &MockShardLike_BuildAdaptiveEF_Call{Call: _e.mock.On("BuildAdaptiveEF", ctx, targetVector, targetRecall)}
-}
-
-func (_c *MockShardLike_BuildAdaptiveEF_Call) Run(run func(ctx context.Context, targetVector string, targetRecall float32)) *MockShardLike_BuildAdaptiveEF_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(float32))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_BuildAdaptiveEF_Call) Return(_a0 error) *MockShardLike_BuildAdaptiveEF_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_BuildAdaptiveEF_Call) RunAndReturn(run func(context.Context, string, float32) error) *MockShardLike_BuildAdaptiveEF_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetVectorIndexStats provides a mock function with given fields: targetVector
 func (_m *MockShardLike) GetVectorIndexStats(targetVector string) *models.VectorIndexStats {
 	ret := _m.Called(targetVector)
