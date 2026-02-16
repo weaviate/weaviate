@@ -132,3 +132,6 @@ test/modules/backup-filesystem/bucketPath
 
 # Agent files
 .cursor/
+
+# Claude
+.claude/

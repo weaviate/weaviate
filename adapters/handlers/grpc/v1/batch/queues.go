@@ -51,14 +51,6 @@ func newBatchShuttingDownMessage() *pb.BatchStreamReply {
 	}
 }
 
-func newBatchShutdownMessage() *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Shutdown_{
-			Shutdown: &pb.BatchStreamReply_Shutdown{},
-		},
-	}
-}
-
 func newBatchStartedMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Started_{
