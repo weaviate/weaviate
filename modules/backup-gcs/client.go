@@ -76,6 +76,10 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 	}),
 		storage.WithPolicy(storage.RetryAlways),
 		storage.WithErrorFunc(func(err error) bool {
+			if err == nil {
+				return false
+			}
+
 			if storage.ShouldRetry(err) {
 				return true
 			}
