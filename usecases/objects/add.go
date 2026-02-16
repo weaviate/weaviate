@@ -100,6 +100,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoTenantSchemaVersion)
 
+	// Wait so tenant activation and auto-tenant schema changes are visible before shard resolution and write.
 	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}

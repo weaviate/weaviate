@@ -81,6 +81,7 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		schemaVersion = max(schemaVersion, tenantSchemaVersion)
 	}
 
+	// Wait so tenant activation is visible locally before shard resolution and delete.
 	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
