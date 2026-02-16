@@ -152,6 +152,7 @@ func (db *DB) init(ctx context.Context) error {
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 				HFreshEnabled:                                db.config.HFreshEnabled,
+				AutoTenantActivation:                         schema.AutoTenantActivationEnabled(class),
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
