@@ -61,13 +61,6 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 
 	maxSchemaVersion := fetchedClasses[object.Class].Version
-	if object.Tenant != "" {
-		activationVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, object.Class, object.Tenant)
-		if err != nil {
-			return nil, err
-		}
-		maxSchemaVersion = max(maxSchemaVersion, activationVersion)
-	}
 
 	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses, maxSchemaVersion)
 	if err != nil {
@@ -99,6 +92,14 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, err
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoTenantSchemaVersion)
+
+	if object.Tenant != "" {
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, object.Class, object.Tenant)
+		if err != nil {
+			return nil, fmt.Errorf("error ensuring tenant active for write: %w", err)
+		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
+	}
 
 	// Wait so tenant activation and auto-tenant schema changes are visible before shard resolution and write.
 	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
