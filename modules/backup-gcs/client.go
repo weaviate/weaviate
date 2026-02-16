@@ -336,8 +336,12 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, ov
 	return nil
 }
 
-func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
@@ -345,20 +349,20 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 	}
 
 	// create a new writer
-	path := g.makeObjectName(overridePath, []string{backupID, key})
-	writer := bucket.Object(path).NewWriter(ctx)
+	objectPath := g.makeObjectName(overridePath, []string{backupID, key})
+	writer := bucket.Object(objectPath).NewWriter(ctx)
 	writer.ContentType = "application/octet-stream"
 	writer.Metadata = map[string]string{"backup-id": backupID}
 
 	// copy
-	written, err := io.Copy(writer, r)
+	written, err = io.Copy(writer, r)
 	if err != nil {
 		writer.Close() // ignore error here as copy already failed
-		return 0, fmt.Errorf("io.copy for gcs write %q: %w", path, err)
+		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return 0, fmt.Errorf("close writer for gcs write %q: %w", path, err)
+		return written, fmt.Errorf("close writer for gcs write %q: %w", objectPath, err)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
