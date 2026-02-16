@@ -861,10 +861,10 @@
         }
       }
     },
-    "ObjectTtlConfig": {
+    "ObjectTtlConfig":{
       "description": "Configuration of objects' time-to-live",
       "properties": {
-        "enabled": {
+         "enabled": {
           "description": "Whether or not object ttl is enabled for this collection (default: `false`).",
           "type": "boolean",
           "x-omitempty": false

@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"context"
 	"math"
 )
 
@@ -257,27 +256,8 @@ func CalibrationK() int {
 	return calibrationK
 }
 
-// AdaptiveEFCalibrator is the interface exposed for the shard layer to calibrate adaptive ef.
-type AdaptiveEFCalibrator interface {
-	CalibrateAdaptiveEF(ctx context.Context, targetRecall float32) error
-}
-
 // underlyingVectorIndex is an optional interface that wrapped indexes
 // (e.g. dynamic index) can implement to expose the underlying index.
 type underlyingVectorIndex interface {
 	UnderlyingVectorIndex() interface{}
-}
-
-// AsAdaptiveEFCalibrator attempts to extract the underlying *hnsw from a VectorIndex.
-// It also handles wrappers (e.g. dynamic index) that implement underlyingVectorIndex.
-// Returns the AdaptiveEFCalibrator and true if successful, nil and false otherwise.
-func AsAdaptiveEFCalibrator(vi interface{}) (AdaptiveEFCalibrator, bool) {
-	if h, ok := vi.(*hnsw); ok {
-		return h, true
-	}
-	// Try to unwrap
-	if wrapper, ok := vi.(underlyingVectorIndex); ok {
-		return AsAdaptiveEFCalibrator(wrapper.UnderlyingVectorIndex())
-	}
-	return nil, false
 }
