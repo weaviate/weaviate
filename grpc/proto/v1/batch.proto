@@ -47,8 +47,6 @@ message BatchStreamReply {
   }
   message ShuttingDown {
   }
-  message Shutdown {
-  }
   message OutOfMemory{
     repeated string uuids = 1;
     repeated string beacons = 2;
@@ -80,11 +78,10 @@ message BatchStreamReply {
   oneof message {
     Results results = 1;
     ShuttingDown shutting_down = 2;
-    Shutdown shutdown = 3;
-    Started started = 4;
-    Backoff backoff = 5;
-    Acks acks = 6;
-    OutOfMemory out_of_memory = 7;
+    Started started = 3;
+    Backoff backoff = 4;
+    Acks acks = 5;
+    OutOfMemory out_of_memory = 6;
   }
 }
 
