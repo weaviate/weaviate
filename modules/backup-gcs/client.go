@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path"
 	"strings"
@@ -77,6 +78,12 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		storage.WithPolicy(storage.RetryAlways),
 		storage.WithErrorFunc(func(err error) bool {
 			if storage.ShouldRetry(err) {
+				return true
+			}
+
+			// Retry on network errors (e.g., "http2: client connection lost")
+			var netErr net.Error
+			if errors.As(err, &netErr) {
 				return true
 			}
 
