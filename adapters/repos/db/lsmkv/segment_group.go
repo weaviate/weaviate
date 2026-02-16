@@ -48,7 +48,8 @@ type SegmentGroup struct {
 	segmentsWithRefs      map[string]Segment // segment.path => segment
 	segmentRefCounterLock sync.Mutex
 
-	deleteMarkerCounter *atomic.Int64
+	segmentsAwaitingRemoval []Segment
+	deleteMarkerCounter     *atomic.Int64
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -152,6 +153,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		deleteMarkerCounter:          deleteMarkerCounter,
+		segmentsAwaitingRemoval:      make([]Segment, 0, 16),
 	}
 
 	segmentIndex := 0
@@ -900,6 +902,15 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 		}
 		return cleaned
 	}
+
+	defer func() {
+		if err := sg.removeSegmentsAwaiting(); err != nil {
+			sg.logger.WithField("action", "lsm_remove_awaiting").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("removal failed")
+		}
+	}()
 
 	// alternatively run compaction or cleanup first
 	// if 1st one called succeeds, 2nd one is skipped, otherwise 2nd one is called as well
