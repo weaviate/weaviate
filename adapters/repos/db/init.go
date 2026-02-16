@@ -87,19 +87,19 @@ func (db *DB) init(ctx context.Context) error {
 			isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 
 			var totalShardSizeBytes uint64
-			var localShardsCount int
+			var localActiveShardsCount int
 			var err error
 			if isMultiTenant {
 				// we need to calculate the local shards count if it's MT to be able to decide
 				// to enable lazy load shards
-				localShardsCount, err = db.schemaReader.LocalShardsCount(class.Class)
+				localActiveShardsCount, err = db.schemaReader.LocalActiveShardsCount(class.Class)
 				if err != nil {
 					return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 				}
 				// Only calculate shard sizes if the shard-count condition alone wouldn't
 				// already trigger lazy-loading. This avoids walking all shard directories
 				// on large MT setups where the count exceeds the threshold.
-				if localShardsCount <= db.config.LazyLoadShardCountThreshold &&
+				if localActiveShardsCount <= db.config.LazyLoadShardCountThreshold &&
 					db.config.LazyLoadShardSizeThresholdGB > 0 {
 					// we do need to calculate shard size if it's MT to be able to decide
 					// to enable lazy load shards based on total size
@@ -165,7 +165,7 @@ func (db *DB) init(ctx context.Context) error {
 
 					lazyLoadShardEnabled = shouldAutoLazyLoadShards(
 						isMultiTenant,
-						localShardsCount,
+						localActiveShardsCount,
 						totalShardSizeBytes,
 						db.config.LazyLoadShardCountThreshold,
 						db.config.LazyLoadShardSizeThresholdGB,
@@ -222,7 +222,7 @@ func (db *DB) init(ctx context.Context) error {
 				"action":                  "lazy_shard_auto_detection",
 				"class":                   class.Class,
 				"enable_lazy_load_shards": lazyLoadShardEnabled,
-				"local_shard_count":       localShardsCount,
+				"local_shard_count":       localActiveShardsCount,
 				"total_shard_size_bytes":  totalShardSizeBytes,
 				"count_threshold":         db.config.LazyLoadShardCountThreshold,
 				"size_threshold_gb":       db.config.LazyLoadShardSizeThresholdGB,

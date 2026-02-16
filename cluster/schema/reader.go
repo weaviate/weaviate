@@ -159,10 +159,10 @@ func (rs SchemaReader) LocalShards(class string) ([]string, error) {
 	return shards, err
 }
 
-func (rs SchemaReader) LocalShardsCount(class string) (int, error) {
+func (rs SchemaReader) LocalActiveShardsCount(class string) (int, error) {
 	var count int
 	err := rs.Read(class, true, func(class *models.Class, state *sharding.State) error {
-		count = state.LocalPhysicalShardsCount()
+		count = state.LocalActivePhysicalShardsCount()
 		return nil
 	})
 	return count, err

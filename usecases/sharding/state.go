@@ -342,11 +342,11 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
-// LocalPhysicalShardsCount return a count of physical shards
-func (s *State) LocalPhysicalShardsCount() int {
+// LocalActivePhysicalShardsCount return a count of physical shards
+func (s *State) LocalActivePhysicalShardsCount() int {
 	count := 0
 	for _, physical := range s.Physical {
-		if s.IsLocalShard(physical.Name) {
+		if s.IsLocalShard(physical.Name) && physical.Status == models.TenantActivityStatusHOT {
 			count++
 		}
 	}

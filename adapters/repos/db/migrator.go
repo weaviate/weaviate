@@ -126,18 +126,18 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	).Build()
 	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
 	var totalShardSizeBytes uint64
-	var localShardsCount int
+	var localActiveShardsCount int
 	if isMultiTenant {
 		// we need to calculate the local shards count if it's MT to be able to decide
 		// to enable lazy load shards
-		localShardsCount, err = m.db.schemaReader.LocalShardsCount(class.Class)
+		localActiveShardsCount, err = m.db.schemaReader.LocalActiveShardsCount(class.Class)
 		if err != nil {
 			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 		}
 		// Only calculate shard sizes if the shard-count condition alone wouldn't
 		// already trigger lazy-loading. This avoids walking all shard directories
 		// on large MT setups where the count exceeds the threshold.
-		if localShardsCount <= m.db.config.LazyLoadShardCountThreshold &&
+		if localActiveShardsCount <= m.db.config.LazyLoadShardCountThreshold &&
 			m.db.config.LazyLoadShardSizeThresholdGB > 0 {
 			// we do need to calculate shard size if it's MT to be able to decide
 			// to enable lazy load shards based on total size
@@ -189,7 +189,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
 					isMultiTenant,
-					localShardsCount,
+					localActiveShardsCount,
 					totalShardSizeBytes,
 					m.db.config.LazyLoadShardCountThreshold,
 					m.db.config.LazyLoadShardSizeThresholdGB,
@@ -248,7 +248,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"action":                  "lazy_shard_auto_detection",
 		"class":                   class.Class,
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
-		"local_shard_count":       localShardsCount,
+		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
 		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
