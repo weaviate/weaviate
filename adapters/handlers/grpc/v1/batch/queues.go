@@ -19,6 +19,8 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
+const OOM_WAIT_TIME = 300
+
 func newBatchAcksMessage(uuids, beacons []string) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_Acks_{
@@ -61,8 +63,9 @@ func newBatchOutOfMemoryMessage(uuids, beacons []string) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_OutOfMemory_{
 			OutOfMemory: &pb.BatchStreamReply_OutOfMemory{
-				Uuids:   uuids,
-				Beacons: beacons,
+				Uuids:    uuids,
+				Beacons:  beacons,
+				WaitTime: OOM_WAIT_TIME,
 			},
 		},
 	}

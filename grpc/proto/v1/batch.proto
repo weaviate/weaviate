@@ -50,6 +50,9 @@ message BatchStreamReply {
   message OutOfMemory{
     repeated string uuids = 1;
     repeated string beacons = 2;
+    // How long to wait until ShuttingDown is sent, in seconds
+    // If ShuttingDown is not set by this time, the client should exit the stream
+    int32 wait_time = 3;
   }
   message Backoff {
     int32 batch_size = 1;
