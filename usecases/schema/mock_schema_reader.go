@@ -399,12 +399,12 @@ func (_c *MockSchemaReader_LocalShards_Call) RunAndReturn(run func(string) ([]st
 	return _c
 }
 
-// LocalShardsCount provides a mock function with given fields: class
+// LocalActiveShardsCount provides a mock function with given fields: class
 func (_m *MockSchemaReader) LocalActiveShardsCount(class string) (int, error) {
 	ret := _m.Called(class)
 
 	if len(ret) == 0 {
-		panic("no return value specified for LocalShardsCount")
+		panic("no return value specified for LocalActiveShardsCount")
 	}
 
 	var r0 int
@@ -427,30 +427,30 @@ func (_m *MockSchemaReader) LocalActiveShardsCount(class string) (int, error) {
 	return r0, r1
 }
 
-// MockSchemaReader_LocalShardsCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LocalShardsCount'
-type MockSchemaReader_LocalShardsCount_Call struct {
+// MockSchemaReader_LocalActiveShardsCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LocalActiveShardsCount'
+type MockSchemaReader_LocalActiveShardsCount_Call struct {
 	*mock.Call
 }
 
-// LocalShardsCount is a helper method to define mock.On call
+// LocalActiveShardsCount is a helper method to define mock.On call
 //   - class string
-func (_e *MockSchemaReader_Expecter) LocalActiveShardsCount(class interface{}) *MockSchemaReader_LocalShardsCount_Call {
-	return &MockSchemaReader_LocalShardsCount_Call{Call: _e.mock.On("LocalShardsCount", class)}
+func (_e *MockSchemaReader_Expecter) LocalActiveShardsCount(class interface{}) *MockSchemaReader_LocalActiveShardsCount_Call {
+	return &MockSchemaReader_LocalActiveShardsCount_Call{Call: _e.mock.On("LocalActiveShardsCount", class)}
 }
 
-func (_c *MockSchemaReader_LocalShardsCount_Call) Run(run func(class string)) *MockSchemaReader_LocalShardsCount_Call {
+func (_c *MockSchemaReader_LocalActiveShardsCount_Call) Run(run func(class string)) *MockSchemaReader_LocalActiveShardsCount_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string))
 	})
 	return _c
 }
 
-func (_c *MockSchemaReader_LocalShardsCount_Call) Return(_a0 int, _a1 error) *MockSchemaReader_LocalShardsCount_Call {
+func (_c *MockSchemaReader_LocalActiveShardsCount_Call) Return(_a0 int, _a1 error) *MockSchemaReader_LocalActiveShardsCount_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSchemaReader_LocalShardsCount_Call) RunAndReturn(run func(string) (int, error)) *MockSchemaReader_LocalShardsCount_Call {
+func (_c *MockSchemaReader_LocalActiveShardsCount_Call) RunAndReturn(run func(string) (int, error)) *MockSchemaReader_LocalActiveShardsCount_Call {
 	_c.Call.Return(run)
 	return _c
 }

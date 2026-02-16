@@ -274,7 +274,7 @@ func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (f *fakeSchemaManager) LocalShardsCount(class string) (int, error) {
+func (f *fakeSchemaManager) LocalActiveShardsCount(class string) (int, error) {
 	args := f.Called(class)
 	return args.Get(0).(int), args.Error(1)
 }
