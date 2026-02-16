@@ -163,7 +163,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 			Info("adaptive ef: table entry")
 	}
 
-	h.adaptiveEF.Store(cfg)
+	h.adaptiveEf.Store(cfg)
 
 	if err := h.StoreAdaptiveEFConfig(cfg); err != nil {
 		h.logger.WithError(err).Warn("failed to persist adaptive ef config to metadata")
@@ -480,15 +480,12 @@ func sampleNodeIDs(h *hnsw, rng *rand.Rand, nodesLen int, n int) []uint64 {
 // all phases: sampling vectors, computing statistics, brute-force ground truth,
 // and building the adaptive ef table.
 func (h *hnsw) CalibrateAdaptiveEF(ctx context.Context, targetRecall float32) error {
-	// The caller may have already set calibrationInProgress to true (e.g.
-	// config_update). If not, set it now. Either way, ensure we clear it
-	// when done.
-	if h.calibrationInProgress.Load() {
+	if h.adaptiveEfCalibrating.Load() {
 		// Already marked in-progress by the caller — just ensure cleanup.
-	} else if !h.calibrationInProgress.CompareAndSwap(false, true) {
+	} else if !h.adaptiveEfCalibrating.CompareAndSwap(false, true) {
 		return fmt.Errorf("calibration already in progress")
 	}
-	defer h.calibrationInProgress.Store(false)
+	defer h.adaptiveEfCalibrating.Store(false)
 
 	rng := rand.New(rand.NewSource(42))
 	k := calibrationK

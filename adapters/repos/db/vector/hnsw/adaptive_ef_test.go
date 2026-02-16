@@ -294,7 +294,7 @@ func TestAdaptiveSearchEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify adaptive ef config is loaded
-	cfg := index.adaptiveEF.Load()
+	cfg := index.adaptiveEf.Load()
 	require.NotNil(t, cfg, "adaptive ef config should be loaded")
 	assert.True(t, len(cfg.Table) > 0, "table should have entries")
 	assert.True(t, cfg.WAE > 0, "WAE should be positive")

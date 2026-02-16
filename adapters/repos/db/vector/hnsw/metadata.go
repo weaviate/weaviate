@@ -133,13 +133,13 @@ type AdaptiveEFStatusProvider interface {
 
 // GetAdaptiveEFStatus returns the current adaptive EF status for this index.
 func (h *hnsw) GetAdaptiveEFStatus() AdaptiveEFStatus {
-	if h.calibrationInProgress.Load() {
+	if h.adaptiveEfCalibrating.Load() {
 		return AdaptiveEFStatus{
 			Status: "calibrating",
 		}
 	}
 
-	cfg := h.adaptiveEF.Load()
+	cfg := h.adaptiveEf.Load()
 	if cfg == nil {
 		return AdaptiveEFStatus{
 			Status:  "not_configured",

@@ -42,7 +42,7 @@ const (
 )
 
 func (h *hnsw) searchTimeEF(k int) (int, bool) {
-	adaptive := h.adaptiveEF.Load() != nil
+	adaptive := h.adaptiveEf.Load() != nil
 
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
@@ -94,7 +94,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
 
 	if adaptive {
-		cfg := h.adaptiveEF.Load()
+		cfg := h.adaptiveEf.Load()
 		if cfg == nil {
 			return h.knnSearchByVector(ctx, vector, k, ef, allowList, nil)
 		}
@@ -113,7 +113,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 		statsLen := AdaptiveStatisticsLength(h.maximumConnectionsLayerZero, cfg.TargetRecall)
 
 		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_initial", initialEF)
-		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_wae", cfg.WAE)
+		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_weighted_avg", cfg.WAE)
 		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_target_recall", cfg.TargetRecall)
 		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_stats_len", statsLen)
 

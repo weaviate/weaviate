@@ -196,7 +196,6 @@ type hnsw struct {
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
-	calibrationInProgress   atomic.Bool
 
 	visitedListPoolMaxSize int
 
@@ -213,9 +212,8 @@ type hnsw struct {
 
 	fs common.FS
 
-	// adaptiveEF holds the precomputed adaptive ef configuration.
-	// When non-nil, search uses adaptive ef estimation instead of static ef.
-	adaptiveEF atomic.Pointer[AdaptiveEFConfig]
+	adaptiveEf            atomic.Pointer[AdaptiveEFConfig]
+	adaptiveEfCalibrating atomic.Bool
 }
 
 func (h *hnsw) Get(id uint64) ([]float32, error) {
@@ -454,7 +452,7 @@ func New(cfg Config, uc ent.UserConfig,
 	if aefCfg, err := index.LoadAdaptiveEFConfig(); err != nil {
 		index.logger.WithError(err).Warn("failed to load adaptive ef config from metadata")
 	} else if aefCfg != nil {
-		index.adaptiveEF.Store(aefCfg)
+		index.adaptiveEf.Store(aefCfg)
 		index.logger.WithField("wae", aefCfg.WAE).
 			WithField("target_recall", aefCfg.TargetRecall).
 			Info("loaded adaptive ef config from metadata")

@@ -121,7 +121,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	if parsed.AdaptiveEF.Enabled {
 		// Recalibrate if not yet calibrated or if targetRecall changed
 		needsCalibration := false
-		existing := h.adaptiveEF.Load()
+		existing := h.adaptiveEf.Load()
 		if existing == nil {
 			needsCalibration = true
 		} else if existing.TargetRecall != parsed.AdaptiveEF.TargetRecall {
@@ -139,7 +139,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 
 			// Set immediately so stats endpoint reflects in-progress state
 			// before the goroutine is scheduled.
-			h.calibrationInProgress.Store(true)
+			h.adaptiveEfCalibrating.Store(true)
 
 			enterrors.GoWrapper(func() {
 				defer callback()
