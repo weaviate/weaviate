@@ -2540,7 +2540,7 @@ func TestOverwriteObjects(t *testing.T) {
 		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardResolver.ResolveShardByObjectID(context.Background(), fresh.ID, "")
+		shd, err := idx.shardResolver.ResolveShardByObjectID(context.Background(), fresh.ID, "", 0)
 		require.Nil(t, err)
 
 		received, err := idx.OverwriteObjects(context.Background(), shd, input)
@@ -2583,6 +2583,7 @@ func TestIndexDigestObjects(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -2650,7 +2651,7 @@ func TestIndexDigestObjects(t *testing.T) {
 
 	t.Run("get digest object", func(t *testing.T) {
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.shardResolver.ResolveShardByObjectID(context.Background(), obj1.ID, "")
+		shd, err := idx.shardResolver.ResolveShardByObjectID(context.Background(), obj1.ID, "", 0)
 		require.Nil(t, err)
 
 		input := []strfmt.UUID{obj1.ID, obj2.ID}

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -192,6 +193,10 @@ func newFakeSchemaGetter(className string) *fakeSchemaGetter {
 			},
 		}},
 	}
+}
+
+func (f *fakeSchemaGetter) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
 }
 
 func (f *fakeSchemaGetter) SetVectorIndexConfig(cfg hnsw.UserConfig) {

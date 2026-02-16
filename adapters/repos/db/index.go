@@ -915,12 +915,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return fmt.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
-		}
-	}
-	targetShard, err := i.shardResolver.ResolveShard(ctx, object)
+
+	targetShard, err := i.shardResolver.ResolveShard(ctx, object, schemaVersion)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -1284,14 +1280,10 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(objects))
-		}
-	}
+
 	byShard := map[string]objsAndPos{}
 	for pos, obj := range objects {
-		target, err := i.shardResolver.ResolveShard(ctx, obj)
+		target, err := i.shardResolver.ResolveShard(ctx, obj, schemaVersion)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -1408,16 +1400,12 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(refs))
-		}
-	}
+
 	byShard := map[string]refsAndPos{}
 	out := make([]error, len(refs))
 
 	for pos, ref := range refs {
-		shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, ref.From.TargetID, ref.Tenant)
+		shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, ref.From.TargetID, ref.Tenant, schemaVersion)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -1482,7 +1470,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*storobj.Object, error) {
-	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant, 0)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -1578,7 +1566,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 
 	byShard := map[string]idsAndPos{}
 	for pos, id := range query {
-		shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, strfmt.UUID(id.ID), tenant)
+		shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, strfmt.UUID(id.ID), tenant, 0)
 		if err != nil {
 			switch {
 			case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -1651,7 +1639,7 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (bool, error) {
-	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant, 0)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -2279,12 +2267,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	deletionTime time.Time, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
-		}
-	}
-	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant, schemaVersion)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -2504,12 +2487,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
-		}
-	}
-	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, merge.ID, tenant)
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, merge.ID, tenant, schemaVersion)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -3065,11 +3043,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 ) (objects.BatchSimpleObjects, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
-	if schemaVersion > 0 {
-		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return nil, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
-		}
-	}
+
 	type result struct {
 		objs objects.BatchSimpleObjects
 	}

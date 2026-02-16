@@ -243,10 +243,7 @@ func TestLazyLoadedShards(t *testing.T) {
 			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
 		}, nil).Maybe()
 	// Create index with lazy loading disabled to test active calculation methods
-	schemaGetter := &fakeSchemaGetter{
-		schema: fakeSchema, shardState: shardState,
-	}
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaReader)
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(className),
