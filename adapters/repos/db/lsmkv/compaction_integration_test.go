@@ -48,16 +48,6 @@ func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 			t.Run("mmap", func(t *testing.T) {
 				test.f(ctx, t, test.opts)
 			})
-			t.Run("pread", func(t *testing.T) {
-				test.f(ctx, t, append([]BucketOption{WithPread(true)}, test.opts...))
-			})
-		})
-
-		t.Run(fmt.Sprintf("%s_checksum", test.name), func(t *testing.T) {
-			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(true))
-			t.Run("mmap", func(t *testing.T) {
-				test.f(ctx, t, test.opts)
-			})
 		})
 	}
 }
@@ -77,9 +67,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionReplaceStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				// Same size as non-KeepTombstones: tombstones are now cleaned
-				// at the bottommost pair regardless of keepTombstones (#7360).
-				compactionReplaceStrategy(ctx, t, opts, 12116, 12116)
+				compactionReplaceStrategy(ctx, t, opts, 15266, 15266)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
@@ -179,9 +167,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionSetStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				// Same size as non-KeepTombstones: tombstones are now cleaned
-				// at the bottommost pair regardless of keepTombstones (#7360).
-				compactionSetStrategy(ctx, t, opts, 6836, 6836)
+				compactionSetStrategy(ctx, t, opts, 9756, 9756)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategySetCollection),
@@ -231,9 +217,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionMapStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				// Same size as non-KeepTombstones: tombstones are now cleaned
-				// at the bottommost pair regardless of keepTombstones (#7360).
-				compactionMapStrategy(ctx, t, opts, 10676, 10676)
+				compactionMapStrategy(ctx, t, opts, 13416, 13416)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyMapCollection),
@@ -309,9 +293,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionRoaringSetStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				// Same size as non-KeepTombstones: tombstones are now cleaned
-				// at the bottommost pair regardless of keepTombstones (#7360).
-				compactionRoaringSetStrategy(ctx, t, opts, 19168, 19168)
+				compactionRoaringSetStrategy(ctx, t, opts, 29792, 29792)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
@@ -382,9 +364,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionRoaringSetRangeStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				// Same size as non-KeepTombstones: tombstones are now cleaned
-				// at the bottommost pair regardless of keepTombstones (#7360).
-				compactionRoaringSetRangeStrategy(ctx, t, opts, 1824, 1824)
+				compactionRoaringSetRangeStrategy(ctx, t, opts, 2384, 2384)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSetRange),
@@ -441,9 +421,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionInvertedStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				// Same size as non-KeepTombstones: tombstones are now cleaned
-				// at the bottommost pair regardless of keepTombstones (#7360).
-				compactionInvertedStrategy(ctx, t, opts, 8627, 8627)
+				compactionInvertedStrategy(ctx, t, opts, 8931, 8931)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyInverted),

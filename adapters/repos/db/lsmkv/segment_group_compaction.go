@@ -373,13 +373,8 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 
 	scratchSpacePath := rightPath + "compaction.scratch.d"
 	secondaryIndices := left.getSecondaryIndexCount()
-	// Tombstones can be safely removed when compacting the bottom pair
-	// (pair[0] == 0) because there are no older segments that need the
-	// tombstones for shadowing. Previously this was gated on !sg.keepTombstones,
-	// which prevented the objects bucket (keepTombstones=true) from ever
-	// reclaiming disk space after deletions.
-	// See github.com/weaviate/weaviate/issues/7360.
-	cleanupTombstones := pair[0] == 0
+
+	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
 	switch strategy {
