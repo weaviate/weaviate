@@ -519,7 +519,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().LocalShardsCount(mock.Anything).RunAndReturn(func(className string) (int, error) {
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).RunAndReturn(func(className string) (int, error) {
 		return len(shardState.AllPhysicalShards()), nil
 	}).Maybe()
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
