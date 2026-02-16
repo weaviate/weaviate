@@ -152,11 +152,14 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overr
 	return nil
 }
 
-func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
 
 	var backupPath string
-	var err error
 	if overridePath != "" {
 		backupPath = filepath.Join(overridePath, backupID, key)
 	} else {
@@ -172,7 +175,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 	}
 	defer f.Close()
 
-	written, err := io.Copy(f, r)
+	written, err = io.Copy(f, r)
 	if err != nil {
 		return 0, fmt.Errorf("write file %q: %w", backupPath, err)
 	}

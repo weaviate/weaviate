@@ -79,7 +79,7 @@ func (s *objectStore) SourceDataPath() string {
 	return s.backend.SourceDataPath()
 }
 
-func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	return s.backend.Write(ctx, s.backupId, key, overrideBucket, overridePath, r)
 }
 
@@ -467,7 +467,9 @@ func (u *uploader) compress(ctx context.Context,
 		defer func() {
 			// Capture close error and join with any existing error.
 			// Close writes tar/gzip trailers and could fail if the pipe is closed.
-			closeErr := zip.Close()
+			// Use CloseWithError to signal any producer error to the consumer,
+			// so the consumer's read fails instead of seeing EOF.
+			closeErr := zip.CloseWithError(err)
 			if err != nil || closeErr != nil {
 				err = fmt.Errorf("producer: %w, close: %w", err, closeErr)
 			}

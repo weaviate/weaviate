@@ -424,7 +424,7 @@ func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, dest
 	return nil
 }
 
-func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer r.Close()
