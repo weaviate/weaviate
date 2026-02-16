@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 const numCalibrationBins = 10
@@ -54,10 +52,13 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 			return ctx.Err()
 		}
 
-		_, _, score, err := h.searchWithDistanceCollection(ctx, sampleQueries[i], k, k, statsLen, meanVec, varianceVec)
+		searchVec := h.normalizeVec(sampleQueries[i])
+		ac := &adaptiveConfig{StatsLen: statsLen}
+		_, _, err := h.knnSearchByVector(ctx, searchVec, k, k, nil, ac)
 		if err != nil {
 			return fmt.Errorf("score collection query=%d: %w", i, err)
 		}
+		score := computeScore(searchVec, ac.CollectedDistances, meanVec, varianceVec)
 		queries[i] = queryInfo{index: i, score: score}
 	}
 
@@ -105,7 +106,8 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 
 			var totalRecall float32
 			for _, qi := range binQueries {
-				ids, _, _, err := h.searchWithDistanceCollection(ctx, sampleQueries[qi.index], k, ef, statsLen, meanVec, varianceVec)
+				searchVec := h.normalizeVec(sampleQueries[qi.index])
+				ids, _, err := h.knnSearchByVector(ctx, searchVec, k, ef, nil, nil)
 				if err != nil {
 					return fmt.Errorf("search at ef=%d query=%d: %w", ef, qi.index, err)
 				}
@@ -170,203 +172,6 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 	}
 
 	return nil
-}
-
-// searchWithDistanceCollection performs an HNSW search at the given ef while
-// also collecting distances from the initial visited nodes to compute the
-// difficulty score. Returns (result IDs, result distances, score, error).
-func (h *hnsw) searchWithDistanceCollection(ctx context.Context,
-	searchVec []float32, k, ef, statsLen int,
-	meanVec, varianceVec []float64,
-) ([]uint64, []float32, float32, error) {
-	if h.isEmpty() {
-		return nil, nil, 0, nil
-	}
-
-	searchVec = h.normalizeVec(searchVec)
-
-	h.RLock()
-	entryPointID := h.entryPointID
-	maxLayer := h.currentMaximumLayer
-	h.RUnlock()
-
-	entryPointDistance, err := h.distToNode(nil, entryPointID, searchVec)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("distance to entry point: %w", err)
-	}
-
-	// Navigate upper layers (level maxLayer down to level 1)
-	for level := maxLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin[any](10)
-		eps.Insert(entryPointID, entryPointDistance)
-
-		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, nil)
-		if err != nil {
-			return nil, nil, 0, fmt.Errorf("search layer %d: %w", level, err)
-		}
-
-		for res.Len() > 0 {
-			cand := res.Pop()
-			n := h.nodeByID(cand.ID)
-			if n == nil {
-				continue
-			}
-			if !n.isUnderMaintenance() {
-				entryPointID = cand.ID
-				entryPointDistance = cand.Dist
-				break
-			}
-		}
-		h.pools.pqResults.Put(res)
-	}
-
-	// Search base layer (level 0) with distance collection
-	eps := priorityqueue.NewMin[any](10)
-	eps.Insert(entryPointID, entryPointDistance)
-
-	res, collectedDistances, err := h.searchLayerWithDistanceCollection(ctx, searchVec, eps, ef, statsLen)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("search layer 0: %w", err)
-	}
-
-	// Compute the difficulty score
-	score := computeScore(searchVec, collectedDistances, meanVec, varianceVec)
-
-	// Trim results to k
-	for res.Len() > k {
-		res.Pop()
-	}
-
-	ids := make([]uint64, res.Len())
-	dists := make([]float32, res.Len())
-	i := len(ids) - 1
-	for res.Len() > 0 {
-		item := res.Pop()
-		ids[i] = item.ID
-		dists[i] = item.Dist
-		i--
-	}
-	h.pools.pqResults.Put(res)
-
-	return ids, dists, score, nil
-}
-
-// searchLayerWithDistanceCollection is like searchLayerByVectorWithDistancerWithStrategy
-// but also collects distances from the first `statsLen` visited nodes.
-// Only for level 0, unfiltered, SWEEPING strategy.
-func (h *hnsw) searchLayerWithDistanceCollection(ctx context.Context,
-	queryVector []float32,
-	entrypoints *priorityqueue.Queue[any], ef int, statsLen int,
-) (*priorityqueue.Queue[any], []float32, error) {
-	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
-
-	candidates := h.pools.pqCandidates.GetMin(ef)
-	results := h.pools.pqResults.GetMax(ef)
-
-	floatDistancer := h.distancerProvider.New(queryVector)
-
-	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
-		results, 0, visited, nil)
-
-	worstResultDistance, err := h.currentWorstResultDistanceToFloat(results, floatDistancer)
-	if err != nil {
-		h.pools.visitedListsLock.RLock()
-		h.pools.visitedLists.Return(visited)
-		h.pools.visitedListsLock.RUnlock()
-		return nil, nil, err
-	}
-
-	connectionsReusable := make([]uint64, h.maximumConnectionsLayerZero)
-	collectedDistances := make([]float32, 0, statsLen)
-
-	for candidates.Len() > 0 {
-		if ctx.Err() != nil {
-			h.pools.visitedListsLock.RLock()
-			h.pools.visitedLists.Return(visited)
-			h.pools.visitedListsLock.RUnlock()
-			return nil, nil, ctx.Err()
-		}
-
-		candidate := candidates.Pop()
-		dist := candidate.Dist
-
-		if dist > worstResultDistance && results.Len() >= ef {
-			break
-		}
-
-		h.shardedNodeLocks.RLock(candidate.ID)
-		candidateNode := h.nodes[candidate.ID]
-		h.shardedNodeLocks.RUnlock(candidate.ID)
-
-		if candidateNode == nil {
-			continue
-		}
-
-		candidateNode.Lock()
-		if candidateNode.level < 0 {
-			candidateNode.Unlock()
-			continue
-		}
-
-		if candidateNode.connections.LenAtLayer(0) > h.maximumConnectionsLayerZero {
-			connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(0))
-		} else {
-			connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(0)]
-		}
-		connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, 0)
-		candidateNode.Unlock()
-
-		for _, neighborID := range connectionsReusable {
-			if ok := visited.Visited(neighborID); ok {
-				continue
-			}
-			visited.Visit(neighborID)
-
-			distance, err := h.distanceToFloatNode(floatDistancer, neighborID)
-			if err != nil {
-				continue
-			}
-
-			// Collect distance for score computation
-			if len(collectedDistances) < statsLen {
-				collectedDistances = append(collectedDistances, distance)
-			}
-
-			if distance < worstResultDistance || results.Len() < ef {
-				candidates.Insert(neighborID, distance)
-
-				if h.hasTombstone(neighborID) {
-					continue
-				}
-
-				results.Insert(neighborID, distance)
-
-				if h.compressed.Load() {
-					h.compressor.Prefetch(candidates.Top().ID)
-				} else {
-					h.cache.Prefetch(candidates.Top().ID)
-				}
-
-				if results.Len() > ef {
-					results.Pop()
-				}
-
-				if results.Len() > 0 {
-					worstResultDistance = results.Top().Dist
-				}
-			}
-		}
-	}
-
-	h.pools.pqCandidates.Put(candidates)
-
-	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedListsLock.RUnlock()
-
-	return results, collectedDistances, nil
 }
 
 // computeRecall computes the recall of a search result against ground truth.

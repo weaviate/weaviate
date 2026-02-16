@@ -259,13 +259,15 @@ func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 }
 
 // adaptiveConfig holds the parameters for adaptive ef adjustment during search.
-// When non-nil and at level 0, the search collects distances from the first
-// StatsLen neighbors and calls AdjustEF to dynamically determine the ef value.
 type adaptiveConfig struct {
 	// AdjustEF is called with collected neighbor distances and returns the new ef.
+	// May be nil if only distance collection is needed (no dynamic ef adjustment).
 	AdjustEF func(collectedDistances []float32) int
 	// StatsLen is the number of distances to collect before calling AdjustEF.
 	StatsLen int
+	// CollectedDistances receives the collected neighbor distances after the
+	// search completes. Used by calibration to compute difficulty scores.
+	CollectedDistances []float32
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
@@ -575,12 +577,14 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				collectedDistances = append(collectedDistances, distance)
 				if len(collectedDistances) >= cap(collectedDistances) {
 					efAdjusted = true
-					ef = adaptive.AdjustEF(collectedDistances)
-					for results.Len() > ef {
-						results.Pop()
-					}
-					if results.Len() > 0 {
-						worstResultDistance = results.Top().Dist
+					if adaptive.AdjustEF != nil {
+						ef = adaptive.AdjustEF(collectedDistances)
+						for results.Len() > ef {
+							results.Pop()
+						}
+						if results.Len() > 0 {
+							worstResultDistance = results.Top().Dist
+						}
 					}
 				}
 			}
@@ -629,6 +633,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				}
 			}
 		}
+	}
+
+	// Export collected distances for calibration if needed
+	if adaptive != nil && collectedDistances != nil {
+		adaptive.CollectedDistances = collectedDistances
 	}
 
 	if strategy == ACORN {
