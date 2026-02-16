@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path"
 	"strings"
@@ -81,9 +80,8 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 				return true
 			}
 
-			// Retry on network errors (e.g., "http2: client connection lost")
-			var netErr net.Error
-			if errors.As(err, &netErr) {
+			// Retry on "http2: client connection lost" which is not covered by ShouldRetry
+			if strings.Contains(err.Error(), "connection lost") {
 				return true
 			}
 
