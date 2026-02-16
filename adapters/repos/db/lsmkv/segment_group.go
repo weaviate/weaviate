@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -46,6 +47,8 @@ type SegmentGroup struct {
 	// (segments that were cleaned or compacted and replaced by new ones)
 	segmentsWithRefs      map[string]Segment // segment.path => segment
 	segmentRefCounterLock sync.Mutex
+
+	deleteMarkerCounter *atomic.Int64
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -120,6 +123,9 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
 ) (*SegmentGroup, error) {
 	now := time.Now()
+	deleteMarkerCounter := new(atomic.Int64)
+	deleteMarkerCounter.Store(now.UnixMilli())
+
 	sg := &SegmentGroup{
 		segments:                     make([]Segment, len(files)),
 		segmentsWithRefs:             map[string]Segment{},
@@ -145,6 +151,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeMetadata:                cfg.writeMetadata,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
+		deleteMarkerCounter:          deleteMarkerCounter,
 	}
 
 	segmentIndex := 0
@@ -220,6 +227,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
+					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -342,6 +350,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
+			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -514,6 +523,7 @@ func (sg *SegmentGroup) add(path string) error {
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
+			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
