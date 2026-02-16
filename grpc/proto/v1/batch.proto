@@ -78,11 +78,13 @@ message BatchStreamReply {
   oneof message {
     Results results = 1;
     ShuttingDown shutting_down = 2;
-    Started started = 3;
-    Backoff backoff = 4;
-    Acks acks = 5;
-    OutOfMemory out_of_memory = 6;
+    Started started = 4;
+    Backoff backoff = 5;
+    Acks acks = 6;
+    OutOfMemory out_of_memory = 7;
   }
+  reserved 3;
+  reserved "shutdown";
 }
 
 message BatchObject {

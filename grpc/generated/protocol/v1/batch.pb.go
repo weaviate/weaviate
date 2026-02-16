@@ -340,19 +340,19 @@ type BatchStreamReply_ShuttingDown_ struct {
 }
 
 type BatchStreamReply_Started_ struct {
-	Started *BatchStreamReply_Started `protobuf:"bytes,3,opt,name=started,proto3,oneof"`
+	Started *BatchStreamReply_Started `protobuf:"bytes,4,opt,name=started,proto3,oneof"`
 }
 
 type BatchStreamReply_Backoff_ struct {
-	Backoff *BatchStreamReply_Backoff `protobuf:"bytes,4,opt,name=backoff,proto3,oneof"`
+	Backoff *BatchStreamReply_Backoff `protobuf:"bytes,5,opt,name=backoff,proto3,oneof"`
 }
 
 type BatchStreamReply_Acks_ struct {
-	Acks *BatchStreamReply_Acks `protobuf:"bytes,5,opt,name=acks,proto3,oneof"`
+	Acks *BatchStreamReply_Acks `protobuf:"bytes,6,opt,name=acks,proto3,oneof"`
 }
 
 type BatchStreamReply_OutOfMemory_ struct {
-	OutOfMemory *BatchStreamReply_OutOfMemory `protobuf:"bytes,6,opt,name=out_of_memory,json=outOfMemory,proto3,oneof"`
+	OutOfMemory *BatchStreamReply_OutOfMemory `protobuf:"bytes,7,opt,name=out_of_memory,json=outOfMemory,proto3,oneof"`
 }
 
 func (*BatchStreamReply_Results_) isBatchStreamReply_Message() {}
@@ -1683,14 +1683,14 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\n" +
 	"References\x123\n" +
 	"\x06values\x18\x01 \x03(\v2\x1b.weaviate.v1.BatchReferenceR\x06valuesB\t\n" +
-	"\amessage\"\xbc\a\n" +
+	"\amessage\"\xcc\a\n" +
 	"\x10BatchStreamReply\x12A\n" +
 	"\aresults\x18\x01 \x01(\v2%.weaviate.v1.BatchStreamReply.ResultsH\x00R\aresults\x12Q\n" +
 	"\rshutting_down\x18\x02 \x01(\v2*.weaviate.v1.BatchStreamReply.ShuttingDownH\x00R\fshuttingDown\x12A\n" +
-	"\astarted\x18\x03 \x01(\v2%.weaviate.v1.BatchStreamReply.StartedH\x00R\astarted\x12A\n" +
-	"\abackoff\x18\x04 \x01(\v2%.weaviate.v1.BatchStreamReply.BackoffH\x00R\abackoff\x128\n" +
-	"\x04acks\x18\x05 \x01(\v2\".weaviate.v1.BatchStreamReply.AcksH\x00R\x04acks\x12O\n" +
-	"\rout_of_memory\x18\x06 \x01(\v2).weaviate.v1.BatchStreamReply.OutOfMemoryH\x00R\voutOfMemory\x1a\t\n" +
+	"\astarted\x18\x04 \x01(\v2%.weaviate.v1.BatchStreamReply.StartedH\x00R\astarted\x12A\n" +
+	"\abackoff\x18\x05 \x01(\v2%.weaviate.v1.BatchStreamReply.BackoffH\x00R\abackoff\x128\n" +
+	"\x04acks\x18\x06 \x01(\v2\".weaviate.v1.BatchStreamReply.AcksH\x00R\x04acks\x12O\n" +
+	"\rout_of_memory\x18\a \x01(\v2).weaviate.v1.BatchStreamReply.OutOfMemoryH\x00R\voutOfMemory\x1a\t\n" +
 	"\aStarted\x1a\x0e\n" +
 	"\fShuttingDown\x1a=\n" +
 	"\vOutOfMemory\x12\x14\n" +
@@ -1714,7 +1714,7 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x04uuid\x18\x02 \x01(\tH\x00R\x04uuid\x12\x18\n" +
 	"\x06beacon\x18\x03 \x01(\tH\x00R\x06beaconB\b\n" +
 	"\x06detailB\t\n" +
-	"\amessage\"\xa4\n" +
+	"\amessageJ\x04\b\x03\x10\x04R\bshutdown\"\xa4\n" +
 	"\n" +
 	"\vBatchObject\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1a\n" +
