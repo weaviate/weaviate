@@ -100,6 +100,10 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoTenantSchemaVersion)
 
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	class := fetchedClasses[object.Class].Class
 
 	err = m.validateObjectAndNormalizeNames(ctx, repl, object, nil, fetchedClasses)
