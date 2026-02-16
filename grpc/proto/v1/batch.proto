@@ -83,7 +83,7 @@ message BatchStreamReply {
     Acks acks = 6;
     OutOfMemory out_of_memory = 7;
   }
-  reserved 3;
+  reserved 3; // was shutdown
   reserved "shutdown";
 }
 
