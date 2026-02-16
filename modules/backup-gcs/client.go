@@ -80,8 +80,8 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 				return true
 			}
 
-			// Retry on "http2: client connection lost" which is not covered by ShouldRetry
-			if strings.Contains(err.Error(), "connection lost") {
+			// Retry on http2 connection lost error which is not covered by ShouldRetry
+			if strings.Contains(err.Error(), "http2: client connection lost") {
 				return true
 			}
 
