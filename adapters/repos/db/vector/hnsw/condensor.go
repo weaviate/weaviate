@@ -52,7 +52,22 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
 
-	newLogFile, err := c.fs.OpenFile(fmt.Sprintf("%s.condensed", fileName),
+	condensedFileName := fmt.Sprintf("%s.condensed", fileName)
+	if err := c.DoFromState(res, condensedFileName); err != nil {
+		return err
+	}
+
+	if err := c.fs.Remove(fileName); err != nil {
+		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
+	}
+
+	return nil
+}
+
+// DoFromState writes a DeserializationResult to a condensed commit log file.
+// It does not remove any files - that is the caller's responsibility.
+func (c *MemoryCondensor) DoFromState(res *DeserializationResult, fileName string) error {
+	newLogFile, err := c.fs.OpenFile(fileName,
 		os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
@@ -161,19 +176,15 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	if err := c.newLog.Flush(); err != nil {
-		return errors.Wrap(err, "close new commit log")
+		return errors.Wrap(err, "flush new commit log")
 	}
 
-	if err := newLogFile.Sync(); err != nil {
+	if err := c.newLogFile.Sync(); err != nil {
 		return errors.Wrap(err, "fsync new commit log")
 	}
 
 	if err := c.newLogFile.Close(); err != nil {
 		return errors.Wrap(err, "close new commit log")
-	}
-
-	if err := c.fs.Remove(fileName); err != nil {
-		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
 	}
 
 	return nil
