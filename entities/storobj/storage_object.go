@@ -1091,7 +1091,7 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 			properties[propertyName] = val
 		case jsonparser.Array: // can be a beacon or an actual array
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
-			// this checks if refs are present - the return points to the underlying memory, dont use without copying
+			// this checks if refs are present - the return points to the underlying memory, don't use without copying
 			_, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
 			if errBeacon == nil {
 				// there can be more than one

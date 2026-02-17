@@ -395,7 +395,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 				break
 			}
 		} else {
-			// dont lazy load segments on config update
+			// don't lazy load segments on config update
 			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
 				return fmt.Errorf("creating new vector index: %w", err)
 			}
