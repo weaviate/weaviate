@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -315,10 +316,10 @@ func NewDummyStoreFromFolder(storeDir string, t testing.TB) *lsmkv.Store {
 }
 
 type VectorIndex interface {
-	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, selector *selection.Selector) ([]uint64, []float32, error)
 }
 
-func RecallAndLatency(ctx context.Context, queries [][]float32, k int, index VectorIndex, truths [][]uint64) (float32, float32) {
+func RecallAndLatency(ctx context.Context, queries [][]float32, k int, index VectorIndex, truths [][]uint64, selector *selection.Selector) (float32, float32) {
 	var relevant uint64
 	retrieved := k * len(queries)
 
@@ -327,7 +328,7 @@ func RecallAndLatency(ctx context.Context, queries [][]float32, k int, index Vec
 	logger, _ := test.NewNullLogger()
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		before := time.Now()
-		results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
+		results, _, _ := index.SearchByVector(ctx, queries[i], k, nil, selector)
 		ellapsed := time.Since(before)
 		matches := truths[i]
 		if len(matches) > k {

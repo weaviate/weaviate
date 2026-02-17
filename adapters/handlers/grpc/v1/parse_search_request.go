@@ -140,6 +140,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			out.NearVector.Distance = *nv.Distance
 			out.NearVector.WithDistance = true
 		}
+
+		out.NearVector.Selection = parseSelection(nv.Selection)
 	}
 
 	if no := req.NearObject; no != nil {
@@ -149,6 +151,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.NearObject = &searchparams.NearObject{
 			ID:            no.Id,
 			TargetVectors: targetVectors,
+			Selection:     parseSelection(no.Selection),
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -300,6 +303,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			TargetVectors:   targetVectors,
 			Distance:        distance,
 			WithDistance:    withDistance,
+			Selection:       parseSelection(hs.Selection),
 		}
 
 		if hs.Bm25SearchOperator != nil {
@@ -638,6 +642,7 @@ func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch,
 		MoveAwayFrom:  moveAwayOut,
 		MoveTo:        moveToOut,
 		TargetVectors: targetVectors,
+		Selection:     parseSelection(nearTextIn.Selection),
 	}
 
 	if nearTextIn.Certainty != nil {
@@ -1252,6 +1257,25 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 		Vectors:       vectors,
 		TargetVectors: targetVectors,
 	}, targetCombination, nil
+}
+
+func parseSelection(sel *pb.Selection) *searchparams.Selection {
+	if sel == nil {
+		return nil
+	}
+	if mmr := sel.GetMmr(); mmr != nil {
+		out := &searchparams.Selection{
+			MMR: &searchparams.SelectionMMR{},
+		}
+		if mmr.Limit != nil {
+			out.MMR.Limit = *mmr.Limit
+		}
+		if mmr.Balance != nil {
+			out.MMR.Balance = *mmr.Balance
+		}
+		return out
+	}
+	return nil
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user

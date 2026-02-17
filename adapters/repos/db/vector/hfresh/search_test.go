@@ -57,7 +57,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	require.NoError(t, err)
 	defer index.Shutdown(t.Context())
 
-	_, _, err = index.SearchByVector(t.Context(), []float32{1, 2, 3}, 10, nil)
+	_, _, err = index.SearchByVector(t.Context(), []float32{1, 2, 3}, 10, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "quantizer not initialized")
 }

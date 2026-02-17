@@ -126,7 +126,7 @@ func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) 
 	start := time.Now()
 	defer i.metrics.CentroidSearchDuration(start)
 
-	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, allowList)
+	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, allowList, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -114,7 +114,7 @@ func TestRestorBQ_Integration(t *testing.T) {
 	idx.PostStartup(context.Background())
 
 	for i := range queries {
-		idx.SearchByVector(ctx, queries[i], k, nil)
+		idx.SearchByVector(ctx, queries[i], k, nil, nil)
 	}
 }
 
@@ -272,7 +272,7 @@ func TestRestoreQuantization_Integration(t *testing.T) {
 			require.Equal(t, tt.expectedCompression, idx.Compressed())
 
 			// Perform a single search
-			results, _, err := idx.SearchByVector(ctx, queries[0], k, nil)
+			results, _, err := idx.SearchByVector(ctx, queries[0], k, nil, nil)
 			require.Nil(t, err)
 			require.Greater(t, len(results), 0, "search should return results")
 		})

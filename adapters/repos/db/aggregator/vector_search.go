@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -24,14 +25,14 @@ import (
 
 func (a *Aggregator) vectorSearch(ctx context.Context, allow helpers.AllowList, vec models.Vector) ([]uint64, []float32, error) {
 	if a.params.ObjectLimit != nil {
-		return a.searchByVector(ctx, vec, a.params.ObjectLimit, allow)
+		return a.searchByVector(ctx, vec, a.params.ObjectLimit, allow, a.params.Selection)
 	}
 
-	return a.searchByVectorDistance(ctx, vec, allow)
+	return a.searchByVectorDistance(ctx, vec, allow, a.params.Selection)
 }
 
-func (a *Aggregator) searchByVector(ctx context.Context, searchVector models.Vector, limit *int, ids helpers.AllowList) ([]uint64, []float32, error) {
-	idsFound, dists, err := a.performVectorSearch(ctx, searchVector, *limit, ids)
+func (a *Aggregator) searchByVector(ctx context.Context, searchVector models.Vector, limit *int, ids helpers.AllowList, selector *selection.Selector) ([]uint64, []float32, error) {
+	idsFound, dists, err := a.performVectorSearch(ctx, searchVector, *limit, ids, selector)
 	if err != nil {
 		return idsFound, nil, err
 	}
@@ -53,13 +54,13 @@ func (a *Aggregator) searchByVector(ctx context.Context, searchVector models.Vec
 	return idsFound, dists, nil
 }
 
-func (a *Aggregator) searchByVectorDistance(ctx context.Context, searchVector models.Vector, ids helpers.AllowList) ([]uint64, []float32, error) {
+func (a *Aggregator) searchByVectorDistance(ctx context.Context, searchVector models.Vector, ids helpers.AllowList, selector *selection.Selector) ([]uint64, []float32, error) {
 	if a.params.Certainty <= 0 {
 		return nil, nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
 	}
 
 	targetDist := float32(1-a.params.Certainty) * 2
-	idsFound, dists, err := a.performVectorDistanceSearch(ctx, searchVector, targetDist, -1, ids)
+	idsFound, dists, err := a.performVectorDistanceSearch(ctx, searchVector, targetDist, -1, ids, selector)
 	if err != nil {
 		return nil, nil, fmt.Errorf("aggregate search by vector: %w", err)
 	}
@@ -105,16 +106,17 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 
 func (a *Aggregator) performVectorSearch(ctx context.Context,
 	searchVector models.Vector, limit int, ids helpers.AllowList,
+	selector *selection.Selector,
 ) ([]uint64, []float32, error) {
 	switch vec := searchVector.(type) {
 	case []float32:
-		idsFound, dists, err := a.vectorIndex.SearchByVector(ctx, vec, limit, ids)
+		idsFound, dists, err := a.vectorIndex.SearchByVector(ctx, vec, limit, ids, selector)
 		if err != nil {
 			return idsFound, nil, err
 		}
 		return idsFound, dists, nil
 	case [][]float32:
-		idsFound, dists, err := a.vectorIndex.(vectorIndexMulti).SearchByMultiVector(ctx, vec, limit, ids)
+		idsFound, dists, err := a.vectorIndex.(vectorIndexMulti).SearchByMultiVector(ctx, vec, limit, ids, selector)
 		if err != nil {
 			return idsFound, nil, err
 		}
@@ -126,12 +128,13 @@ func (a *Aggregator) performVectorSearch(ctx context.Context,
 
 func (a *Aggregator) performVectorDistanceSearch(ctx context.Context,
 	searchVector models.Vector, targetDist float32, maxLimit int64, ids helpers.AllowList,
+	selector *selection.Selector,
 ) ([]uint64, []float32, error) {
 	switch vec := searchVector.(type) {
 	case []float32:
-		return a.vectorIndex.SearchByVectorDistance(ctx, vec, targetDist, maxLimit, ids)
+		return a.vectorIndex.SearchByVectorDistance(ctx, vec, targetDist, maxLimit, ids, selector)
 	case [][]float32:
-		return a.vectorIndex.(vectorIndexMulti).SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids)
+		return a.vectorIndex.(vectorIndexMulti).SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids, selector)
 	default:
 		return nil, nil, fmt.Errorf("perform vector distance search: unrecognized search vector type: %T", searchVector)
 	}

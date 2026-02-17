@@ -21,12 +21,22 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+type SelectionMMR struct {
+	Limit   float32 `json:"limit"`
+	Balance float32 `json:"balance"`
+}
+
+type Selection struct {
+	MMR *SelectionMMR `json:"mmr,omitempty"`
+}
+
 type NearVector struct {
 	Certainty     float64         `json:"certainty"`
 	Distance      float64         `json:"distance"`
 	WithDistance  bool            `json:"-"`
 	Vectors       []models.Vector `json:"vectors"`
 	TargetVectors []string        `json:"targetVectors"`
+	Selection     *Selection      `json:"selection,omitempty"`
 }
 
 type KeywordRanking struct {
@@ -114,15 +124,17 @@ type HybridSearch struct {
 	SearchOperator       string        `json:"searchOperator"`
 	NearTextParams       *NearTextParams
 	NearVectorParams     *NearVector
+	Selection            *Selection `json:"selection,omitempty"`
 }
 
 type NearObject struct {
-	ID            string   `json:"id"`
-	Beacon        string   `json:"beacon"`
-	Certainty     float64  `json:"certainty"`
-	Distance      float64  `json:"distance"`
-	WithDistance  bool     `json:"-"`
-	TargetVectors []string `json:"targetVectors"`
+	ID            string     `json:"id"`
+	Beacon        string     `json:"beacon"`
+	Certainty     float64    `json:"certainty"`
+	Distance      float64    `json:"distance"`
+	WithDistance  bool       `json:"-"`
+	TargetVectors []string   `json:"targetVectors"`
+	Selection     *Selection `json:"selection,omitempty"`
 }
 
 type ObjectMove struct {
@@ -148,6 +160,7 @@ type NearTextParams struct {
 	Network       bool
 	Autocorrect   bool
 	TargetVectors []string
+	Selection     *Selection
 }
 
 type GroupBy struct {
