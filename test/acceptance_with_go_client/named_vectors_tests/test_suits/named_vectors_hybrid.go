@@ -47,7 +47,7 @@ func testHybrid(host string) func(t *testing.T) {
 					Vectorizer: map[string]interface{}{
 						text2vecTransformers: map[string]interface{}{
 							"vectorizeClassName": false,
-							"sourceProperties":   []string{"text"},
+							"properties":         []string{"text"},
 						},
 					},
 					VectorIndexType: "flat",
@@ -56,7 +56,7 @@ func testHybrid(host string) func(t *testing.T) {
 					Vectorizer: map[string]interface{}{
 						text2vecModel2Vec: map[string]interface{}{
 							"vectorizeClassName": false,
-							"sourceProperties":   []string{"text2"},
+							"properties":         []string{"text2"},
 						},
 					},
 					VectorIndexType: "flat",
