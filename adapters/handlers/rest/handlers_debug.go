@@ -1198,6 +1198,56 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		}
 	}))
+
+	// GET /debug/pending-async-deletions/{collection}/shards/{shard}/buckets/{bucket}
+	// Returns the current count of in-flight async segment deletion goroutines
+	// and the configured limit for the requested bucket.
+	http.HandleFunc("/debug/pending-async-deletions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, "/debug/pending-async-deletions/")
+		parts := strings.Split(path, "/")
+		// expect: [collection, "shards", shard, "buckets", bucket]
+		if len(parts) != 5 || parts[1] != "shards" || parts[3] != "buckets" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid path, expected /debug/pending-async-deletions/{collection}/shards/{shard}/buckets/{bucket}"})
+			return
+		}
+		colName, shardName, bucketName := parts[0], parts[2], parts[4]
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "collection not found"})
+			return
+		}
+		shard, release, err := idx.GetShard(context.Background(), shardName)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+			return
+		}
+		defer release()
+		if shard == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "shard not found"})
+			return
+		}
+		b := shard.Store().Bucket(bucketName)
+		if b == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("bucket %q not found", bucketName)})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"collection":               colName,
+			"shard":                    shardName,
+			"bucket":                   bucketName,
+			"pendingAsyncDeletions":    b.PendingAsyncDeletions(),
+			"maxPendingAsyncDeletions": b.MaxPendingAsyncDeletions(),
+		})
+	}))
 }
 
 // skipSensitiveConfig creates a copy of the config with Authentication and Authorization

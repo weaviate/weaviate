@@ -1118,6 +1118,7 @@ func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy
 		lsmkv.WithPread(index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(index.allocChecker),
 		lsmkv.WithMaxSegmentSize(index.Config.MaxSegmentSize),
+		lsmkv.WithMaxPendingAsyncDeletions(index.Config.MaxPendingAsyncDeletions),
 		lsmkv.WithSegmentsChecksumValidationEnabled(index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithStrategy(strategy),
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),

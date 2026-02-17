@@ -845,6 +845,7 @@ type IndexConfig struct {
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	MaxSegmentSize                      int64
+	MaxPendingAsyncDeletions            int
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool

@@ -1,40 +1,53 @@
 #!/usr/bin/env python3 -u
 """
-hol_blocking_demo.py — Proves that compaction is HOL-blocked on stable/v1.34
-                        and not blocked on the async-deletion fix branch.
+hol_blocking_demo.py — Demonstrates PERSISTENCE_LSM_MAX_PENDING_ASYNC_DELETIONS.
 
 HOW IT WORKS
 ============
 Within a single shard, LSM buckets (objects, property_text, property__id, …)
-share a SEQUENTIAL compaction cycle (routinesLimit=1). Their callbacks run one
-by one in registration order — and "objects" is always registered first.
+share a SEQUENTIAL compaction cycle (routinesLimit=1).  Their callbacks run one
+by one in registration order — "objects" is always first.
 
-When the objects bucket finishes compacting (switchInMemory), it calls
-deleteOldSegmentsFromDisk which waits for all reader refs to drop to zero.
-On stable/v1.34 this wait is SYNCHRONOUS and BLOCKS the whole cycle, so
-every sibling bucket (property_text, …) never gets a turn.
+With limit=0 (old synchronous behaviour / stable/v1.34):
+  When objects finishes a merge, it calls deleteOldSegmentsFromDisk which waits
+  for all reader refs to reach zero — synchronously.  If a consistent view is
+  held on objects, this wait never returns, and every sibling bucket (including
+  property_text) is HOL-blocked for the duration.
 
-This script holds a consistent view on the objects bucket (pinning refs > 0)
-then checks whether the property_text bucket in the same shard can compact:
+With limit>0 (async deletion fix):
+  The deletion is dispatched to a background goroutine up to `limit` times.
+  The compaction cycle returns immediately, and property_text gets its turn.
 
-  stable/v1.34:  property_text stays at ≥2 same-level segments → HOL-BLOCKED
-  fix branch:    property_text compacts those segments         → NOT BLOCKED
+SIGNAL
+======
+We hold a consistent view on the objects bucket from the moment its very first
+level-0 segment appears, then import 30 batches while watching both buckets.
 
-SEGMENT DETECTION
-=================
-Flushed (level-0) segments are named  segment-{nanoseconds}.db
-Compacted segments are named          segment-{id1}_{id2}[.l{N}.s{M}].db
+  limit=0  → objects compacts ONCE (then the sync deletion blocks forever on
+             the pinned ref), property_text never compacts.   HOL-BLOCKED.
+  limit>0  → Both buckets accumulate multiple compactions.   NOT BLOCKED.
 
-We parse the level from the filename:
-  - If the name contains `.l{N}.s{M}` the level is N.
-  - If the name has no such suffix and no underscore in the id portion,
-    it is a fresh flush at level 0.
-  - Otherwise (underscore present, no explicit level) assume level 1.
+A "compaction" is visible as a level-1+ segment on disk (merge output files).
+Segment files are named:
+  segment-{nanoseconds}.db              fresh flush, level 0
+  segment-{id1}_{id2}[.l{N}.s{M}].db   merged, level N (or 1 if no explicit N)
+.deleteme files (old inputs awaiting deletion) are excluded from the count.
+
+PASS/FAIL
+=========
+  PASS  if property_text completed ≥1 compaction after the view was held.
+  FAIL  if property_text completed 0 compactions (HOL-blocked).
 
 USAGE
 =====
-  # From the repo root, on the branch you want to test:
+  # Default limit (10 = async deletion enabled):
   python3 tools/dev/hol_blocking_demo.py
+
+  # Disable async deletion (old synchronous behaviour):
+  PERSISTENCE_LSM_MAX_PENDING_ASYNC_DELETIONS=0 python3 tools/dev/hol_blocking_demo.py
+
+  # Custom limit:
+  PERSISTENCE_LSM_MAX_PENDING_ASYNC_DELETIONS=3 python3 tools/dev/hol_blocking_demo.py
 
 REQUIREMENTS
 ============
@@ -77,8 +90,10 @@ COLLECTION    = "HolBlockingDemo"
 OBJECTS_PER_BATCH = 1_000
 TEXT_SIZE         = 10_000   # 10 KB per object → ~10 MB per 1000-object batch
 
-# How long to wait for property_text to compact while view is held on objects
-COMPACT_WAIT = 60   # seconds
+IMPORT_BATCHES = 30
+
+# Read the limit from the environment (mirrors what the server will use).
+ASYNC_LIMIT = int(os.environ.get("PERSISTENCE_LSM_MAX_PENDING_ASYNC_DELETIONS", "10"))
 
 # ---------------------------------------------------------------------------
 # Weaviate helpers
@@ -174,10 +189,9 @@ def segments_per_level(data_path, col, bucket):
     return c
 
 
-def max_same_level(data_path, col, bucket):
-    """Maximum number of segments at any single level (compaction eligibility)."""
-    lvls = segments_per_level(data_path, col, bucket)
-    return max(lvls.values(), default=0)
+def higher_level_count(levels):
+    """Number of segments at level >= 1 (each represents at least one completed merge)."""
+    return sum(cnt for lvl, cnt in levels.items() if lvl >= 1)
 
 
 def get_shard_name(data_path, col):
@@ -219,11 +233,13 @@ def main():
     data_path = tempfile.mkdtemp(prefix="weaviate-hol-demo-")
 
     banner = "=" * 70
+    limit_desc = "all-sync (old behaviour)" if ASYNC_LIMIT == 0 else f"async up to {ASYNC_LIMIT} goroutines"
     print(f"\n{banner}")
     print("  HOL-Blocking Compaction Demo")
-    print(f"  Repo:     {REPO_ROOT}")
-    print(f"  Data dir: {data_path}")
-    print(f"  API port: {API_PORT}   pprof port: {PPROF_PORT}")
+    print(f"  Repo:        {REPO_ROOT}")
+    print(f"  Data dir:    {data_path}")
+    print(f"  API port:    {API_PORT}   pprof port: {PPROF_PORT}")
+    print(f"  Async limit: {ASYNC_LIMIT}  ({limit_desc})")
     print(f"{banner}\n")
 
     # Pre-flight: ensure ports are free
@@ -255,6 +271,7 @@ def main():
         **os.environ,
         "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
         "PERSISTENCE_DATA_PATH": data_path,
+        "PERSISTENCE_LSM_MAX_PENDING_ASYNC_DELETIONS": str(ASYNC_LIMIT),
         # Cluster / RAFT (isolated single-node)
         "CLUSTER_HOSTNAME":         "hol-demo",
         "CLUSTER_GOSSIP_BIND_PORT": "7299",
@@ -292,122 +309,126 @@ def main():
         print("  Done.\n")
 
         # ------------------------------------------------------------------
-        # Import batches until BOTH buckets have ≥2 segments at the SAME
-        # level.  Same-level segments are eligible for compaction — holding
-        # refs on those segments will block deleteOldSegmentsFromDisk and
-        # therefore the whole sequential compaction cycle for this shard.
+        # Step 4: Import 30 batches, hold view at first level-0 segment.
+        #
+        # We hold a consistent view on the objects bucket as soon as its
+        # first level-0 segment appears.  This pins that segment's ref-count
+        # so that any deletion touching it will block.
+        #
+        # After holding the view we count how many compactions complete per
+        # bucket (increases in level-1+ segment count).  The results reveal
+        # whether the compaction cycle was HOL-blocked:
+        #
+        #   limit=0  → objects: 1 compaction, property_text: 0 compactions
+        #              (sync deletion blocks the whole cycle on the pinned ref)
+        #   limit>0  → both buckets accumulate multiple compactions
+        #              (async deletion unblocks the cycle for sibling buckets)
         # ------------------------------------------------------------------
-        print("Step 4: Importing until both buckets have ≥2 same-level segments ...")
-        print(f"  (each batch: {OBJECTS_PER_BATCH} objects × {TEXT_SIZE} chars "
-              f"≈ {OBJECTS_PER_BATCH * TEXT_SIZE // 1_000_000} MB)\n")
+        print(f"Step 4: Importing {IMPORT_BATCHES} batches "
+              f"({OBJECTS_PER_BATCH} objects × {TEXT_SIZE} chars each).")
+        print(f"  View held on objects at its first level-0 segment.\n")
+        print(f"  {'batch':>5}  {'objects levels':>28}  {'txt levels':>28}  notes")
+        print(f"  {'-'*5}  {'-'*28}  {'-'*28}  -----")
 
         shard = None
-        batch_num = 0
-        while True:
-            batch_num += 1
-            print(f"  Batch {batch_num}: importing {OBJECTS_PER_BATCH} objects ...",
-                  end="  ", flush=True)
+        view_held = False
+        # Snapshot of compaction counts at the moment the view was held
+        obj_compact_at_hold = 0
+        txt_compact_at_hold = 0
+        # Running max of compactions seen after the view was held
+        obj_compactions_after = 0
+        txt_compactions_after = 0
+
+        obj_final_lvls = collections.Counter()
+        txt_final_lvls = collections.Counter()
+
+        for batch_num in range(1, IMPORT_BATCHES + 1):
             import_batch(COLLECTION, OBJECTS_PER_BATCH)
 
             if shard is None:
                 try:
                     shard = get_shard_name(data_path, COLLECTION)
                 except RuntimeError:
-                    print("(shard not yet visible)", flush=True)
+                    print(f"  {batch_num:>5}  (shard not yet visible)")
                     continue
 
             obj_lvls = segments_per_level(data_path, COLLECTION, "objects")
             txt_lvls = segments_per_level(data_path, COLLECTION, "property_text")
-            obj_max  = max(obj_lvls.values(), default=0)
-            txt_max  = max(txt_lvls.values(), default=0)
+            obj_final_lvls = obj_lvls
+            txt_final_lvls = txt_lvls
 
-            print(f"objects={dict(obj_lvls)}  property_text={dict(txt_lvls)}",
-                  flush=True)
+            obj_c = higher_level_count(obj_lvls)
+            txt_c = higher_level_count(txt_lvls)
 
-            if obj_max >= 2 and txt_max >= 2:
-                print(f"\n  Both buckets have ≥2 same-level segments — ready.\n")
-                break
+            notes = []
 
-            if batch_num >= 50:
-                raise RuntimeError(
-                    "Could not build ≥2 same-level segments in either bucket "
-                    "after 50 batches. Check server logs."
-                )
+            # Hold the view as soon as objects has its first level-0 segment.
+            # This pins that segment before a second one appears, ensuring the
+            # compaction pair contains a ref-held segment.
+            if not view_held and obj_lvls.get(0, 0) >= 1:
+                hold_view(COLLECTION, shard, "objects")
+                view_held = True
+                obj_compact_at_hold = obj_c
+                txt_compact_at_hold = txt_c
+                notes.append("VIEW HELD")
+
+            if view_held:
+                new_obj = obj_c - obj_compact_at_hold
+                new_txt = txt_c - txt_compact_at_hold
+                if new_obj > obj_compactions_after:
+                    delta = new_obj - obj_compactions_after
+                    notes.append(f"+{delta} obj compact")
+                    obj_compactions_after = new_obj
+                if new_txt > txt_compactions_after:
+                    delta = new_txt - txt_compactions_after
+                    notes.append(f"+{delta} txt compact")
+                    txt_compactions_after = new_txt
+
+            print(f"  {batch_num:>5}  {str(dict(obj_lvls)):>28}  "
+                  f"{str(dict(txt_lvls)):>28}  {' | '.join(notes)}", flush=True)
+
+        if not view_held:
+            raise RuntimeError("objects never produced a level-0 segment in 30 batches")
 
         # ------------------------------------------------------------------
-        # Hold a consistent view on objects bucket.
-        #
-        # The sequential cycle processes "objects" first.  With held refs:
-        #
-        #   stable/v1.34:  objects compacts, then BLOCKS the entire cycle in
-        #                  deleteOldSegmentsFromDisk(waitForReferenceCountToReachZero)
-        #                  → property_text callback NEVER RUNS.
-        #
-        #   fix branch:    objects compacts, dispatches deletion to goroutine,
-        #                  returns immediately → property_text CAN compact.
+        # Step 5: Report
         # ------------------------------------------------------------------
-        print(f"Step 5: Holding consistent view on objects bucket ...")
-        hold_view(COLLECTION, shard, "objects")
+        print(f"\nStep 5: Results after {IMPORT_BATCHES} batches "
+              f"(limit={ASYNC_LIMIT}):\n")
+        print(f"  Final objects     levels : {dict(obj_final_lvls)}")
+        print(f"  Final txt index   levels : {dict(txt_final_lvls)}")
         print()
+        print(f"  Compactions in objects     after view held: {obj_compactions_after}")
+        print(f"  Compactions in txt index   after view held: {txt_compactions_after}")
+
+        if ASYNC_LIMIT == 0:
+            print(f"\n  Expected (limit=0): objects=1, txt=0  "
+                  f"(sync deletion HOL-blocks the cycle)")
+        else:
+            print(f"\n  Expected (limit={ASYNC_LIMIT}): objects>1, txt>0  "
+                  f"(async deletion keeps the cycle moving)")
 
         # ------------------------------------------------------------------
-        # Measure: does property_text compact while the view is held?
+        # Release the view
         # ------------------------------------------------------------------
-        initial_txt_lvls = segments_per_level(data_path, COLLECTION, "property_text")
-        initial_max = max(initial_txt_lvls.values(), default=0)
-        print(f"Step 6: Checking whether property_text compacts "
-              f"(levels={dict(initial_txt_lvls)}, timeout={COMPACT_WAIT}s) ...\n")
-
-        t_start      = time.time()
-        deadline     = t_start + COMPACT_WAIT
-        txt_compacted = False
-
-        print(f"  {'elapsed':>8}  {'obj levels':>20}  {'txt levels':>20}")
-        while time.time() < deadline:
-            obj_lvls = segments_per_level(data_path, COLLECTION, "objects")
-            txt_lvls = segments_per_level(data_path, COLLECTION, "property_text")
-            txt_max  = max(txt_lvls.values(), default=0)
-            elapsed  = time.time() - t_start
-            print(f"  [{elapsed:6.1f}s]  {str(dict(obj_lvls)):>20}  "
-                  f"{str(dict(txt_lvls)):>20}")
-            if txt_max < initial_max:
-                txt_compacted = True
-                print(f"\n  => property_text COMPACTED in {elapsed:.1f}s  "
-                      f"(max same-level {initial_max} → {txt_max})")
-                break
-            time.sleep(0.5)
-
-        if not txt_compacted:
-            print(f"\n  => property_text did NOT compact within {COMPACT_WAIT}s "
-                  f"while view is held on objects.")
-            print(f"     This is the HOL-blocking bug.\n")
-
-        # ------------------------------------------------------------------
-        # Release the view; verify property_text compacts
-        # ------------------------------------------------------------------
-        print(f"\nStep 7: Releasing view on objects ...")
+        print(f"\nStep 6: Releasing view on objects ...")
         release_view(COLLECTION, shard, "objects")
-
-        deadline2 = time.time() + 30
-        while time.time() < deadline2:
-            txt_lvls = segments_per_level(data_path, COLLECTION, "property_text")
-            if max(txt_lvls.values(), default=0) <= 1:
-                print(f"  property_text compacted after release (levels={dict(txt_lvls)})")
-                break
-            time.sleep(0.5)
 
         # ------------------------------------------------------------------
         # Summary
         # ------------------------------------------------------------------
+        txt_passed = txt_compactions_after >= 1
+
         print(f"\n{banner}")
-        if txt_compacted:
-            print("  RESULT: ✓ PASS — property_text compacted while view was held"
-                  " on objects.")
-            print("           The fix is working: deletion is async, no HOL blocking.")
+        if txt_passed:
+            print("  RESULT: PASS — property_text compacted while the view was held.")
+            print(f"           Async deletion (limit={ASYNC_LIMIT}) prevents HOL blocking.")
         else:
-            print("  RESULT: ✗ FAIL — property_text was HOL-blocked by the view on"
-                  " objects.")
-            print("           stable/v1.34 behaviour confirmed.")
+            print("  RESULT: FAIL — property_text was HOL-blocked by the view on objects.")
+            if ASYNC_LIMIT == 0:
+                print("           limit=0: synchronous deletion confirmed (old behaviour).")
+            else:
+                print(f"           Unexpected: limit={ASYNC_LIMIT} but property_text still blocked.")
         print(f"{banner}\n")
 
     except Exception as e:

@@ -155,6 +155,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		lsmkv.WithMaxPendingAsyncDeletions(s.index.Config.MaxPendingAsyncDeletions),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),

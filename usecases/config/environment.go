@@ -414,6 +414,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseNonNegativeInt(
+		"PERSISTENCE_LSM_MAX_PENDING_ASYNC_DELETIONS",
+		func(n int) { config.Persistence.LSMMaxPendingAsyncDeletions = n },
+		DefaultPersistenceLSMMaxPendingAsyncDeletions,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {

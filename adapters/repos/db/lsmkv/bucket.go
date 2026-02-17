@@ -175,6 +175,11 @@ type Bucket struct {
 	// ensuring segment files have integrity before reading them.
 	enableChecksumValidation bool
 
+	// optional upper bound on in-flight async segment deletions. When the limit
+	// is reached, the next deletion runs synchronously instead of spawning
+	// another goroutine. 0 means no limit.
+	maxPendingAsyncDeletions int
+
 	// keep segments in memory for more performant search
 	// (currently used by roaringsetrange inverted indexes)
 	keepSegmentsInMemory bool
@@ -291,6 +296,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			maxPendingAsyncDeletions:     b.maxPendingAsyncDeletions,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -510,6 +516,18 @@ type BucketConsistentView struct {
 
 func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
+}
+
+// PendingAsyncDeletions returns the number of in-flight background goroutines
+// currently waiting to delete old segment files for this bucket.
+func (b *Bucket) PendingAsyncDeletions() int {
+	return int(b.disk.pendingAsyncDeletions.Load())
+}
+
+// MaxPendingAsyncDeletions returns the configured upper bound on in-flight
+// async segment deletions. 0 means no limit is enforced.
+func (b *Bucket) MaxPendingAsyncDeletions() int {
+	return b.maxPendingAsyncDeletions
 }
 
 // GetConsistentView returns a consistent view of the bucket that can be used

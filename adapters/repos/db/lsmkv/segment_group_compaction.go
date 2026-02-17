@@ -447,20 +447,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	// existing readers to finish — which may take a while if a cursor is
 	// active. Running this in a background goroutine prevents HOL blocking of
 	// the entire compaction cycle while one bucket waits for its readers.
-	sg.asyncDeletionWg.Add(1)
-	go func(left, right Segment) {
-		defer sg.asyncDeletionWg.Done()
-		if err := sg.deleteOldSegmentsFromDisk(left, right); err != nil {
-			// don't abort if the delete fails, we can still continue (albeit
-			// without freeing disk space that should have been freed). The
-			// compaction itself was successful.
-			sg.logger.WithError(err).WithFields(logrus.Fields{
-				"action":     "lsm_replace_compacted_segments_delete_files",
-				"file_left":  left.getPath(),
-				"file_right": right.getPath(),
-			}).Error("failed to delete file already marked for deletion")
-		}
-	}(oldLeft, oldRight)
+	sg.launchOrSyncDelete(oldLeft, oldRight)
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
@@ -729,6 +716,35 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 		"strategy": strategy,
 		"path":     dir,
 	}).Set(float64(s.unloaded))
+}
+
+// launchOrSyncDelete dispatches deleteOldSegmentsFromDisk to a background
+// goroutine. If the configured limit of in-flight async deletions is reached
+// (or the limit is 0, disabling async deletion entirely), it falls back to
+// synchronous deletion.
+func (sg *SegmentGroup) launchOrSyncDelete(segs ...Segment) {
+	limit := sg.maxPendingAsyncDeletions
+	if int(sg.pendingAsyncDeletions.Load()) >= limit {
+		sg.logger.WithFields(logrus.Fields{
+			"action":  "lsm_async_deletion_limit_reached",
+			"limit":   limit,
+			"pending": sg.pendingAsyncDeletions.Load(),
+		}).Warn("async deletion limit reached, falling back to synchronous deletion")
+		if err := sg.deleteOldSegmentsFromDisk(segs...); err != nil {
+			sg.logger.WithError(err).Error("failed to delete old segment files (sync fallback)")
+		}
+		return
+	}
+
+	sg.asyncDeletionWg.Add(1)
+	sg.pendingAsyncDeletions.Add(1)
+	go func() {
+		defer sg.asyncDeletionWg.Done()
+		defer sg.pendingAsyncDeletions.Add(-1)
+		if err := sg.deleteOldSegmentsFromDisk(segs...); err != nil {
+			sg.logger.WithError(err).Error("failed to delete old segment files (async)")
+		}
+	}()
 }
 
 func (sg *SegmentGroup) compactionFitsSizeLimit(left, right Segment) bool {

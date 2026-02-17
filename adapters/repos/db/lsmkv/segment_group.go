@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -80,8 +81,9 @@ type SegmentGroup struct {
 	MinMMapSize              int64
 	keepLevelCompaction      bool // see bucket for more details
 
-	allocChecker   memwatch.AllocChecker
-	maxSegmentSize int64
+	allocChecker             memwatch.AllocChecker
+	maxSegmentSize           int64
+	maxPendingAsyncDeletions int
 
 	segmentCleaner     segmentCleaner
 	cleanupInterval    time.Duration
@@ -90,6 +92,10 @@ type SegmentGroup struct {
 
 	// tracks in-flight async segment deletions (post-compaction/cleanup)
 	asyncDeletionWg sync.WaitGroup
+
+	// pendingAsyncDeletions tracks the number of deleteOldSegmentsFromDisk
+	// goroutines currently in-flight. Used to enforce maxPendingAsyncDeletions.
+	pendingAsyncDeletions atomic.Int32
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
@@ -117,6 +123,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	maxPendingAsyncDeletions     int
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -148,6 +155,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeMetadata:                cfg.writeMetadata,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
+		maxPendingAsyncDeletions:     cfg.maxPendingAsyncDeletions,
 	}
 
 	segmentIndex := 0

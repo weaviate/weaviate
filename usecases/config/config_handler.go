@@ -412,6 +412,7 @@ type Persistence struct {
 	HNSWSnapshotOnStartup                        bool   `json:"hnswSnapshotOnStartup" yaml:"hnswSnapshotOnStartup"`
 	HNSWSnapshotMinDeltaCommitlogsNumber         int    `json:"hnswSnapshotMinDeltaCommitlogsNumber" yaml:"hnswSnapshotMinDeltaCommitlogsNumber"`
 	HNSWSnapshotMinDeltaCommitlogsSizePercentage int    `json:"hnswSnapshotMinDeltaCommitlogsSizePercentage" yaml:"hnswSnapshotMinDeltaCommitlogsSizePercentage"`
+	LSMMaxPendingAsyncDeletions                  int    `json:"lsmMaxPendingAsyncDeletions" yaml:"lsmMaxPendingAsyncDeletions"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -429,6 +430,12 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 // DefaultPersistenceLSMCycleManagerRoutinesFactor - determines how many goroutines
 // are started for cyclemanager (factor * NUMCPU)
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
+
+// DefaultPersistenceLSMMaxPendingAsyncDeletions is the default cap on in-flight
+// async segment deletion goroutines. When this limit is reached, deletions fall
+// back to synchronous execution. Set to 0 to disable async deletion entirely
+// (reverts to the old synchronous behaviour).
+const DefaultPersistenceLSMMaxPendingAsyncDeletions = 10
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 

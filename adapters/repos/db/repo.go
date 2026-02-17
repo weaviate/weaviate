@@ -279,6 +279,7 @@ type Config struct {
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
+	MaxPendingAsyncDeletions            int
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool

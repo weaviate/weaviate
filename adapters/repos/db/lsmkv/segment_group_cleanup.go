@@ -603,19 +603,7 @@ func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 	// existing readers to finish — which may take a while if a cursor is
 	// active. Running this in a background goroutine prevents HOL blocking of
 	// the entire compaction cycle while one bucket waits for its readers.
-	sg.asyncDeletionWg.Add(1)
-	go func(old Segment) {
-		defer sg.asyncDeletionWg.Done()
-		if err := sg.deleteOldSegmentsFromDisk(old); err != nil {
-			// don't abort if the delete fails, we can still continue (albeit
-			// without freeing disk space that should have been freed). The
-			// compaction itself was successful.
-			sg.logger.WithError(err).WithFields(logrus.Fields{
-				"action": "lsm_replace_cleaned_segment_delete_file",
-				"file":   old.getPath(),
-			}).Error("failed to delete file already marked for deletion")
-		}
-	}(oldSegment)
+	sg.launchOrSyncDelete(oldSegment)
 
 	return newSegment, nil
 }

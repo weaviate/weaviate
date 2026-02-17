@@ -121,6 +121,7 @@ func (db *DB) init(ctx context.Context) error {
 				CycleManagerRoutinesFactor:                   db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
 				MaxSegmentSize:                               db.config.MaxSegmentSize,
+				MaxPendingAsyncDeletions:                     db.config.MaxPendingAsyncDeletions,
 				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
 				TrackVectorDimensionsInterval:                db.config.TrackVectorDimensionsInterval,
 				UsageEnabled:                                 db.config.UsageEnabled,
