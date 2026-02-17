@@ -225,26 +225,22 @@ func (s *Shard) NotifyReady() {
 // maybeResumeAfterInit checks if a shard that initialized halted should
 // self-resume because the backup was released while the shard was initializing.
 // This MUST be called after the shard is stored in i.shards, so that there is
-// no window where resumeMaintenanceCycles misses it and the self-check also
+// no window where releaseBackupAndResume misses it and the self-check also
 // misses the backup release.
 //
-// The check is done under haltedShardsForTransferLock which is the same lock
-// that resetBackupState uses to clear lastBackup. This ensures the shard either
-// sees backup done (and self-resumes) or sees backup in progress (and will be
-// resumed by resumeMaintenanceCycles which can now find it in the shard map).
+// It checks whether the shard is still in the halted map under the same lock
+// that releaseBackupAndResume uses to clear it. If the map was already cleared,
+// the release is underway and this shard should self-resume.
 func (s *Shard) maybeResumeAfterInit(ctx context.Context) {
 	if !s.haltedOnInit {
 		return
 	}
 
 	s.index.haltedShardsForTransferLock.Lock()
-	backupInProgress := false
-	if backup := s.index.lastBackup.Load(); backup != nil && backup.InProgress {
-		backupInProgress = true
-	}
+	stillHalted := s.index.shouldShardInHaltedMap(s.name)
 	s.index.haltedShardsForTransferLock.Unlock()
 
-	if !backupInProgress {
+	if !stillHalted {
 		if err := s.resumeMaintenanceCycles(ctx); err != nil {
 			s.index.logger.WithError(err).WithField("shard", s.name).
 				Warn("failed to resume shard after backup released during init")

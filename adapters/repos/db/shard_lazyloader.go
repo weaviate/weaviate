@@ -444,6 +444,10 @@ func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
 	return l.shard.resumeMaintenanceCycles(ctx)
 }
 
+// maybeResumeAfterInit is a no-op for lazy shards. The actual resume check
+// happens inside Load() after the real shard is created (see shard.maybeResumeAfterInit).
+func (l *LazyLoadShard) maybeResumeAfterInit(ctx context.Context) {}
+
 func (l *LazyLoadShard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
 	if err := l.Load(ctx); err != nil {
 		return file.FileMetadata{}, err
