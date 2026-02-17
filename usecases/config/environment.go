@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -118,6 +120,10 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		config.ReindexVectorDimensionsAtStartup = true
+	}
+
+	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead.")
 	}
 
 	// Lazy load shard count threshold for auto-detection
@@ -943,6 +949,7 @@ func FromEnv(config *Config) error {
 		// Deprecated flag: still honored, environment always wins over auto-detection.
 		case waitEnvSet:
 			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. Vector cache prefill is now always enabled and will match the lazy load shard configuration.")
 
 		default:
 			config.HNSWStartupWaitForVectorCache = true
