@@ -2383,9 +2383,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	i.shards.Store(shardName, shard)
-	if s, ok := shard.(*Shard); ok {
-		s.maybeResumeAfterInit(ctx)
-	}
+	shard.maybeResumeAfterInit(ctx)
 
 	return nil
 }
@@ -2478,9 +2476,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 				return nil, func() {}, err
 			}
 			i.shards.Store(shardName, shard)
-			if s, ok := shard.(*Shard); ok {
-				s.maybeResumeAfterInit(ctx)
-			}
+			shard.maybeResumeAfterInit(ctx)
 		}
 	}
 
