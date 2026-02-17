@@ -151,9 +151,9 @@ func newNodesRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.
 func (e *nodesRequestsTotal) logError(className string, err error) {
 	switch {
 	case errors.As(err, &enterrors.ErrNotFound{}), errors.As(err, &enterrors.ErrUnprocessable{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	case errors.As(err, &autherrs.Forbidden{}):
-		e.logUserError(className)
+		e.logUserError(className, err)
 	default:
 		e.logServerError(className, err)
 	}

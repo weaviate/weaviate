@@ -74,7 +74,7 @@ func (m *requestsTotalMetric) RequestsTotalInc(status RequestStatus, className, 
 type restApiRequestsTotal interface {
 	logError(className string, err error)
 	logOk(className string)
-	logUserError(className string)
+	logUserError(className string, err error)
 	logServerError(className string, err error)
 }
 
@@ -90,7 +90,13 @@ func (e *restApiRequestsTotalImpl) logOk(className string) {
 	}
 }
 
-func (e *restApiRequestsTotalImpl) logUserError(className string) {
+func (e *restApiRequestsTotalImpl) logUserError(className string, err error) {
+	e.logger.WithFields(logrus.Fields{
+		"action":     "requests_total",
+		"api":        e.api,
+		"query_type": e.queryType,
+		"class_name": className,
+	}).WithError(err).Error("unexpected error")
 	if e.metrics != nil {
 		e.metrics.RequestsTotalInc(UserError, className, e.queryType)
 	}
