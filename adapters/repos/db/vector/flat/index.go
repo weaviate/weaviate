@@ -472,11 +472,8 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	// Ensure quantizer is initialized
 	if index.quantizer == nil {
-		count, err := index.store.Bucket(index.getBucketName()).Count(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		if count == 0 {
+		dims := atomic.LoadInt32(&index.dims)
+		if dims == 0 {
 			return []uint64{}, []float32{}, nil
 		} else {
 			return nil, nil, fmt.Errorf("quantizer not initialized")
