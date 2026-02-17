@@ -211,12 +211,15 @@ func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap,
 }
 
 func generateOperator(first, second *docBitmap, operator filters.Operator) (func(*sroar.Bitmap, int) *sroar.Bitmap, bool, *docBitmap) {
+	// if both are deny lists, we can swap the operator, as NOT (A AND B) == NOT A OR NOT B and NOT (A OR B) == NOT A AND NOT B
 	if first.IsDenyList() && second.IsDenyList() {
 		switch operator {
 		case filters.OperatorAnd:
 			return first.docIDs.OrConc, true, second
 		case filters.OperatorOr:
 			return first.docIDs.AndConc, true, second
+		default:
+			return nil, false, nil
 		}
 	}
 
@@ -230,6 +233,8 @@ func generateOperator(first, second *docBitmap, operator filters.Operator) (func
 			return second.docIDs.AndNotConc, false, first
 		case filters.OperatorOr:
 			return first.docIDs.AndNotConc, true, second
+		default:
+			return nil, false, nil
 		}
 	}
 
@@ -238,8 +243,9 @@ func generateOperator(first, second *docBitmap, operator filters.Operator) (func
 		return first.docIDs.AndConc, false, second
 	case filters.OperatorOr:
 		return first.docIDs.OrConc, false, second
+	default:
+		return nil, false, nil
 	}
-	panic(fmt.Sprintf("unsupported operator: %s", operator.Name()))
 }
 
 // mergeDocIDs merges provided docBitmaps using given operator.
@@ -270,6 +276,10 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 
 	for i := 0; i < len(dbms)-1; i++ {
 		mergeFn, isDenyList, other := generateOperator(dbms[0], dbms[i+1], operator)
+		// should never happen, as operator is already checked in generateOperator, but just in case
+		if mergeFn == nil {
+			continue
+		}
 		dbms[0].docIDs = mergeFn(other.docIDs, concurrency.SROAR_MERGE)
 		dbms[0].isDenyList = isDenyList
 		// order can change, so we always release the "other" bitmap, which is not needed anymore
