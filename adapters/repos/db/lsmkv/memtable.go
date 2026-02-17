@@ -43,6 +43,10 @@ type memtable interface {
 	setTombstone(key []byte, opts ...SecondaryKeyOption) error
 	setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error
 
+	getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
+	getManyBySecondary(pos int, keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error)
+	existMany(keys map[int][]byte, outErrs map[int]error)
+
 	getCollection(key []byte) ([]value, error)
 	getMap(key []byte) ([]MapPair, error)
 	append(key []byte, values []value) error
@@ -209,6 +213,33 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	return m.key.get(key)
 }
 
+func (m *Memtable) getMany(keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	start := time.Now()
+	defer m.metrics.observeGet(start.UnixNano()) // TODO aliszka:many separate for get many?
+
+	if m.strategy != StrategyReplace {
+		err := errors.Errorf("get only possible with strategy 'replace'")
+		for i := range keys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	for i := range keys {
+		val, err := m.key.get(keys[i])
+		if err != nil {
+			outErrs[i] = err
+			continue
+		}
+
+		outVals[i] = val
+		delete(outErrs, i)
+	}
+}
+
 // exists checks if a key exists and is not deleted, without returning the value.
 // This is more efficient than get() when only existence check is needed.
 func (m *Memtable) exists(key []byte) error {
@@ -220,6 +251,27 @@ func (m *Memtable) exists(key []byte) error {
 	defer m.RUnlock()
 
 	return m.key.exists(key)
+}
+
+func (m *Memtable) existMany(keys map[int][]byte, outErrs map[int]error) {
+	if m.strategy != StrategyReplace {
+		err := errors.Errorf("exists only possible with strategy 'replace'")
+		for i := range keys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	for i := range keys {
+		if err := m.key.exists(keys[i]); err != nil {
+			outErrs[i] = err
+			continue
+		}
+		delete(outErrs, i)
+	}
 }
 
 func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
@@ -239,6 +291,39 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	}
 
 	return m.key.get(primary)
+}
+
+func (m *Memtable) getManyBySecondary(pos int, keys map[int][]byte, outVals map[int][]byte, outErrs map[int]error) {
+	start := time.Now()
+	defer m.metrics.observeGetBySecondary(start.UnixNano()) // TODO aliszka:many separate for get many?
+
+	if m.strategy != StrategyReplace {
+		err := errors.Errorf("get only possible with strategy 'replace'")
+		for i := range keys {
+			outErrs[i] = err
+		}
+		return
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	for i := range keys {
+		primary := m.secondaryToPrimary[pos][string(keys[i])]
+		if primary == nil {
+			outErrs[i] = lsmkv.NotFound
+			continue
+		}
+
+		val, err := m.key.get(primary)
+		if err != nil {
+			outErrs[i] = err
+			continue
+		}
+
+		outVals[i] = val
+		delete(outErrs, i)
+	}
 }
 
 func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
