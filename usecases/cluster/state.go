@@ -103,9 +103,6 @@ type Config struct {
 	// them in maintenance mode. In addition, we may want to have the cluster nodes not in
 	// maintenance mode be aware of which nodes are in maintenance mode in the future.
 	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
-	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
-	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
-	RaftBootstrapExpect int
 	// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
 	RequestQueueConfig RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
 }
