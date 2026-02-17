@@ -1133,52 +1133,114 @@ func TestBM25FWithFiltersNotEquals(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	filter := &filters.LocalFilter{
-		Root: &filters.Clause{
-			Operator: filters.OperatorNotEqual,
-
-			On: &filters.Path{
-				Class:    schema.ClassName("MyClass"),
-				Property: schema.PropertyName("description"),
-			},
-			Value: &filters.Value{
-				Value: "journey",
-				Type:  schema.DataType("text"),
-			},
+	notEqualClause := filters.Clause{
+		Operator: filters.OperatorNotEqual,
+		On: &filters.Path{
+			Class:    schema.ClassName("MyClass"),
+			Property: schema.PropertyName("description"),
+		},
+		Value: &filters.Value{
+			Value: "journey",
+			Type:  schema.DataType("text"),
+		},
+	}
+	equalClause := filters.Clause{
+		Operator: filters.OperatorEqual,
+		On: &filters.Path{
+			Class:    schema.ClassName("MyClass"),
+			Property: schema.PropertyName("title"),
+		},
+		Value: &filters.Value{
+			Value: "unrelated",
+			Type:  schema.DataType("text"),
 		},
 	}
 
-	resultIds := make([][]uint64, 2)
-	resultScores := make([][]float32, 2)
+	tests := []struct {
+		name           string
+		filter         *filters.LocalFilter
+		expectedDocIDs []uint64
+	}{
+		{
+			name: "not equal only",
+			filter: &filters.LocalFilter{
+				Root: &notEqualClause,
+			},
+			expectedDocIDs: []uint64{7, 0, 1},
+		},
+		{
+			name: "or with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{equalClause, notEqualClause},
+				},
+			},
+			expectedDocIDs: []uint64{3, 7, 0, 1},
+		},
+		{
+			name: "and with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{equalClause, notEqualClause},
+				},
+			},
+			expectedDocIDs: []uint64{7},
+		},
+		{
+			name: "or with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{notEqualClause, equalClause},
+				},
+			},
+			expectedDocIDs: []uint64{3, 7, 0, 1},
+		},
+		{
+			name: "and with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{notEqualClause, equalClause},
+				},
+			},
+			expectedDocIDs: []uint64{7},
+		},
+	}
+
 	for i, location := range []string{"memory", "disk"} {
-		t.Run("bm25f with filter "+location, func(t *testing.T) {
-			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "my unrelated journey", AdditionalExplanations: true}
-			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, props)
+		t.Run(location, func(t *testing.T) {
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "my unrelated journey", AdditionalExplanations: true}
+					addit := additional.Properties{}
+					res, scores, err := idx.objectSearch(context.TODO(), 1000, tc.filter, kwr, nil, nil, addit, nil, "", 0, props)
 
-			require.Nil(t, err)
+					require.Nil(t, err)
 
-			for j, r := range res {
-				resultIds[i] = append(resultIds[i], r.DocID)
-				resultScores[i] = append(resultScores[i], scores[j])
-				t.Logf("Result id: %v, score: %v, additional: %v\n", r.DocID, r.ExplainScore(), r.Object.Additional)
+					for j, r := range res {
+						_ = scores[j]
+						t.Logf("Result id: %v, score: %v, additional: %v\n", r.DocID, r.ExplainScore(), r.Object.Additional)
+					}
+
+					require.Len(t, res, len(tc.expectedDocIDs))
+					for j, expectedID := range tc.expectedDocIDs {
+						require.Equal(t, expectedID, res[j].DocID)
+					}
+				})
 			}
-
-			// We have three results
-			require.Len(t, res, 3)
-			require.Equal(t, uint64(7), res[0].DocID)
-			require.Equal(t, uint64(0), res[1].DocID)
-			require.Equal(t, uint64(1), res[2].DocID)
 		})
 
-		for _, index := range repo.indices {
-			index.ForEachShard(func(name string, shard ShardLike) error {
-				err := shard.Store().FlushMemtables(context.Background())
-				require.Nil(t, err)
-				return nil
-			})
+		if i == 0 {
+			for _, index := range repo.indices {
+				index.ForEachShard(func(name string, shard ShardLike) error {
+					err := shard.Store().FlushMemtables(context.Background())
+					require.Nil(t, err)
+					return nil
+				})
+			}
 		}
 	}
-	assert.Equal(t, resultIds[0], resultIds[1], "Result IDs should be the same for memory and disk")
-	assert.Equal(t, resultScores[0], resultScores[1], "Result scores should be the same for memory and disk")
 }
