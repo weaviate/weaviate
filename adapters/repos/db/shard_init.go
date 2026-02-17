@@ -33,6 +33,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+// NewShard creates and initializes a new shard.
+//
+// IMPORTANT: After storing the returned shard in i.shards, the caller MUST call
+// shard.maybeResumeAfterInit(ctx) to handle the case where a backup was released
+// while the shard was initializing.
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
@@ -80,6 +85,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		bitmapBufPool:                   bitmapBufPool,
 		SPFreshEnabled:                  index.SPFreshEnabled,
 	}
+
+	// Check if this shard should initialize in halted state
+	s.haltedOnInit = index.shouldShardInitHalted(shardName)
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
@@ -150,7 +158,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
-	if asyncEnabled() {
+	if asyncEnabled() && !s.haltedOnInit {
 		f := func() {
 			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
 				if err := s.ConvertQueue(targetVector); err != nil {
@@ -163,6 +171,27 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 	s.NotifyReady()
 
+	if s.haltedOnInit {
+		s.haltForTransferMux.Lock()
+		s.haltForTransferCount = 1
+		s.haltForTransferMux.Unlock()
+
+		// Pause all vector queues
+		_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+			q.Pause()
+			return nil
+		})
+
+		// Pause compaction at store level
+		if err := s.store.PauseCompaction(ctx); err != nil {
+			return nil, fmt.Errorf("pause compaction on halted init: %w", err)
+		}
+
+		// NOTE: self-resume check is NOT done here because the shard is not yet
+		// in i.shards at this point. The caller must call maybeResumeAfterInit
+		// after storing the shard in the shard map.
+	}
+
 	if exists {
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
@@ -171,6 +200,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunAfterLsmInit(ctx, s)
 	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
+
 	return s, nil
 }
 
@@ -190,4 +220,34 @@ func (s *Shard) NotifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
+}
+
+// maybeResumeAfterInit checks if a shard that initialized halted should
+// self-resume because the backup was released while the shard was initializing.
+// This MUST be called after the shard is stored in i.shards, so that there is
+// no window where resumeMaintenanceCycles misses it and the self-check also
+// misses the backup release.
+//
+// The check is done under haltedShardsForTransferLock which is the same lock
+// that resetBackupState uses to clear lastBackup. This ensures the shard either
+// sees backup done (and self-resumes) or sees backup in progress (and will be
+// resumed by resumeMaintenanceCycles which can now find it in the shard map).
+func (s *Shard) maybeResumeAfterInit(ctx context.Context) {
+	if !s.haltedOnInit {
+		return
+	}
+
+	s.index.haltedShardsForTransferLock.Lock()
+	backupInProgress := false
+	if backup := s.index.lastBackup.Load(); backup != nil && backup.InProgress {
+		backupInProgress = true
+	}
+	s.index.haltedShardsForTransferLock.Unlock()
+
+	if !backupInProgress {
+		if err := s.resumeMaintenanceCycles(ctx); err != nil {
+			s.index.logger.WithError(err).WithField("shard", s.name).
+				Warn("failed to resume shard after backup released during init")
+		}
+	}
 }

@@ -299,6 +299,16 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 
 	SPFreshEnabled bool
+
+	// haltedOnInit tracks if shard was initialized in halted state.
+	// This is different from a shard that was halted after being fully initialized:
+	// - Normal halt: vector cycles were started then deactivated, async replication
+	//   was initialized then stopped. Resume just reactivates existing cycles.
+	// - Halted on init: vector cycles were never started, async replication was
+	//   never initialized. Resume must actually start these for the first time.
+	// We need this flag because while vector cycle Start() is idempotent,
+	// initAsyncReplication() is not - it creates hashtrees and spawns goroutines.
+	haltedOnInit bool
 }
 
 func (s *Shard) ID() string {

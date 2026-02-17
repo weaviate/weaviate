@@ -145,6 +145,10 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.shard = shard
 	l.loaded = true
 
+	// The LazyLoadShard wrapper is already in i.shards, so
+	// resumeMaintenanceCycles can find us via the wrapper.
+	shard.maybeResumeAfterInit(ctx)
+
 	return nil
 }
 
