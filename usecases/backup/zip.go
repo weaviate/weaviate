@@ -57,7 +57,7 @@ type zip struct {
 	maxChunkSizeInBytes int64
 }
 
-func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, io.ReadCloser, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -103,13 +103,19 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, io.ReadCl
 }
 
 func (z *zip) Close() error {
+	return z.CloseWithError(nil)
+}
+
+// CloseWithError closes the zip and signals the given error to the consumer.
+// If err is non-nil, the consumer's read will return this error instead of EOF.
+func (z *zip) CloseWithError(err error) error {
 	var err1, err2, err3 error
 	err1 = z.w.Close()
 	if z.compressorWriter != nil {
 		err2 = z.compressorWriter.Close()
 	}
-	if err := z.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
-		err3 = err
+	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil && !errors.Is(closeErr, io.ErrClosedPipe) {
+		err3 = closeErr
 	}
 	if err1 != nil || err2 != nil || err3 != nil {
 		return fmt.Errorf("tar: %w, gzip: %w, pw: %w", err1, err2, err3)
@@ -394,7 +400,7 @@ func (v vFileInfo) IsDir() bool        { return false }
 func (v vFileInfo) Sys() interface{}   { return nil }
 
 type readCloser struct {
-	src io.ReadCloser
+	src *io.PipeReader
 	n   int64
 }
 
@@ -405,6 +411,11 @@ func (r *readCloser) Read(p []byte) (n int, err error) {
 }
 
 func (r *readCloser) Close() error { return r.src.Close() }
+
+// CloseWithError closes the reader and signals the given error to the producer.
+// If err is non-nil, the producer's write will return this error instead of
+// the generic "io: read/write on closed pipe".
+func (r *readCloser) CloseWithError(err error) error { return r.src.CloseWithError(err) }
 
 func zipLevel(level int) int {
 	if level < 0 || level > 3 {
