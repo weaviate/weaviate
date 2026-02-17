@@ -193,10 +193,17 @@ func (s *Server) ReleaseTransferSnapshot(ctx context.Context, req *shardproto.Re
 
 // GetLastAppliedIndex returns the last applied RAFT log index for a shard.
 // Used by followers to determine how far they need to catch up before a local read.
+// When VerifyLeader is true, the handler verifies leadership before returning,
+// which is required for linearizable (STRONG) reads.
 func (s *Server) GetLastAppliedIndex(ctx context.Context, req *shardproto.GetLastAppliedIndexRequest) (*shardproto.GetLastAppliedIndexResponse, error) {
 	store := s.registry.GetStore(req.Class, req.Shard)
 	if store == nil {
 		return nil, status.Errorf(codes.NotFound, "store not found for %s/%s", req.Class, req.Shard)
+	}
+	if req.VerifyLeader {
+		if err := store.VerifyLeader(); err != nil {
+			return nil, toRPCError(err)
+		}
 	}
 	return &shardproto.GetLastAppliedIndexResponse{
 		LastAppliedIndex: store.LastAppliedIndex(),

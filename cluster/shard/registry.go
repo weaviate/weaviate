@@ -326,6 +326,41 @@ func (reg *Registry) WaitForShardReady(ctx context.Context, className, shardName
 	return store.WaitForAppliedIndex(ctx, resp.LastAppliedIndex)
 }
 
+// WaitForLinearizableRead performs the ReadIndex protocol with leadership verification.
+// Used for STRONG consistency reads. Unlike WaitForShardReady (used in the write path),
+// this method requests VerifyLeader=true to guarantee linearizability.
+func (reg *Registry) WaitForLinearizableRead(ctx context.Context, className, shardName string) error {
+	store := reg.GetStore(className, shardName)
+	if store == nil {
+		return nil // RAFT not configured for this shard
+	}
+
+	if store.IsLeader() {
+		return store.VerifyLeader() // Leader must verify for linearizability
+	}
+
+	leaderID := store.LeaderID()
+	if leaderID == "" {
+		return ErrNoLeaderFound
+	}
+
+	client, err := reg.RpcClientMaker(ctx, leaderID)
+	if err != nil {
+		return fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
+	}
+
+	resp, err := client.GetLastAppliedIndex(ctx, &shardproto.GetLastAppliedIndexRequest{
+		Class:        className,
+		Shard:        shardName,
+		VerifyLeader: true,
+	})
+	if err != nil {
+		return fmt.Errorf("get leader applied index: %w", err)
+	}
+
+	return store.WaitForAppliedIndex(ctx, resp.LastAppliedIndex)
+}
+
 // Leader returns the leader node ID for a shard.
 func (reg *Registry) Leader(className, shardName string) string {
 	raft := reg.GetRaft(className)

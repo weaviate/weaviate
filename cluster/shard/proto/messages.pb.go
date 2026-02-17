@@ -1106,9 +1106,11 @@ func (*ReleaseTransferSnapshotResponse) Descriptor() ([]byte, []int) {
 // GetLastAppliedIndexRequest asks a node for its last applied RAFT log index
 // for a specific shard.
 type GetLastAppliedIndexRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Class         string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Class string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
+	Shard string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	// If true, verify leadership before returning the index (for linearizable reads).
+	VerifyLeader  bool `protobuf:"varint,3,opt,name=verify_leader,json=verifyLeader,proto3" json:"verify_leader,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1155,6 +1157,13 @@ func (x *GetLastAppliedIndexRequest) GetShard() string {
 		return x.Shard
 	}
 	return ""
+}
+
+func (x *GetLastAppliedIndexRequest) GetVerifyLeader() bool {
+	if x != nil {
+		return x.VerifyLeader
+	}
+	return false
 }
 
 // GetLastAppliedIndexResponse returns the node's last applied RAFT log index.
@@ -1286,10 +1295,11 @@ const file_messages_proto_rawDesc = "" +
 	"\x1eReleaseTransferSnapshotRequest\x12\x1f\n" +
 	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
 	"snapshotId\"!\n" +
-	"\x1fReleaseTransferSnapshotResponse\"H\n" +
+	"\x1fReleaseTransferSnapshotResponse\"m\n" +
 	"\x1aGetLastAppliedIndexRequest\x12\x14\n" +
 	"\x05class\x18\x01 \x01(\tR\x05class\x12\x14\n" +
-	"\x05shard\x18\x02 \x01(\tR\x05shard\"K\n" +
+	"\x05shard\x18\x02 \x01(\tR\x05shard\x12#\n" +
+	"\rverify_leader\x18\x03 \x01(\bR\fverifyLeader\"K\n" +
 	"\x1bGetLastAppliedIndexResponse\x12,\n" +
 	"\x12last_applied_index\x18\x01 \x01(\x04R\x10lastAppliedIndex2\x81\x05\n" +
 	"\x17ShardReplicationService\x12V\n" +

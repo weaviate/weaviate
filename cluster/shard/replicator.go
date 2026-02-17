@@ -35,13 +35,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var (
-	// ErrNoLeaderFound is returned when no leader can be found for a shard.
-	ErrNoLeaderFound = errors.New("no leader found for shard")
-
-	// ErrForwardingRequired is returned when the request needs to be forwarded to another node.
-	ErrForwardingRequired = errors.New("request must be forwarded to leader")
-)
+// ErrNoLeaderFound is returned when no leader can be found for a shard.
+var ErrNoLeaderFound = errors.New("no leader found for shard")
 
 type Replicator interface {
 	AddReferences(ctx context.Context, shard string, refs []objects.BatchReference, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error
@@ -57,9 +52,23 @@ type Replicator interface {
 	MergeObject(ctx context.Context, shard string, doc *objects.MergeDocument, l routerTypes.ConsistencyLevel, schemaVersion uint64) error
 	NodeObject(ctx context.Context, nodeName string, shard string, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error)
 	Overwrite(ctx context.Context, host string, index string, shard string, xs []*objects.VObject) ([]routerTypes.RepairResponse, error)
+	EnsureReadConsistency(ctx context.Context, shardName string, cl routerTypes.ConsistencyLevel) (localReady bool, err error)
 	PutObject(ctx context.Context, shard string, obj *storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) error
 	PutObjects(ctx context.Context, shard string, objs []*storobj.Object, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error
 }
+
+// ShardReader provides read access to a local shard.
+// Implemented by adapters/repos/db.ShardLike.
+type ShardReader interface {
+	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error)
+	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
+	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
+}
+
+// ShardReaderProvider resolves a shard name to a local ShardReader.
+// Returns the reader and a release function. Returns nil reader if the
+// shard is not locally available.
+type ShardReaderProvider func(shardName string) (ShardReader, func(), error)
 
 // RouterConfig holds configuration for the Router.
 type RouterConfig struct {
@@ -77,6 +86,10 @@ type RouterConfig struct {
 	BackingReplicator Replicator
 	// Client is the forwarding client used to send requests to leaders when this node is not the leader.
 	RpcClientMaker rpcClientMaker
+	// LocalShardReader resolves a shard name to a local reader for direct reads.
+	LocalShardReader ShardReaderProvider
+	// Registry is the shard RAFT registry (for ReadIndex protocol).
+	Registry *Registry
 }
 
 // Router routes operations to the correct shard RAFT leader.
@@ -469,4 +482,252 @@ func (r *replicator) VerifyLeaderForRead(ctx context.Context, shardName string) 
 // LeaderAddress returns the current leader's address for the specified shard.
 func (r *replicator) LeaderAddress(shardName string) string {
 	return r.raft.LeaderAddress(shardName)
+}
+
+// GetOne overrides the backing replicator for RAFT-backed shards.
+func (r *replicator) GetOne(ctx context.Context, l routerTypes.ConsistencyLevel, shard string, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error) {
+	isRaftShard := r.raft.GetStore(shard) != nil
+
+	// Non-RAFT shard: delegate to backing replicator (mapping RAFT CLs to 2PC equivalents)
+	if !isRaftShard {
+		cl := l
+		if l.IsRaft() {
+			cl = l.MapTo2PC()
+		}
+		return r.Replicator.GetOne(ctx, cl, shard, id, props, adds)
+	}
+
+	// RAFT shard: reject 2PC CLs
+	if l.Is2PC() {
+		return nil, fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", l)
+	}
+
+	switch l {
+	case routerTypes.ConsistencyLevelEventual:
+		return r.readLocalObject(ctx, shard, id, props, adds)
+
+	case routerTypes.ConsistencyLevelStrong:
+		if err := r.ensureReadIndex(ctx, shard); err != nil {
+			return nil, fmt.Errorf("strong read: %w", err)
+		}
+		return r.readLocalObject(ctx, shard, id, props, adds)
+
+	case routerTypes.ConsistencyLevelDirect:
+		return r.readFromLeader(ctx, shard, id, props, adds)
+
+	default:
+		return nil, fmt.Errorf("unsupported consistency level: %s", l)
+	}
+}
+
+// Exists overrides the backing replicator for RAFT-backed shards.
+func (r *replicator) Exists(ctx context.Context, l routerTypes.ConsistencyLevel, shard string, id strfmt.UUID) (bool, error) {
+	isRaftShard := r.raft.GetStore(shard) != nil
+
+	if !isRaftShard {
+		cl := l
+		if l.IsRaft() {
+			cl = l.MapTo2PC()
+		}
+		return r.Replicator.Exists(ctx, cl, shard, id)
+	}
+
+	if l.Is2PC() {
+		return false, fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", l)
+	}
+
+	switch l {
+	case routerTypes.ConsistencyLevelEventual:
+		return r.existsLocal(ctx, shard, id)
+
+	case routerTypes.ConsistencyLevelStrong:
+		if err := r.ensureReadIndex(ctx, shard); err != nil {
+			return false, fmt.Errorf("strong read: %w", err)
+		}
+		return r.existsLocal(ctx, shard, id)
+
+	case routerTypes.ConsistencyLevelDirect:
+		return r.existsFromLeader(ctx, shard, id)
+
+	default:
+		return false, fmt.Errorf("unsupported consistency level: %s", l)
+	}
+}
+
+// FindUUIDs overrides the backing replicator for RAFT-backed shards.
+func (r *replicator) FindUUIDs(ctx context.Context, className string, shard string, f *filters.LocalFilter, l routerTypes.ConsistencyLevel, limit int) ([]strfmt.UUID, error) {
+	isRaftShard := r.raft.GetStore(shard) != nil
+
+	if !isRaftShard {
+		cl := l
+		if l.IsRaft() {
+			cl = l.MapTo2PC()
+		}
+		return r.Replicator.FindUUIDs(ctx, className, shard, f, cl, limit)
+	}
+
+	if l.Is2PC() {
+		return nil, fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", l)
+	}
+
+	switch l {
+	case routerTypes.ConsistencyLevelEventual:
+		return r.findUUIDsLocal(ctx, shard, f, limit)
+
+	case routerTypes.ConsistencyLevelStrong:
+		if err := r.ensureReadIndex(ctx, shard); err != nil {
+			return nil, fmt.Errorf("strong read: %w", err)
+		}
+		return r.findUUIDsLocal(ctx, shard, f, limit)
+
+	case routerTypes.ConsistencyLevelDirect:
+		// For DIRECT FindUUIDs, ensure we're on leader or fall back to backing replicator
+		store := r.raft.GetStore(shard)
+		if store.IsLeader() {
+			if err := store.VerifyLeader(); err != nil {
+				return nil, fmt.Errorf("verify leader: %w", err)
+			}
+			return r.findUUIDsLocal(ctx, shard, f, limit)
+		}
+		// Forward via backing replicator mapped to ALL (leader-read)
+		return r.Replicator.FindUUIDs(ctx, className, shard, f, routerTypes.ConsistencyLevelAll, limit)
+
+	default:
+		return nil, fmt.Errorf("unsupported consistency level: %s", l)
+	}
+}
+
+// CheckConsistency overrides the backing replicator for RAFT CLs.
+// For RAFT CLs, consistency is ensured at read time (ReadIndex or leader read),
+// so skip the post-read digest check.
+func (r *replicator) CheckConsistency(ctx context.Context, l routerTypes.ConsistencyLevel, objs []*storobj.Object) error {
+	if l.IsRaft() {
+		return nil // Consistency already ensured by ReadIndex/VerifyLeader
+	}
+	return r.Replicator.CheckConsistency(ctx, l, objs)
+}
+
+// readLocalObject reads from the local shard via shardReaderProvider.
+func (r *replicator) readLocalObject(ctx context.Context, shard string, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error) {
+	reader, release, err := r.config.LocalShardReader(shard)
+	if err != nil {
+		return nil, fmt.Errorf("get local shard reader: %w", err)
+	}
+	if reader == nil {
+		return nil, fmt.Errorf("shard %s not available locally", shard)
+	}
+	defer release()
+	return reader.ObjectByID(ctx, id, props, adds)
+}
+
+// existsLocal checks existence via the local shard reader.
+func (r *replicator) existsLocal(ctx context.Context, shard string, id strfmt.UUID) (bool, error) {
+	reader, release, err := r.config.LocalShardReader(shard)
+	if err != nil {
+		return false, fmt.Errorf("get local shard reader: %w", err)
+	}
+	if reader == nil {
+		return false, fmt.Errorf("shard %s not available locally", shard)
+	}
+	defer release()
+	return reader.Exists(ctx, id)
+}
+
+// findUUIDsLocal finds UUIDs via the local shard reader.
+func (r *replicator) findUUIDsLocal(ctx context.Context, shard string, f *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+	reader, release, err := r.config.LocalShardReader(shard)
+	if err != nil {
+		return nil, fmt.Errorf("get local shard reader: %w", err)
+	}
+	if reader == nil {
+		return nil, fmt.Errorf("shard %s not available locally", shard)
+	}
+	defer release()
+	return reader.FindUUIDs(ctx, f, limit)
+}
+
+// ensureReadIndex performs the ReadIndex protocol for STRONG consistency.
+// Delegates to Registry.WaitForLinearizableRead which handles:
+// - Leader: VerifyLeader (no RPC needed)
+// - Follower: GetLastAppliedIndex RPC with VerifyLeader=true → wait for local FSM
+func (r *replicator) ensureReadIndex(ctx context.Context, shardName string) error {
+	return r.config.Registry.WaitForLinearizableRead(ctx, r.config.ClassName, shardName)
+}
+
+// readFromLeader reads from the leader for DIRECT consistency.
+// If this node is the leader, reads locally after verifying leadership.
+// If not, forwards the read to the leader node via the backing replicator's NodeObject.
+func (r *replicator) readFromLeader(ctx context.Context, shard string, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error) {
+	store := r.raft.GetStore(shard)
+	if store == nil {
+		return nil, fmt.Errorf("raft store not found for shard %s", shard)
+	}
+
+	if store.IsLeader() {
+		if err := store.VerifyLeader(); err != nil {
+			return nil, fmt.Errorf("verify leader: %w", err)
+		}
+		return r.readLocalObject(ctx, shard, id, props, adds)
+	}
+
+	// Forward to leader using the backing replicator's NodeObject
+	leaderID := store.LeaderID()
+	if leaderID == "" {
+		return nil, ErrNoLeaderFound
+	}
+	return r.NodeObject(ctx, leaderID, shard, id, props, adds)
+}
+
+// existsFromLeader checks existence from the leader for DIRECT consistency.
+func (r *replicator) existsFromLeader(ctx context.Context, shard string, id strfmt.UUID) (bool, error) {
+	store := r.raft.GetStore(shard)
+	if store == nil {
+		return false, fmt.Errorf("raft store not found for shard %s", shard)
+	}
+
+	if store.IsLeader() {
+		if err := store.VerifyLeader(); err != nil {
+			return false, fmt.Errorf("verify leader: %w", err)
+		}
+		return r.existsLocal(ctx, shard, id)
+	}
+
+	// For Exists, there's no direct NodeObject equivalent — fall back to backing replicator
+	// with ALL consistency level which reads from all replicas (including leader).
+	return r.Replicator.Exists(ctx, routerTypes.ConsistencyLevelAll, shard, id)
+}
+
+// EnsureReadConsistency ensures a shard is ready for a consistent read under RAFT CLs.
+// For EVENTUAL: no-op, local shard is ready.
+// For STRONG: performs ReadIndex protocol (via WaitForLinearizableRead), local shard is ready.
+// For DIRECT: verifies leadership; returns false if this node isn't leader (caller should forward).
+// Returns true if the local shard is ready for a consistent read.
+func (r *replicator) EnsureReadConsistency(ctx context.Context, shardName string, cl routerTypes.ConsistencyLevel) (bool, error) {
+	if !cl.IsRaft() || r.raft.GetStore(shardName) == nil {
+		return true, nil // Not RAFT, proceed normally
+	}
+
+	switch cl {
+	case routerTypes.ConsistencyLevelEventual:
+		return true, nil
+
+	case routerTypes.ConsistencyLevelStrong:
+		if err := r.ensureReadIndex(ctx, shardName); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case routerTypes.ConsistencyLevelDirect:
+		store := r.raft.GetStore(shardName)
+		if store.IsLeader() {
+			if err := store.VerifyLeader(); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+		return false, nil // Caller should forward search to leader
+
+	default:
+		return true, nil
+	}
 }

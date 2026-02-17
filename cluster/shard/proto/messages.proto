@@ -187,6 +187,8 @@ message ReleaseTransferSnapshotResponse {
 message GetLastAppliedIndexRequest {
   string class = 1;
   string shard = 2;
+  // If true, verify leadership before returning the index (for linearizable reads).
+  bool verify_leader = 3;
 }
 
 // GetLastAppliedIndexResponse returns the node's last applied RAFT log index.
