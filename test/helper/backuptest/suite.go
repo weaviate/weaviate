@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -98,6 +99,10 @@ type BackupTestSuiteConfig struct {
 
 	// TestCancellation runs backup cancellation test instead of full backup/restore
 	TestCancellation bool
+
+	// TestTenantDeactivation tests backup/restore with some tenants deactivated (COLD).
+	// Only valid when MultiTenant is true.
+	TestTenantDeactivation bool
 }
 
 // DefaultSuiteConfig returns a default configuration for the backup test suite.
@@ -667,6 +672,77 @@ func (s *BackupTestSuite) RunCancellationTest(t *testing.T) {
 	})
 }
 
+// RunTenantDeactivationTest tests backup/restore with some tenants deactivated (COLD).
+// It creates a multi-tenant class, deactivates half the tenants, creates a backup,
+// deletes the class, restores, and verifies that tenant activity statuses and objects
+// are correctly preserved.
+func (s *BackupTestSuite) RunTenantDeactivationTest(t *testing.T) {
+	backupID := fmt.Sprintf("%s-%d", s.config.BackupID, time.Now().UnixNano())
+
+	s.CreateTestClass(t)
+	s.CreateTestTenants(t)
+	s.CreateTestObjects(t)
+	s.VerifyObjectsExist(t)
+
+	allTenants := s.dataGen.GenerateTenants()
+	// Split tenants: first half will be toggled during backup
+	toggleTenants := allTenants[:len(allTenants)/2]
+
+	tenantsToDeactivate := make([]*models.Tenant, len(toggleTenants))
+	for i, name := range toggleTenants {
+		tenantsToDeactivate[i] = &models.Tenant{
+			Name:           name,
+			ActivityStatus: models.TenantActivityStatusCOLD,
+		}
+	}
+	tenantsToReactivate := make([]*models.Tenant, len(toggleTenants))
+	for i, name := range toggleTenants {
+		tenantsToReactivate[i] = &models.Tenant{
+			Name:           name,
+			ActivityStatus: models.TenantActivityStatusHOT,
+		}
+	}
+
+	// Start backup (async — returns immediately)
+	cfg := helper.DefaultBackupConfig()
+	resp, err := helper.CreateBackup(t, cfg, s.config.ClassName, s.config.BackendType, backupID)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// While backup is running, deactivate tenants then reactivate them.
+	// This exercises the race where a shard initializes (reactivation) while
+	// HaltForTransfer is active on the index.
+	helper.UpdateTenants(t, s.config.ClassName, tenantsToDeactivate)
+	helper.UpdateTenants(t, s.config.ClassName, tenantsToReactivate)
+
+	// Wait for backup to finish
+	helper.ExpectBackupEventuallyCreated(t, backupID, s.config.BackendType, nil,
+		helper.WithDeadline(s.config.BackupTimeout))
+
+	// All tenants should be HOT and fully functional after backup completes
+	expectedPerTenant := int64(s.config.ObjectsPerTenant)
+	for _, tenant := range allTenants {
+		count := moduleshelper.GetClassCount(t, s.config.ClassName, tenant)
+		require.Equal(t, expectedPerTenant, count,
+			"tenant %s should have %d objects after backup with concurrent toggle", tenant, expectedPerTenant)
+	}
+
+	// Now restore and verify
+	s.DeleteTestClass(t)
+	s.VerifyObjectsDoNotExist(t)
+
+	s.RestoreBackup(t, backupID)
+
+	// After restore all tenants should be HOT with all objects
+	for _, tenant := range allTenants {
+		count := moduleshelper.GetClassCount(t, s.config.ClassName, tenant)
+		require.Equal(t, expectedPerTenant, count,
+			"tenant %s should have %d objects after restore", tenant, expectedPerTenant)
+	}
+
+	s.DeleteTestClass(t)
+}
+
 // RunTestsWithSharedCompose runs all backup test scenarios using a pre-existing compose.
 // This is optimized for test suites that share a single cluster across multiple tests.
 // The compose lifecycle is NOT managed by this method - caller is responsible for setup/teardown.
@@ -686,6 +762,10 @@ func (s *BackupTestSuite) RunTestsWithSharedCompose(t *testing.T, compose *docke
 	if s.config.TestCancellation {
 		t.Run("backup_cancellation", func(t *testing.T) {
 			s.RunCancellationTest(t)
+		})
+	} else if s.config.TestTenantDeactivation {
+		t.Run("tenant_deactivation_backup_restore", func(t *testing.T) {
+			s.RunTenantDeactivationTest(t)
 		})
 	} else {
 		t.Run("basic_backup_restore", func(t *testing.T) {
@@ -792,6 +872,10 @@ type BackupTestCase struct {
 
 	// TestCancellation tests backup cancellation instead of full backup/restore
 	TestCancellation bool
+
+	// TestTenantDeactivation tests backup/restore with some tenants deactivated (COLD).
+	// Only valid when MultiTenant is true.
+	TestTenantDeactivation bool
 }
 
 // DefaultTestCase returns a test case with default settings (single-tenant).
@@ -875,6 +959,18 @@ func CancellationTestCase() BackupTestCase {
 	}
 }
 
+// MultiTenantDeactivationTestCase returns a test case for multi-tenant backup with tenant deactivation.
+// Some tenants are set to COLD before backup, then verified after restore.
+func MultiTenantDeactivationTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:                   "mt_deactivation",
+		MultiTenant:            true,
+		NumTenants:             10,
+		ObjectsPerTenant:       100,
+		TestTenantDeactivation: true,
+	}
+}
+
 // SharedComposeConfig holds configuration for the shared Docker compose environment.
 type SharedComposeConfig struct {
 	// Compose is the shared Docker compose instance
@@ -921,23 +1017,24 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 	}
 
 	return &BackupTestSuiteConfig{
-		BackendType:      backendType,
-		BucketName:       "backups", // Use the default bucket created by shared cluster
-		Region:           sharedConfig.Region,
-		ClassName:        fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
-		BackupID:         fmt.Sprintf("backup-%s-%d", testCase.Name, timestamp),
-		MultiTenant:      testCase.MultiTenant,
-		NumTenants:       numTenants,
-		ObjectsPerTenant: objectsPerTenant,
-		ClusterSize:      clusterSize,
-		WithVectorizer:   true,
-		TestTimeout:      5 * time.Minute,
-		BackupTimeout:    2 * time.Minute,
-		RestoreTimeout:   2 * time.Minute,
-		ExternalCompose:  sharedConfig.Compose,
-		MinioEndpoint:    sharedConfig.MinioEndpoint,
-		WithCompression:  testCase.WithCompression,
-		TestCancellation: testCase.TestCancellation,
+		BackendType:            backendType,
+		BucketName:             "backups", // Use the default bucket created by shared cluster
+		Region:                 sharedConfig.Region,
+		ClassName:              fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
+		BackupID:               fmt.Sprintf("backup-%s-%d", testCase.Name, timestamp),
+		MultiTenant:            testCase.MultiTenant,
+		NumTenants:             numTenants,
+		ObjectsPerTenant:       objectsPerTenant,
+		ClusterSize:            clusterSize,
+		WithVectorizer:         true,
+		TestTimeout:            5 * time.Minute,
+		BackupTimeout:          2 * time.Minute,
+		RestoreTimeout:         2 * time.Minute,
+		ExternalCompose:        sharedConfig.Compose,
+		MinioEndpoint:          sharedConfig.MinioEndpoint,
+		WithCompression:        testCase.WithCompression,
+		TestCancellation:       testCase.TestCancellation,
+		TestTenantDeactivation: testCase.TestTenantDeactivation,
 	}
 }
 

@@ -117,6 +117,25 @@ func TestFilesystemBackup_MultiTenant_WithRQ(t *testing.T) {
 }
 
 // =============================================================================
+// Tenant Deactivation Tests
+// =============================================================================
+
+// TestFilesystemBackup_MultiTenant_Deactivation tests filesystem backup/restore
+// with some tenants deactivated (COLD) during backup.
+func TestFilesystemBackup_MultiTenant_Deactivation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunFilesystemBackupTests(t, compose, backuptest.MultiTenantDeactivationTestCase())
+}
+
+// =============================================================================
 // Backup Cancellation Tests
 // =============================================================================
 
