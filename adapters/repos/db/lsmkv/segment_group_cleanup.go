@@ -594,7 +594,7 @@ func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 		return nil, fmt.Errorf("replace cleaned segment (blocking): %w", err)
 	}
 
-	sg.addSegmentsToAwaitingRemoval(oldSegment)
+	sg.addSegmentsToAwaitingDrop(oldSegment)
 
 	return newSegment, nil
 }

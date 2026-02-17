@@ -439,7 +439,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
-	sg.addSegmentsToAwaitingRemoval(oldLeft, oldRight)
+	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
@@ -542,42 +542,85 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 	}
 }
 
-func (sg *SegmentGroup) addSegmentsToAwaitingRemoval(segments ...Segment) {
-	sg.segmentRefCounterLock.Lock()
-	defer sg.segmentRefCounterLock.Unlock()
-
-	sg.segmentsAwaitingRemoval = append(sg.segmentsAwaitingRemoval, segments...)
+// Compacted or cleaned up segments are pushed to the array to be dropped later.
+// Immediate drop may not be possible due to files being in use by ongoing reads.
+func (sg *SegmentGroup) addSegmentsToAwaitingDrop(segments ...Segment) {
+	// as compaction / cleanup can not run in parallel, concurrent access is not possible
+	now := time.Now()
+	for _, seg := range segments {
+		sg.segmentsAwaitingDrop = append(sg.segmentsAwaitingDrop, struct {
+			seg  Segment
+			time time.Time
+		}{seg: seg, time: now})
+	}
 }
 
-func (sg *SegmentGroup) removeSegmentsAwaiting() error {
-	toDelete := make([]Segment, 0, 4)
+// Compacted or cleaned up segments are closed and dropped only if there are
+// no active references (segments are not read at the moment).
+// Drop method should be called periodically to handle files that are no longer in use / read.
+// As segments are already replaced by new ones, reference counter is expected only to decrease over time.
+// Once it reaches 0, segment can be safely closed and its files removed from disk.
+func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
+	if len(sg.segmentsAwaitingDrop) == 0 {
+		return 0, nil
+	}
 
+	warnThreshold := 10 * time.Second
+	warnInterval := 10 * time.Second
+
+	now := time.Now()
+	skipWarning := sg.segmentsAwaitingLastWarn.Add(warnInterval).After(now)
+	waitingCount := 0
+	var maxWaitingDuration time.Duration
+	var maxWaitingSegment Segment
+	var maxWaitingRefs int
+
+	toDrop := make([]Segment, 0, 4)
 	func() {
 		sg.segmentRefCounterLock.Lock()
 		defer sg.segmentRefCounterLock.Unlock()
 
-		if len(sg.segmentsAwaitingRemoval) == 0 {
-			return
-		}
-
 		i := 0
-		for _, seg := range sg.segmentsAwaitingRemoval {
-			if seg.getRefs() == 0 {
-				toDelete = append(toDelete, seg)
+		for _, st := range sg.segmentsAwaitingDrop {
+			if refs := st.seg.getRefs(); refs == 0 {
+				toDrop = append(toDrop, st.seg)
 			} else {
-				sg.segmentsAwaitingRemoval[i] = seg
+				sg.segmentsAwaitingDrop[i] = st
 				i++
+
+				if !skipWarning {
+					if d := now.Sub(st.time); d >= warnThreshold {
+						waitingCount++
+						if d > maxWaitingDuration {
+							maxWaitingDuration = d
+							maxWaitingSegment = st.seg
+							maxWaitingRefs = refs
+						}
+					}
+				}
 			}
 		}
-		sg.segmentsAwaitingRemoval = sg.segmentsAwaitingRemoval[:i]
+		sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
 	}()
 
-	if len(toDelete) == 0 {
-		return nil
+	if !skipWarning && maxWaitingDuration > 0 {
+		sg.segmentsAwaitingLastWarn = now
+		sg.logger.WithFields(logrus.Fields{
+			"action":         "lsm_drop_segments_awaiting",
+			"path":           sg.dir,
+			"segment":        filepath.Base(maxWaitingSegment.getPath()),
+			"refcount":       maxWaitingRefs,
+			"wait":           maxWaitingDuration.String(),
+			"total_segments": waitingCount,
+		}).Warnf("skipping segments with refcounts (longest waiting %.2fs so far)", maxWaitingDuration.Seconds())
+	}
+
+	if len(toDrop) == 0 {
+		return 0, nil
 	}
 
 	ec := errorcompounder.New()
-	for _, seg := range toDelete {
+	for _, seg := range toDrop {
 		if err := seg.close(); err != nil {
 			ec.Add(fmt.Errorf("close segment: %w", err))
 			continue
@@ -586,8 +629,9 @@ func (sg *SegmentGroup) removeSegmentsAwaiting() error {
 			ec.Add(fmt.Errorf("drop marked: %w", err))
 			continue
 		}
+		dropped++
 	}
-	return ec.ToError()
+	return dropped, ec.ToError()
 }
 
 func (sg *SegmentGroup) monitorSegments() {

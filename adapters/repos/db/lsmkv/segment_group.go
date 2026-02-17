@@ -42,8 +42,17 @@ type SegmentGroup struct {
 	segments              []Segment
 	segmentRefCounterLock sync.Mutex
 
-	segmentsAwaitingRemoval []Segment
-	deleteMarkerCounter     *atomic.Int64
+	// Holds compacted / cleaned up segments meant to be closed and removed from disk
+	// after their's refs counter drops to 0.
+	segmentsAwaitingDrop []struct {
+		seg  Segment
+		time time.Time
+	}
+	segmentsAwaitingLastWarn time.Time
+	// Counter for generating unique names of segments marked for deletions.
+	// Segments for deletions are marked with unique stamp and extension eg:
+	// segment-1771258130098421000.db.1771333257123.deleteme
+	deleteMarkerCounter *atomic.Int64
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -146,7 +155,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		deleteMarkerCounter:          deleteMarkerCounter,
-		segmentsAwaitingRemoval:      make([]Segment, 0, 16),
 	}
 
 	segmentIndex := 0
@@ -788,20 +796,17 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
 	sg.maintenanceLock.RLock()
-	sg.segmentRefCounterLock.Lock()
-
-	ln1 := len(sg.segments)
-	ln2 := len(sg.segmentsAwaitingRemoval)
-
+	ln1 := len(sg.segmentsAwaitingDrop)
+	ln2 := len(sg.segments)
 	segmentsWithRefs := make([]Segment, ln1+ln2)
-	copy(segmentsWithRefs, sg.segments)
-	copy(segmentsWithRefs[ln1:], sg.segmentsAwaitingRemoval)
-
-	sg.segmentRefCounterLock.Unlock()
+	copy(segmentsWithRefs[ln1:], sg.segments)
+	for i := range ln1 {
+		segmentsWithRefs[i] = sg.segmentsAwaitingDrop[i].seg
+	}
 	sg.maintenanceLock.RUnlock()
 
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
-	sg.removeSegmentsAwaiting()
+	sg.dropSegmentsAwaiting()
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
@@ -899,11 +904,11 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 	}
 
 	defer func() {
-		if err := sg.removeSegmentsAwaiting(); err != nil {
-			sg.logger.WithField("action", "lsm_remove_awaiting").
+		if _, err := sg.dropSegmentsAwaiting(); err != nil {
+			sg.logger.WithField("action", "lsm_drop_segments_awaiting").
 				WithField("path", sg.dir).
 				WithError(err).
-				Errorf("removal failed")
+				Errorf("periodical drop failed")
 		}
 	}()
 
