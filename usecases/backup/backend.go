@@ -81,7 +81,7 @@ func (s *objectStore) SourceDataPath() string {
 	return s.backend.SourceDataPath()
 }
 
-func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	return s.backend.Write(ctx, s.backupId, key, overrideBucket, overridePath, r)
 }
 
@@ -506,8 +506,17 @@ func (u *uploader) compress(ctx context.Context,
 	if err != nil {
 		return shards, preCompressionSize.Load(), err
 	}
-	producer := func() error {
-		defer zip.Close()
+	producer := func() (err error) {
+		defer func() {
+			// Capture close error and join with any existing error.
+			// Close writes tar/gzip trailers and could fail if the pipe is closed.
+			// Use CloseWithError to signal any producer error to the consumer,
+			// so the consumer's read fails instead of seeing EOF.
+			closeErr := zip.CloseWithError(err)
+			if err != nil || closeErr != nil {
+				err = fmt.Errorf("producer: %w, close: %w", err, closeErr)
+			}
+		}()
 
 		if err := ctx.Err(); err != nil {
 			return err
@@ -520,7 +529,9 @@ func (u *uploader) compress(ctx context.Context,
 		shard.ClearTemporary()
 
 		if zip.compressorWriter != nil {
-			zip.compressorWriter.Flush() // flush new shard
+			if err := zip.compressorWriter.Flush(); err != nil {
+				return fmt.Errorf("flush compressor: %w", err)
+			}
 		}
 
 		return nil
@@ -529,7 +540,6 @@ func (u *uploader) compress(ctx context.Context,
 	// consumer
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
-			// if the producer has an error, the error from the consumer is not returned and lost
 			u.log.WithFields(logrus.Fields{
 				"chunkKey": chunkKey,
 			}).Errorf("failed to write chunk to backend: %v", err)
@@ -538,11 +548,16 @@ func (u *uploader) compress(ctx context.Context,
 		return nil
 	})
 
-	if err := producer(); err != nil {
-		return shards, preCompressionSize.Load(), err
+	producerErr := producer()
+	// Always wait for the consumer to finish to capture its error.
+	// If the consumer fails (e.g., network error), it closes the pipe, causing
+	// the producer to fail with "closed pipe". We need both errors to show
+	// the actual cause (consumer error), not just the symptom (closed pipe).
+	consumerErr := eg.Wait()
+	if producerErr != nil || consumerErr != nil {
+		return shards, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
 	}
-	// wait for the consumer to finish
-	return shards, preCompressionSize.Load(), eg.Wait()
+	return shards, preCompressionSize.Load(), nil
 }
 
 // calculateShardPreCompressionSize calculates the total size of a shard before compression

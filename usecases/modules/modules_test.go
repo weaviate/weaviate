@@ -521,7 +521,7 @@ func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupI
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	return 0, nil
 }
 

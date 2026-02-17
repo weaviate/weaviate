@@ -60,7 +60,21 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
-	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
+	maxSchemaVersion := fetchedClasses[object.Class].Version
+	if object.Tenant != "" {
+		activationVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, object.Class, object.Tenant)
+		if err != nil {
+			return nil, err
+		}
+		maxSchemaVersion = max(maxSchemaVersion, activationVersion)
+	}
+
+	// Wait so tenant activation and auto-tenant schema changes are visible before shard resolution and write.
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
+	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses, maxSchemaVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +84,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
+	maxSchemaVersion uint64,
 ) (*models.Object, error) {
 	id, err := m.checkIDOrAssignNew(ctx, principal, object.Class, object.ID, repl, object.Tenant)
 	if err != nil {
@@ -77,19 +92,18 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	maxSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
+	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
 	if err != nil {
 		return nil, fmt.Errorf("invalid object: %w", err)
 	}
+	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 
-	// Ensure tenants are created if auto-tenant is enabled and wait for the newer schema version
+	// Ensure tenants are created if auto-tenant is enabled.
 	autoTenantSchemaVersion, _, err := m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses)
 	if err != nil {
 		return nil, err
 	}
-	if autoTenantSchemaVersion > maxSchemaVersion {
-		maxSchemaVersion = autoTenantSchemaVersion
-	}
+	maxSchemaVersion = max(maxSchemaVersion, autoTenantSchemaVersion)
 
 	class := fetchedClasses[object.Class].Class
 
@@ -110,10 +124,6 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, err
 	}
 
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
 	vectors, multiVectors, err := dto.GetVectors(object.Vectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)

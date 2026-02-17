@@ -18,31 +18,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/mock"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -326,6 +327,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(name string) *models.Class {
+		return &models.Class{Class: name}
+	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
@@ -367,6 +371,35 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	metrics, err := NewMetrics(logger, nil, class.Class, "")
 	require.NoError(t, err)
 
+	localNodeName := "node1"
+
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.WriteReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+
+	getDeletionStrategy := func() string {
+		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
+	repClient := &FakeReplicationClient{}
+	replicator, err := replica.NewReplicator(
+		class.Class,
+		mockRouter,
+		localNodeName,
+		getDeletionStrategy,
+		repClient,
+		monitoring.GetMetrics(),
+		logger,
+	)
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
 			RootPath:            tmpDir,
@@ -381,6 +414,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
 		logger:                 logger,
 		getSchema:              schemaGetter,
+		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
 		indexCheckpoints:       checkpts,
@@ -390,6 +424,8 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
+		replicator:             replicator,
+		router:                 mockRouter,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
