@@ -18,6 +18,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -136,6 +137,12 @@ func makeHFreshWithConfig(t *testing.T, store *lsmkv.Store, cfg *Config, uc ent.
 	return index
 }
 
+func countFiles(t *testing.T, dir string) int {
+	files, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	return len(files)
+}
+
 func TestHFreshRecall(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	store := testinghelpers.NewDummyStore(t)
@@ -213,11 +220,15 @@ func TestHFreshRecall(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, dirs, 6)
 		require.Equal(t, "analyze.queue.d", dirs[0].Name())
+		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[0].Name())))
 		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[1].Name())
 		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[2].Name())
 		require.Equal(t, "merge.queue.d", dirs[3].Name())
+		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[3].Name())))
 		require.Equal(t, "reassign.queue.d", dirs[4].Name())
+		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[4].Name())))
 		require.Equal(t, "split.queue.d", dirs[5].Name())
+		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[5].Name())))
 	})
 
 	t.Run("restart and re-test recall", func(t *testing.T) {

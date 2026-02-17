@@ -16,12 +16,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 

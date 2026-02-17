@@ -659,6 +659,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
+	repo.SetTenantsActivityManager(appState.SchemaManager)
 
 	// initialize needed services after all components are ready
 	postInitModules(appState)
@@ -686,12 +687,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
-	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
+	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	reindexer := configureReindexer(appState, reindexCtx)
-	repo.WithReindexer(reindexer)
+	repo.SetReindexer(reindexer)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {

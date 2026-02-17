@@ -671,6 +671,52 @@ func (_c *MockVectorIndex_QueryVectorDistancer_Call) RunAndReturn(run func([]flo
 	return _c
 }
 
+// ResumeAfterBackup provides a mock function with given fields: ctx
+func (_m *MockVectorIndex) ResumeAfterBackup(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResumeAfterBackup")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockVectorIndex_ResumeAfterBackup_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResumeAfterBackup'
+type MockVectorIndex_ResumeAfterBackup_Call struct {
+	*mock.Call
+}
+
+// ResumeAfterBackup is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockVectorIndex_Expecter) ResumeAfterBackup(ctx interface{}) *MockVectorIndex_ResumeAfterBackup_Call {
+	return &MockVectorIndex_ResumeAfterBackup_Call{Call: _e.mock.On("ResumeAfterBackup", ctx)}
+}
+
+func (_c *MockVectorIndex_ResumeAfterBackup_Call) Run(run func(ctx context.Context)) *MockVectorIndex_ResumeAfterBackup_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockVectorIndex_ResumeAfterBackup_Call) Return(_a0 error) *MockVectorIndex_ResumeAfterBackup_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockVectorIndex_ResumeAfterBackup_Call) RunAndReturn(run func(context.Context) error) *MockVectorIndex_ResumeAfterBackup_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SearchByVector provides a mock function with given fields: ctx, vector, k, allow
 func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	ret := _m.Called(ctx, vector, k, allow)

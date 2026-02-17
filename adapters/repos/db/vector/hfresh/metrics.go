@@ -57,142 +57,55 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		shardName = "n/a"
 	}
 
-	size := prom.VectorIndexSize.With(prometheus.Labels{
+	baseLabels := prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
-	})
+	}
+	opLabels := func(op string) prometheus.Labels {
+		return prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+			"operation":  op,
+		}
+	}
+	opStepLabels := func(op, step string) prometheus.Labels {
+		return prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+			"operation":  op,
+			"step":       step,
+		}
+	}
 
-	insert := prom.VectorIndexOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "create",
-	})
+	size := prom.VectorIndexSize.With(baseLabels)
+	insert := prom.VectorIndexOperations.With(opLabels("create"))
+	insertTime := prom.VectorIndexDurations.With(opStepLabels("create", "n/a"))
+	del := prom.VectorIndexOperations.With(opLabels("delete"))
+	deleteTime := prom.VectorIndexDurations.With(opStepLabels("delete", "n/a"))
+	postings := prom.VectorIndexPostings.With(baseLabels)
+	postingSize := prom.VectorIndexPostingSize.With(baseLabels)
 
-	insertTime := prom.VectorIndexDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "create",
-		"step":       "n/a",
-	})
+	analyzePending := prom.VectorIndexPendingBackgroundOperations.With(opLabels("analyze"))
+	analyze := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("analyze"))
+	analyzeCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("analyze"))
 
-	del := prom.VectorIndexOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "delete",
-	})
+	splitsPending := prom.VectorIndexPendingBackgroundOperations.With(opLabels("split"))
+	split := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("split"))
+	splitCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("split"))
 
-	deleteTime := prom.VectorIndexDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "delete",
-		"step":       "n/a",
-	})
+	mergesPending := prom.VectorIndexPendingBackgroundOperations.With(opLabels("merge"))
+	merge := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("merge"))
+	mergeCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("merge"))
 
-	postings := prom.VectorIndexPostings.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	reassignsPending := prom.VectorIndexPendingBackgroundOperations.With(opLabels("reassign"))
+	reassign := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("reassign"))
+	reassignCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("reassign"))
 
-	postingSize := prom.VectorIndexPostingSize.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	centroids := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("centroid_search"))
 
-	analyzePending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "analyze",
-	})
-
-	analyze := prom.VectorIndexBackgroundOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "analyze",
-	})
-
-	analyzeCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "analyze",
-	})
-
-	splitsPending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "split",
-	})
-
-	split := prom.VectorIndexBackgroundOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "split",
-	})
-
-	splitCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "split",
-	})
-
-	mergesPending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "merge",
-	})
-
-	merge := prom.VectorIndexBackgroundOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "merge",
-	})
-
-	mergeCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "merge",
-	})
-
-	reassignsPending := prom.VectorIndexPendingBackgroundOperations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "reassign",
-	})
-
-	reassign := prom.VectorIndexBackgroundOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "reassign",
-	})
-
-	reassignCount := prom.VectorIndexBackgroundOperationsCount.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "reassign",
-	})
-
-	centroids := prom.VectorIndexBackgroundOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "centroid_search",
-	})
-
-	storeGet := prom.VectorIndexStoreOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "get",
-	})
-
-	storeAppend := prom.VectorIndexStoreOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "append",
-	})
-
-	storePut := prom.VectorIndexStoreOperationsDurations.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"operation":  "put",
-	})
+	storeGet := prom.VectorIndexStoreOperationsDurations.With(opLabels("get"))
+	storeAppend := prom.VectorIndexStoreOperationsDurations.With(opLabels("append"))
+	storePut := prom.VectorIndexStoreOperationsDurations.With(opLabels("put"))
 
 	return &Metrics{
 		enabled:          true,
@@ -248,12 +161,12 @@ func (m *Metrics) DeleteVector(start time.Time) {
 	m.delete.Inc()
 }
 
-func (m *Metrics) SetPostings(count int) {
+func (m *Metrics) AddPostings(delta int) {
 	if !m.enabled {
 		return
 	}
 
-	m.postings.Set(float64(count))
+	m.postings.Add(float64(delta))
 }
 
 func (m *Metrics) ObservePostingSize(size float64) {

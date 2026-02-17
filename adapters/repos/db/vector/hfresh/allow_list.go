@@ -30,7 +30,7 @@ func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helper
 }
 
 func (h *HFresh) NewAllowListIterator(al helpers.AllowList) helpers.AllowListIterator {
-	all := h.PostingMap.cache.All() // snapshot of what is currently in cache
+	all := h.PostingMap.Iter()
 	next, stop := iter.Pull2(all)
 
 	return &AllowListIterator{
@@ -116,9 +116,9 @@ func (a *allowList) Contains(id uint64) bool {
 	p.RLock()
 	defer p.RUnlock()
 
-	for _, metadata := range p.Iter() {
-		if !a.wrappedIdVisited.Visited(metadata.ID) && a.AllowList.Contains(metadata.ID) {
-			a.wrappedIdVisited.Visit(metadata.ID)
+	for vectorID := range p.Iter() {
+		if !a.wrappedIdVisited.Visited(vectorID) && a.AllowList.Contains(vectorID) {
+			a.wrappedIdVisited.Visit(vectorID)
 			a.idVisited.Visit(id)
 			return true
 		}

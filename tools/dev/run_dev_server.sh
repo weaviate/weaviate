@@ -10,6 +10,7 @@ export LOG_LEVEL=${LOG_LEVEL:-"debug"}
 export LOG_FORMAT=${LOG_FORMAT:-"text"}
 export PROMETHEUS_MONITORING_ENABLED=${PROMETHEUS_MONITORING_ENABLED:-"true"}
 export PROMETHEUS_MONITORING_PORT=${PROMETHEUS_MONITORING_PORT:-"2112"}
+export GO_PROFILING_PORT=${GO_PROFILING_PORT:-"6060"}
 export GO_BLOCK_PROFILE_RATE=${GO_BLOCK_PROFILE_RATE:-"20"}
 export GO_MUTEX_PROFILE_FRACTION=${GO_MUTEX_PROFILE_FRACTION:-"20"}
 export PERSISTENCE_DATA_PATH=${PERSISTENCE_DATA_PATH:-"./data"}
@@ -21,7 +22,6 @@ export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
-export EXPERIMENTAL_HFRESH_ENABLED=true
 # inject build info into binaries.
 GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -56,7 +56,6 @@ case $CONFIG in
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-      PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -115,110 +114,111 @@ case $CONFIG in
     ;;
 
   local-single-node-rbac)
-    AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_RBAC_ENABLED=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
-    AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
-    PERSISTENCE_DATA_PATH="./data-weaviate-0" \
-    BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-    ENABLE_MODULES="backup-filesystem" \
-    CLUSTER_IN_LOCALHOST=true \
-    CLUSTER_GOSSIP_BIND_PORT="7100" \
-    CLUSTER_DATA_BIND_PORT="7101" \
-    RAFT_BOOTSTRAP_EXPECT=1 \
-    go_run ./cmd/weaviate-server \
-      --scheme http \
-      --host "127.0.0.1" \
-      --port 8080 \
-      --read-timeout=600s \
-      --write-timeout=600s
-  ;;
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHORIZATION_RBAC_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
+      AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
+      AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
+      ENABLE_MODULES="backup-filesystem" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
 
   local-first-rbac)
-    CONTEXTIONARY_URL=localhost:9999 \
-    AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_RBAC_ENABLED=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
-    AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
-    PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
-    BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-    DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-    ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-    PROMETHEUS_MONITORING_PORT="2112" \
-    CLUSTER_IN_LOCALHOST=true \
-    CLUSTER_GOSSIP_BIND_PORT="7100" \
-    CLUSTER_DATA_BIND_PORT="7101" \
-    RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-    RAFT_BOOTSTRAP_EXPECT=3 \
-    go_run ./cmd/weaviate-server \
-      --scheme http \
-      --host "127.0.0.1" \
-      --port 8080 \
-      --read-timeout=600s \
-      --write-timeout=600s
-  ;;
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHORIZATION_RBAC_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
+      AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
+      AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
+      PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      RAFT_BOOTSTRAP_EXPECT=3 \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
 
   local-second-rbac)
-    GRPC_PORT=50052 \
-    CONTEXTIONARY_URL=localhost:9999 \
-    AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_RBAC_ENABLED=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
-    AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
-    PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-1" \
-    BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
-    CLUSTER_HOSTNAME="weaviate-1" \
-    CLUSTER_IN_LOCALHOST=true \
-    CLUSTER_GOSSIP_BIND_PORT="7102" \
-    CLUSTER_DATA_BIND_PORT="7103" \
-    CLUSTER_JOIN="localhost:7100" \
-    PROMETHEUS_MONITORING_PORT="2113" \
-    RAFT_PORT="8302" \
-    RAFT_INTERNAL_RPC_PORT="8303" \
-    RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-    RAFT_BOOTSTRAP_EXPECT=3 \
-    DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-    ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-    go_run ./cmd/weaviate-server \
-      --scheme http \
-      --host "127.0.0.1" \
-      --port 8081 \
-      --read-timeout=600s \
-      --write-timeout=600s
+      GRPC_PORT=50052 \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHORIZATION_RBAC_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
+      AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
+      AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
+      PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-1" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
+      CLUSTER_HOSTNAME="weaviate-1" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7102" \
+      CLUSTER_DATA_BIND_PORT="7103" \
+      CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 1))" \
+      GO_PROFILING_PORT="$((GO_PROFILING_PORT + 1))" \
+      RAFT_PORT="8302" \
+      RAFT_INTERNAL_RPC_PORT="8303" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      RAFT_BOOTSTRAP_EXPECT=3 \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8081 \
+        --read-timeout=600s \
+        --write-timeout=600s
   ;;
 
   local-third-rbac)
-    GRPC_PORT=50053 \
-    CONTEXTIONARY_URL=localhost:9999 \
-    AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_RBAC_ENABLED=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
-    AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
-    BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
-    PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
-    CLUSTER_HOSTNAME="weaviate-2" \
-    CLUSTER_IN_LOCALHOST=true \
-    CLUSTER_GOSSIP_BIND_PORT="7104" \
-    CLUSTER_DATA_BIND_PORT="7105" \
-    CLUSTER_JOIN="localhost:7100" \
-    PROMETHEUS_MONITORING_PORT="2114" \
-    RAFT_PORT="8304" \
-    RAFT_INTERNAL_RPC_PORT="8305" \
-    RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-    RAFT_BOOTSTRAP_EXPECT=3 \
-    DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-    ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-    go_run ./cmd/weaviate-server \
-      --scheme http \
-      --host "127.0.0.1" \
-      --port 8082 \
-      --read-timeout=600s \
-      --write-timeout=600s
-  ;;
+      GRPC_PORT=50053 \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHORIZATION_RBAC_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
+      AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
+      AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
+      PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
+      CLUSTER_HOSTNAME="weaviate-2" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7104" \
+      CLUSTER_DATA_BIND_PORT="7105" \
+      CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 2))" \
+      GO_PROFILING_PORT="$((GO_PROFILING_PORT + 2))" \      
+      RAFT_PORT="8304" \
+      RAFT_INTERNAL_RPC_PORT="8305" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      RAFT_BOOTSTRAP_EXPECT=3 \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8082 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
 
   local-development)
       CONTEXTIONARY_URL=localhost:9999 \
@@ -231,8 +231,6 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
-      PROMETHEUS_MONITORING_ENABLED=true \
-      PROMETHEUS_MONITORING_PORT="${PROMETHEUS_MONITORING_PORT}" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       go_run ./cmd/weaviate-server \
@@ -255,7 +253,7 @@ case $CONFIG in
       CLUSTER_JOIN="localhost:7100" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 1))" \
-      PROMETHEUS_MONITORING_ENABLED=true \
+      GO_PROFILING_PORT="$((GO_PROFILING_PORT + 1))" \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -271,57 +269,58 @@ case $CONFIG in
     ;;
 
     third-node)
-        GRPC_PORT=50053 \
-        CONTEXTIONARY_URL=localhost:9999 \
-        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
-        PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
-        CLUSTER_HOSTNAME="weaviate-2" \
-        CLUSTER_IN_LOCALHOST=true \
-        CLUSTER_GOSSIP_BIND_PORT="7105" \
-        CLUSTER_DATA_BIND_PORT="7106" \
-        CLUSTER_JOIN="localhost:7100" \
-        PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
-        PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 2))" \
-        PROMETHEUS_MONITORING_ENABLED=true \
-        RAFT_PORT="8304" \
-        RAFT_INTERNAL_RPC_PORT="8305" \
-        RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-        RAFT_BOOTSTRAP_EXPECT=3 \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-        go_run ./cmd/weaviate-server \
-          --scheme http \
-          --host "127.0.0.1" \
-          --port 8082 \
-          --read-timeout=600s \
-          --write-timeout=600s
-      ;;
+      GRPC_PORT=50053 \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
+      PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
+      CLUSTER_HOSTNAME="weaviate-2" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7105" \
+      CLUSTER_DATA_BIND_PORT="7106" \
+      CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 2))" \
+      GO_PROFILING_PORT="$((GO_PROFILING_PORT + 2))" \
+      RAFT_PORT="8304" \
+      RAFT_INTERNAL_RPC_PORT="8305" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      RAFT_BOOTSTRAP_EXPECT=3 \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8082 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
 
     fourth-node)
-        GRPC_PORT=50054 \
-        CONTEXTIONARY_URL=localhost:9999 \
-        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        PERSISTENCE_DATA_PATH="./data-weaviate-4" \
-        CLUSTER_HOSTNAME="weaviate-4" \
-        CLUSTER_IN_LOCALHOST=true \
-        CLUSTER_GOSSIP_BIND_PORT="7107" \
-        CLUSTER_DATA_BIND_PORT="7108" \
-        CLUSTER_JOIN="localhost:7100" \
-        PROMETHEUS_MONITORING_PORT="2115" \
-        PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
-        RAFT_PORT="8306" \
-        RAFT_INTERNAL_RPC_PORT="8307" \
-	RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary" \
-        go_run ./cmd/weaviate-server \
-          --scheme http \
-          --host "127.0.0.1" \
-          --port 8083 \
-          --read-timeout=600s \
-          --write-timeout=600s
-      ;;
+      GRPC_PORT=50054 \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./data-weaviate-4" \
+      CLUSTER_HOSTNAME="weaviate-4" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7107" \
+      CLUSTER_DATA_BIND_PORT="7108" \
+      CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 3))" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+      GO_PROFILING_PORT="$((GO_PROFILING_PORT + 3))" \
+      RAFT_PORT="8306" \
+      RAFT_INTERNAL_RPC_PORT="8307" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8083 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
 
   local-transformers)
       CONTEXTIONARY_URL=localhost:9999 \
@@ -713,7 +712,6 @@ case $CONFIG in
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_ENDPOINT="localhost:9000" \
       ENABLE_MODULES="backup-filesystem,text2vec-contextionary,offload-s3" \
-      PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -740,7 +738,6 @@ case $CONFIG in
       BACKUP_S3_BUCKET="weaviate-backups" \
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_ENDPOINT="localhost:9000" \
-      PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -797,8 +794,9 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
-      PROMETHEUS_MONITORING_PORT="2113" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 1))" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+      GO_PROFILING_PORT="$((GO_PROFILING_PORT + 1))" \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -818,37 +816,38 @@ case $CONFIG in
     ;;
 
   third-s3)
-        GRPC_PORT=50053 \
-        CONTEXTIONARY_URL=localhost:9999 \
-        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-2" \
-        BACKUP_S3_BUCKET="weaviate-backups" \
-        BACKUP_S3_USE_SSL="false" \
-        BACKUP_S3_ENDPOINT="localhost:9000" \
-        CLUSTER_HOSTNAME="weaviate-2" \
-        CLUSTER_IN_LOCALHOST=true \
-        CLUSTER_GOSSIP_BIND_PORT="7104" \
-        CLUSTER_DATA_BIND_PORT="7105" \
-        CLUSTER_JOIN="localhost:7100" \
-        PROMETHEUS_MONITORING_PORT="2114" \
-	PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
-        RAFT_PORT="8304" \
-        RAFT_INTERNAL_RPC_PORT="8305" \
-        RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-        RAFT_BOOTSTRAP_EXPECT=3 \
-        OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
-        OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
-        AWS_ACCESS_KEY_ID="aws_access_key"\
-        AWS_SECRET_KEY="aws_secret_key"\
-        go_run ./cmd/weaviate-server \
-          --scheme http \
-          --host "127.0.0.1" \
-          --port 8082 \
-          --read-timeout=600s \
-          --write-timeout=600s
-      ;;
+      GRPC_PORT=50053 \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-2" \
+      BACKUP_S3_BUCKET="weaviate-backups" \
+      BACKUP_S3_USE_SSL="false" \
+      BACKUP_S3_ENDPOINT="localhost:9000" \
+      CLUSTER_HOSTNAME="weaviate-2" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7104" \
+      CLUSTER_DATA_BIND_PORT="7105" \
+      CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="$((PROMETHEUS_MONITORING_PORT + 2))" \      
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+      GO_PROFILING_PORT="$((GO_PROFILING_PORT + 2))" \  
+      RAFT_PORT="8304" \
+      RAFT_INTERNAL_RPC_PORT="8305" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      RAFT_BOOTSTRAP_EXPECT=3 \
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
+      OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
+      AWS_ACCESS_KEY_ID="aws_access_key"\
+      AWS_SECRET_KEY="aws_secret_key"\
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8082 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   local-gcs)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -870,52 +869,52 @@ case $CONFIG in
       ;;
 
     local-gcs-2)
-        PERSISTENCE_DATA_PATH="./data-weaviate-1" \
-        CONTEXTIONARY_URL=localhost:9999 \
-        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        GOOGLE_CLOUD_PROJECT=project-id \
-        STORAGE_EMULATOR_HOST=localhost:9090 \
-        BACKUP_GCS_ENDPOINT=localhost:9090 \
-        BACKUP_GCS_BUCKET=weaviate-backups \
-        ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
-        CLUSTER_IN_LOCALHOST=true \
-        CLUSTER_HOSTNAME="weaviate-1" \
-        CLUSTER_GOSSIP_BIND_PORT="7102" \
-        CLUSTER_DATA_BIND_PORT="7103" \
-        CLUSTER_JOIN="localhost:7100" \
-        GRPC_PORT=50052 \
-        go_run ./cmd/weaviate-server \
-          --scheme http \
-          --host "127.0.0.1" \
-          --port 8081 \
-          --read-timeout=600s \
-          --write-timeout=600s
-        ;;
+      PERSISTENCE_DATA_PATH="./data-weaviate-1" \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      GOOGLE_CLOUD_PROJECT=project-id \
+      STORAGE_EMULATOR_HOST=localhost:9090 \
+      BACKUP_GCS_ENDPOINT=localhost:9090 \
+      BACKUP_GCS_BUCKET=weaviate-backups \
+      ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_HOSTNAME="weaviate-1" \
+      CLUSTER_GOSSIP_BIND_PORT="7102" \
+      CLUSTER_DATA_BIND_PORT="7103" \
+      CLUSTER_JOIN="localhost:7100" \
+      GRPC_PORT=50052 \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8081 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
 
     local-gcs-3)
-        PERSISTENCE_DATA_PATH="./data-weaviate-2" \
-        CONTEXTIONARY_URL=localhost:9999 \
-        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        GOOGLE_CLOUD_PROJECT=project-id \
-        STORAGE_EMULATOR_HOST=localhost:9090 \
-        BACKUP_GCS_ENDPOINT=localhost:9090 \
-        BACKUP_GCS_BUCKET=weaviate-backups \
-        ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
-        CLUSTER_IN_LOCALHOST=true \
-        CLUSTER_HOSTNAME="weaviate-2" \
-        CLUSTER_GOSSIP_BIND_PORT="7104" \
-        CLUSTER_DATA_BIND_PORT="7105" \
-        CLUSTER_JOIN="localhost:7100" \
-        GRPC_PORT=50053 \
-        go_run ./cmd/weaviate-server \
-          --scheme http \
-          --host "127.0.0.1" \
-          --port 8082 \
-          --read-timeout=600s \
-          --write-timeout=600s
-        ;;
+      PERSISTENCE_DATA_PATH="./data-weaviate-2" \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      GOOGLE_CLOUD_PROJECT=project-id \
+      STORAGE_EMULATOR_HOST=localhost:9090 \
+      BACKUP_GCS_ENDPOINT=localhost:9090 \
+      BACKUP_GCS_BUCKET=weaviate-backups \
+      ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_HOSTNAME="weaviate-2" \
+      CLUSTER_GOSSIP_BIND_PORT="7104" \
+      CLUSTER_DATA_BIND_PORT="7105" \
+      CLUSTER_JOIN="localhost:7100" \
+      GRPC_PORT=50053 \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8082 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
 
   local-azure)
       CONTEXTIONARY_URL=localhost:9999 \

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -181,6 +182,12 @@ type PrometheusMetrics struct {
 	// Checksum metrics
 	ChecksumValidationDuration prometheus.Summary
 	ChecksumBytesRead          prometheus.Summary
+
+	objttlCount          prometheus.Counter
+	objttlFailureCount   prometheus.Counter
+	objttlRunning        prometheus.Gauge
+	objttlDuration       prometheus.Histogram
+	objttlObjectsDeleted prometheus.Counter
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -436,7 +443,7 @@ func InitGaugeVec(vec *prometheus.GaugeVec, labelNames [][]string) {
 }
 
 func newPrometheusMetrics() *PrometheusMetrics {
-	return &PrometheusMetrics{
+	m := &PrometheusMetrics{
 		Registerer: prometheus.DefaultRegisterer,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
@@ -936,6 +943,100 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of bytes read during checksum validation",
 		}),
 	}
+
+	if err := m.initObjectsTtl(); err != nil {
+		panic(err)
+	}
+
+	return m
+}
+
+func (m *PrometheusMetrics) initObjectsTtl() error {
+	var err error
+	minute := time.Minute.Seconds()
+	hour := time.Hour.Seconds()
+
+	m.objttlCount, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_count",
+			Help: "Count of object ttl deletions executions",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_count: %w", err)
+	}
+
+	m.objttlFailureCount, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_failure_count",
+			Help: "Count of object ttl deletions failures",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_failure_count: %w", err)
+	}
+
+	m.objttlRunning, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_objects_ttl_deletion_db_running",
+			Help: "Number of object ttl deletions running currently",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_running: %w", err)
+	}
+
+	m.objttlDuration, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name: "weaviate_objects_ttl_deletion_db_duration_seconds",
+			Help: "Duration of object ttl deletions in seconds",
+			Buckets: []float64{
+				minute, 5 * minute, 15 * minute, 30 * minute, hour,
+				2 * hour, 3 * hour, 4 * hour, 8 * hour, 16 * hour, 24 * hour,
+			},
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_duration: %w", err)
+	}
+
+	m.objttlObjectsDeleted, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_objects_deleted",
+			Help: "Count of all expired objects deleted",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_objects_deleted: %w", err)
+	}
+
+	return nil
+}
+
+// --- Objects TTL: main ---
+
+func (m *PrometheusMetrics) IncObjectsTtlCount() {
+	m.objttlCount.Inc()
+}
+
+func (m *PrometheusMetrics) IncObjectsTtlFailureCount() {
+	m.objttlFailureCount.Inc()
+}
+
+func (m *PrometheusMetrics) IncObjectsTtlRunning() {
+	m.objttlRunning.Inc()
+}
+
+func (m *PrometheusMetrics) DecObjectsTtlRunning() {
+	m.objttlRunning.Dec()
+}
+
+func (m *PrometheusMetrics) AddObjectsTtlObjectsDeleted(count float64) {
+	m.objttlObjectsDeleted.Add(count)
+}
+
+func (m *PrometheusMetrics) ObserveObjectsTtlDuration(d time.Duration) {
+	m.objttlDuration.Observe(d.Seconds())
 }
 
 type OnceUponATimer struct {

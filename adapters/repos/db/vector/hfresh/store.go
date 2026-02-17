@@ -43,7 +43,7 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 			lsmkv.WithForceCompaction(true),
 			lsmkv.WithShouldSkipKeyFunction(
 				func(key []byte, ctx context.Context) (bool, error) {
-					if len(key) != 12 {
+					if len(key) != 9 {
 						// don't skip on error
 						return false, fmt.Errorf("invalid key length: %d", len(key))
 					}
