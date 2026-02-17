@@ -220,6 +220,10 @@ type fakeVectorRepo struct {
 	CapturedSchemaVersion uint64
 }
 
+func (f *fakeVectorRepo) EnsureReplicaCaughtUp(ctx context.Context, class string, id strfmt.UUID, tenant string) error {
+	return nil
+}
+
 func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
 	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)

@@ -72,6 +72,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
+	if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, className, id, updates.Tenant); err != nil {
+		return nil, fmt.Errorf("ensure replica caught up: %w", err)
+	}
+
 	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err

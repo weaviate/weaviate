@@ -25,6 +25,7 @@ import (
 	"github.com/klauspost/compress/s2"
 	"github.com/sirupsen/logrus"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"google.golang.org/protobuf/proto"
@@ -109,11 +110,16 @@ type FSM struct {
 	// lastAppliedIndex tracks the last RAFT log index that was applied.
 	// This is used for catch-up detection and snapshot consistency.
 	lastAppliedIndex atomic.Uint64
+
+	// indexMu and indexCond are used by WaitForIndex to allow callers to
+	// block until the FSM has applied up to a target log index.
+	indexMu   sync.Mutex
+	indexCond *sync.Cond
 }
 
 // NewFSM creates a new FSM for a shard's RAFT cluster.
 func NewFSM(className, shardName, nodeID string, log logrus.FieldLogger) *FSM {
-	return &FSM{
+	f := &FSM{
 		className: className,
 		shardName: shardName,
 		nodeID:    nodeID,
@@ -123,6 +129,8 @@ func NewFSM(className, shardName, nodeID string, log logrus.FieldLogger) *FSM {
 			"shard":     shardName,
 		}),
 	}
+	f.indexCond = sync.NewCond(&f.indexMu)
+	return f
 }
 
 // SetShard sets the shard operator that will process commands.
@@ -199,8 +207,9 @@ func (f *FSM) Apply(l *raft.Log) any {
 		f.log.WithField("type", req.Type).Error("unknown command type")
 	}
 
-	// Update last applied index
+	// Update last applied index and notify waiters.
 	f.lastAppliedIndex.Store(l.Index)
+	f.indexCond.Broadcast()
 
 	if applyErr != nil {
 		f.log.WithError(applyErr).WithField("index", l.Index).Error("failed to apply command")
@@ -420,6 +429,44 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 // LastAppliedIndex returns the last RAFT log index that was applied.
 func (f *FSM) LastAppliedIndex() uint64 {
 	return f.lastAppliedIndex.Load()
+}
+
+// WaitForIndex blocks until the FSM has applied at least targetIndex, or the
+// context is cancelled. This is used by followers to ensure their local state
+// has caught up to the leader before performing a local read.
+func (f *FSM) WaitForIndex(ctx context.Context, targetIndex uint64) error {
+	// Fast path: already caught up.
+	if f.lastAppliedIndex.Load() >= targetIndex {
+		return nil
+	}
+
+	// Spawn a goroutine that broadcasts on context cancellation so that
+	// the cond.Wait loop can observe ctx.Done.
+	stopWaker := make(chan struct{})
+	defer close(stopWaker)
+	enterrors.GoWrapper(func() {
+		select {
+		case <-ctx.Done():
+			f.indexCond.Broadcast()
+		case <-stopWaker:
+		}
+	}, f.log)
+
+	if err := func() error {
+		f.indexMu.Lock()
+		defer f.indexMu.Unlock()
+		for f.lastAppliedIndex.Load() < targetIndex {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			f.indexCond.Wait()
+		}
+		return nil
+	}(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // shardSnapshotData is the JSON-serializable snapshot data structure.

@@ -1103,6 +1103,105 @@ func (*ReleaseTransferSnapshotResponse) Descriptor() ([]byte, []int) {
 	return file_messages_proto_rawDescGZIP(), []int{16}
 }
 
+// GetLastAppliedIndexRequest asks a node for its last applied RAFT log index
+// for a specific shard.
+type GetLastAppliedIndexRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Class         string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
+	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetLastAppliedIndexRequest) Reset() {
+	*x = GetLastAppliedIndexRequest{}
+	mi := &file_messages_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLastAppliedIndexRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLastAppliedIndexRequest) ProtoMessage() {}
+
+func (x *GetLastAppliedIndexRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLastAppliedIndexRequest.ProtoReflect.Descriptor instead.
+func (*GetLastAppliedIndexRequest) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetLastAppliedIndexRequest) GetClass() string {
+	if x != nil {
+		return x.Class
+	}
+	return ""
+}
+
+func (x *GetLastAppliedIndexRequest) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
+// GetLastAppliedIndexResponse returns the node's last applied RAFT log index.
+type GetLastAppliedIndexResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	LastAppliedIndex uint64                 `protobuf:"varint,1,opt,name=last_applied_index,json=lastAppliedIndex,proto3" json:"last_applied_index,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GetLastAppliedIndexResponse) Reset() {
+	*x = GetLastAppliedIndexResponse{}
+	mi := &file_messages_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLastAppliedIndexResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLastAppliedIndexResponse) ProtoMessage() {}
+
+func (x *GetLastAppliedIndexResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLastAppliedIndexResponse.ProtoReflect.Descriptor instead.
+func (*GetLastAppliedIndexResponse) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetLastAppliedIndexResponse) GetLastAppliedIndex() uint64 {
+	if x != nil {
+		return x.LastAppliedIndex
+	}
+	return 0
+}
+
 var File_messages_proto protoreflect.FileDescriptor
 
 const file_messages_proto_rawDesc = "" +
@@ -1187,12 +1286,18 @@ const file_messages_proto_rawDesc = "" +
 	"\x1eReleaseTransferSnapshotRequest\x12\x1f\n" +
 	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
 	"snapshotId\"!\n" +
-	"\x1fReleaseTransferSnapshotResponse2\xfe\x03\n" +
+	"\x1fReleaseTransferSnapshotResponse\"H\n" +
+	"\x1aGetLastAppliedIndexRequest\x12\x14\n" +
+	"\x05class\x18\x01 \x01(\tR\x05class\x12\x14\n" +
+	"\x05shard\x18\x02 \x01(\tR\x05shard\"K\n" +
+	"\x1bGetLastAppliedIndexResponse\x12,\n" +
+	"\x12last_applied_index\x18\x01 \x01(\x04R\x10lastAppliedIndex2\x81\x05\n" +
 	"\x17ShardReplicationService\x12V\n" +
 	"\x05Apply\x12$.weaviate.internal.data.ApplyRequest\x1a%.weaviate.internal.data.ApplyResponse\"\x00\x12\x89\x01\n" +
 	"\x16CreateTransferSnapshot\x125.weaviate.internal.data.CreateTransferSnapshotRequest\x1a6.weaviate.internal.data.CreateTransferSnapshotResponse\"\x00\x12p\n" +
 	"\x0fGetSnapshotFile\x12..weaviate.internal.data.GetSnapshotFileRequest\x1a).weaviate.internal.data.SnapshotFileChunk\"\x000\x01\x12\x8c\x01\n" +
-	"\x17ReleaseTransferSnapshot\x126.weaviate.internal.data.ReleaseTransferSnapshotRequest\x1a7.weaviate.internal.data.ReleaseTransferSnapshotResponse\"\x00B\xd6\x01\n" +
+	"\x17ReleaseTransferSnapshot\x126.weaviate.internal.data.ReleaseTransferSnapshotRequest\x1a7.weaviate.internal.data.ReleaseTransferSnapshotResponse\"\x00\x12\x80\x01\n" +
+	"\x13GetLastAppliedIndex\x122.weaviate.internal.data.GetLastAppliedIndexRequest\x1a3.weaviate.internal.data.GetLastAppliedIndexResponse\"\x00B\xd6\x01\n" +
 	"\x1acom.weaviate.internal.dataB\rMessagesProtoP\x01Z/github.com/weaviate/weaviate/cluster/data/proto\xa2\x02\x03WID\xaa\x02\x16Weaviate.Internal.Data\xca\x02\x16Weaviate\\Internal\\Data\xe2\x02\"Weaviate\\Internal\\Data\\GPBMetadata\xea\x02\x18Weaviate::Internal::Datab\x06proto3"
 
 var (
@@ -1208,7 +1313,7 @@ func file_messages_proto_rawDescGZIP() []byte {
 }
 
 var file_messages_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_messages_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                  // 0: weaviate.internal.data.ApplyRequest.Type
 	(*ApplyRequest)(nil),                    // 1: weaviate.internal.data.ApplyRequest
@@ -1228,6 +1333,8 @@ var file_messages_proto_goTypes = []any{
 	(*SnapshotFileChunk)(nil),               // 15: weaviate.internal.data.SnapshotFileChunk
 	(*ReleaseTransferSnapshotRequest)(nil),  // 16: weaviate.internal.data.ReleaseTransferSnapshotRequest
 	(*ReleaseTransferSnapshotResponse)(nil), // 17: weaviate.internal.data.ReleaseTransferSnapshotResponse
+	(*GetLastAppliedIndexRequest)(nil),      // 18: weaviate.internal.data.GetLastAppliedIndexRequest
+	(*GetLastAppliedIndexResponse)(nil),     // 19: weaviate.internal.data.GetLastAppliedIndexResponse
 }
 var file_messages_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.data.ApplyRequest.type:type_name -> weaviate.internal.data.ApplyRequest.Type
@@ -1236,12 +1343,14 @@ var file_messages_proto_depIdxs = []int32{
 	11, // 3: weaviate.internal.data.ShardReplicationService.CreateTransferSnapshot:input_type -> weaviate.internal.data.CreateTransferSnapshotRequest
 	14, // 4: weaviate.internal.data.ShardReplicationService.GetSnapshotFile:input_type -> weaviate.internal.data.GetSnapshotFileRequest
 	16, // 5: weaviate.internal.data.ShardReplicationService.ReleaseTransferSnapshot:input_type -> weaviate.internal.data.ReleaseTransferSnapshotRequest
-	2,  // 6: weaviate.internal.data.ShardReplicationService.Apply:output_type -> weaviate.internal.data.ApplyResponse
-	13, // 7: weaviate.internal.data.ShardReplicationService.CreateTransferSnapshot:output_type -> weaviate.internal.data.CreateTransferSnapshotResponse
-	15, // 8: weaviate.internal.data.ShardReplicationService.GetSnapshotFile:output_type -> weaviate.internal.data.SnapshotFileChunk
-	17, // 9: weaviate.internal.data.ShardReplicationService.ReleaseTransferSnapshot:output_type -> weaviate.internal.data.ReleaseTransferSnapshotResponse
-	6,  // [6:10] is the sub-list for method output_type
-	2,  // [2:6] is the sub-list for method input_type
+	18, // 6: weaviate.internal.data.ShardReplicationService.GetLastAppliedIndex:input_type -> weaviate.internal.data.GetLastAppliedIndexRequest
+	2,  // 7: weaviate.internal.data.ShardReplicationService.Apply:output_type -> weaviate.internal.data.ApplyResponse
+	13, // 8: weaviate.internal.data.ShardReplicationService.CreateTransferSnapshot:output_type -> weaviate.internal.data.CreateTransferSnapshotResponse
+	15, // 9: weaviate.internal.data.ShardReplicationService.GetSnapshotFile:output_type -> weaviate.internal.data.SnapshotFileChunk
+	17, // 10: weaviate.internal.data.ShardReplicationService.ReleaseTransferSnapshot:output_type -> weaviate.internal.data.ReleaseTransferSnapshotResponse
+	19, // 11: weaviate.internal.data.ShardReplicationService.GetLastAppliedIndex:output_type -> weaviate.internal.data.GetLastAppliedIndexResponse
+	7,  // [7:12] is the sub-list for method output_type
+	2,  // [2:7] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
@@ -1259,7 +1368,7 @@ func file_messages_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_messages_proto_rawDesc), len(file_messages_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
