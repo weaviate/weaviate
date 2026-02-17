@@ -35,6 +35,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	s.haltForTransferCount++
 
+	// Register with index so state persists across shard drop/create
+	s.index.markShardHaltedForTransfer(s.name)
+
 	defer func() {
 		if err == nil && inactivityTimeout > 0 {
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
@@ -238,6 +241,9 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		}
 	}
 
+	// Unregister from index halted tracking
+	s.index.unmarkShardHaltedForTransfer(s.name)
+
 	if s.haltForTransferCancel != nil {
 		// terminate background goroutine checking for inactivity timeout
 		s.haltForTransferCancel()
@@ -264,6 +270,36 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
+	}
+
+	// If shard was initialized halted, also start processes that were skipped
+	if s.haltedOnInit {
+		s.haltedOnInit = false // Clear the flag
+
+		// Start vector cycles
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+
+		// Start async replication if enabled
+		if s.index.AsyncReplicationEnabled() {
+			s.asyncReplicationRWMux.Lock()
+			if err := s.initAsyncReplication(s.index.AsyncReplicationConfig()); err != nil {
+				s.index.logger.WithError(err).Error("failed to init async replication on resume")
+			}
+			s.asyncReplicationRWMux.Unlock()
+		}
+
+		// Start async queue conversion if enabled
+		if asyncEnabled() {
+			enterrors.GoWrapper(func() {
+				_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
+					if err := s.ConvertQueue(targetVector); err != nil {
+						s.index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
+					}
+					return nil
+				})
+			}, s.index.logger)
+		}
 	}
 
 	return nil

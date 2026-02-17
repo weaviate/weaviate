@@ -256,18 +256,63 @@ func (i *Index) initBackup(id string) error {
 }
 
 func (i *Index) resetBackupState() {
+	// Hold the lock while clearing backup state to serialize with
+	// maybeResumeAfterInit, which checks lastBackup under the same lock.
+	// This ensures that a shard finishing init either:
+	// - sees backup already released (and self-resumes), or
+	// - sees backup in progress (and gets resumed by resumeMaintenanceCycles,
+	//   which can now find it in the shard map).
+	i.haltedShardsForTransferLock.Lock()
+	defer i.haltedShardsForTransferLock.Unlock()
 	i.lastBackup.Store(nil)
 }
 
+func (i *Index) markShardHaltedForTransfer(shardName string) {
+	i.haltedShardsForTransferLock.Lock()
+	defer i.haltedShardsForTransferLock.Unlock()
+	if i.haltedShardsForTransfer == nil {
+		i.haltedShardsForTransfer = make(map[string]struct{})
+	}
+	i.haltedShardsForTransfer[shardName] = struct{}{}
+}
+
+func (i *Index) unmarkShardHaltedForTransfer(shardName string) {
+	i.haltedShardsForTransferLock.Lock()
+	defer i.haltedShardsForTransferLock.Unlock()
+	delete(i.haltedShardsForTransfer, shardName)
+}
+
+func (i *Index) shouldShardInitHalted(shardName string) bool {
+	i.haltedShardsForTransferLock.Lock()
+	defer i.haltedShardsForTransferLock.Unlock()
+
+	// Check if this specific shard was explicitly halted
+	if _, ok := i.haltedShardsForTransfer[shardName]; ok {
+		return true
+	}
+
+	return false
+}
+
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	i.ForEachShard(func(name string, shard ShardLike) error {
-		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
-			lastErr = err
-			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
+	i.haltedShardsForTransferLock.Lock()
+	haltedShards := make(map[string]struct{}, len(i.haltedShardsForTransfer))
+	for name := range i.haltedShardsForTransfer {
+		haltedShards[name] = struct{}{}
+	}
+	i.haltedShardsForTransferLock.Unlock()
+
+	for name := range haltedShards {
+		if shard := i.shards.Load(name); shard != nil {
+			if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+				lastErr = err
+				i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
+			}
 		}
-		time.Sleep(time.Millisecond * 10)
-		return nil
-	})
+		// Shards not yet in shard map will self-resume when init completes
+		// (see shard_init.go check for backupInProgress)
+	}
+
 	return lastErr
 }
 

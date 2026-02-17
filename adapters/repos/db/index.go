@@ -297,6 +297,13 @@ type Index struct {
 	router        routerTypes.Router
 	shardResolver *resolver.ShardResolver
 	bitmapBufPool roaringset.BitmapBufPool
+
+	// Tracks shards that are halted for backup/transfer.
+	// When a shard is halted via HaltForTransfer, it's added here.
+	// When a shard is resumed via resumeMaintenanceCycles, it's removed.
+	// New shards check this map during init to know if they should start halted.
+	haltedShardsForTransfer     map[string]struct{}
+	haltedShardsForTransferLock sync.RWMutex
 }
 
 func (i *Index) ID() string {
@@ -487,6 +494,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 
 				i.shards.Store(shardName, newShard)
+				newShard.maybeResumeAfterInit(ctx)
 				return nil
 			}, shardName)
 		}
@@ -2295,6 +2303,9 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	i.shards.Store(shardName, shard)
+	if s, ok := shard.(*Shard); ok {
+		s.maybeResumeAfterInit(ctx)
+	}
 
 	return nil
 }
@@ -2382,6 +2393,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 				return nil, func() {}, err
 			}
 			i.shards.Store(shardName, shard)
+			if s, ok := shard.(*Shard); ok {
+				s.maybeResumeAfterInit(ctx)
+			}
 		}
 	} else {
 		// shard already loaded, so we can defer the Runlock

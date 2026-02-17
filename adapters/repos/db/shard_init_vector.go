@@ -85,9 +85,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		if hnswUserConfig.Skip {
 			vectorIndex = noop.NewIndex()
 		} else {
-			// starts vector cycles if vector is configured
-			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
-			s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+			// starts vector cycles if vector is configured (unless shard is halted)
+			if !s.haltedOnInit {
+				s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+				s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+			}
 
 			// a shard can actually have multiple vector indexes:
 			// - the main index, which is used for all normal object vectors
@@ -147,7 +149,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
-		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		if !s.haltedOnInit {
+			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		}
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
@@ -179,7 +183,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("dynamic vector index: config is not dynamic.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
-		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		if !s.haltedOnInit {
+			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		}
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
