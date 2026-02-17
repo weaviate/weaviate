@@ -219,12 +219,11 @@ func generateOperator(first, second *docBitmap, operator filters.Operator) (func
 			return first.docIDs.AndConc, true, second
 		}
 	}
-	/*
-		if second.IsDenyList() {
-			// swap bitmaps, so first one is always deny list (if any)
-			first, second = second, first
-		}
-	*/
+
+	if second.IsDenyList() {
+		first, second = second, first
+	}
+
 	if first.IsDenyList() {
 		switch operator {
 		case filters.OperatorAnd:
