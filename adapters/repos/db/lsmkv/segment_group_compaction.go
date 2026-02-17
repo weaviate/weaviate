@@ -442,25 +442,25 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	// ensure we are not deleting any segments that are still being referenced,
 	// e.g. from cursor or other "slow" readers.
 	//
-	// The whole compaction cycle is single-threaded, so waiting for a delete,
-	// also means we are essentially delaying the next compaction. That is not
-	// ideal and also not strictly necessary. We could extract the delete logic
-	// into a simple job queue that runs in a separate goroutine.
-	//
-	// However, https://github.com/weaviate/weaviate/pull/9104, where
-	// ref-counting is introduced, is already a significant change at the point
-	// of writing this comment. Thus, to minimize further risks, we keep the
-	// existing logic for now.
-	if err := sg.deleteOldSegmentsFromDisk(oldLeft, oldRight); err != nil {
-		// don't abort if the delete fails, we can still continue (albeit
-		// without freeing disk space that should have been freed). The
-		// compaction itself was successful.
-		sg.logger.WithError(err).WithFields(logrus.Fields{
-			"action":     "lsm_replace_compacted_segments_delete_files",
-			"file_left":  oldLeft.getPath(),
-			"file_right": oldRight.getPath(),
-		}).Error("failed to delete file already marked for deletion")
-	}
+	// switchInMemory() has already removed the old segments from sg.segments,
+	// so new readers can never acquire refs on them. We only need to wait for
+	// existing readers to finish — which may take a while if a cursor is
+	// active. Running this in a background goroutine prevents HOL blocking of
+	// the entire compaction cycle while one bucket waits for its readers.
+	sg.asyncDeletionWg.Add(1)
+	go func(left, right Segment) {
+		defer sg.asyncDeletionWg.Done()
+		if err := sg.deleteOldSegmentsFromDisk(left, right); err != nil {
+			// don't abort if the delete fails, we can still continue (albeit
+			// without freeing disk space that should have been freed). The
+			// compaction itself was successful.
+			sg.logger.WithError(err).WithFields(logrus.Fields{
+				"action":     "lsm_replace_compacted_segments_delete_files",
+				"file_left":  left.getPath(),
+				"file_right": right.getPath(),
+			}).Error("failed to delete file already marked for deletion")
+		}
+	}(oldLeft, oldRight)
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())

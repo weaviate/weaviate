@@ -88,6 +88,9 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
+	// tracks in-flight async segment deletions (post-compaction/cleanup)
+	asyncDeletionWg sync.WaitGroup
+
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
@@ -795,6 +798,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	sg.segmentRefCounterLock.Unlock()
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+	sg.asyncDeletionWg.Wait() // drain any in-flight async deletions
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
