@@ -114,7 +114,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int, stats *cleanupStats) error {
 	if top <= 0 {
 		return nil
 	}
@@ -171,6 +171,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 			continue
 		}
 
+		stats.positiveDistanceCalculations++
 		dist, err := n.processNode(id)
 		if err != nil {
 			var e storobj.ErrNotFound
@@ -190,6 +191,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	}
 	for _, id := range pending {
 		if results.Len() >= top {
+			stats.negativeDistanceCalculations++
 			dist, err := n.processNode(id)
 			if err != nil {
 				var e storobj.ErrNotFound
@@ -203,7 +205,19 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 				continue
 			}
 		}
-		err := n.processRecursively(id, results, visited, level, top)
+		stats.recursionDepht++
+		if stats.recursionDepht > 6 || stats.negativeDistanceCalculations > 10_000 || stats.positiveDistanceCalculations > 10_000 {
+			n.graph.logger.WithFields(logrus.Fields{
+				"action":              "tombstone_cleanup",
+				"max_depth":           stats.recursionDepht,
+				"distance_kept_nodes": stats.positiveDistanceCalculations,
+				"distance_del_nodes":  stats.negativeDistanceCalculations,
+				"shard":               n.graph.shardName,
+				"class":               n.graph.className,
+			}).Warn("high recursion depth or distance calculatinos during tombstone cleanup")
+		}
+		err := n.processRecursively(id, results, visited, level, top, stats)
+		stats.recursionDepht--
 		if err != nil {
 			return err
 		}
@@ -211,8 +225,16 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	return nil
 }
 
+type cleanupStats struct {
+	positiveDistanceCalculations int
+	negativeDistanceCalculations int
+	recursionDepht               int
+}
+
 func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) error {
 	before := time.Now()
+
+	stats := &cleanupStats{}
 
 	var results *priorityqueue.Queue[any]
 	var extraIDs []uint64 = nil
@@ -245,7 +267,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		}
 		for _, id := range pending {
 			visited.Visit(id)
-			err := n.processRecursively(id, results, visited, level, top)
+			err := n.processRecursively(id, results, visited, level, top, stats)
 			if err != nil {
 				n.graph.pools.visitedListsLock.RLock()
 				n.graph.pools.visitedLists.Return(visited)
