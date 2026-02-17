@@ -180,6 +180,68 @@ func TestStatisticsLength(t *testing.T) {
 	assert.Equal(t, 4097, statisticsLength(64))
 }
 
+func TestComputeWeightedAverageEf(t *testing.T) {
+	t.Run("empty table returns calibrationK", func(t *testing.T) {
+		wae := computeWeightedAverageEf(nil, 0.95)
+		assert.Equal(t, calibrationK, wae)
+	})
+
+	t.Run("single group", func(t *testing.T) {
+		table := []efTableEntry{
+			{Score: 10, QueryCount: 5, EFRecalls: []efRecall{
+				{EF: 20, Recall: 0.8},
+				{EF: 50, Recall: 0.96},
+			}},
+		}
+		wae := computeWeightedAverageEf(table, 0.95)
+		assert.Equal(t, 50, wae)
+	})
+
+	t.Run("weights by query count", func(t *testing.T) {
+		table := []efTableEntry{
+			// 90 queries need ef=20
+			{Score: 10, QueryCount: 90, EFRecalls: []efRecall{{EF: 20, Recall: 0.96}}},
+			// 10 queries need ef=200
+			{Score: 80, QueryCount: 10, EFRecalls: []efRecall{{EF: 200, Recall: 0.96}}},
+		}
+		// Weighted: (20*90 + 200*10) / 100 = (1800 + 2000) / 100 = 38
+		wae := computeWeightedAverageEf(table, 0.95)
+		assert.Equal(t, 38, wae)
+	})
+
+	t.Run("uniform weighting would differ", func(t *testing.T) {
+		table := []efTableEntry{
+			{Score: 10, QueryCount: 1, EFRecalls: []efRecall{{EF: 10, Recall: 0.96}}},
+			{Score: 80, QueryCount: 99, EFRecalls: []efRecall{{EF: 100, Recall: 0.96}}},
+		}
+		// Weighted: (10*1 + 100*99) / 100 = 9910/100 = 99
+		// Uniform would give: (10+100)/2 = 55
+		wae := computeWeightedAverageEf(table, 0.95)
+		assert.Equal(t, 99, wae)
+	})
+
+	t.Run("falls back to last ef when target not reached", func(t *testing.T) {
+		table := []efTableEntry{
+			{Score: 10, QueryCount: 10, EFRecalls: []efRecall{
+				{EF: 20, Recall: 0.80},
+				{EF: 50, Recall: 0.90},
+			}},
+		}
+		// Target 0.95 not reached, falls back to last ef=50
+		wae := computeWeightedAverageEf(table, 0.95)
+		assert.Equal(t, 50, wae)
+	})
+
+	t.Run("zero query count groups are skipped", func(t *testing.T) {
+		table := []efTableEntry{
+			{Score: 10, QueryCount: 0, EFRecalls: []efRecall{{EF: 5000, Recall: 0.96}}},
+			{Score: 50, QueryCount: 10, EFRecalls: []efRecall{{EF: 30, Recall: 0.96}}},
+		}
+		wae := computeWeightedAverageEf(table, 0.95)
+		assert.Equal(t, 30, wae)
+	})
+}
+
 func TestAdaptiveSearchEndToEnd(t *testing.T) {
 	// Create a small index with random vectors and verify adaptive search works
 	dims := 32

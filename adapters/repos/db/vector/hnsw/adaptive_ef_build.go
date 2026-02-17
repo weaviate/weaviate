@@ -121,8 +121,9 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 		}
 
 		table = append(table, efTableEntry{
-			Score:     binScore,
-			EFRecalls: efRecalls,
+			Score:      binScore,
+			QueryCount: len(binQueries),
+			EFRecalls:  efRecalls,
 		})
 
 		h.logger.WithField("score", binScore).
@@ -188,16 +189,16 @@ func computeRecall(resultIDs []uint64, groundTruth []uint64, k int) float32 {
 	return float32(hits) / float32(limit)
 }
 
-// computeWeightedAverageEf computes the weighted average ef: the average of the minimum ef
-// achieving the target recall across all score groups, weighted by the number
-// of queries in each group (approximated here as uniform).
+// computeWeightedAverageEf computes the weighted average ef across all score
+// groups, where each group's minimum ef (achieving target recall) is weighted
+// by the number of queries in that group.
 func computeWeightedAverageEf(table []efTableEntry, targetRecall float32) int {
 	if len(table) == 0 {
 		return calibrationK
 	}
 
-	var totalEF int
-	var count int
+	var weightedEF int
+	var totalQueries int
 	for _, entry := range table {
 		minEF := 0
 		for _, er := range entry.EFRecalls {
@@ -207,16 +208,16 @@ func computeWeightedAverageEf(table []efTableEntry, targetRecall float32) int {
 			}
 			minEF = er.EF // fallback to last
 		}
-		if minEF > 0 {
-			totalEF += minEF
-			count++
+		if minEF > 0 && entry.QueryCount > 0 {
+			weightedEF += minEF * entry.QueryCount
+			totalQueries += entry.QueryCount
 		}
 	}
 
-	if count == 0 {
+	if totalQueries == 0 {
 		return calibrationK
 	}
-	return totalEF / count
+	return weightedEF / totalQueries
 }
 
 // sampleNodeIDs samples up to n valid (non-nil, non-tombstone) node IDs from

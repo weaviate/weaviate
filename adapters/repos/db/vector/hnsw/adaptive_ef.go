@@ -53,8 +53,9 @@ type adaptiveEfConfig struct {
 
 // efTableEntry holds the ef-recall pairs for a given integer score.
 type efTableEntry struct {
-	Score     int        `json:"score"`
-	EFRecalls []efRecall `json:"efRecalls"`
+	Score      int        `json:"score"`
+	QueryCount int        `json:"queryCount"`
+	EFRecalls  []efRecall `json:"efRecalls"`
 }
 
 // efRecall records the recall achieved at a given ef value.
