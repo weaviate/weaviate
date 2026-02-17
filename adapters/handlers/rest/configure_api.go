@@ -86,6 +86,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
+	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
@@ -1268,6 +1269,7 @@ func registerModules(appState *state.State) error {
 		modmistral.Name,
 		modtext2vecoctoai.Name,
 		modopenai.Name,
+		modgenerativedeepseek.Name,
 		modmorph.Name,
 		modvoyageai.Name,
 		modmulti2vecvoyageai.Name,
@@ -1608,6 +1610,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativeopenai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativedeepseek.Name]; ok {
+		appState.Modules.Register(modgenerativedeepseek.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedeepseek.Name).
 			Debug("enabled module")
 	}
 
