@@ -187,7 +187,7 @@ func (fb *fakeBackend) Read(ctx context.Context, backupID, key, overrideBucket, 
 	return 0, args.Error(1)
 }
 
-func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
 	defer r.Close()
