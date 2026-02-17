@@ -28,8 +28,8 @@ func Test_AdaptiveEFMetadata(t *testing.T) {
 	})
 
 	original := &adaptiveEfConfig{
-		MeanVec:           []float64{0.1, 0.2},
-		VarianceVec:       []float64{0.01, 0.02},
+		MeanVec:           []float32{0.1, 0.2},
+		VarianceVec:       []float32{0.01, 0.02},
 		TargetRecall:      0.95,
 		WeightedAverageEf: 64,
 		Table: []efTableEntry{

@@ -27,32 +27,35 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-func TestComputeScore(t *testing.T) {
+func TestAdaptiveScore(t *testing.T) {
+	cosine := distancer.NewCosineDistanceProvider()
+	dot := distancer.NewDotProductProvider()
+
 	t.Run("empty distances returns 0", func(t *testing.T) {
-		score := computeScore([]float32{1, 0, 0}, nil, []float64{0.5, 0.5, 0.5}, []float64{0.1, 0.1, 0.1})
+		score := adaptiveScore([]float32{1, 0, 0}, nil, []float32{0.5, 0.5, 0.5}, []float32{0.1, 0.1, 0.1}, cosine)
 		assert.Equal(t, float32(0), score)
 	})
 
 	t.Run("empty query returns 0", func(t *testing.T) {
-		score := computeScore(nil, []float32{0.1, 0.2}, []float64{}, []float64{})
+		score := adaptiveScore(nil, []float32{0.1, 0.2}, []float32{}, []float32{}, cosine)
 		assert.Equal(t, float32(0), score)
 	})
 
 	t.Run("zero variance returns 0", func(t *testing.T) {
 		query := []float32{1, 0, 0}
 		distances := []float32{0.5, 0.6, 0.7}
-		meanVec := []float64{0.5, 0.5, 0.5}
-		varianceVec := []float64{0, 0, 0}
+		meanVec := []float32{0.5, 0.5, 0.5}
+		varianceVec := []float32{0, 0, 0}
 
-		score := computeScore(query, distances, meanVec, varianceVec)
+		score := adaptiveScore(query, distances, meanVec, varianceVec, cosine)
 		assert.Equal(t, float32(0), score)
 	})
 
 	t.Run("all distances far from mean gives low score", func(t *testing.T) {
 		// Query near the mean, distances near mean -> none in left tail
 		query := []float32{0.577, 0.577, 0.577} // ~unit vector
-		meanVec := []float64{0.577, 0.577, 0.577}
-		varianceVec := []float64{0.01, 0.01, 0.01}
+		meanVec := []float32{0.577, 0.577, 0.577}
+		varianceVec := []float32{0.01, 0.01, 0.01}
 
 		// Mean distance = 1 - dot(q, mean) ≈ 1 - 1 = 0
 		// Distances close to 0 (near mean) should be near the expected mean
@@ -62,7 +65,7 @@ func TestComputeScore(t *testing.T) {
 			distances[i] = 0.001 // close to 0 = close to expected mean distance
 		}
 
-		score := computeScore(query, distances, meanVec, varianceVec)
+		score := adaptiveScore(query, distances, meanVec, varianceVec, cosine)
 		// These distances are near the expected mean (0), not in the left tail
 		// so score should be low or zero
 		assert.True(t, score < 10, "score should be low, got %f", score)
@@ -71,8 +74,8 @@ func TestComputeScore(t *testing.T) {
 	t.Run("distances in left tail give higher score", func(t *testing.T) {
 		// Create a scenario where some distances fall below the threshold
 		query := []float32{1, 0, 0}
-		meanVec := []float64{0, 0, 0} // mean at origin
-		varianceVec := []float64{0.1, 0.1, 0.1}
+		meanVec := []float32{0, 0, 0} // mean at origin
+		varianceVec := []float32{0.1, 0.1, 0.1}
 
 		// Expected mean distance = 1 - dot([1,0,0], [0,0,0]) = 1
 		// Variance = 1^2 * 0.1 = 0.1, std = sqrt(0.1) ≈ 0.316
@@ -84,10 +87,40 @@ func TestComputeScore(t *testing.T) {
 			distances[i] = 0.01 // Well below threshold[0] ≈ 0.024
 		}
 
-		score := computeScore(query, distances, meanVec, varianceVec)
+		score := adaptiveScore(query, distances, meanVec, varianceVec, cosine)
 		// All 100 distances are in bin 0 with weight 100
 		// score ≈ (100/100) * 100 = 100
 		assert.True(t, score > 90, "score should be high when all distances are in the tightest bin, got %f", score)
+	})
+
+	t.Run("dot distance: distances in left tail give higher score", func(t *testing.T) {
+		// For dot distance: dist = -dot(q, v)
+		// E[dist] = -dot(q, meanVec), Var[dist] = dot(q^2, varianceVec)
+		query := []float32{1, 0, 0}
+		meanVec := []float32{0.5, 0, 0}
+		varianceVec := []float32{0.1, 0.1, 0.1}
+
+		// meanDist = -dot([1,0,0], [0.5,0,0]) = -0.5
+		// varDist = 1^2 * 0.1 = 0.1, std ≈ 0.316
+		// threshold[0] = -0.5 + (-3.09)*0.316 ≈ -1.476
+		// distances well below threshold should score high
+		distances := make([]float32, 100)
+		for i := range distances {
+			distances[i] = -2.0 // well below threshold
+		}
+
+		score := adaptiveScore(query, distances, meanVec, varianceVec, dot)
+		assert.True(t, score > 90, "dot: score should be high when all distances are in tightest bin, got %f", score)
+	})
+
+	t.Run("dot distance: zero variance returns 0", func(t *testing.T) {
+		query := []float32{1, 0, 0}
+		distances := []float32{-0.5, -0.4}
+		meanVec := []float32{0.5, 0, 0}
+		varianceVec := []float32{0, 0, 0}
+
+		score := adaptiveScore(query, distances, meanVec, varianceVec, dot)
+		assert.Equal(t, float32(0), score)
 	})
 }
 
@@ -265,7 +298,7 @@ func TestAdaptiveSearchEndToEnd(t *testing.T) {
 	}
 
 	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		RootPath:              t.TempDir(),
 		ID:                    "adaptive-ef-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
@@ -289,26 +322,33 @@ func TestAdaptiveSearchEndToEnd(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Compute dataset statistics
-	meanVec := make([]float64, dims)
+	// Compute dataset statistics (accumulate in float64, convert to float32)
+	meanVecF64 := make([]float64, dims)
 	for _, v := range vectors {
 		for d, val := range v {
-			meanVec[d] += float64(val)
+			meanVecF64[d] += float64(val)
 		}
 	}
-	for d := range meanVec {
-		meanVec[d] /= float64(numVectors)
+	for d := range meanVecF64 {
+		meanVecF64[d] /= float64(numVectors)
 	}
 
-	varianceVec := make([]float64, dims)
+	varianceVecF64 := make([]float64, dims)
 	for _, v := range vectors {
 		for d, val := range v {
-			diff := float64(val) - meanVec[d]
-			varianceVec[d] += diff * diff
+			diff := float64(val) - meanVecF64[d]
+			varianceVecF64[d] += diff * diff
 		}
 	}
-	for d := range varianceVec {
-		varianceVec[d] /= float64(numVectors)
+	for d := range varianceVecF64 {
+		varianceVecF64[d] /= float64(numVectors)
+	}
+
+	meanVec := make([]float32, dims)
+	varianceVec := make([]float32, dims)
+	for d := 0; d < dims; d++ {
+		meanVec[d] = float32(meanVecF64[d])
+		varianceVec[d] = float32(varianceVecF64[d])
 	}
 
 	// Sample queries (use first 20 vectors as queries)

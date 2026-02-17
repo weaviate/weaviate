@@ -328,6 +328,9 @@ func (u *UserConfig) validate() error {
 		if u.AdaptiveEF.TargetRecall <= 0 || u.AdaptiveEF.TargetRecall > 1 {
 			return fmt.Errorf("invalid hnsw config: adaptiveEf.targetRecall must be between 0 and 1, got %f", u.AdaptiveEF.TargetRecall)
 		}
+		if u.Distance != vectorIndexCommon.DistanceCosine && u.Distance != vectorIndexCommon.DistanceDot {
+			return fmt.Errorf("invalid hnsw config: adaptiveEf is only supported with cosine or dot distance, got %q", u.Distance)
+		}
 	}
 
 	return nil

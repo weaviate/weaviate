@@ -13,6 +13,8 @@ package hnsw
 
 import (
 	"math"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 const (
@@ -43,8 +45,8 @@ var binWeights = [numBins]float64{
 
 // adaptiveEfConfig holds precomputed statistics and the ef-estimation table.
 type adaptiveEfConfig struct {
-	MeanVec           []float64      `json:"meanVec"`
-	VarianceVec       []float64      `json:"varianceVec"`
+	MeanVec           []float32      `json:"meanVec"`
+	VarianceVec       []float32      `json:"varianceVec"`
 	TargetRecall      float32        `json:"targetRecall"`
 	WeightedAverageEf int            `json:"weightedAverageEf"`
 	Table             []efTableEntry `json:"table"` // sorted by score
@@ -64,37 +66,32 @@ type efRecall struct {
 	Recall float32 `json:"recall"`
 }
 
-// computeScore computes the query difficulty score for a query vector
+// adaptiveScore computes the query difficulty score for a query vector
 // given a set of distances collected during the initial search phase.
-// For cosine distance (bottom-based, lower is better):
-//
-//	mean_dist = 1 - dot(q, meanVec)
-//	var_dist = dot(q^2, varianceVec)
-//	std = sqrt(var_dist)
-//	Bin thresholds at quantiles using z-scores from the standard normal.
-//	Count distances below each threshold, compute weighted score.
-func computeScore(queryVec []float32, distances []float32, meanVec, varianceVec []float64) float32 {
+func adaptiveScore(queryVec []float32, distances []float32, meanVec, varianceVec []float32, dp distancer.Provider) float32 {
+	dotProvider := distancer.NewDotProductProvider()
 	if len(distances) == 0 {
 		return 0
 	}
 
-	dims := len(queryVec)
-	if dims == 0 {
+	if len(queryVec) == 0 {
 		return 0
 	}
 
-	// Compute mean distance and variance for cosine distance.
-	// For cosine distance with normalized vectors: dist = 1 - dot(q, v)
-	// Expected distance: E[dist] = 1 - dot(q, meanVec)
-	// Variance: Var[dist] = dot(q^2, varianceVec)
-	var dotQMean float64
-	var varDist float64
-	for d := 0; d < dims; d++ {
-		qd := float64(queryVec[d])
-		dotQMean += qd * meanVec[d]
-		varDist += qd * qd * varianceVec[d]
+	// Mean distance via the distance provider's SIMD-optimized SingleDist.
+	meanDist, err := dp.SingleDist(queryVec, meanVec)
+	if err != nil {
+		return 0
 	}
-	meanDist := 1.0 - dotQMean
+
+	// Variance: dot(q^2, varianceVec) — compute q^2 then use dot product SIMD.
+	qSquared := make([]float32, len(queryVec))
+	for i, q := range queryVec {
+		qSquared[i] = q * q
+	}
+	negVarDist, _ := dotProvider.SingleDist(qSquared, varianceVec)
+	varDist := float64(-negVarDist) // SingleDist returns -dot(a,b)
+
 	std := math.Sqrt(varDist)
 
 	if std < 1e-12 {
@@ -103,9 +100,10 @@ func computeScore(queryVec []float32, distances []float32, meanVec, varianceVec 
 
 	// Compute bin thresholds: threshold[i] = meanDist + zScore[i] * std
 	// Since z-scores are negative, thresholds are below the mean (left tail).
+	meanDistF64 := float64(meanDist)
 	var thresholds [numBins]float64
 	for i := 0; i < numBins; i++ {
-		thresholds[i] = meanDist + quantileZScores[i]*std
+		thresholds[i] = meanDistF64 + quantileZScores[i]*std
 	}
 
 	// Count distances falling below each threshold.

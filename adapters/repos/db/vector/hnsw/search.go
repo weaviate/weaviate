@@ -109,7 +109,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 		return h.knnSearchByVector(ctx, vector, k, initialEF, allowList, &adaptiveConfig{
 			StatsLen: statsLen,
 			AdjustEF: func(dists []float32) int {
-				score := computeScore(vector, dists, cfg.MeanVec, cfg.VarianceVec)
+				score := adaptiveScore(vector, dists, cfg.MeanVec, cfg.VarianceVec, h.distancerProvider)
 				estimated := cfg.estimateAdaptiveEf(score)
 				if estimated < k {
 					estimated = k

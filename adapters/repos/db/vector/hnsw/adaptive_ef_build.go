@@ -30,7 +30,7 @@ const maxBruteForceVectors = 50_000
 func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 	sampleQueries [][]float32, groundTruth [][]uint64,
 	k int, targetRecall float32,
-	meanVec, varianceVec []float64,
+	meanVec, varianceVec []float32,
 ) error {
 	if len(sampleQueries) == 0 {
 		return fmt.Errorf("no sample queries provided")
@@ -59,7 +59,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("score collection query=%d: %w", i, err)
 		}
-		score := computeScore(searchVec, ac.CollectedDistances, meanVec, varianceVec)
+		score := adaptiveScore(searchVec, ac.CollectedDistances, meanVec, varianceVec, h.distancerProvider)
 		queries[i] = queryInfo{index: i, score: score}
 	}
 
@@ -130,7 +130,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 			WithField("queries", len(binQueries)).
 			WithField("final_ef", efRecalls[len(efRecalls)-1].EF).
 			WithField("final_recall", efRecalls[len(efRecalls)-1].Recall).
-			Info("adaptive ef: score group")
+			Debug("adaptive ef: score group")
 	}
 
 	sort.Slice(table, func(i, j int) bool {
@@ -148,12 +148,7 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 	}
 	cfg.buildSketch()
 
-	h.logger.WithField("wae", wae).WithField("num_bins", len(table)).Info("adaptive ef: calibration summary")
-	for _, entry := range table {
-		h.logger.WithField("score", entry.Score).
-			WithField("estimated_ef", cfg.estimateAdaptiveEf(float32(entry.Score))).
-			Info("adaptive ef: table entry")
-	}
+	h.logger.WithField("weightedAverageEf", wae).WithField("num_bins", len(table)).Info("adaptive ef: calibration summary")
 
 	h.adaptiveEf.Store(cfg)
 
@@ -321,10 +316,11 @@ func (h *hnsw) CalibrateAdaptiveEF(ctx context.Context, targetRecall float32) er
 			return ctx.Err()
 		}
 
-		vec, err := h.vectorForID(ctx, id)
+		vec, err := h.VectorForIDThunk(ctx, id)
 		if err != nil || len(vec) == 0 {
 			continue
 		}
+		vec = h.normalizeVec(vec)
 
 		if statsCount == 0 {
 			dims = len(vec)
@@ -345,9 +341,12 @@ func (h *hnsw) CalibrateAdaptiveEF(ctx context.Context, targetRecall float32) er
 		return fmt.Errorf("not enough valid vectors for statistics (got %d)", statsCount)
 	}
 
-	varianceVec := make([]float64, dims)
+	// Convert accumulated float64 statistics to float32 for SIMD-optimized scoring.
+	meanVecF32 := make([]float32, dims)
+	varianceVec := make([]float32, dims)
 	for d := 0; d < dims; d++ {
-		varianceVec[d] = m2Vec[d] / float64(statsCount)
+		meanVecF32[d] = float32(meanVec[d])
+		varianceVec[d] = float32(m2Vec[d] / float64(statsCount))
 	}
 
 	h.logger.
@@ -366,7 +365,7 @@ func (h *hnsw) CalibrateAdaptiveEF(ctx context.Context, targetRecall float32) er
 			return ctx.Err()
 		}
 
-		queryVec, err := h.vectorForID(ctx, qID)
+		queryVec, err := h.VectorForIDThunk(ctx, qID)
 		if err != nil || len(queryVec) == 0 {
 			continue
 		}
@@ -390,5 +389,5 @@ func (h *hnsw) CalibrateAdaptiveEF(ctx context.Context, targetRecall float32) er
 		Info("adaptive ef: phase 3 complete, computed ground truth")
 
 	// Phase 4: Build the adaptive ef table
-	return h.BuildAdaptiveEFTable(ctx, sampleQueries, groundTruth, k, targetRecall, meanVec, varianceVec)
+	return h.BuildAdaptiveEFTable(ctx, sampleQueries, groundTruth, k, targetRecall, meanVecF32, varianceVec)
 }
