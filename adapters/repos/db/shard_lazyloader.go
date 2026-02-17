@@ -438,19 +438,19 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeBucketDir(helpers.BucketFromPropNameLSM(prop.Name))
+			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeBucketDir(helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeBucketDir(helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
 			}
