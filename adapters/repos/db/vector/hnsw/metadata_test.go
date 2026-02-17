@@ -28,10 +28,10 @@ func Test_AdaptiveEFMetadata(t *testing.T) {
 	})
 
 	original := &adaptiveEfConfig{
-		MeanVec:      []float64{0.1, 0.2},
-		VarianceVec:  []float64{0.01, 0.02},
-		TargetRecall: 0.95,
-		WAE:          64,
+		MeanVec:           []float64{0.1, 0.2},
+		VarianceVec:       []float64{0.01, 0.02},
+		TargetRecall:      0.95,
+		WeightedAverageEf: 64,
 		Table: []efTableEntry{
 			{Score: 0, EFRecalls: []efRecall{{EF: 32, Recall: 0.90}}},
 			{Score: 50, EFRecalls: []efRecall{{EF: 64, Recall: 0.95}}},
@@ -47,18 +47,18 @@ func Test_AdaptiveEFMetadata(t *testing.T) {
 		require.Equal(t, original.MeanVec, loaded.MeanVec)
 		require.Equal(t, original.VarianceVec, loaded.VarianceVec)
 		require.Equal(t, original.TargetRecall, loaded.TargetRecall)
-		require.Equal(t, original.WAE, loaded.WAE)
+		require.Equal(t, original.WeightedAverageEf, loaded.WeightedAverageEf)
 		require.Equal(t, original.Table, loaded.Table)
 	})
 
 	t.Run("overwrite with new config", func(t *testing.T) {
-		updated := &adaptiveEfConfig{TargetRecall: 0.99, WAE: 128}
+		updated := &adaptiveEfConfig{TargetRecall: 0.99, WeightedAverageEf: 128}
 		require.Nil(t, h.StoreAdaptiveEFConfig(updated))
 
 		loaded, err := h.LoadAdaptiveEFConfig()
 		require.Nil(t, err)
 		require.InDelta(t, 0.99, loaded.TargetRecall, 0.001)
-		require.Equal(t, 128, loaded.WAE)
+		require.Equal(t, 128, loaded.WeightedAverageEf)
 	})
 
 	t.Run("remove with keepFiles true preserves file", func(t *testing.T) {

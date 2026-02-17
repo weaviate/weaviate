@@ -151,7 +151,7 @@ func (h *hnsw) GetAdaptiveEFStatus() AdaptiveEFStatus {
 		Status:            "ready",
 		Enabled:           true,
 		TargetRecall:      cfg.TargetRecall,
-		WeightedAverageEF: int64(cfg.WAE),
+		WeightedAverageEF: int64(cfg.WeightedAverageEf),
 	}
 }
 

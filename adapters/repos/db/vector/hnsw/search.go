@@ -99,21 +99,10 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 			return h.knnSearchByVector(ctx, vector, k, ef, allowList, nil)
 		}
 
-		initialEF := int(float64(cfg.WAE) * 2.0)
-		if initialEF < 64 {
-			initialEF = 64
-		}
-		if initialEF < k {
-			initialEF = k
-		}
-		if initialEF > efUpperBound {
-			initialEF = efUpperBound
-		}
-
-		statsLen := adaptiveStatisticsLength(h.maximumConnectionsLayerZero, cfg.TargetRecall)
+		initialEF, statsLen := adaptiveSearchParams(cfg, h.maximumConnectionsLayerZero, k)
 
 		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_initial", initialEF)
-		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_weighted_avg", cfg.WAE)
+		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_weighted_avg", cfg.WeightedAverageEf)
 		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_target_recall", cfg.TargetRecall)
 		helpers.AnnotateSlowQueryLog(ctx, "adaptive_ef_stats_len", statsLen)
 
@@ -121,7 +110,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 			StatsLen: statsLen,
 			AdjustEF: func(dists []float32) int {
 				score := computeScore(vector, dists, cfg.MeanVec, cfg.VarianceVec)
-				estimated := cfg.estimateEf(score)
+				estimated := cfg.estimateAdaptiveEf(score)
 				if estimated < k {
 					estimated = k
 				}

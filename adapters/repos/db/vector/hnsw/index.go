@@ -453,7 +453,7 @@ func New(cfg Config, uc ent.UserConfig,
 		index.logger.WithError(err).Warn("failed to load adaptive ef config from metadata")
 	} else if aefCfg != nil {
 		index.adaptiveEf.Store(aefCfg)
-		index.logger.WithField("wae", aefCfg.WAE).
+		index.logger.WithField("wae", aefCfg.WeightedAverageEf).
 			WithField("target_recall", aefCfg.TargetRecall).
 			Info("loaded adaptive ef config from metadata")
 	}

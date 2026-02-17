@@ -136,21 +136,21 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 		return table[i].Score < table[j].Score
 	})
 
-	wae := computeWAE(table, targetRecall)
+	wae := computeWeightedAverageEf(table, targetRecall)
 
 	cfg := &adaptiveEfConfig{
-		MeanVec:      meanVec,
-		VarianceVec:  varianceVec,
-		TargetRecall: targetRecall,
-		WAE:          wae,
-		Table:        table,
+		MeanVec:           meanVec,
+		VarianceVec:       varianceVec,
+		TargetRecall:      targetRecall,
+		WeightedAverageEf: wae,
+		Table:             table,
 	}
 	cfg.buildSketch()
 
 	h.logger.WithField("wae", wae).WithField("num_bins", len(table)).Info("adaptive ef: calibration summary")
 	for _, entry := range table {
 		h.logger.WithField("score", entry.Score).
-			WithField("estimated_ef", cfg.estimateEf(float32(entry.Score))).
+			WithField("estimated_ef", cfg.estimateAdaptiveEf(float32(entry.Score))).
 			Info("adaptive ef: table entry")
 	}
 
@@ -188,10 +188,10 @@ func computeRecall(resultIDs []uint64, groundTruth []uint64, k int) float32 {
 	return float32(hits) / float32(limit)
 }
 
-// computeWAE computes the weighted average ef: the average of the minimum ef
+// computeWeightedAverageEf computes the weighted average ef: the average of the minimum ef
 // achieving the target recall across all score groups, weighted by the number
 // of queries in each group (approximated here as uniform).
-func computeWAE(table []efTableEntry, targetRecall float32) int {
+func computeWeightedAverageEf(table []efTableEntry, targetRecall float32) int {
 	if len(table) == 0 {
 		return calibrationK
 	}

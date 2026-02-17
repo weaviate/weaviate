@@ -17,12 +17,13 @@ import (
 
 const (
 	numBins          = 5
-	efUpperBound     = 5000
+	efUpperBound     = 5000 // ef=5000 is used as an upper bound for max practical recall
 	numSampleQueries = 250
-	calibrationK     = 10
+	calibrationK     = 10 // by default we brute force k=10
+	adaptiveMinEf    = 64 // min ef during discovery phase
 )
 
-// z-scores for quantiles 0.001, 0.002, 0.003, 0.004, 0.005 from inverse normal CDF.
+// Pre calculated z-scores for quantiles 0.001, 0.002, 0.003, 0.004, 0.005 from inverse normal CDF.
 // These are the left-tail z-scores (negative values for small quantiles).
 var quantileZScores = [numBins]float64{
 	-3.0902, // 0.001
@@ -32,23 +33,22 @@ var quantileZScores = [numBins]float64{
 	-2.5758, // 0.005
 }
 
-// Bin weights: 100 * exp(-i) for i=0..4
 var binWeights = [numBins]float64{
-	100.0,                // 100 * e^0
-	100.0 * math.Exp(-1), // 100 * e^-1 ≈ 36.788
-	100.0 * math.Exp(-2), // 100 * e^-2 ≈ 13.534
-	100.0 * math.Exp(-3), // 100 * e^-3 ≈ 4.979
-	100.0 * math.Exp(-4), // 100 * e^-4 ≈ 1.832
+	100.0,
+	100.0 * math.Exp(-1),
+	100.0 * math.Exp(-2),
+	100.0 * math.Exp(-3),
+	100.0 * math.Exp(-4),
 }
 
 // adaptiveEfConfig holds precomputed statistics and the ef-estimation table.
 type adaptiveEfConfig struct {
-	MeanVec      []float64      `json:"meanVec"`
-	VarianceVec  []float64      `json:"varianceVec"`
-	TargetRecall float32        `json:"targetRecall"`
-	WAE          int            `json:"wae"`   // weighted average ef
-	Table        []efTableEntry `json:"table"` // sorted by score
-	Links        [101]int       `json:"-"`     // rebuilt via buildSketch()
+	MeanVec           []float64      `json:"meanVec"`
+	VarianceVec       []float64      `json:"varianceVec"`
+	TargetRecall      float32        `json:"targetRecall"`
+	WeightedAverageEf int            `json:"weightedAverageEf"`
+	Table             []efTableEntry `json:"table"` // sorted by score
+	Links             [101]int       `json:"-"`     // rebuilt via buildSketch()
 }
 
 // efTableEntry holds the ef-recall pairs for a given integer score.
@@ -132,9 +132,9 @@ func computeScore(queryVec []float32, distances []float32, meanVec, varianceVec 
 	return float32(score)
 }
 
-// estimateEf looks up the estimated ef for a given score using the sketch.
+// estimateAdaptiveEf looks up the estimated ef for a given score using the sketch.
 // It averages the ef values for the neighboring integer scores for smoothing.
-func (cfg *adaptiveEfConfig) estimateEf(score float32) int {
+func (cfg *adaptiveEfConfig) estimateAdaptiveEf(score float32) int {
 	intScore := int(score)
 	if intScore < 0 {
 		intScore = 0
@@ -144,18 +144,18 @@ func (cfg *adaptiveEfConfig) estimateEf(score float32) int {
 	}
 
 	if intScore < 1 || intScore >= 100 {
-		return cfg.lookupEf(intScore)
+		return cfg.lookupAdaptiveEf(intScore)
 	}
 
 	// Average of neighbors for smoothing
-	ef1 := cfg.lookupEf(intScore - 1)
-	ef2 := cfg.lookupEf(intScore)
-	ef3 := cfg.lookupEf(intScore + 1)
+	ef1 := cfg.lookupAdaptiveEf(intScore - 1)
+	ef2 := cfg.lookupAdaptiveEf(intScore)
+	ef3 := cfg.lookupAdaptiveEf(intScore + 1)
 	return (ef1 + ef2 + ef3) / 3
 }
 
-// lookupEf returns the ef value for a given integer score using the table.
-func (cfg *adaptiveEfConfig) lookupEf(intScore int) int {
+// lookupAdaptiveEf returns the ef value for a given integer score using the table.
+func (cfg *adaptiveEfConfig) lookupAdaptiveEf(intScore int) int {
 	if intScore < 0 {
 		intScore = 0
 	}
@@ -165,15 +165,15 @@ func (cfg *adaptiveEfConfig) lookupEf(intScore int) int {
 
 	idx := cfg.Links[intScore]
 	if idx < 0 || idx >= len(cfg.Table) {
-		return cfg.WAE
+		return cfg.WeightedAverageEf
 	}
 
 	entry := cfg.Table[idx]
 	for _, er := range entry.EFRecalls {
 		if er.Recall >= cfg.TargetRecall {
 			ef := er.EF
-			if ef < cfg.WAE {
-				ef = cfg.WAE
+			if ef < cfg.WeightedAverageEf {
+				ef = cfg.WeightedAverageEf
 			}
 			return ef
 		}
@@ -183,7 +183,7 @@ func (cfg *adaptiveEfConfig) lookupEf(intScore int) int {
 	if len(entry.EFRecalls) > 0 {
 		return entry.EFRecalls[len(entry.EFRecalls)-1].EF
 	}
-	return cfg.WAE
+	return cfg.WeightedAverageEf
 }
 
 // buildSketch builds the Links array that maps each integer score 0-100
@@ -243,6 +243,24 @@ func adaptiveStatisticsLength(maxConnectionsLayerZero int, targetRecall float32)
 
 	// For lower recall (< 0.90), use 1.5-hop
 	return 1 + m0 + m0/2
+}
+
+// adaptiveSearchParams computes the initialEF and statsLen for an adaptive
+// search given the calibrated config and index parameters.
+func adaptiveSearchParams(cfg *adaptiveEfConfig, maxConnectionsLayerZero, k int) (int, int) {
+	initialEF := int(float64(cfg.WeightedAverageEf))
+	if initialEF < adaptiveMinEf {
+		initialEF = adaptiveMinEf
+	}
+	if initialEF < k {
+		initialEF = k
+	}
+	if initialEF > efUpperBound {
+		initialEF = efUpperBound
+	}
+
+	statsLen := adaptiveStatisticsLength(maxConnectionsLayerZero, cfg.TargetRecall)
+	return initialEF, statsLen
 }
 
 // underlyingVectorIndex is an optional interface that wrapped indexes

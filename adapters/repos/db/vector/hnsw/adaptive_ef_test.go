@@ -93,8 +93,8 @@ func TestComputeScore(t *testing.T) {
 
 func TestEstimateEF(t *testing.T) {
 	cfg := &adaptiveEfConfig{
-		TargetRecall: 0.95,
-		WAE:          50,
+		TargetRecall:      0.95,
+		WeightedAverageEf: 50,
 		Table: []efTableEntry{
 			{Score: 10, EFRecalls: []efRecall{{EF: 20, Recall: 0.8}, {EF: 50, Recall: 0.96}}},
 			{Score: 50, EFRecalls: []efRecall{{EF: 30, Recall: 0.85}, {EF: 100, Recall: 0.97}}},
@@ -104,23 +104,23 @@ func TestEstimateEF(t *testing.T) {
 	cfg.buildSketch()
 
 	t.Run("low score maps to higher ef", func(t *testing.T) {
-		ef := cfg.estimateEf(10)
+		ef := cfg.estimateAdaptiveEf(10)
 		// Score 10 needs ef=50 to hit 0.96 >= 0.95 target
 		assert.True(t, ef >= 50, "ef should be at least 50, got %d", ef)
 	})
 
 	t.Run("high score maps to lower ef", func(t *testing.T) {
-		ef := cfg.estimateEf(90)
+		ef := cfg.estimateAdaptiveEf(90)
 		// Score 90 needs ef=10 to hit 0.99 >= 0.95 target,
 		// but WAE=50 is the floor
 		assert.True(t, ef >= 50, "ef should be at least WAE=50, got %d", ef)
 	})
 
 	t.Run("boundary scores", func(t *testing.T) {
-		ef0 := cfg.estimateEf(0)
+		ef0 := cfg.estimateAdaptiveEf(0)
 		assert.True(t, ef0 > 0, "ef at score 0 should be positive")
 
-		ef100 := cfg.estimateEf(100)
+		ef100 := cfg.estimateAdaptiveEf(100)
 		assert.True(t, ef100 > 0, "ef at score 100 should be positive")
 	})
 }
@@ -297,7 +297,7 @@ func TestAdaptiveSearchEndToEnd(t *testing.T) {
 	cfg := index.adaptiveEf.Load()
 	require.NotNil(t, cfg, "adaptive ef config should be loaded")
 	assert.True(t, len(cfg.Table) > 0, "table should have entries")
-	assert.True(t, cfg.WAE > 0, "WAE should be positive")
+	assert.True(t, cfg.WeightedAverageEf > 0, "WAE should be positive")
 
 	_, adaptive := index.searchTimeEF(k)
 	assert.True(t, adaptive, "searchTimeEF should indicate adaptive mode when adaptive ef is loaded")
