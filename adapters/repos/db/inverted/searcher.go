@@ -991,10 +991,6 @@ func newDocBitmap() docBitmap {
 	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: false}
 }
 
-func newDocBitmapWithDenyList(isDenyList bool) docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: isDenyList}
-}
-
 func (dbm *docBitmap) count() int {
 	if dbm.docIDs == nil {
 		return 0
