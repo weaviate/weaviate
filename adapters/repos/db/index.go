@@ -915,7 +915,11 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return fmt.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	targetShard, err := i.shardResolver.ResolveShard(ctx, object)
 	if err != nil {
 		switch {
@@ -1280,7 +1284,11 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(objects))
+		}
+	}
 	byShard := map[string]objsAndPos{}
 	for pos, obj := range objects {
 		target, err := i.shardResolver.ResolveShard(ctx, obj)
@@ -1400,7 +1408,11 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(refs))
+		}
+	}
 	byShard := map[string]refsAndPos{}
 	out := make([]error, len(refs))
 
@@ -2267,6 +2279,11 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	deletionTime time.Time, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
 	if err != nil {
 		switch {
@@ -2487,6 +2504,11 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, merge.ID, tenant)
 	if err != nil {
 		switch {
@@ -3043,7 +3065,11 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 ) (objects.BatchSimpleObjects, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return nil, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	type result struct {
 		objs objects.BatchSimpleObjects
 	}
