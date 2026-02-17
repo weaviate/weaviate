@@ -237,7 +237,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		desc.Error = err.Error()
 
 		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		if errors.Is(err, context.Canceled) {
 			u.setErr(backup.Cancelled, err)
 			desc.Status = string(backup.Cancelled)
 		} else {
