@@ -458,3 +458,9 @@ func (f *Finder) Overwrite(ctx context.Context,
 func (f *Finder) LocalNodeName() string {
 	return f.nodeName
 }
+
+// EnsureReadConsistency is a no-op for the 2PC replicator. RAFT-aware logic
+// is implemented in the shard RAFT replicator which wraps this one.
+func (f *Finder) EnsureReadConsistency(_ context.Context, _ string, _ types.ConsistencyLevel) (bool, error) {
+	return true, nil
+}

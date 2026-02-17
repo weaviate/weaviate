@@ -4,9 +4,11 @@
 
 The per-shard RAFT replication PoC (phases 1-6) handles writes through RAFT consensus, but reads are completely RAFT-unaware — they go straight to local LSM storage via the backing 2PC replicator. The old ONE/QUORUM/ALL consistency levels were designed for 2PC and don't map cleanly to RAFT semantics.
 
+Since the original plan was written, the strong-consistency-on-writes (SC-on-writes) work landed. It introduced `EnsureReplicaCaughtUp` to prevent dirty reads during read-modify-write operations (UPDATE, MERGE, reference ops) and built significant ReadIndex-protocol infrastructure that this plan now reuses instead of duplicating.
+
 This plan introduces three new read consistency levels for RAFT-backed shards:
 - **EVENTUAL**: Read from local shard, no consistency check. Fast, possibly stale.
-- **STRONG**: Linearizable via ReadIndex protocol. Follower asks leader for current commit index, waits for local FSM to catch up, then reads locally. Distributes read I/O.
+- **STRONG**: Linearizable via ReadIndex protocol. Follower asks leader for current commit index (with leadership verification), waits for local FSM to catch up, then reads locally. Distributes read I/O.
 - **DIRECT**: Linearizable from leader. If local node is leader, verify + read. If not, transparently forward read to leader. Zero wait, but concentrates load.
 
 Design decisions:
@@ -14,6 +16,18 @@ Design decisions:
 - Write consistency level on RAFT shards is silently ignored.
 - All read operations (GetOne, Exists, FindUUIDs, Search, VectorSearch) are covered.
 - DIRECT reads on non-leader nodes are transparently forwarded server-side.
+- Default CL for RAFT-backed shards is EVENTUAL (matches current fast-local-read behaviour).
+
+### Existing infrastructure reused (from SC-on-writes)
+
+| Component | File | What it does |
+|-----------|------|------------|
+| `GetLastAppliedIndex` RPC | `cluster/shard/server.go:196` | Returns leader's applied index |
+| `GetLastAppliedIndex` proto | `cluster/shard/proto/messages.proto:187-195` | Request/Response messages |
+| `Store.WaitForAppliedIndex()` | `cluster/shard/store.go:466` | Blocks until local FSM catches up |
+| `FSM.WaitForIndex()` | `cluster/shard/fsm.go:437-470` | Condition-variable-based wait with context cancellation |
+| `Registry.WaitForShardReady()` | `cluster/shard/registry.go:298-327` | Full ReadIndex flow: query leader → wait locally |
+| `VerifyLeaderForRead()` | `cluster/shard/replicator.go:465` | Leadership verification on the replicator |
 
 ---
 
@@ -41,7 +55,7 @@ func (l ConsistencyLevel) Is2PC() bool {
     return l == ConsistencyLevelOne || l == ConsistencyLevelQuorum || l == ConsistencyLevelAll
 }
 
-// MapTo2PC maps RAFT CLs to 2PC equivalents (for 2PC-lenient mode).
+// MapTo2PC maps RAFT CLs to 2PC equivalents (for non-RAFT shards receiving RAFT CLs).
 func (l ConsistencyLevel) MapTo2PC() ConsistencyLevel {
     switch l {
     case ConsistencyLevelEventual:
@@ -55,6 +69,8 @@ func (l ConsistencyLevel) MapTo2PC() ConsistencyLevel {
     }
 }
 ```
+
+Also update `ToInt()` to add explicit cases for RAFT CLs (all map to 1) for clarity, even though the default case already returns 1.
 
 ### 1b. gRPC proto enum
 
@@ -100,7 +116,7 @@ case pb.ConsistencyLevel_CONSISTENCY_LEVEL_DIRECT:
     return &additional.ReplicationProperties{ConsistencyLevel: "DIRECT"}
 ```
 
-Same for `adapters/handlers/grpc/v1/batch/handler.go` (line 159).
+Same for `adapters/handlers/grpc/v1/batch/handler.go` — `extractReplicationProperties()` (line 159).
 
 ### 1e. GraphQL enum
 
@@ -116,124 +132,94 @@ Update `ConsistencyLevel` description string to mention both sets.
 
 ---
 
-## Phase 2: ReadIndex RPC
+## Phase 2: Linearizable ReadIndex via GetLastAppliedIndex
 
-Add a lightweight RPC for the ReadIndex protocol: follower asks leader "what is your current commit index?"
+The existing `GetLastAppliedIndex` RPC (built for SC-on-writes) already implements the core ReadIndex flow. The only gap is that the server handler does **not** call `VerifyLeader()` before returning the index. For true linearizability (STRONG reads), the leader must confirm it's still leader before reporting its commit index — without this, a stale leader could return an outdated index.
 
-### 2a. Proto messages
+We cannot unconditionally add `VerifyLeader()` because the existing write-path (`EnsureReplicaCaughtUp` → `WaitForShardReady`) also calls this RPC. If the leader steps down in the window after committing a write but before responding, the write-path would fail unnecessarily — it just needs the index, not a leadership guarantee.
+
+### 2a. Proto field addition
 
 **File: `cluster/shard/proto/messages.proto`**
 
+Add a `verify_leader` field to the existing request:
 ```protobuf
-message ReadIndexRequest {
+message GetLastAppliedIndexRequest {
   string class = 1;
   string shard = 2;
-}
-
-message ReadIndexResponse {
-  uint64 commit_index = 1;
-}
-```
-
-Add to service:
-```protobuf
-service ShardReplicationService {
-  // ... existing RPCs ...
-  rpc ReadIndex(ReadIndexRequest) returns (ReadIndexResponse) {}
+  bool verify_leader = 3;  // If true, verify leadership before returning (for linearizable reads)
 }
 ```
 
 Then run `cd cluster/shard/proto && PATH=$PATH:~/go/bin buf generate`.
 
-### 2b. Store methods
+### 2b. Server handler update
 
-**File: `cluster/shard/store.go`**
+**File: `cluster/shard/server.go`** — `GetLastAppliedIndex` handler (line 196)
 
+Conditionally verify leadership:
 ```go
-// ReadIndex returns the current commit index for linearizable reads.
-// Must be called on the leader. Verifies leadership before returning.
-func (s *Store) ReadIndex() (uint64, error) {
-    s.mu.RLock()
-    if !s.started || s.closed || s.raft == nil {
-        s.mu.RUnlock()
-        return 0, ErrNotStarted
-    }
-    r := s.raft
-    s.mu.RUnlock()
-
-    // Verify we're still the leader
-    if err := r.VerifyLeader().Error(); err != nil {
-        return 0, ErrNotLeader
-    }
-
-    // On a verified leader, LastAppliedIndex equals the commit index
-    // because Apply() waits for FSM.Apply() before returning.
-    return s.fsm.LastAppliedIndex(), nil
-}
-
-// WaitForAppliedIndex blocks until the local FSM has applied at least
-// up to the given index, or the context is cancelled.
-func (s *Store) WaitForAppliedIndex(ctx context.Context, index uint64) error {
-    for {
-        if s.fsm.LastAppliedIndex() >= index {
-            return nil
-        }
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-        case <-time.After(time.Millisecond):
-        }
-    }
-}
-```
-
-### 2c. Server handler
-
-**File: `cluster/shard/server.go`**
-
-```go
-func (s *Server) ReadIndex(ctx context.Context, req *shardproto.ReadIndexRequest) (*shardproto.ReadIndexResponse, error) {
+func (s *Server) GetLastAppliedIndex(ctx context.Context, req *shardproto.GetLastAppliedIndexRequest) (*shardproto.GetLastAppliedIndexResponse, error) {
     store := s.registry.GetStore(req.Class, req.Shard)
     if store == nil {
         return nil, status.Errorf(codes.NotFound, "store not found for %s/%s", req.Class, req.Shard)
     }
-    idx, err := store.ReadIndex()
-    if err != nil {
-        return nil, toRPCError(err)
+    if req.VerifyLeader {
+        if err := store.VerifyLeader(); err != nil {
+            return nil, toRPCError(err)
+        }
     }
-    return &shardproto.ReadIndexResponse{CommitIndex: idx}, nil
+    return &shardproto.GetLastAppliedIndexResponse{
+        LastAppliedIndex: store.LastAppliedIndex(),
+    }, nil
 }
 ```
 
-### 2d. Registry convenience methods
+Existing write-path callers (`WaitForShardReady`) don't set `VerifyLeader` (defaults to false), so they are unaffected.
+
+### 2c. Registry linearizable read method
 
 **File: `cluster/shard/registry.go`**
 
+Add a new method alongside the existing `WaitForShardReady`:
 ```go
-func (reg *Registry) ReadIndex(className, shardName string) (uint64, error) {
+// WaitForLinearizableRead performs the ReadIndex protocol with leadership verification.
+// Used for STRONG consistency reads. Unlike WaitForShardReady (used in the write path),
+// this method requests VerifyLeader=true to guarantee linearizability.
+func (reg *Registry) WaitForLinearizableRead(ctx context.Context, className, shardName string) error {
     store := reg.GetStore(className, shardName)
     if store == nil {
-        return 0, fmt.Errorf("store not found for %s/%s", className, shardName)
+        return nil // RAFT not configured for this shard
     }
-    return store.ReadIndex()
-}
 
-func (reg *Registry) WaitForAppliedIndex(ctx context.Context, className, shardName string, index uint64) error {
-    store := reg.GetStore(className, shardName)
-    if store == nil {
-        return fmt.Errorf("store not found for %s/%s", className, shardName)
+    if store.IsLeader() {
+        return store.VerifyLeader() // Leader must verify for linearizability
     }
-    return store.WaitForAppliedIndex(ctx, index)
-}
 
-func (reg *Registry) LeaderID(className, shardName string) string {
-    store := reg.GetStore(className, shardName)
-    if store == nil {
-        return ""
+    leaderID := store.LeaderID()
+    if leaderID == "" {
+        return ErrNoLeaderFound
     }
-    return store.LeaderID()
+
+    client, err := reg.RpcClientMaker(ctx, leaderID)
+    if err != nil {
+        return fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
+    }
+
+    resp, err := client.GetLastAppliedIndex(ctx, &shardproto.GetLastAppliedIndexRequest{
+        Class:        className,
+        Shard:        shardName,
+        VerifyLeader: true,
+    })
+    if err != nil {
+        return fmt.Errorf("get leader applied index: %w", err)
+    }
+
+    return store.WaitForAppliedIndex(ctx, resp.LastAppliedIndex)
 }
 ```
+
+**No new RPCs, no new Store methods needed.** One new proto field and one new Registry method.
 
 ---
 
@@ -269,12 +255,14 @@ type RouterConfig struct {
     // ... existing fields ...
     // LocalShardReader resolves a shard name to a local reader for direct reads.
     LocalShardReader shardReaderProvider
+    // Registry is the shard RAFT registry (for ReadIndex protocol).
+    Registry *Registry
 }
 ```
 
 ### 3c. Wire in Index
 
-**File: `adapters/repos/db/index.go`** — where the RAFT replicator is created
+**File: `adapters/repos/db/index.go`** — where the RAFT replicator is created (~line 400)
 
 Provide a closure that returns the local shard:
 ```go
@@ -284,30 +272,11 @@ LocalShardReader: func(shardName string) (shard.ShardReader, func(), error) {
         return nil, nil, err
     }
     return s, release, nil  // Shard already implements ObjectByID, Exists
-}
+},
+Registry: cfg.ShardRegistry,
 ```
 
 Note: `adapters/repos/db.Shard` already has `ObjectByID()`, `Exists()` methods in `shard_read.go`. It satisfies the `shardReader` interface.
-
-### 3d. Update ShardRaftReplicator interface
-
-**File: `adapters/repos/db/shard_raft_replicator.go`**
-
-Add ReadIndex and WaitForAppliedIndex methods:
-```go
-type ShardRaftReplicator interface {
-    // ... existing write methods ...
-
-    // ReadIndex returns the leader's current commit index for the specified shard.
-    ReadIndex(ctx context.Context, className, shardName string) (uint64, error)
-
-    // WaitForAppliedIndex waits for the local FSM to apply up to the given index.
-    WaitForAppliedIndex(ctx context.Context, className, shardName string, index uint64) error
-
-    // LeaderID returns the leader's node ID for the specified shard.
-    LeaderID(className, shardName string) string
-}
-```
 
 ---
 
@@ -319,21 +288,25 @@ Override the read methods on the RAFT replicator to handle EVENTUAL/STRONG/DIREC
 
 **File: `cluster/shard/replicator.go`** — new methods
 
+**IMPORTANT**: The original plan had a logic bug in the routing condition. Using `!l.IsRaft() || r.raft.GetStore(shard) == nil` as the first check means 2PC CLs (where `!l.IsRaft()` is true) on RAFT shards silently pass through to the backing replicator instead of being rejected. The fix is to check shard type first, then CL type:
+
 ```go
 // GetOne overrides the backing replicator for RAFT-backed shards.
 func (r *replicator) GetOne(ctx context.Context, l routerTypes.ConsistencyLevel, shard string, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error) {
-    // If not a RAFT CL or no RAFT store, delegate to backing replicator
-    if !l.IsRaft() || r.raft.GetStore(shard) == nil {
+    isRaftShard := r.raft.GetStore(shard) != nil
+
+    // Non-RAFT shard: delegate to backing replicator (mapping RAFT CLs to 2PC equivalents)
+    if !isRaftShard {
         cl := l
         if l.IsRaft() {
-            cl = l.MapTo2PC() // RAFT CL on non-RAFT shard: map to 2PC
+            cl = l.MapTo2PC()
         }
         return r.Replicator.GetOne(ctx, cl, shard, id, props, adds)
     }
 
-    // Validate: reject 2PC CLs on RAFT shards
+    // RAFT shard: reject 2PC CLs
     if l.Is2PC() {
-        return nil, fmt.Errorf("consistency level %s is not supported for RAFT-backed shards, use EVENTUAL/STRONG/DIRECT", l)
+        return nil, fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", l)
     }
 
     switch l {
@@ -374,46 +347,17 @@ func (r *replicator) readLocalObject(ctx context.Context, shard string, id strfm
     return reader.ObjectByID(ctx, id, props, adds)
 }
 
-// ensureReadIndex performs the ReadIndex protocol:
-// 1. If leader: VerifyLeader (no RPC needed)
-// 2. If follower: call ReadIndex RPC to leader, wait for local apply
+// ensureReadIndex performs the ReadIndex protocol for STRONG consistency.
+// Delegates to Registry.WaitForLinearizableRead which handles:
+// - Leader: VerifyLeader (no RPC needed)
+// - Follower: GetLastAppliedIndex RPC with VerifyLeader=true → wait for local FSM
 func (r *replicator) ensureReadIndex(ctx context.Context, shardName string) error {
-    store := r.raft.GetStore(shardName)
-    if store == nil {
-        return fmt.Errorf("raft store not found for shard %s", shardName)
-    }
-
-    // If we're the leader, just verify leadership
-    if store.IsLeader() {
-        return store.VerifyLeader()
-    }
-
-    // Follower: ask leader for commit index via RPC
-    leaderID := store.LeaderID()
-    if leaderID == "" {
-        return ErrNoLeaderFound
-    }
-
-    client, err := r.rpcClientMaker(ctx, leaderID)
-    if err != nil {
-        return fmt.Errorf("create RPC client for leader %s: %w", leaderID, err)
-    }
-
-    resp, err := client.ReadIndex(ctx, &shardproto.ReadIndexRequest{
-        Class: r.class,
-        Shard: shardName,
-    })
-    if err != nil {
-        return fmt.Errorf("read index from leader: %w", err)
-    }
-
-    // Wait for local FSM to catch up
-    return store.WaitForAppliedIndex(ctx, resp.CommitIndex)
+    return r.config.Registry.WaitForLinearizableRead(ctx, r.config.ClassName, shardName)
 }
 
 // readFromLeader reads from the leader for DIRECT consistency.
 // If this node is the leader, reads locally after verifying leadership.
-// If not, forwards the read to the leader node via the backing replicator.
+// If not, forwards the read to the leader node via the backing replicator's NodeObject.
 func (r *replicator) readFromLeader(ctx context.Context, shard string, id strfmt.UUID, props search.SelectProperties, adds additional.Properties) (*storobj.Object, error) {
     store := r.raft.GetStore(shard)
     if store == nil {
@@ -454,7 +398,9 @@ func (r *replicator) CheckConsistency(ctx context.Context, l routerTypes.Consist
 
 ## Phase 5: Search Integration
 
-Search operations don't go through `GetOne()` — they read from shards directly and then call `CheckConsistency()`. We need to add a RAFT-aware "prepare" step before search reads.
+Search operations don't go through `GetOne()` — they read from shards directly via `objectSearchByShard` using a `ReadRoutingPlan`, then call `CheckConsistency()`. We need to add a RAFT-aware "prepare" step before search reads.
+
+The search path uses `buildReadRoutingPlan()` → `ReadRoutingPlan` → `IntConsistencyLevel` (from `ToInt()`). `ToInt()` only knows ONE/QUORUM/ALL; RAFT CLs all map to 1 (the default). For RAFT shards, replica-counting logic doesn't apply — consistency is ensured by the ReadIndex protocol (STRONG) or leadership verification (DIRECT), not by querying N replicas.
 
 ### 5a. PrepareRead method on replicator
 
@@ -463,7 +409,7 @@ Search operations don't go through `GetOne()` — they read from shards directly
 ```go
 // PrepareRead prepares a shard for a consistent read under RAFT CLs.
 // For EVENTUAL: no-op, returns local node.
-// For STRONG: performs ReadIndex protocol, returns local node.
+// For STRONG: performs ReadIndex protocol (via WaitForLinearizableRead), returns local node.
 // For DIRECT: verifies leadership or returns leader node name.
 // Returns the node name to read from.
 func (r *replicator) PrepareRead(ctx context.Context, shardName string, cl routerTypes.ConsistencyLevel) (readFromNode string, err error) {
@@ -515,19 +461,19 @@ The backing 2PC replicator must also implement this (as a no-op returning local 
 
 ### 5c. Index search path integration
 
-**File: `adapters/repos/db/index.go`** — `objectSearch()` and `objectVectorSearch()`
+**File: `adapters/repos/db/index.go`** — `objectSearchByShard()` (line 1773)
 
-Before searching each shard, call `PrepareRead`:
+In the `localSearch` closure, before calling `shard.ObjectSearch()`, call `PrepareRead`:
 ```go
 readNode, err := i.replicator.PrepareRead(ctx, shardName, cl)
 if err != nil {
-    return nil, err
+    return err
 }
 if readNode == localNodeName {
     // Read from local shard (existing path)
 } else {
     // Forward search to readNode (for DIRECT on non-leader)
-    // Use i.remote.SearchShard(ctx, readNode, ...) or similar
+    // Use remoteSearch targeting the leader node via i.remote.SearchShard
 }
 ```
 
@@ -535,48 +481,70 @@ The existing `CheckConsistency` call after search will be a no-op for RAFT CLs (
 
 ---
 
-## Phase 6: CL Validation at the Index Layer
+## Phase 6: Default CL for RAFT Shards
 
-Reject 2PC CLs on RAFT-backed shards early.
+**File: `adapters/repos/db/index.go`**
 
-### 6a. Validation helper
+The current `defaultConsistency()` (line 3200) returns `QUORUM`. Since RAFT shards reject 2PC CLs, any read path that doesn't explicitly set a CL (e.g. `objectByID` at line 1451) will fail on RAFT shards. We need a RAFT-aware default.
+
+Convert `defaultConsistency` from a package-level function to an `Index` method:
+```go
+func (i *Index) defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
+    rp := &additional.ReplicationProperties{}
+    if len(defaultOverride) != 0 {
+        rp.ConsistencyLevel = string(defaultOverride[0])
+    } else if i.isRaftBacked() {
+        rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelEventual)
+    } else {
+        rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelQuorum)
+    }
+    return rp
+}
+
+func (i *Index) isRaftBacked() bool {
+    return i.Config.RaftReplicationEnabled && i.Config.ShardRegistry != nil
+}
+```
+
+---
+
+## Phase 7: CL Validation at the Index Layer
+
+Reject 2PC CLs on RAFT-backed shards early. This is a defence-in-depth measure — Phase 4 already rejects at the replicator level.
+
+### 7a. Validation helper
 
 **File: `adapters/repos/db/index.go`**
 
 ```go
-func (i *Index) validateConsistencyLevel(cl routerTypes.ConsistencyLevel, shardName string) error {
-    isRaftShard := i.shardRaftReplicator != nil && i.shardRaftReplicator.IsLeader(i.Config.ClassName.String(), shardName)
-    // Better: check if RAFT store exists (regardless of leadership)
-    // Need a HasStore(className, shardName) bool method on the registry
-
-    if isRaftShard && cl.Is2PC() {
+func (i *Index) validateConsistencyLevel(cl routerTypes.ConsistencyLevel) error {
+    if i.isRaftBacked() && cl.Is2PC() {
         return fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", cl)
     }
     return nil
 }
 ```
 
-### 6b. Write CL handling
+### 7b. Write CL handling
 
 In the write path (`preparePutObject`, etc.), when a RAFT-backed shard receives a write with any CL, silently ignore the CL and proceed through RAFT consensus. No code changes needed — the existing RAFT replicator already ignores the `l routerTypes.ConsistencyLevel` parameter.
 
 ---
 
-## Phase 7: Testing
+## Phase 8: Testing
 
-### 7a. Unit tests
+### 8a. Unit tests
 
-- **`cluster/router/types/consistency_level_test.go`**: Test `IsRaft()`, `Is2PC()`, `MapTo2PC()`.
-- **`cluster/shard/store_test.go`**: Test `ReadIndex()`, `WaitForAppliedIndex()` with test RAFT clusters.
+- **`cluster/router/types/consistency_level_test.go`**: Test `IsRaft()`, `Is2PC()`, `MapTo2PC()`, `ToInt()` for all 6 CLs.
 - **`cluster/shard/replicator_test.go`**: Test `GetOne`, `Exists`, `FindUUIDs` routing for all 6 CLs on RAFT and non-RAFT shards. Mock `shardReaderProvider` and RPC client.
 
-### 7b. Integration tests
+### 8b. Integration tests
 
 - **`cluster/shard/`**: Multi-node integration test: write via RAFT, read with EVENTUAL (might be stale), STRONG (linearizable), DIRECT (from leader).
 - Verify that STRONG reads on a follower see writes that completed before the read.
 - Verify that EVENTUAL reads may not see very recent writes.
 
-### 7c. Acceptance tests
+### 8c. Acceptance tests
 
 - **`test/acceptance/`**: End-to-end test with 3-node cluster, RAFT-backed class:
   - Write object, STRONG read from follower → sees it.
@@ -589,15 +557,13 @@ In the write path (`preparePutObject`, etc.), when a RAFT-backed shard receives 
 
 | File | Change |
 |------|--------|
-| `cluster/router/types/consistency_level.go` | Add EVENTUAL/STRONG/DIRECT constants, IsRaft(), Is2PC(), MapTo2PC() |
-| `cluster/shard/proto/messages.proto` | Add ReadIndexRequest, ReadIndexResponse, ReadIndex RPC |
-| `cluster/shard/store.go` | Add ReadIndex(), WaitForAppliedIndex() |
-| `cluster/shard/server.go` | Add ReadIndex handler |
-| `cluster/shard/registry.go` | Add ReadIndex(), WaitForAppliedIndex(), LeaderID() convenience methods |
-| `cluster/shard/replicator.go` | Add shardReader interface, shardReaderProvider, override GetOne/Exists/FindUUIDs/CheckConsistency, add PrepareRead, ensureReadIndex, readLocalObject, readFromLeader |
-| `adapters/repos/db/shard_raft_replicator.go` | Add ReadIndex, WaitForAppliedIndex, LeaderID to interface |
-| `adapters/repos/db/index.go` | Wire LocalShardReader into RouterConfig, call PrepareRead in search paths, add CL validation |
-| `grpc/proto/v1/base.proto` | Add EVENTUAL/STRONG/DIRECT to ConsistencyLevel enum |
+| `cluster/router/types/consistency_level.go` | Add EVENTUAL/STRONG/DIRECT constants, IsRaft(), Is2PC(), MapTo2PC(), update ToInt() |
+| `cluster/shard/proto/messages.proto` | Add `verify_leader` field to GetLastAppliedIndexRequest → regenerate |
+| `cluster/shard/server.go` | Conditionally VerifyLeader() in GetLastAppliedIndex handler |
+| `cluster/shard/registry.go` | Add `WaitForLinearizableRead()` method |
+| `cluster/shard/replicator.go` | Add shardReader interface, shardReaderProvider, LocalShardReader + Registry in RouterConfig, override GetOne/Exists/FindUUIDs/CheckConsistency, add PrepareRead, ensureReadIndex, readLocalObject, readFromLeader |
+| `adapters/repos/db/index.go` | Wire LocalShardReader + Registry into RouterConfig, call PrepareRead in search paths, add CL validation, RAFT-aware defaultConsistency() |
+| `grpc/proto/v1/base.proto` | Add EVENTUAL/STRONG/DIRECT to ConsistencyLevel enum → `make grpc` |
 | `adapters/handlers/rest/handlers_objects.go` | Accept new CLs in getConsistencyLevel() |
 | `adapters/handlers/grpc/v1/service.go` | Add extraction cases for new CLs |
 | `adapters/handlers/grpc/v1/batch/handler.go` | Add extraction cases for new CLs |
@@ -607,8 +573,7 @@ In the write path (`preparePutObject`, etc.), when a RAFT-backed shard receives 
 ## Verification
 
 1. `go build ./...` — ensure compilation
-2. `go test ./cluster/shard/...` — RAFT unit tests
-3. `go test ./cluster/router/types/...` — CL type tests
-4. `go test -tags integrationTest ./cluster/shard/...` — multi-node integration
-5. `go test -tags integrationTest ./test/acceptance/...` — end-to-end acceptance
-6. `source ~/.bash_profile && golangci-lint run` — linting
+2. `go test ./cluster/router/types/...` — CL type tests
+3. `go test ./cluster/shard/...` — RAFT replicator + registry read tests
+4. `go test ./adapters/repos/db/...` — index layer tests
+5. `golangci-lint run` — linting

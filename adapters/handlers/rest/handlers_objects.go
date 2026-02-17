@@ -912,9 +912,11 @@ func getConsistencyLevel(lvl *string) (string, error) {
 		switch types.ConsistencyLevel(*lvl) {
 		case types.ConsistencyLevelOne, types.ConsistencyLevelQuorum, types.ConsistencyLevelAll:
 			return *lvl, nil
+		case types.ConsistencyLevelEventual, types.ConsistencyLevelStrong, types.ConsistencyLevelDirect:
+			return *lvl, nil
 		default:
 			return "", fmt.Errorf("unrecognized consistency level '%v', "+
-				"try one of the following: ['ONE', 'QUORUM', 'ALL']", *lvl)
+				"try one of the following: ['ONE', 'QUORUM', 'ALL', 'EVENTUAL', 'STRONG', 'DIRECT']", *lvl)
 		}
 	}
 
