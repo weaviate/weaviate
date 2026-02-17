@@ -173,7 +173,15 @@ func generateFilters(tombstones *sroar.Bitmap, filterDocIds helpers.AllowList) (
 		if !ok {
 			return tombstones, nil
 		}
-		filterSroar = bm.Bm
+		if !bm.IsDenyList() {
+			filterSroar = bm.Bm
+		} else {
+			if tombstones != nil {
+				tombstones.Or(bm.Bm)
+			} else {
+				tombstones = bm.Bm
+			}
+		}
 	}
 	return tombstones, filterSroar
 }

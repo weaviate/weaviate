@@ -107,6 +107,15 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		helpers.AnnotateSlowQueryLog(ctx, "sort_doc_ids_took", time.Since(beforeSort))
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
+		if allowList.IsDenyList() {
+			// if it's a deny list, we need to invert it to get the actual doc ids to fetch
+			bitmapAllowList, ok := allowList.(*helpers.BitmapAllowList)
+			if ok {
+				inverted, release := s.bitmapFactory.GetBitmap()
+				defer release()
+				bitmapAllowList.Bm = inverted.AndNotConc(bitmapAllowList.Bm, concurrency.SROAR_MERGE)
+			}
+		}
 		it = allowList.Iterator()
 	}
 
@@ -247,7 +256,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
-	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
+	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release), nil
 }
 
 func (s *Searcher) extractPropValuePair(
@@ -967,8 +976,9 @@ func (it *sliceDocIDsIterator) Len() int {
 }
 
 type docBitmap struct {
-	docIDs  *sroar.Bitmap
-	release func()
+	docIDs     *sroar.Bitmap
+	isDenyList bool
+	release    func()
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
@@ -978,7 +988,11 @@ func newUninitializedDocBitmap() docBitmap {
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}}
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: false}
+}
+
+func newDocBitmapWithDenyList(isDenyList bool) docBitmap {
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: isDenyList}
 }
 
 func (dbm *docBitmap) count() int {
@@ -1009,4 +1023,8 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	}
 
 	return out
+}
+
+func (dbm *docBitmap) IsDenyList() bool {
+	return dbm.isDenyList
 }

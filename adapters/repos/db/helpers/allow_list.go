@@ -34,6 +34,8 @@ type AllowList interface {
 
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
+
+	IsDenyList() bool
 }
 
 type AllowListIterator interface {
@@ -46,11 +48,11 @@ func NewAllowList(ids ...uint64) AllowList {
 }
 
 func NewAllowListFromBitmap(bm *sroar.Bitmap) AllowList {
-	return NewAllowListCloseableFromBitmap(bm, func() {})
+	return NewAllowListCloseableFromBitmap(bm, false, func() {})
 }
 
-func NewAllowListCloseableFromBitmap(bm *sroar.Bitmap, release func()) AllowList {
-	return &BitmapAllowList{Bm: bm, release: release}
+func NewAllowListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func()) AllowList {
+	return &BitmapAllowList{Bm: bm, release: release, isDenyList: isDenyList}
 }
 
 func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
@@ -61,8 +63,9 @@ func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
 // We should consider making this private again and adding a method to intersect two AllowLists, but at the same time, it would also make the interface bloated
 // and add the burden of supporting this method in all (future, if any) implementations of AllowList
 type BitmapAllowList struct {
-	Bm      *sroar.Bitmap
-	release func()
+	Bm         *sroar.Bitmap
+	release    func()
+	isDenyList bool
 }
 
 func (al *BitmapAllowList) Close() {
@@ -70,11 +73,18 @@ func (al *BitmapAllowList) Close() {
 }
 
 func (al *BitmapAllowList) Insert(ids ...uint64) {
+	if al.isDenyList {
+		for _, id := range ids {
+			al.Bm.Remove(id)
+		}
+		return
+	}
 	al.Bm.SetMany(ids)
 }
 
 func (al *BitmapAllowList) Contains(id uint64) bool {
-	return al.Bm.Contains(id)
+	// XOR logic: if it's a deny list, we want to return true if the ID is NOT in the bitmap, and false if it is. If it's an allow list, we want to return true if the ID is in the bitmap, and false if it is not.
+	return al.Bm.Contains(id) != al.isDenyList
 }
 
 func (al *BitmapAllowList) DeepCopy() AllowList {
@@ -124,6 +134,10 @@ func (al *BitmapAllowList) Iterator() AllowListIterator {
 
 func (al *BitmapAllowList) LimitedIterator(limit int) AllowListIterator {
 	return newBitmapAllowListIterator(al.Bm, limit)
+}
+
+func (al *BitmapAllowList) IsDenyList() bool {
+	return al.isDenyList
 }
 
 type bitmapAllowListIterator struct {

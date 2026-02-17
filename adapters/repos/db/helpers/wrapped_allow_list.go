@@ -143,6 +143,10 @@ func (al *wrappedAllowList) Iterator() AllowListIterator {
 	return al.LimitedIterator(0)
 }
 
+func (al *wrappedAllowList) IsDenyList() bool {
+	return al.wAllowList.IsDenyList()
+}
+
 func (al *wrappedAllowList) LimitedIterator(limit int) AllowListIterator {
 	if al.allowList == nil {
 		return al.wAllowList.LimitedIterator(limit)

@@ -1045,7 +1045,18 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 						Property: schema.PropertyName("title"),
 					},
 					Value: &filters.Value{
-						Value: "unrelated",
+						Value: "An unrelated title",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "An unrelated title",
 						Type:  schema.DataType("text"),
 					},
 				},
@@ -1067,6 +1078,97 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 				resultIds[i] = append(resultIds[i], r.DocID)
 				resultScores[i] = append(resultScores[i], scores[j])
 			}
+		})
+
+		for _, index := range repo.indices {
+			index.ForEachShard(func(name string, shard ShardLike) error {
+				err := shard.Store().FlushMemtables(context.Background())
+				require.Nil(t, err)
+				return nil
+			})
+		}
+	}
+	assert.Equal(t, resultIds[0], resultIds[1], "Result IDs should be the same for memory and disk")
+	assert.Equal(t, resultScores[0], resultScores[1], "Result scores should be the same for memory and disk")
+}
+
+func TestBM25FWithFiltersNotEquals(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorNotEqual,
+
+			On: &filters.Path{
+				Class:    schema.ClassName("MyClass"),
+				Property: schema.PropertyName("description"),
+			},
+			Value: &filters.Value{
+				Value: "journey",
+				Type:  schema.DataType("text"),
+			},
+		},
+	}
+
+	resultIds := make([][]uint64, 2)
+	resultScores := make([][]float32, 2)
+	for i, location := range []string{"memory", "disk"} {
+		t.Run("bm25f with filter "+location, func(t *testing.T) {
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "my unrelated journey", AdditionalExplanations: true}
+			addit := additional.Properties{}
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, props)
+
+			require.Nil(t, err)
+
+			for j, r := range res {
+				resultIds[i] = append(resultIds[i], r.DocID)
+				resultScores[i] = append(resultScores[i], scores[j])
+				t.Logf("Result id: %v, score: %v, additional: %v\n", r.DocID, r.ExplainScore(), r.Object.Additional)
+			}
+
+			// We have three results
+			require.Len(t, res, 3)
+			require.Equal(t, uint64(7), res[0].DocID)
+			require.Equal(t, uint64(0), res[1].DocID)
+			require.Equal(t, uint64(1), res[2].DocID)
 		})
 
 		for _, index := range repo.indices {

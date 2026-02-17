@@ -91,11 +91,6 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
@@ -107,6 +102,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
@@ -150,11 +146,6 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
@@ -166,6 +157,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
@@ -188,11 +180,6 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
@@ -204,6 +191,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}

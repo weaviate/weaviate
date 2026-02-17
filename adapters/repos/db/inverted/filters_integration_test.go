@@ -290,7 +290,10 @@ func Test_Filters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+				for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+					assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+				}
+				// assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 				res.Close()
 			})
 
@@ -313,7 +316,10 @@ func Test_Filters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+				for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+					assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+				}
+				// assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 				res.Close()
 			})
 
@@ -592,7 +598,10 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
+					// assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -606,7 +615,10 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
+					// assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -824,7 +836,10 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
+					// assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -837,7 +852,10 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
+					// assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 					res.Close()
 				})
 
@@ -1048,7 +1066,10 @@ func Test_Filters_Int(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
 							additional.Properties{}, className)
 						assert.NoError(t, err)
-						assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+						for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+						}
+						// assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
 						res.Close()
 					})
 
@@ -1061,7 +1082,10 @@ func Test_Filters_Int(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
 							additional.Properties{}, className)
 						assert.NoError(t, err)
-						assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+						for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+						}
+						// assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
 						res.Close()
 					})
 

@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -31,6 +30,7 @@ type RowReaderRoaringSet struct {
 	newCursor     func() lsmkv.CursorRoaringSet
 	getter        func(key []byte) (*sroar.Bitmap, func(), error)
 	bitmapFactory *roaringset.BitmapFactory
+	isDenyList    bool
 }
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
@@ -116,9 +116,9 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	}
 	defer eqRelease()
 
-	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotConc(v, concurrency.SROAR_MERGE)
-	_, err = readFn(rr.value, inverted, release)
+	rr.isDenyList = !rr.isDenyList
+	// Invert the Equal results for an efficient NotEqual
+	_, err = readFn(rr.value, v, eqRelease)
 	return err
 }
 
