@@ -42,8 +42,15 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
-		if idx == nil || idx.Config.ClassName != className {
+		if idx == nil {
 			return fmt.Errorf("class %v doesn't exist", c)
+		}
+		if idx.Config.ClassName != className {
+			db.logger.Warnf("index name does not match schema name. Class: %v, index-name: %v", className, idx.Config.ClassName)
+			classnameNormalized := indexID(idx.Config.ClassName)
+			if schema.ClassName(classnameNormalized) != className {
+				return fmt.Errorf("class %v doesn't exist. Original name: %v, normalized: %v", c, idx.Config.ClassName, classnameNormalized)
+			}
 		}
 	}
 	return nil
