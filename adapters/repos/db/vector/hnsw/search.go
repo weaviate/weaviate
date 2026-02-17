@@ -99,9 +99,9 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 			return h.knnSearchByVector(ctx, vector, k, ef, allowList, nil)
 		}
 
-		initialEF := int(float64(cfg.WAE) * 3.0)
-		if initialEF < 100 {
-			initialEF = 100
+		initialEF := int(float64(cfg.WAE) * 2.0)
+		if initialEF < 64 {
+			initialEF = 64
 		}
 		if initialEF < k {
 			initialEF = k

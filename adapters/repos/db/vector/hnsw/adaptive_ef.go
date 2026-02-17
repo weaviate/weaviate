@@ -17,7 +17,6 @@ import (
 
 const (
 	numBins          = 5
-	quantileStep     = 0.001
 	efUpperBound     = 5000
 	numSampleQueries = 250
 	calibrationK     = 10

@@ -14,11 +14,12 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"sort"
 )
 
-const numCalibrationBins = 10
+const maxBruteForceVectors = 50_000
 
 // BuildAdaptiveEFTable runs the offline calibration to build the adaptive ef table.
 // sampleQueries: sample query vectors (typically 200)
@@ -62,41 +63,31 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 		queries[i] = queryInfo{index: i, score: score}
 	}
 
-	// Phase 2: Sort by score and bin into quantile-based groups.
-	sort.Slice(queries, func(a, b int) bool {
-		return queries[a].score < queries[b].score
-	})
-
-	binSize := numQueries / numCalibrationBins
-	if binSize < 1 {
-		binSize = 1
+	// Phase 2: Group queries by integer score (0-100), matching the paper's
+	// per-score binning for fine-grained EF calibration.
+	scoreGroups := make(map[int][]queryInfo)
+	for _, q := range queries {
+		s := int(q.score)
+		if s < 0 {
+			s = 0
+		}
+		if s > 100 {
+			s = 100
+		}
+		scoreGroups[s] = append(scoreGroups[s], q)
 	}
 
-	// Phase 3: For each bin, progressively increase ef until average recall >= target.
+	scoreKeys := make([]int, 0, len(scoreGroups))
+	for s := range scoreGroups {
+		scoreKeys = append(scoreKeys, s)
+	}
+	sort.Ints(scoreKeys)
+
+	// Phase 3: For each score group, progressively increase ef until average recall >= target.
 	var table []efTableEntry
-	for bin := 0; bin < numCalibrationBins; bin++ {
-		start := bin * binSize
-		end := start + binSize
-		if bin == numCalibrationBins-1 {
-			end = numQueries
-		}
-		if start >= numQueries {
-			break
-		}
+	for _, binScore := range scoreKeys {
+		binQueries := scoreGroups[binScore]
 
-		binQueries := queries[start:end]
-
-		// Representative score: median
-		medianIdx := start + (end-start)/2
-		binScore := int(queries[medianIdx].score)
-		if binScore < 0 {
-			binScore = 0
-		}
-		if binScore > 100 {
-			binScore = 100
-		}
-
-		// Start at ef=k and progressively increase until target recall is met.
 		var efRecalls []efRecall
 		ef := k
 		for ef <= efUpperBound {
@@ -121,10 +112,10 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 				break
 			}
 
-			// Increase ef: double it (geometric growth)
-			nextEF := ef * 2
+			// Increase ef: 1.5x growth for finer granularity
+			nextEF := int(math.Ceil(float64(ef) * 1.5))
 			if nextEF <= ef {
-				nextEF = ef + 10
+				nextEF = ef + 1
 			}
 			ef = nextEF
 		}
@@ -134,13 +125,11 @@ func (h *hnsw) BuildAdaptiveEFTable(ctx context.Context,
 			EFRecalls: efRecalls,
 		})
 
-		h.logger.WithField("bin", bin).
-			WithField("score", binScore).
-			WithField("score_range", fmt.Sprintf("%.1f-%.1f", binQueries[0].score, binQueries[len(binQueries)-1].score)).
+		h.logger.WithField("score", binScore).
 			WithField("queries", len(binQueries)).
 			WithField("final_ef", efRecalls[len(efRecalls)-1].EF).
 			WithField("final_recall", efRecalls[len(efRecalls)-1].Recall).
-			Info("adaptive ef: bin")
+			Info("adaptive ef: score group")
 	}
 
 	sort.Slice(table, func(i, j int) bool {
@@ -229,8 +218,6 @@ func computeWAE(table []efTableEntry, targetRecall float32) int {
 	}
 	return totalEF / count
 }
-
-const maxBruteForceVectors = 50_000
 
 // sampleNodeIDs samples up to n valid (non-nil, non-tombstone) node IDs from
 // h.nodes using a linear congruential generator (LCG) to iterate a pseudo-random
@@ -368,8 +355,8 @@ func (h *hnsw) CalibrateAdaptiveEF(ctx context.Context, targetRecall float32) er
 		Info("adaptive ef: phase 2 complete, computed statistics")
 
 	// Phase 3: Compute approximate ground truth using HNSW search at max ef.
-	// Using ef=efUpperBound gives near-perfect recall and avoids brute-forcing
-	// the entire index, which would not scale to large datasets.
+	// Using ef=efUpperBound gives high recall and avoids brute-forcing
+	// the entire index.
 	sampleQueries := make([][]float32, 0, len(sampleIDs))
 	groundTruth := make([][]uint64, 0, len(sampleIDs))
 
