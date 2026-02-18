@@ -172,6 +172,10 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 }
 
 func (pv *propValuePair) resolveDocIDsNot(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
+	// otherwise we run into situations where each subfilter on their own
+	// runs into the limit, possibly yielding in "less than limit" results
+	// after merging.
 	limit := 0
 
 	dbm, err := pv.children[0].resolveDocIDs(ctx, s, limit)
