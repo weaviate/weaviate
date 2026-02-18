@@ -84,7 +84,7 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	rr.isDenyList = !rr.isDenyList
+	rr.isDenyList = true
 	return rr.equal(ctx, readFn)
 }
 

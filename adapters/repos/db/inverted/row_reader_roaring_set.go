@@ -107,7 +107,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	readFn ReadFn,
 ) error {
-	rr.isDenyList = !rr.isDenyList
+	rr.isDenyList = true
 	return rr.equal(ctx, readFn)
 }
 

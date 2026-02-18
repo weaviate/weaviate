@@ -78,7 +78,7 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error {
-	rr.isDenyList = !rr.isDenyList
+	rr.isDenyList = true
 	return rr.equal(ctx, readFn)
 }
 
