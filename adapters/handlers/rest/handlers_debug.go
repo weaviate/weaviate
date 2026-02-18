@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
@@ -1095,6 +1096,108 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
 	}))
+
+	// Debug endpoint to hold/release/check a consistent view of segments on a bucket.
+	// Holding a consistent view increments ref counts on all segments, blocking compaction
+	// from deleting old segments. Useful for debugging compaction scheduling.
+	//
+	// POST   /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → hold view
+	// DELETE /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → release view
+	// GET    /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → check if held
+	http.HandleFunc("/debug/consistent-view/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		path := strings.TrimPrefix(r.URL.Path, "/debug/consistent-view/")
+		parts := strings.Split(path, "/")
+		// expect: [collection, "shards", shard, "buckets", bucket]
+		if len(parts) != 5 || parts[1] != "shards" || parts[3] != "buckets" {
+			http.Error(w, `{"error":"invalid path, expected /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket}"}`, http.StatusBadRequest)
+			return
+		}
+		colName, shardName, bucketName := parts[0], parts[2], parts[4]
+		key := colName + "/" + shardName + "/" + bucketName
+
+		switch r.Method {
+		case http.MethodPost:
+			// Resolve bucket
+			idx := appState.DB.GetIndex(schema.ClassName(colName))
+			if idx == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "collection not found"})
+				return
+			}
+			shard, release, err := idx.GetShard(context.Background(), shardName)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+				return
+			}
+			defer release()
+			if shard == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "shard not found"})
+				return
+			}
+			b := shard.Store().Bucket(bucketName)
+			if b == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("bucket %q not found", bucketName)})
+				return
+			}
+
+			debugConsistentViewsLock.Lock()
+			if _, exists := debugConsistentViews[key]; exists {
+				debugConsistentViewsLock.Unlock()
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "view already held"})
+				return
+			}
+			view := b.GetConsistentView()
+			debugConsistentViews[key] = view
+			debugConsistentViewsLock.Unlock()
+
+			addr := "empty"
+			if len(view.Disk) > 0 {
+				addr = fmt.Sprintf("%p", &view.Disk[0])
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"held":     true,
+				"segments": len(view.Disk),
+				"address":  addr,
+			})
+
+		case http.MethodDelete:
+			debugConsistentViewsLock.Lock()
+			view, exists := debugConsistentViews[key]
+			if !exists {
+				debugConsistentViewsLock.Unlock()
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "no view held for this bucket"})
+				return
+			}
+			view.ReleaseView()
+			delete(debugConsistentViews, key)
+			debugConsistentViewsLock.Unlock()
+
+			writeJSON(w, http.StatusOK, map[string]any{"released": true})
+
+		case http.MethodGet:
+			debugConsistentViewsLock.Lock()
+			view, exists := debugConsistentViews[key]
+			debugConsistentViewsLock.Unlock()
+
+			if !exists {
+				writeJSON(w, http.StatusOK, map[string]any{"held": false})
+				return
+			}
+			addr := "empty"
+			if len(view.Disk) > 0 {
+				addr = fmt.Sprintf("%p", &view.Disk[0])
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"held":     true,
+				"segments": len(view.Disk),
+				"address":  addr,
+			})
+
+		default:
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		}
+	}))
 }
 
 // skipSensitiveConfig creates a copy of the config with Authentication and Authorization
@@ -1178,10 +1281,25 @@ func cleanValue(v any) any {
 	}
 }
 
+var (
+	debugConsistentViews     = map[string]lsmkv.BucketConsistentView{}
+	debugConsistentViewsLock sync.Mutex
+)
+
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
 }
 
 type hnswStats interface {
 	Stats() (*hnsw.HnswStats, error)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	jsonBytes, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, `{"error":"json marshal failed"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(status)
+	w.Write(jsonBytes)
 }
