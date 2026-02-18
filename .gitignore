@@ -131,4 +131,4 @@ test/modules/backup-filesystem/bucketPath
 *.out
 
 # Claude
-.claude/*
+.claude/
