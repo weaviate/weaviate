@@ -608,7 +608,7 @@ func renderPayloadsHTML(payloads []*TelemetryPayload) string {
 			for clientType, versions := range p.ClientUsage {
 				versionItems := make([]string, 0)
 				for version, count := range versions {
-					versionItems = append(versionItems, fmt.Sprintf("%s (%d)", version, count))
+					versionItems = append(versionItems, fmtVersionCount(version, count))
 				}
 				html += fmt.Sprintf(`<span class="client-item"><strong>%s:</strong> %s</span>`, clientType, joinStrings(versionItems, ", "))
 			}
@@ -619,7 +619,7 @@ func renderPayloadsHTML(payloads []*TelemetryPayload) string {
 			for integration, versions := range p.ClientIntegrationUsage {
 				versionItems := make([]string, 0)
 				for version, count := range versions {
-					versionItems = append(versionItems, fmt.Sprintf("%s (%d)", version, count))
+					versionItems = append(versionItems, fmtVersionCount(version, count))
 				}
 				html += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %s</span>`, integration, joinStrings(versionItems, ", "))
 			}
@@ -658,7 +658,7 @@ func renderMachinesHTML(machines map[string]*MachineStats) string {
 				versionItems := make([]string, 0)
 				for version, count := range versions {
 					totalCount += count
-					versionItems = append(versionItems, fmt.Sprintf("%s (%d)", version, count))
+					versionItems = append(versionItems, fmtVersionCount(version, count))
 				}
 				clientUsageHtml += fmt.Sprintf(`<span class="client-item"><strong>%s:</strong> %d total (%s)</span>`, clientType, totalCount, joinStrings(versionItems, ", "))
 			}
@@ -673,7 +673,7 @@ func renderMachinesHTML(machines map[string]*MachineStats) string {
 				versionItems := make([]string, 0)
 				for version, count := range versions {
 					totalCount += count
-					versionItems = append(versionItems, fmt.Sprintf("%s (%d)", version, count))
+					versionItems = append(versionItems, fmtVersionCount(version, count))
 				}
 				integrationUsageHtml += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %d total (%s)</span>`, integration, totalCount, joinStrings(versionItems, ", "))
 			}
@@ -761,6 +761,11 @@ func formatNumber(n int64) string {
 		return fmt.Sprintf("%.1fK", float64(n)/1000)
 	}
 	return fmt.Sprintf("%d", n)
+}
+
+// fmtVersionCount formats a version string with its count for display, e.g. "1.0.0 (42)".
+func fmtVersionCount(version string, count int64) string {
+	return fmtVersionCount(version, count)
 }
 
 func joinStrings(strs []string, sep string) string {

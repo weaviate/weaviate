@@ -36,6 +36,9 @@ const (
 // Used for map preallocation.
 const knownClientTypeCount = 5
 
+// integrationHeaderKey is the HTTP header used to identify the client integration.
+const integrationHeaderKey = "X-Weaviate-Client-Integration"
+
 // ClientInfo represents a client SDK with its type and version
 type ClientInfo struct {
 	Type    ClientType `json:"type"`
@@ -304,7 +307,7 @@ func (it *IntegrationTracker) Stop() {
 // Any non-empty name is accepted — there is no predefined list of known integrations.
 // Returns ("", "") if the header is absent or empty.
 func identifyIntegration(r *http.Request) (name, version string) {
-	header := strings.TrimSpace(r.Header.Get("X-Weaviate-Client-Integration"))
+	header := strings.TrimSpace(r.Header.Get(integrationHeaderKey))
 	if header == "" {
 		return "", ""
 	}

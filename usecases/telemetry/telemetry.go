@@ -230,26 +230,9 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		return nil, fmt.Errorf("get collections count: %w", err)
 	}
 
-	// Get client usage data and reset for the next period
-	// For Init payloads, we don't have client data yet, so skip it
-	var clientUsage map[ClientType]map[string]int64
-	var clientIntegrationUsage map[string]map[string]int64
-	if payloadType != PayloadType.Init {
-		if tel.clientTracker != nil {
-			clientUsage = tel.clientTracker.GetAndReset()
-			// Only include if there's actual data
-			if len(clientUsage) == 0 {
-				clientUsage = nil
-			}
-		}
-		if tel.integrationTracker != nil {
-			clientIntegrationUsage = tel.integrationTracker.GetAndReset()
-			// Only include if there's actual data
-			if len(clientIntegrationUsage) == 0 {
-				clientIntegrationUsage = nil
-			}
-		}
-	}
+	// Get client usage data and reset for the next period.
+	// For Init payloads, we don't have client data yet, so skip it.
+	clientUsage, clientIntegrationUsage := tel.collectUsageForPayload(payloadType)
 
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
@@ -267,6 +250,31 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		CloudProvider:          cloudProvider,
 		UniqueID:               uniqueID,
 	}, nil
+}
+
+// collectUsageForPayload returns client and integration usage maps for the given
+// payload type, resetting the trackers. Returns (nil, nil) for Init payloads,
+// and nil for any map that contains no data.
+func (tel *Telemeter) collectUsageForPayload(payloadType string) (
+	clientUsage map[ClientType]map[string]int64,
+	clientIntegrationUsage map[string]map[string]int64,
+) {
+	if payloadType == PayloadType.Init {
+		return nil, nil
+	}
+	if tel.clientTracker != nil {
+		clientUsage = tel.clientTracker.GetAndReset()
+		if len(clientUsage) == 0 {
+			clientUsage = nil
+		}
+	}
+	if tel.integrationTracker != nil {
+		clientIntegrationUsage = tel.integrationTracker.GetAndReset()
+		if len(clientIntegrationUsage) == 0 {
+			clientIntegrationUsage = nil
+		}
+	}
+	return clientUsage, clientIntegrationUsage
 }
 
 func (tel *Telemeter) getUsedModules() ([]string, error) {
