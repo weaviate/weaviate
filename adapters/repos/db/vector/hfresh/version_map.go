@@ -78,7 +78,22 @@ func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
 func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
 	page, slot := v.data.GetPageFor(vectorID)
 	if page == nil {
-		return v1, nil
+		// not in cache, check store
+		version, err := v.store.Get(ctx, vectorID)
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
+		}
+		if errors.Is(err, ErrVectorNotFound) {
+			version = v1
+		}
+
+		// update cache
+		page, slot := v.data.EnsurePageFor(vectorID)
+		v.locks.Lock(vectorID)
+		page[slot] = version
+		v.locks.Unlock(vectorID)
+
+		return version, nil
 	}
 
 	v.locks.RLock(vectorID)
