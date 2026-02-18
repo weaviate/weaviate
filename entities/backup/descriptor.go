@@ -358,6 +358,44 @@ func (f *FileList) Peek() string {
 	return f.Files[f.start]
 }
 
+// PeekAt returns the file at offset i from start without removing it.
+// Returns "" if i is out of range.
+func (f *FileList) PeekAt(i int) string {
+	if f == nil || i < 0 || i >= f.Len() {
+		return ""
+	}
+	return f.Files[f.start+i]
+}
+
+// RemoveIndices removes files at the given offsets (relative to start) from the list.
+// Indices must be sorted ascending. Remaining files preserve their relative order.
+func (f *FileList) RemoveIndices(indices []int) {
+	if f == nil || len(indices) == 0 {
+		return
+	}
+	n := f.Len()
+	remove := make(map[int]struct{}, len(indices))
+	for _, idx := range indices {
+		if idx >= 0 && idx < n {
+			remove[f.start+idx] = struct{}{}
+		}
+	}
+	if len(remove) == 0 {
+		return
+	}
+	kept := make([]string, 0, len(f.Files)-len(remove))
+	for i, file := range f.Files {
+		if _, ok := remove[i]; !ok {
+			kept = append(kept, file)
+		}
+	}
+	// Adjust start: elements before f.start that were not removed stay in place.
+	// Since we only remove elements at indices >= f.start, the new start stays at
+	// the same position in the kept slice minus any removed elements before it (none).
+	f.Files = kept
+	// All removed indices are >= f.start, so start stays the same.
+}
+
 // GetFileSize returns the pre-collected size for a file, or -1 if not found
 func (f *FileList) GetFileSize(relPath string) int64 {
 	if f == nil || f.FileSizes == nil {

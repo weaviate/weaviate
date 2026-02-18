@@ -179,15 +179,62 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 			return written, err
 		}
 		if sizeExceeded {
-			// The file was not written because the current chunk is full.
-			// It will be processed on the next chunk.
-			return written, nil
+			// The file at the front doesn't fit. Scan ahead for smaller files
+			// that still fit in the remaining chunk space.
+			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
+			written += n
+			return written, err
 		}
 		// remove processed element from slice
 		filesInShard.PopFront()
 		written += n
 		firstFile = false
 	}
+	return written, nil
+}
+
+const maxLookahead = 100
+
+// fillChunkWithSmallFiles scans ahead in the file list for files that fit in the
+// remaining chunk space, writes them, and removes them from the list. The big
+// file(s) that didn't fit stay at the front for the next chunk.
+func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64, chunkKey string) (written int64, err error) {
+	limit := filesInShard.Len()
+	if limit > maxLookahead {
+		limit = maxLookahead
+	}
+
+	var writtenIndices []int
+	for i := 0; i < limit; i++ {
+		relPath := filesInShard.PeekAt(i)
+		if relPath == "" {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
+
+		fileSize := filesInShard.GetFileSize(relPath)
+		// Skip files whose size is unknown or that don't fit.
+		if fileSize < 0 {
+			continue
+		}
+		if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
+			continue
+		}
+
+		n, sizeExceeded, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, false, chunkKey)
+		if err != nil {
+			return written, err
+		}
+		if sizeExceeded {
+			continue
+		}
+		written += n
+		writtenIndices = append(writtenIndices, i)
+	}
+
+	filesInShard.RemoveIndices(writtenIndices)
 	return written, nil
 }
 

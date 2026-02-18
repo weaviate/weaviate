@@ -933,3 +933,80 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestFileListPeekAt(t *testing.T) {
+	t.Run("nil FileList", func(t *testing.T) {
+		var f *FileList
+		assert.Equal(t, "", f.PeekAt(0))
+	})
+
+	t.Run("empty FileList", func(t *testing.T) {
+		f := &FileList{Files: []string{}}
+		assert.Equal(t, "", f.PeekAt(0))
+	})
+
+	t.Run("basic access", func(t *testing.T) {
+		f := &FileList{Files: []string{"a", "b", "c", "d"}}
+		assert.Equal(t, "a", f.PeekAt(0))
+		assert.Equal(t, "b", f.PeekAt(1))
+		assert.Equal(t, "c", f.PeekAt(2))
+		assert.Equal(t, "d", f.PeekAt(3))
+		assert.Equal(t, "", f.PeekAt(4))
+		assert.Equal(t, "", f.PeekAt(-1))
+	})
+
+	t.Run("after PopFront", func(t *testing.T) {
+		f := &FileList{Files: []string{"a", "b", "c", "d"}}
+		f.PopFront() // removes "a"
+		assert.Equal(t, "b", f.PeekAt(0))
+		assert.Equal(t, "c", f.PeekAt(1))
+		assert.Equal(t, "d", f.PeekAt(2))
+		assert.Equal(t, "", f.PeekAt(3))
+	})
+}
+
+func TestFileListRemoveIndices(t *testing.T) {
+	t.Run("nil FileList", func(t *testing.T) {
+		var f *FileList
+		f.RemoveIndices([]int{0}) // should not panic
+	})
+
+	t.Run("empty indices", func(t *testing.T) {
+		f := &FileList{Files: []string{"a", "b", "c"}}
+		f.RemoveIndices(nil)
+		assert.Equal(t, 3, f.Len())
+	})
+
+	t.Run("remove single element", func(t *testing.T) {
+		f := &FileList{Files: []string{"a", "b", "c", "d"}}
+		f.RemoveIndices([]int{1})
+		assert.Equal(t, 3, f.Len())
+		assert.Equal(t, "a", f.PeekAt(0))
+		assert.Equal(t, "c", f.PeekAt(1))
+		assert.Equal(t, "d", f.PeekAt(2))
+	})
+
+	t.Run("remove multiple elements", func(t *testing.T) {
+		f := &FileList{Files: []string{"a", "b", "c", "d", "e"}}
+		f.RemoveIndices([]int{0, 2, 4})
+		assert.Equal(t, 2, f.Len())
+		assert.Equal(t, "b", f.PeekAt(0))
+		assert.Equal(t, "d", f.PeekAt(1))
+	})
+
+	t.Run("remove after PopFront", func(t *testing.T) {
+		f := &FileList{Files: []string{"a", "b", "c", "d", "e"}}
+		f.PopFront() // removes "a", start=1
+		// Now indices are relative to start: 0=b, 1=c, 2=d, 3=e
+		f.RemoveIndices([]int{1, 3}) // removes c and e
+		assert.Equal(t, 2, f.Len())
+		assert.Equal(t, "b", f.PeekAt(0))
+		assert.Equal(t, "d", f.PeekAt(1))
+	})
+
+	t.Run("out of range indices ignored", func(t *testing.T) {
+		f := &FileList{Files: []string{"a", "b", "c"}}
+		f.RemoveIndices([]int{5, 10})
+		assert.Equal(t, 3, f.Len())
+	})
+}

@@ -328,6 +328,79 @@ func TestRenaming(t *testing.T) {
 	wg.Wait()
 }
 
+// TestWriteRegularsFillsChunkWithSmallFiles verifies that when a large file doesn't fit,
+// WriteRegulars scans ahead and fills the chunk with smaller files that do fit.
+func TestWriteRegularsFillsChunkWithSmallFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "source")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+
+	// Create files: one big (5000 bytes) and three small (100 bytes each)
+	bigData := bytes.Repeat([]byte("X"), 5000)
+	smallData := bytes.Repeat([]byte("s"), 100)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small1.db"), smallData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "big.db"), bigData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small2.db"), smallData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small3.db"), smallData, 0o644))
+
+	sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
+	files := []string{
+		"shard/small1.db",
+		"shard/big.db",
+		"shard/small2.db",
+		"shard/small3.db",
+	}
+	fileSizes := map[string]int64{
+		"shard/small1.db": 100,
+		"shard/big.db":    5000,
+		"shard/small2.db": 100,
+		"shard/small3.db": 100,
+	}
+
+	// Chunk size = 1000 bytes. small1 fits (100), big doesn't (5000).
+	// Scan ahead should pick up small2 and small3.
+	z, rc, err := NewZip(dir, int(NoCompression), 1000)
+	require.NoError(t, err)
+
+	fileList := &backup.FileList{
+		Files:     append([]string{}, files...),
+		FileSizes: fileSizes,
+	}
+	preCompSize := &atomic.Int64{}
+
+	var writeErr error
+	var written int64
+	go func() {
+		written, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
+		z.Close()
+	}()
+
+	buf := bytes.NewBuffer(nil)
+	_, err = io.Copy(buf, rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+	require.NoError(t, writeErr)
+	require.Greater(t, written, int64(0))
+
+	// After chunk 1: small1, small2, small3 should have been written.
+	// Only big.db should remain in the file list.
+	require.Equal(t, 1, fileList.Len(), "only big file should remain")
+	require.Equal(t, "shard/big.db", fileList.Peek())
+
+	// Verify the tar contains exactly 3 files
+	tr := tar.NewReader(buf)
+	var tarFiles []string
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		tarFiles = append(tarFiles, hdr.Name)
+	}
+	require.ElementsMatch(t, []string{"shard/small1.db", "shard/small2.db", "shard/small3.db"}, tarFiles)
+}
+
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
 func TestRenamingDuringBackup(t *testing.T) {
 	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
