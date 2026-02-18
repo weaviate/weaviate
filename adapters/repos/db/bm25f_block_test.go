@@ -1162,6 +1162,11 @@ func TestBM25FWithFiltersNotEquals(t *testing.T) {
 		expectedDocIDs []uint64
 	}{
 		{
+			name:           "no filter",
+			filter:         nil,
+			expectedDocIDs: []uint64{2, 3, 7, 4, 5, 6, 0, 1},
+		},
+		{
 			name: "not equal only",
 			filter: &filters.LocalFilter{
 				Root: &notEqualClause,
@@ -1207,6 +1212,58 @@ func TestBM25FWithFiltersNotEquals(t *testing.T) {
 				},
 			},
 			expectedDocIDs: []uint64{7},
+		},
+		{
+			name: "NOT and with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{equalClause, notEqualClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 3, 4, 5, 6, 0, 1},
+		},
+		{
+			name: "NOT and with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{notEqualClause, equalClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 3, 4, 5, 6, 0, 1},
+		},
+		{
+			name: "NOT or with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorOr,
+						Operands: []filters.Clause{equalClause, notEqualClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 4, 5, 6},
+		},
+		{
+			name: "NOT or with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorOr,
+						Operands: []filters.Clause{notEqualClause, equalClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 4, 5, 6},
 		},
 	}
 
