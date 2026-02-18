@@ -150,6 +150,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		if err := s.store.PauseCompaction(ctx); err != nil {
 			return nil, fmt.Errorf("pause compaction on halted init: %w", err)
 		}
+		s.haltForTransferMux.Lock()
+		s.haltForTransferCount = 1
+		s.haltForTransferMux.Unlock()
 	}
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
@@ -165,7 +168,18 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
-	if asyncEnabled() && !s.haltedOnInit {
+	if s.haltedOnInit {
+		// Pause all vector queues immediately
+		_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+			q.Pause()
+			return nil
+		})
+
+		// NOTE: compaction is already paused right after initLSMStore above.
+		// NOTE: self-resume check is NOT done here because the shard is not yet
+		// in i.shards at this point. The caller must call maybeResumeAfterInit
+		// after storing the shard in the shard map.
+	} else if asyncEnabled() {
 		f := func() {
 			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
 				if err := s.ConvertQueue(targetVector); err != nil {
@@ -177,23 +191,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		enterrors.GoWrapper(f, s.index.logger)
 	}
 	s.NotifyReady()
-
-	if s.haltedOnInit {
-		s.haltForTransferMux.Lock()
-		s.haltForTransferCount = 1
-		s.haltForTransferMux.Unlock()
-
-		// Pause all vector queues
-		_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-			q.Pause()
-			return nil
-		})
-
-		// NOTE: compaction is already paused right after initLSMStore above.
-		// NOTE: self-resume check is NOT done here because the shard is not yet
-		// in i.shards at this point. The caller must call maybeResumeAfterInit
-		// after storing the shard in the shard map.
-	}
 
 	if exists {
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
