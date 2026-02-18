@@ -213,6 +213,10 @@ function main() {
   echo "running lsmkv acceptance lsmkv tests"
     run_acceptance_lsmkv "$@"
   fi
+  if $run_acceptance_only_compaction_recovery || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance compaction and recovery"
+    run_acceptance_compaction_recovery
+  fi
   echo "Done!"
 }
 
@@ -298,10 +302,6 @@ function run_acceptance_tests() {
     if $run_acceptance_only_fast_group_4 || $run_acceptance_tests || $run_all_tests; then
       run_acceptance_only_fast_group 4
     fi
-  fi
-  if $run_acceptance_only_compaction_recovery || $run_acceptance_tests || $run_all_tests; then
-  echo "running acceptance compaction and recovery"
-    run_acceptance_compaction_recovery
   fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance authz"
