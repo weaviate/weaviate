@@ -59,8 +59,6 @@ func TestExport_SingleShard(t *testing.T) {
 	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
-	require.Contains(t, resp.Payload.Progress, className)
-	require.Equal(t, int64(20), resp.Payload.Progress[className].ObjectsExported)
 
 	verifyParquetExport(t, exportID, className, objects)
 }
@@ -91,8 +89,6 @@ func TestExport_MultiShard(t *testing.T) {
 	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
-	require.Contains(t, resp.Payload.Progress, className)
-	require.Equal(t, int64(50), resp.Payload.Progress[className].ObjectsExported)
 
 	verifyParquetExport(t, exportID, className, objects)
 }
@@ -132,8 +128,6 @@ func TestExport_MultiTenant_SingleShard(t *testing.T) {
 	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
-	require.Contains(t, resp.Payload.Progress, className)
-	require.Equal(t, int64(30), resp.Payload.Progress[className].ObjectsExported)
 
 	verifyParquetExport(t, exportID, className, allObjects)
 }
@@ -175,8 +169,6 @@ func TestExport_MultiTenant_MultiShard(t *testing.T) {
 	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
-	require.Contains(t, resp.Payload.Progress, className)
-	require.Equal(t, int64(50), resp.Payload.Progress[className].ObjectsExported)
 
 	verifyParquetExport(t, exportID, className, allObjects)
 }

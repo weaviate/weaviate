@@ -690,19 +690,12 @@
           },
           "description": "List of collections being exported"
         },
-        "progress": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
-          },
-          "description": "Per-collection progress information"
-        },
         "shardStatus": {
           "type": "object",
           "additionalProperties": {
             "type": "object",
             "additionalProperties": {
-              "$ref": "#/definitions/ShardExportStatus"
+              "$ref": "#/definitions/ShardProgress"
             }
           },
           "description": "Per-shard progress: className -> shardName -> status"
@@ -739,6 +732,10 @@
           "format": "date-time",
           "description": "When the export started"
         },
+        "took": {
+          "type": "string",
+          "description": "Duration of the export from start to the last node finishing, e.g. '2m30s'"
+        },
         "classes": {
           "type": "array",
           "items": {
@@ -746,19 +743,12 @@
           },
           "description": "List of collections in this export"
         },
-        "progress": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
-          },
-          "description": "Per-collection progress information"
-        },
         "shardStatus": {
           "type": "object",
           "additionalProperties": {
             "type": "object",
             "additionalProperties": {
-              "$ref": "#/definitions/ShardExportStatus"
+              "$ref": "#/definitions/ShardProgress"
             }
           },
           "description": "Per-shard progress: className -> shardName -> status"
@@ -769,32 +759,7 @@
         }
       }
     },
-    "ClassProgress": {
-      "description": "Progress information for exporting a single collection",
-      "type": "object",
-      "properties": {
-        "status": {
-          "type": "string",
-          "description": "Status of this collection's export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED"]
-        },
-        "objectsExported": {
-          "type": "integer",
-          "format": "int64",
-          "description": "Number of objects exported from this collection"
-        },
-        "fileSizeBytes": {
-          "type": "integer",
-          "format": "int64",
-          "description": "Size of the exported Parquet file in bytes"
-        },
-        "error": {
-          "type": "string",
-          "description": "Error message if this collection's export failed"
-        }
-      }
-    },
-    "ShardExportStatus": {
+    "ShardProgress": {
       "description": "Progress information for exporting a single shard",
       "type": "object",
       "properties": {

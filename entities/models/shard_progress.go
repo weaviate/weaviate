@@ -26,27 +26,23 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ClassProgress Progress information for exporting a single collection
+// ShardProgress Progress information for exporting a single shard
 //
-// swagger:model ClassProgress
-type ClassProgress struct {
-
-	// Error message if this collection's export failed
+// swagger:model ShardProgress
+type ShardProgress struct {
+	// Error message if this shard's export failed
 	Error string `json:"error,omitempty"`
 
-	// Size of the exported Parquet file in bytes
-	FileSizeBytes int64 `json:"fileSizeBytes,omitempty"`
-
-	// Number of objects exported from this collection
+	// Number of objects exported from this shard
 	ObjectsExported int64 `json:"objectsExported,omitempty"`
 
-	// Status of this collection's export
+	// Status of this shard's export
 	// Enum: [STARTED TRANSFERRING SUCCESS FAILED]
 	Status string `json:"status,omitempty"`
 }
 
-// Validate validates this class progress
-func (m *ClassProgress) Validate(formats strfmt.Registry) error {
+// Validate validates this shard progress
+func (m *ShardProgress) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateStatus(formats); err != nil {
@@ -59,7 +55,7 @@ func (m *ClassProgress) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var classProgressTypeStatusPropEnum []interface{}
+var shardProgressTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -67,34 +63,34 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		classProgressTypeStatusPropEnum = append(classProgressTypeStatusPropEnum, v)
+		shardProgressTypeStatusPropEnum = append(shardProgressTypeStatusPropEnum, v)
 	}
 }
 
 const (
 
-	// ClassProgressStatusSTARTED captures enum value "STARTED"
-	ClassProgressStatusSTARTED string = "STARTED"
+	// ShardProgressStatusSTARTED captures enum value "STARTED"
+	ShardProgressStatusSTARTED string = "STARTED"
 
-	// ClassProgressStatusTRANSFERRING captures enum value "TRANSFERRING"
-	ClassProgressStatusTRANSFERRING string = "TRANSFERRING"
+	// ShardProgressStatusTRANSFERRING captures enum value "TRANSFERRING"
+	ShardProgressStatusTRANSFERRING string = "TRANSFERRING"
 
-	// ClassProgressStatusSUCCESS captures enum value "SUCCESS"
-	ClassProgressStatusSUCCESS string = "SUCCESS"
+	// ShardProgressStatusSUCCESS captures enum value "SUCCESS"
+	ShardProgressStatusSUCCESS string = "SUCCESS"
 
-	// ClassProgressStatusFAILED captures enum value "FAILED"
-	ClassProgressStatusFAILED string = "FAILED"
+	// ShardProgressStatusFAILED captures enum value "FAILED"
+	ShardProgressStatusFAILED string = "FAILED"
 )
 
 // prop value enum
-func (m *ClassProgress) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, classProgressTypeStatusPropEnum, true); err != nil {
+func (m *ShardProgress) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, shardProgressTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *ClassProgress) validateStatus(formats strfmt.Registry) error {
+func (m *ShardProgress) validateStatus(formats strfmt.Registry) error {
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -107,13 +103,13 @@ func (m *ClassProgress) validateStatus(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this class progress based on context it is used
-func (m *ClassProgress) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this shard progress based on context it is used
+func (m *ShardProgress) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *ClassProgress) MarshalBinary() ([]byte, error) {
+func (m *ShardProgress) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -121,8 +117,8 @@ func (m *ClassProgress) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ClassProgress) UnmarshalBinary(b []byte) error {
-	var res ClassProgress
+func (m *ShardProgress) UnmarshalBinary(b []byte) error {
+	var res ShardProgress
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

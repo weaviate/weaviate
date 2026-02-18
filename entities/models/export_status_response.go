@@ -45,11 +45,8 @@ type ExportStatusResponse struct {
 	// Full path where the export is stored
 	Path string `json:"path,omitempty"`
 
-	// Per-collection progress information
-	Progress map[string]ClassProgress `json:"progress,omitempty"`
-
 	// Per-shard progress: className -> shardName -> status
-	ShardStatus map[string]map[string]ShardExportStatus `json:"shardStatus,omitempty"`
+	ShardStatus map[string]map[string]ShardProgress `json:"shardStatus,omitempty"`
 
 	// When the export started
 	// Format: date-time
@@ -58,15 +55,14 @@ type ExportStatusResponse struct {
 	// Current status of the export
 	// Enum: [STARTED TRANSFERRING SUCCESS FAILED]
 	Status string `json:"status,omitempty"`
+
+	// Duration of the export from start to the last node finishing, e.g. '2m30s'
+	Took string `json:"took,omitempty"`
 }
 
 // Validate validates this export status response
 func (m *ExportStatusResponse) Validate(formats strfmt.Registry) error {
 	var res []error
-
-	if err := m.validateProgress(formats); err != nil {
-		res = append(res, err)
-	}
 
 	if err := m.validateShardStatus(formats); err != nil {
 		res = append(res, err)
@@ -83,32 +79,6 @@ func (m *ExportStatusResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ExportStatusResponse) validateProgress(formats strfmt.Registry) error {
-	if swag.IsZero(m.Progress) { // not required
-		return nil
-	}
-
-	for k := range m.Progress {
-
-		if err := validate.Required("progress"+"."+k, "body", m.Progress[k]); err != nil {
-			return err
-		}
-		if val, ok := m.Progress[k]; ok {
-			if err := val.Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("progress" + "." + k)
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("progress" + "." + k)
-				}
-				return err
-			}
-		}
-
-	}
-
 	return nil
 }
 
@@ -204,10 +174,6 @@ func (m *ExportStatusResponse) validateStatus(formats strfmt.Registry) error {
 func (m *ExportStatusResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.contextValidateProgress(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.contextValidateShardStatus(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -215,18 +181,6 @@ func (m *ExportStatusResponse) ContextValidate(ctx context.Context, formats strf
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ExportStatusResponse) contextValidateProgress(ctx context.Context, formats strfmt.Registry) error {
-	for k := range m.Progress {
-		if val, ok := m.Progress[k]; ok {
-			if err := val.ContextValidate(ctx, formats); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 

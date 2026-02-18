@@ -97,8 +97,7 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
-		ClassProgress: make(map[string]*ClassProgress),
-		ShardProgress: make(map[string]map[string]*ShardExportStatus),
+		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
 
 	for _, className := range req.Classes {
@@ -106,12 +105,9 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		if !ok || len(shardNames) == 0 {
 			continue
 		}
-		nodeStatus.ClassProgress[className] = &ClassProgress{
-			Status: export.Transferring,
-		}
-		nodeStatus.ShardProgress[className] = make(map[string]*ShardExportStatus)
+		nodeStatus.ShardProgress[className] = make(map[string]*ShardProgress)
 		for _, shardName := range shardNames {
-			nodeStatus.ShardProgress[className][shardName] = &ShardExportStatus{
+			nodeStatus.ShardProgress[className][shardName] = &ShardProgress{
 				Status: export.Transferring,
 			}
 		}
@@ -124,14 +120,12 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		}
 
 		if err := p.exportClassShards(ctx, backend, req, className, shardNames, nodeStatus); err != nil {
-			p.logger.WithField("action", "export_participant").
+			p.logger.WithField("action", "export").
 				WithField("export_id", req.ID).
 				WithField("node", req.NodeName).
 				WithField("class", className).
-				WithError(err).Error("failed to export class shards")
+				Error(err)
 
-			nodeStatus.ClassProgress[className].Status = export.Failed
-			nodeStatus.ClassProgress[className].Error = err.Error()
 			nodeStatus.Status = export.Failed
 			nodeStatus.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
 			p.writeNodeStatus(ctx, backend, req, nodeStatus)
@@ -170,7 +164,6 @@ func (p *Participant) exportClassShards(
 		shardMap[s.Name()] = s
 	}
 
-	var totalObjects int64
 	for _, shardName := range shardNames {
 		shard, ok := shardMap[shardName]
 		if !ok {
@@ -183,17 +176,13 @@ func (p *Participant) exportClassShards(
 			nodeStatus.ShardProgress[className][shardName].Error = err.Error()
 			return fmt.Errorf("export shard %s: %w", shardName, err)
 		}
-		totalObjects += objects
 
 		// Update incremental progress
 		nodeStatus.ShardProgress[className][shardName].Status = export.Success
 		nodeStatus.ShardProgress[className][shardName].ObjectsExported = objects
-		nodeStatus.ClassProgress[className].ObjectsExported = totalObjects
 		p.writeNodeStatus(ctx, backend, req, nodeStatus)
 	}
 
-	nodeStatus.ClassProgress[className].Status = export.Success
-	nodeStatus.ClassProgress[className].ObjectsExported = totalObjects
 	return nil
 }
 
@@ -261,12 +250,12 @@ func (p *Participant) writeNodeStatus(_ context.Context, backend modulecapabilit
 	key := fmt.Sprintf("node_%s_status.json", status.NodeName)
 	data, err := json.MarshalIndent(status, "", "  ")
 	if err != nil {
-		p.logger.WithError(err).Error("failed to marshal node status")
+		p.logger.WithField("action", "export").WithField("node", status.NodeName).Error(err)
 		return
 	}
 
 	reader := io.NopCloser(bytes.NewReader(data))
 	if _, err := backend.Write(ctx, req.ID, key, req.Bucket, req.Path, reader); err != nil {
-		p.logger.WithError(err).Error("failed to write node status to S3")
+		p.logger.WithField("action", "export").WithField("node", status.NodeName).Error(err)
 	}
 }

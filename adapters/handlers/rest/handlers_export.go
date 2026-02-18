@@ -15,7 +15,6 @@ import (
 	"errors"
 
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/exports"
@@ -64,7 +63,7 @@ func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
 	}
 
 	h.metricRequestsTotal.logOk("")
-	return exports.NewExportsCreateOK().WithPayload(convertToExportCreateResponse(status))
+	return exports.NewExportsCreateOK().WithPayload(statusToCreateResponse(status))
 }
 
 // exportStatus handles GET /v1/export/{backend}/{id}
@@ -96,71 +95,21 @@ func (h *exportHandlers) exportStatus(params exports.ExportsStatusParams,
 	}
 
 	h.metricRequestsTotal.logOk("")
-	return exports.NewExportsStatusOK().WithPayload(convertToExportStatusResponse(status))
+	return exports.NewExportsStatusOK().WithPayload(status)
 }
 
-// convertToExportCreateResponse converts internal status to API response
-func convertToExportCreateResponse(status *export.ExportStatus) *models.ExportCreateResponse {
-	resp := &models.ExportCreateResponse{
-		ID:      status.ID,
-		Backend: status.Backend,
-		Path:    status.Path,
-		Status:  string(status.Status),
-		Classes: status.Classes,
+// statusToCreateResponse converts ExportStatusResponse to ExportCreateResponse
+func statusToCreateResponse(status *models.ExportStatusResponse) *models.ExportCreateResponse {
+	return &models.ExportCreateResponse{
+		ID:          status.ID,
+		Backend:     status.Backend,
+		Path:        status.Path,
+		Status:      status.Status,
+		Classes:     status.Classes,
+		StartedAt:   status.StartedAt,
+		Error:       status.Error,
+		ShardStatus: status.ShardStatus,
 	}
-
-	if !status.StartedAt.IsZero() {
-		resp.StartedAt = strfmt.DateTime(status.StartedAt)
-	}
-
-	if status.Error != "" {
-		resp.Error = status.Error
-	}
-
-	return resp
-}
-
-// convertToExportStatusResponse converts internal status to API status response
-func convertToExportStatusResponse(status *export.ExportStatus) *models.ExportStatusResponse {
-	resp := &models.ExportStatusResponse{
-		ID:      status.ID,
-		Backend: status.Backend,
-		Path:    status.Path,
-		Status:  string(status.Status),
-		Classes: status.Classes,
-	}
-
-	if !status.StartedAt.IsZero() {
-		resp.StartedAt = strfmt.DateTime(status.StartedAt)
-	}
-
-	if status.Error != "" {
-		resp.Error = status.Error
-	}
-
-	if status.ShardStatus != nil {
-		resp.ShardStatus = convertShardStatus(status.ShardStatus)
-	}
-
-	return resp
-}
-
-func convertShardStatus(shardStatus map[string]map[string]*export.ShardExportStatus) map[string]map[string]models.ShardExportStatus {
-	result := make(map[string]map[string]models.ShardExportStatus, len(shardStatus))
-	for className, shards := range shardStatus {
-		result[className] = make(map[string]models.ShardExportStatus, len(shards))
-		for shardName, sp := range shards {
-			m := models.ShardExportStatus{
-				Status:          string(sp.Status),
-				ObjectsExported: sp.ObjectsExported,
-			}
-			if sp.Error != "" {
-				m.Error = sp.Error
-			}
-			result[className][shardName] = m
-		}
-	}
-	return result
 }
 
 // setupExportHandlers wires up the export handlers to the API
@@ -204,5 +153,5 @@ func (e *exportRequestsTotal) logError(className string, err error) {
 }
 
 func (e *exportRequestsTotal) logOk(className string) {
-	e.logUserError(className)
+	e.restApiRequestsTotalImpl.logOk(className)
 }

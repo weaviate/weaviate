@@ -17,44 +17,24 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 )
 
-// ExportStatus represents the current status of an export
-type ExportStatus struct {
-	ID          string                                   `json:"id"`
-	Backend     string                                   `json:"backend"`
-	Path        string                                   `json:"path"`
-	Status      export.Status                            `json:"status"`
-	StartedAt   time.Time                                `json:"startedAt"`
-	Error       string                                   `json:"error,omitempty"`
-	Classes     []string                                 `json:"classes,omitempty"`
-	ShardStatus map[string]map[string]*ShardExportStatus `json:"shardStatus,omitempty"` // className → shardName → progress
-}
-
-// ShardExportStatus tracks the progress of exporting a single shard
-type ShardExportStatus struct {
+// ShardProgress tracks the progress of exporting a single shard.
+// Used internally and in the S3 NodeStatus format.
+type ShardProgress struct {
 	Status          export.Status `json:"status"`
 	ObjectsExported int64         `json:"objectsExported"`
-	Error           string        `json:"error,omitempty"`
-}
-
-// ClassProgress tracks the progress of exporting a single class
-type ClassProgress struct {
-	Status          export.Status `json:"status"`
-	ObjectsExported int64         `json:"objectsExported"`
-	FileSizeBytes   int64         `json:"fileSizeBytes,omitempty"`
 	Error           string        `json:"error,omitempty"`
 }
 
 // ExportMetadata is written to S3 alongside the parquet files
 type ExportMetadata struct {
-	ID          string                    `json:"id"`
-	Backend     string                    `json:"backend"`
-	StartedAt   time.Time                 `json:"startedAt"`
-	CompletedAt time.Time                 `json:"completedAt"`
-	Status      export.Status             `json:"status"`
-	Classes     []string                  `json:"classes"`
-	Progress    map[string]*ClassProgress `json:"progress"`
-	Error       string                    `json:"error,omitempty"`
-	Version     string                    `json:"version"`
+	ID          string        `json:"id"`
+	Backend     string        `json:"backend"`
+	StartedAt   time.Time     `json:"startedAt"`
+	CompletedAt time.Time     `json:"completedAt"`
+	Status      export.Status `json:"status"`
+	Classes     []string      `json:"classes"`
+	Error       string        `json:"error,omitempty"`
+	Version     string        `json:"version"`
 }
 
 // ExportRequest is sent from coordinator to participant nodes
@@ -70,12 +50,11 @@ type ExportRequest struct {
 
 // NodeStatus is written to S3 by each participant node
 type NodeStatus struct {
-	NodeName      string                                   `json:"nodeName"`
-	Status        export.Status                            `json:"status"`
-	ClassProgress map[string]*ClassProgress                `json:"classProgress,omitempty"`
-	ShardProgress map[string]map[string]*ShardExportStatus `json:"shardProgress,omitempty"` // className → shardName → progress
-	Error         string                                   `json:"error,omitempty"`
-	CompletedAt   time.Time                                `json:"completedAt,omitempty"`
+	NodeName      string                               `json:"nodeName"`
+	Status        export.Status                        `json:"status"`
+	ShardProgress map[string]map[string]*ShardProgress `json:"shardProgress,omitempty"` // className → shardName → progress
+	Error         string                               `json:"error,omitempty"`
+	CompletedAt   time.Time                            `json:"completedAt,omitempty"`
 }
 
 // ExportPlan is written to S3 by the coordinator

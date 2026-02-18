@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
@@ -47,10 +48,10 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 		backends:    &fakeBackendProvider{backend: backend},
 	}
 
-	status := &ExportStatus{
+	status := &models.ExportStatusResponse{
 		ID:      "test-export",
 		Backend: "s3",
-		Status:  export.Transferring,
+		Status:  string(export.Transferring),
 		Classes: []string{"TestClass"},
 	}
 
@@ -76,7 +77,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 	}
 
 	// Verify a failed metadata was written
-	require.Equal(t, export.Failed, status.Status)
+	require.Equal(t, string(export.Failed), status.Status)
 
 	written := backend.getWritten(exportMetadataFile)
 	require.NotNil(t, written, "expected metadata to be written")
@@ -175,7 +176,7 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	// node2 is dead and has no status file → overall status should be FAILED
-	assert.Equal(t, export.Failed, status.Status)
+	assert.Equal(t, string(export.Failed), status.Status)
 	assert.Contains(t, status.Error, "node2")
 	assert.Contains(t, status.Error, "no longer part of the cluster")
 }
@@ -444,7 +445,7 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
 	require.NoError(t, err)
 
-	assert.Equal(t, export.Failed, status.Status)
+	assert.Equal(t, string(export.Failed), status.Status)
 	assert.Contains(t, status.Error, "node1")
 	assert.Contains(t, status.Error, "no longer running")
 }
@@ -457,10 +458,7 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 	nodeStatus := &NodeStatus{
 		NodeName: "node1",
 		Status:   export.Transferring,
-		ClassProgress: map[string]*ClassProgress{
-			"TestClass": {Status: export.Transferring, ObjectsExported: 500},
-		},
-		ShardProgress: map[string]map[string]*ShardExportStatus{
+		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
 				"shard0": {Status: export.Success, ObjectsExported: 300},
 				"shard1": {Status: export.Transferring, ObjectsExported: 200},
@@ -505,14 +503,14 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 	require.NoError(t, err)
 
 	// Overall status stays Transferring
-	assert.Equal(t, export.Transferring, status.Status)
+	assert.Equal(t, string(export.Transferring), status.Status)
 	assert.Empty(t, status.Error)
 
 	// Per-shard progress is passed through
 	require.NotNil(t, status.ShardStatus["TestClass"])
-	assert.Equal(t, export.Success, status.ShardStatus["TestClass"]["shard0"].Status)
+	assert.Equal(t, string(export.Success), status.ShardStatus["TestClass"]["shard0"].Status)
 	assert.Equal(t, int64(300), status.ShardStatus["TestClass"]["shard0"].ObjectsExported)
-	assert.Equal(t, export.Transferring, status.ShardStatus["TestClass"]["shard1"].Status)
+	assert.Equal(t, string(export.Transferring), status.ShardStatus["TestClass"]["shard1"].Status)
 	assert.Equal(t, int64(200), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
 }
 
@@ -524,7 +522,7 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	nodeStatus := &NodeStatus{
 		NodeName: "node1",
 		Status:   export.Transferring,
-		ShardProgress: map[string]map[string]*ShardExportStatus{
+		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
 				"shard0": {Status: export.Success, ObjectsExported: 300},
 				"shard1": {Status: export.Transferring, ObjectsExported: 100},
@@ -560,16 +558,16 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
 	require.NoError(t, err)
 
-	assert.Equal(t, export.Failed, status.Status)
+	assert.Equal(t, string(export.Failed), status.Status)
 	assert.Contains(t, status.Error, "node1")
 	assert.Contains(t, status.Error, "no longer part of the cluster")
 
 	// shard0 was already Success — stays Success
 	require.NotNil(t, status.ShardStatus["TestClass"])
-	assert.Equal(t, export.Success, status.ShardStatus["TestClass"]["shard0"].Status)
+	assert.Equal(t, string(export.Success), status.ShardStatus["TestClass"]["shard0"].Status)
 	assert.Equal(t, int64(300), status.ShardStatus["TestClass"]["shard0"].ObjectsExported)
 
 	// shard1 was Transferring — overridden to Failed because node is dead
-	assert.Equal(t, export.Failed, status.ShardStatus["TestClass"]["shard1"].Status)
+	assert.Equal(t, string(export.Failed), status.ShardStatus["TestClass"]["shard1"].Status)
 	assert.Equal(t, int64(100), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
 }
