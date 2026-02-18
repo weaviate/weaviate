@@ -673,11 +673,6 @@
           "type": "string",
           "description": "Full path where the export is being written"
         },
-        "status": {
-          "type": "string",
-          "description": "Current status of the export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED"]
-        },
         "startedAt": {
           "type": "string",
           "format": "date-time",
@@ -689,20 +684,6 @@
             "type": "string"
           },
           "description": "List of collections being exported"
-        },
-        "shardStatus": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/definitions/ShardProgress"
-            }
-          },
-          "description": "Per-shard progress: className -> shardName -> status"
-        },
-        "error": {
-          "type": "string",
-          "description": "Error message if export failed"
         }
       }
     },

@@ -18,7 +18,6 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -36,74 +35,28 @@ type ExportCreateResponse struct {
 	// List of collections being exported
 	Classes []string `json:"classes"`
 
-	// Error message if export failed
-	Error string `json:"error,omitempty"`
-
 	// Unique identifier for this export
 	ID string `json:"id,omitempty"`
 
 	// Full path where the export is being written
 	Path string `json:"path,omitempty"`
 
-	// Per-shard progress: className -> shardName -> status
-	ShardStatus map[string]map[string]ShardProgress `json:"shardStatus,omitempty"`
-
 	// When the export started
 	// Format: date-time
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
-
-	// Current status of the export
-	// Enum: [STARTED TRANSFERRING SUCCESS FAILED]
-	Status string `json:"status,omitempty"`
 }
 
 // Validate validates this export create response
 func (m *ExportCreateResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateShardStatus(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateStartedAt(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateStatus(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ExportCreateResponse) validateShardStatus(formats strfmt.Registry) error {
-	if swag.IsZero(m.ShardStatus) { // not required
-		return nil
-	}
-
-	for k := range m.ShardStatus {
-		for kk := range m.ShardStatus[k] {
-
-			if err := validate.Required("shardStatus"+"."+k+"."+kk, "body", m.ShardStatus[k][kk]); err != nil {
-				return err
-			}
-			if val, ok := m.ShardStatus[k][kk]; ok {
-				if err := val.Validate(formats); err != nil {
-					if ve, ok := err.(*errors.Validation); ok {
-						return ve.ValidateName("shardStatus" + "." + k + "." + kk)
-					} else if ce, ok := err.(*errors.CompositeError); ok {
-						return ce.ValidateName("shardStatus" + "." + k + "." + kk)
-					}
-					return err
-				}
-			}
-
-		}
-	}
-
 	return nil
 }
 
@@ -119,79 +72,8 @@ func (m *ExportCreateResponse) validateStartedAt(formats strfmt.Registry) error 
 	return nil
 }
 
-var exportCreateResponseTypeStatusPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		exportCreateResponseTypeStatusPropEnum = append(exportCreateResponseTypeStatusPropEnum, v)
-	}
-}
-
-const (
-
-	// ExportCreateResponseStatusSTARTED captures enum value "STARTED"
-	ExportCreateResponseStatusSTARTED string = "STARTED"
-
-	// ExportCreateResponseStatusTRANSFERRING captures enum value "TRANSFERRING"
-	ExportCreateResponseStatusTRANSFERRING string = "TRANSFERRING"
-
-	// ExportCreateResponseStatusSUCCESS captures enum value "SUCCESS"
-	ExportCreateResponseStatusSUCCESS string = "SUCCESS"
-
-	// ExportCreateResponseStatusFAILED captures enum value "FAILED"
-	ExportCreateResponseStatusFAILED string = "FAILED"
-)
-
-// prop value enum
-func (m *ExportCreateResponse) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, exportCreateResponseTypeStatusPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *ExportCreateResponse) validateStatus(formats strfmt.Registry) error {
-	if swag.IsZero(m.Status) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ContextValidate validate this export create response based on the context it is used
+// ContextValidate validates this export create response based on context it is used
 func (m *ExportCreateResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidateShardStatus(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *ExportCreateResponse) contextValidateShardStatus(ctx context.Context, formats strfmt.Registry) error {
-	for k := range m.ShardStatus {
-		for kk := range m.ShardStatus[k] {
-			if val, ok := m.ShardStatus[k][kk]; ok {
-				if err := val.ContextValidate(ctx, formats); err != nil {
-					return err
-				}
-			}
-		}
-	}
-
 	return nil
 }
 

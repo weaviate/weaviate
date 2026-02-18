@@ -101,14 +101,11 @@ func (h *exportHandlers) exportStatus(params exports.ExportsStatusParams,
 // statusToCreateResponse converts ExportStatusResponse to ExportCreateResponse
 func statusToCreateResponse(status *models.ExportStatusResponse) *models.ExportCreateResponse {
 	return &models.ExportCreateResponse{
-		ID:          status.ID,
-		Backend:     status.Backend,
-		Path:        status.Path,
-		Status:      status.Status,
-		Classes:     status.Classes,
-		StartedAt:   status.StartedAt,
-		Error:       status.Error,
-		ShardStatus: status.ShardStatus,
+		ID:        status.ID,
+		Backend:   status.Backend,
+		Path:      status.Path,
+		Classes:   status.Classes,
+		StartedAt: status.StartedAt,
 	}
 }
 

@@ -7378,10 +7378,6 @@ func init() {
             "type": "string"
           }
         },
-        "error": {
-          "description": "Error message if export failed",
-          "type": "string"
-        },
         "id": {
           "description": "Unique identifier for this export",
           "type": "string"
@@ -7390,30 +7386,10 @@ func init() {
           "description": "Full path where the export is being written",
           "type": "string"
         },
-        "shardStatus": {
-          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/definitions/ShardProgress"
-            }
-          }
-        },
         "startedAt": {
           "description": "When the export started",
           "type": "string",
           "format": "date-time"
-        },
-        "status": {
-          "description": "Current status of the export",
-          "type": "string",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "SUCCESS",
-            "FAILED"
-          ]
         }
       }
     },
@@ -17471,10 +17447,6 @@ func init() {
             "type": "string"
           }
         },
-        "error": {
-          "description": "Error message if export failed",
-          "type": "string"
-        },
         "id": {
           "description": "Unique identifier for this export",
           "type": "string"
@@ -17483,30 +17455,10 @@ func init() {
           "description": "Full path where the export is being written",
           "type": "string"
         },
-        "shardStatus": {
-          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/definitions/ShardProgress"
-            }
-          }
-        },
         "startedAt": {
           "description": "When the export started",
           "type": "string",
           "format": "date-time"
-        },
-        "status": {
-          "description": "Current status of the export",
-          "type": "string",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "SUCCESS",
-            "FAILED"
-          ]
         }
       }
     },
