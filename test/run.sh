@@ -9,6 +9,7 @@ function main() {
   run_acceptance_only_fast_group_2=false
   run_acceptance_only_fast_group_3=false
   run_acceptance_only_fast_group_4=false
+  run_acceptance_only_compaction_recovery=false
   run_acceptance_only_authz=false
   run_acceptance_only_python=false
   run_acceptance_go_client=false
@@ -52,6 +53,7 @@ function main() {
           --acceptance-only-fast-group-2|-aof-g2) run_all_tests=false; run_acceptance_only_fast_group_2=true;;
           --acceptance-only-fast-group-3|-aof-g3) run_all_tests=false; run_acceptance_only_fast_group_3=true;;
           --acceptance-only-fast-group-4|-aof-g4) run_all_tests=false; run_acceptance_only_fast_group_4=true;;
+          --acceptance-only-compaction-recovery|-aocr) run_all_tests=false; run_acceptance_only_compaction_recovery=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
           --acceptance-go-client-only-fast|-agof) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true; run_acceptance_go_client_only_fast_group_2=true;;
@@ -87,6 +89,7 @@ function main() {
               "--acceptance-only-fast-group-2 | -aof-g2"\
               "--acceptance-only-fast-group-3 | -aof-g3"\
               "--acceptance-only-fast-group-4 | -aof-g4"\
+              "--acceptance-only-compaction-recovery | -aocr"\
               "--acceptance-only-python | -aop"\
               "--acceptance-go-client | -ag"\
               "--acceptance-go-client-only-fast | -agof"\
@@ -296,6 +299,10 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
+  if $run_acceptance_only_compaction_recovery || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance compaction and recovery"
+    run_acceptance_compaction_recovery
+  fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance authz"
     run_acceptance_only_authz "$@"
@@ -357,6 +364,8 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/graphql_resolvers' \
     | grep -v 'test/acceptance_lsmkv' \
     | grep -v 'test/acceptance/authz' \
+    | grep -v 'test/acceptance/compaction' \
+    | grep -v 'test/acceptance/recovery' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -474,6 +483,11 @@ function run_acceptance_only_fast_group() {
       ;;
     *) echo_red "Invalid group: $GROUP (must be 1..4)"; return 1 ;;
   esac
+}
+
+function run_acceptance_compaction_recovery() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  run_aof_group "compaction-recovery" test/acceptance/compaction test/acceptance/recovery
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
