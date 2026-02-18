@@ -236,7 +236,9 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		}
 	}
 
-	// Unregister from index halted tracking
+	// Unregister from index halted tracking. This is important for shard
+	// movement: if a shard is dropped and re-created while halted, the new
+	// shard checks this map during init to decide whether to start halted.
 	s.index.haltedShardsForTransfer.Delete(s.name)
 
 	if s.haltForTransferCancel != nil {

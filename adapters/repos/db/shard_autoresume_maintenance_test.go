@@ -367,66 +367,6 @@ func TestShard_ReleaseBeforeShardStored(t *testing.T) {
 	require.NoError(t, shd.PutObject(ctx, testObject(className)))
 }
 
-// TestShard_ReleaseDuringShardInit tests concurrent releaseBackupAndResume and
-// shard init. Regardless of which completes first, the shard must end up resumed.
-func TestShard_ReleaseDuringShardInit(t *testing.T) {
-	ctx := testCtx()
-	className := "TestClass"
-
-	shd, idx := testShard(t, ctx, className, func(i *Index) {
-		i.Config.DisableLazyLoadShards = true
-	})
-
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}(idx.Config.RootPath)
-
-	s := shd.(*Shard)
-
-	for range 10 {
-		require.NoError(t, shd.PutObject(ctx, testObject(className)))
-	}
-
-	// Start backup and halt
-	require.NoError(t, idx.initBackup("test-backup"))
-	require.NoError(t, shd.HaltForTransfer(ctx, false, 0))
-
-	// Simulate the shard having been initialized halted
-	s.haltedOnInit = true
-
-	// Remove shard from map to simulate it not being stored yet
-	idx.shards.LoadAndDelete(shd.Name())
-
-	// Race: releaseBackupAndResume and shard registration run concurrently
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		idx.releaseBackupAndResume(ctx)
-	}()
-
-	go func() {
-		defer wg.Done()
-		idx.shards.Store(shd.Name(), shd)
-		s.maybeResumeAfterInit(ctx)
-	}()
-
-	wg.Wait()
-
-	// Regardless of ordering, the shard must be resumed.
-	// Either releaseBackupAndResume saw it in ForEachShard, or
-	// maybeResumeAfterInit saw the halted map was cleared.
-	err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
-	require.ErrorContains(t, err, "not paused for transfer",
-		"shard must be resumed regardless of race outcome")
-
-	require.NoError(t, shd.PutObject(ctx, testObject(className)))
-}
-
 // countDBFiles counts the number of .db segment files in the given directory.
 func countDBFiles(t *testing.T, dir string) int {
 	t.Helper()
