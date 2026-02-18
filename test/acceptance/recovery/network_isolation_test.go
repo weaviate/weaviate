@@ -30,6 +30,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
+		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
 		Start(ctx)
 	require.NoError(t, err)
 
