@@ -177,7 +177,14 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
-	if _, err = h.schemaManager.UpdateTenants(ctx, class, &req); err != nil {
+	version, err := h.schemaManager.UpdateTenants(ctx, class, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure local schema has caught up to the update version before we or callers
+	// perform any subsequent operations that depend on the new tenant state.
+	if err := h.schemaReader.WaitForUpdate(ctx, version); err != nil {
 		return nil, err
 	}
 
