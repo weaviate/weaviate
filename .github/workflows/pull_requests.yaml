@@ -17,7 +17,6 @@ jobs:
   Multi-Arch-Docker-Build:
     name: docker build (multi-arch)
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'push' }}
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
@@ -123,86 +122,86 @@ jobs:
           path: /tmp/docker-outputs/
           retention-days: 1
 
-  PR-Docker-Build:
-    name: docker build (${{ matrix.arch }})
-    # ARM builds run on specific runners to avoid cross-compilation.
-    runs-on: ${{ matrix.runner }}
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'pull_request' }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: "amd64"
-            runner: ubuntu-latest
-            platforms: "linux/amd64"
-            push-args: "--amd64-only"
-          - arch: "arm64"
-            runner: ubuntu-24.04-arm
-            platforms: "linux/arm64"
-            push-args: "--arm64-only"
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and cache Docker image
-        id: build
-        uses: docker/build-push-action@v6
-        env:
-          DOCKER_BUILD_SUMMARY: false
-        with:
-          context: .
-          push: false
-          tags: weaviate:${{ github.sha }}
-          platforms: ${{ matrix.platforms }}
-          # Load the result into the local Docker engine only for amd64. Avoids slow emulation on arm64.
-          load: ${{ matrix.arch == 'amd64' }}
-          # Use both arch caches as "read" sources, so BuildKit can reuse whatever matches.
-          cache-from: |
-            type=gha,scope=weaviate-multi
-            type=gha,scope=weaviate-${{ matrix.arch }}
-          # Write back only to this job's cache scope to keep per-arch caches clean.
-          # ignore-error=true prevents the build from failing if the cache export flakes.
-          cache-to: |
-            type=gha,scope=weaviate-${{ matrix.arch }},mode=max,ignore-error=true
-          # CGO disabled for faster cross-compilation and better cache consistency.
-          # No build metadata for PR builds to maximize cache reuse across PRs.
-          build-args: |
-            CGO_ENABLED=0
-            TARGETARCH=${{ matrix.arch }}
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Push container
-        id: push
-        run: ./ci/push_docker.sh ${{ matrix.push-args }}
-        env:
-          PR_TITLE: "${{ github.event.pull_request.title }}"
-
-      - name: Save outputs to artifact
-        run: |
-          mkdir -p /tmp/docker-outputs
-          echo "${{ steps.push.outputs.PREVIEW_TAG }}" > /tmp/docker-outputs/preview-tag.txt
-          echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
-
-      - name: Upload outputs
-        uses: actions/upload-artifact@v6
-        with:
-          name: docker-outputs-pr-${{ matrix.arch }}
-          path: /tmp/docker-outputs/
-          retention-days: 1
+#  PR-Docker-Build:
+#    name: docker build (${{ matrix.arch }})
+#    # ARM builds run on specific runners to avoid cross-compilation.
+#    runs-on: ${{ matrix.runner }}
+#    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'pull_request' }}
+#    timeout-minutes: 45
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        include:
+#          - arch: "amd64"
+#            runner: ubuntu-latest
+#            platforms: "linux/amd64"
+#            push-args: "--amd64-only"
+#          - arch: "arm64"
+#            runner: ubuntu-24.04-arm
+#            platforms: "linux/arm64"
+#            push-args: "--arm64-only"
+#    steps:
+#      - uses: actions/checkout@v6
+#
+#      - name: Set up Docker Buildx
+#        uses: docker/setup-buildx-action@v3
+#
+#      - name: Build and cache Docker image
+#        id: build
+#        uses: docker/build-push-action@v6
+#        env:
+#          DOCKER_BUILD_SUMMARY: false
+#        with:
+#          context: .
+#          push: false
+#          tags: weaviate:${{ github.sha }}
+#          platforms: ${{ matrix.platforms }}
+#          # Load the result into the local Docker engine only for amd64. Avoids slow emulation on arm64.
+#          load: ${{ matrix.arch == 'amd64' }}
+#          # Use both arch caches as "read" sources, so BuildKit can reuse whatever matches.
+#          cache-from: |
+#            type=gha,scope=weaviate-multi
+#            type=gha,scope=weaviate-${{ matrix.arch }}
+#          # Write back only to this job's cache scope to keep per-arch caches clean.
+#          # ignore-error=true prevents the build from failing if the cache export flakes.
+#          cache-to: |
+#            type=gha,scope=weaviate-${{ matrix.arch }},mode=max,ignore-error=true
+#          # CGO disabled for faster cross-compilation and better cache consistency.
+#          # No build metadata for PR builds to maximize cache reuse across PRs.
+#          build-args: |
+#            CGO_ENABLED=0
+#            TARGETARCH=${{ matrix.arch }}
+#
+#      - name: Login to Docker Hub
+#        uses: docker/login-action@v3
+#        with:
+#          username: ${{ secrets.DOCKER_USERNAME }}
+#          password: ${{ secrets.DOCKER_PASSWORD }}
+#
+#      - name: Push container
+#        id: push
+#        run: ./ci/push_docker.sh ${{ matrix.push-args }}
+#        env:
+#          PR_TITLE: "${{ github.event.pull_request.title }}"
+#
+#      - name: Save outputs to artifact
+#        run: |
+#          mkdir -p /tmp/docker-outputs
+#          echo "${{ steps.push.outputs.PREVIEW_TAG }}" > /tmp/docker-outputs/preview-tag.txt
+#          echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
+#
+#      - name: Upload outputs
+#        uses: actions/upload-artifact@v6
+#        with:
+#          name: docker-outputs-pr-${{ matrix.arch }}
+#          path: /tmp/docker-outputs/
+#          retention-days: 1
 
   Generate-Docker-Report:
     name: docker report
     runs-on: ubuntu-latest
     # Depends on both production and PR jobs, but only one will run based on the event type
-    needs: [Multi-Arch-Docker-Build, PR-Docker-Build]
+    needs: [Multi-Arch-Docker-Build]
     # Always run if either dependency succeeded (pr or production build)
     if: always() && (needs.Multi-Arch-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
     steps:
