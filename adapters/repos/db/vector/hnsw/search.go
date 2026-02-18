@@ -112,7 +112,10 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		for _, docID := range docIDs {
 			candidateSet[docID] = struct{}{}
 		}
-		return h.computeLateInteraction(ctx, vectors, k, candidateSet)
+		beforeRescore := time.Now()
+		ids, dists, err := h.computeLateInteraction(ctx, vectors, k, candidateSet)
+		helpers.AnnotateSlowQueryLog(ctx, "muvera_rescore_took", time.Since(beforeRescore))
+		return ids, dists, err
 	}
 
 	h.compressActionLock.RLock()
@@ -924,7 +927,10 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 			candidateSet[docId] = struct{}{}
 		}
 	}
-	return h.computeLateInteraction(ctx, queryVectors, k, candidateSet)
+	beforeRescore := time.Now()
+	ids, dists, err := h.computeLateInteraction(ctx, queryVectors, k, candidateSet)
+	helpers.AnnotateSlowQueryLog(ctx, "multivector_rescore_took", time.Since(beforeRescore))
+	return ids, dists, err
 }
 
 func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
