@@ -9,18 +9,24 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build integrationTest
+
 package db
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func shardIsHalted(idx *Index, shardName string) bool {
@@ -31,65 +37,37 @@ func shardIsHalted(idx *Index, shardName string) bool {
 func TestShard_InitHaltedDuringBackup(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
-
-	shd, idx := testShard(t, ctx, className)
-
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}(idx.Config.RootPath)
-
 	amount := 10
 
-	t.Run("insert data into shard", func(t *testing.T) {
-		for range amount {
-			obj := testObject(className)
-			err := shd.PutObject(ctx, obj)
-			require.Nil(t, err)
-		}
-	})
+	shd, idx := testShard(t, ctx, className)
+	defer func() { _ = os.RemoveAll(idx.Config.RootPath) }()
 
-	t.Run("halt shard for backup", func(t *testing.T) {
-		require.NoError(t, idx.initBackup("test-backup"))
-		require.NoError(t, shd.HaltForTransfer(ctx, false, 0))
+	for range amount {
+		require.NoError(t, shd.PutObject(ctx, testObject(className)))
+	}
 
-		// Shard should be in halted map
-		require.True(t, shardIsHalted(idx, shd.Name()))
+	// Halt shard for backup
+	require.NoError(t, idx.initBackup("test-backup"))
+	require.NoError(t, shd.HaltForTransfer(ctx, false, 0))
+	require.True(t, shardIsHalted(idx, shd.Name()))
+	require.NoError(t, shd.ListBackupFiles(ctx, &backup.ShardDescriptor{}))
 
-		// Backup files should be listable while halted
-		err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
-		require.NoError(t, err)
-	})
+	// Release backup and verify state is cleared
+	require.NoError(t, idx.releaseBackupAndResume(ctx))
+	require.False(t, shardIsHalted(idx, shd.Name()))
+	require.Nil(t, idx.lastBackup.Load())
 
-	t.Run("releaseBackupAndResume should resume shard and clear state", func(t *testing.T) {
-		err := idx.releaseBackupAndResume(ctx)
-		require.NoError(t, err)
+	// Backup files cannot be listed after release
+	err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+	require.ErrorContains(t, err, "not paused for transfer")
 
-		// Halted map should be cleared
-		require.False(t, shardIsHalted(idx, shd.Name()))
-
-		// lastBackup should be cleared
-		require.Nil(t, idx.lastBackup.Load())
-	})
-
-	t.Run("backup files cannot be listed after release", func(t *testing.T) {
-		err := shd.ListBackupFiles(ctx, &backup.ShardDescriptor{})
-		require.ErrorContains(t, err, "not paused for transfer")
-	})
-
-	t.Run("objects can be inserted after release", func(t *testing.T) {
-		for range amount {
-			obj := testObject(className)
-			err := shd.PutObject(ctx, obj)
-			require.NoError(t, err)
-		}
-
-		objs, err := shd.ObjectList(ctx, 2*amount, nil, nil, additional.Properties{}, idx.Config.ClassName)
-		require.NoError(t, err)
-		require.Equal(t, 2*amount, len(objs))
-	})
+	// Objects can be inserted after release
+	for range amount {
+		require.NoError(t, shd.PutObject(ctx, testObject(className)))
+	}
+	objs, err := shd.ObjectList(ctx, 2*amount, nil, nil, additional.Properties{}, idx.Config.ClassName)
+	require.NoError(t, err)
+	require.Equal(t, 2*amount, len(objs))
 }
 
 func TestShard_IllegalStateForTransfer(t *testing.T) {
@@ -447,6 +425,116 @@ func TestShard_ReleaseDuringShardInit(t *testing.T) {
 		"shard must be resumed regardless of race outcome")
 
 	require.NoError(t, shd.PutObject(ctx, testObject(className)))
+}
+
+// countDBFiles counts the number of .db segment files in the given directory.
+func countDBFiles(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".db" {
+			count++
+		}
+	}
+	return count
+}
+
+// TestShard_InitHaltedCompactionPaused verifies that a shard initialized during
+// an active backup starts with compaction paused. Multiple segments created
+// before shutdown must remain uncompacted while the shard is halted. After
+// resuming maintenance cycles, compaction should run and reduce the segment count.
+func TestShard_InitHaltedCompactionPaused(t *testing.T) {
+	ctx := testCtx()
+	className := "CompactionHaltTest"
+
+	shd, idx := testShard(t, ctx, className, func(i *Index) {
+		i.Config.DisableLazyLoadShards = true
+	})
+
+	defer func() {
+		_ = os.RemoveAll(idx.Config.RootPath)
+	}()
+
+	s := shd.(*Shard)
+	objBucket := s.Store().Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, objBucket)
+	bucketDir := objBucket.GetDir()
+
+	// Pause compaction so flushes create independent segments
+	require.NoError(t, s.Store().PauseCompaction(ctx))
+
+	// Insert data and flush multiple times to create multiple segments
+	numSegments := 4
+	for i := range numSegments {
+		for range 5 {
+			require.NoError(t, shd.PutObject(ctx, testObject(className)))
+		}
+		require.NoError(t, objBucket.FlushMemtable(), "flush %d", i)
+	}
+
+	segmentsBefore := countDBFiles(t, bucketDir)
+	require.GreaterOrEqual(t, segmentsBefore, numSegments,
+		"should have at least %d segments after %d flushes", numSegments, numSegments)
+
+	// Resume compaction before shutdown so the store can close cleanly
+	require.NoError(t, s.Store().ResumeCompaction(ctx))
+	require.NoError(t, shd.Shutdown(ctx))
+
+	// Mark shard as halted for backup (simulating an active backup)
+	require.NoError(t, idx.initBackup("test-backup"))
+	idx.haltedShardsForTransfer.Store(s.name, struct{}{})
+
+	// Re-init the shard — it should detect the halted map entry and start
+	// with compaction paused.
+	newShard, err := idx.initShard(ctx, s.name, &models.Class{Class: className}, nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store(s.name, newShard)
+
+	ns := newShard.(*Shard)
+
+	// The shard should have initialized in halted state
+	assert.True(t, ns.haltedOnInit, "shard should be marked as haltedOnInit")
+	ns.haltForTransferMux.Lock()
+	assert.Equal(t, 1, ns.haltForTransferCount, "haltForTransferCount should be 1")
+	ns.haltForTransferMux.Unlock()
+
+	// Segments should still be present — compaction is paused during halted init
+	segmentsAfterInit := countDBFiles(t, bucketDir)
+	assert.Equal(t, segmentsBefore, segmentsAfterInit,
+		"segment count should be unchanged with compaction paused")
+
+	// Listing backup files should succeed while halted
+	require.NoError(t, newShard.ListBackupFiles(ctx, &backup.ShardDescriptor{}))
+
+	// Resume maintenance cycles (as releaseBackupAndResume would)
+	idx.haltedShardsForTransfer.Clear()
+	require.NoError(t, ns.resumeMaintenanceCycles(ctx))
+	idx.lastBackup.Store(nil)
+
+	// After resume, halted state should be cleared
+	ns.haltForTransferMux.Lock()
+	assert.Equal(t, 0, ns.haltForTransferCount, "haltForTransferCount should be 0 after resume")
+	assert.False(t, ns.haltedOnInit, "haltedOnInit should be false after resume")
+	ns.haltForTransferMux.Unlock()
+
+	// Listing backup files should fail after resume (not paused)
+	err = newShard.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+	require.ErrorContains(t, err, "not paused for transfer")
+
+	// Shard should be fully operational — data from before shutdown is readable
+	objs, err := newShard.ObjectList(ctx, 100, nil, nil, additional.Properties{}, idx.Config.ClassName)
+	require.NoError(t, err)
+	assert.Equal(t, numSegments*5, len(objs), "all objects from before shutdown should be present")
+
+	// New inserts should work
+	for range 5 {
+		require.NoError(t, newShard.PutObject(ctx, testObject(className)))
+	}
+	objs, err = newShard.ObjectList(ctx, 100, nil, nil, additional.Properties{}, idx.Config.ClassName)
+	require.NoError(t, err)
+	assert.Equal(t, numSegments*5+5, len(objs))
 }
 
 // TestShard_ReleaseDuringShardInitRepeated runs the concurrent race between
