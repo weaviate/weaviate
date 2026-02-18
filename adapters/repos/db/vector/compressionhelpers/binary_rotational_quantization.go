@@ -235,7 +235,7 @@ type RQMultiBitCode struct {
 
 func (c RQMultiBitCode) String() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("bits0[0]: %064b, ", c.bits0[0]))
+	fmt.Fprintf(&sb, "bits0[0]: %064b, ", c.bits0[0])
 	return fmt.Sprintf("RQMultiBitCode{Step: %.4f, SquaredNorm: %.4f, bits: %s",
 		c.Step, c.SquaredNorm, sb.String())
 }
