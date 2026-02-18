@@ -347,7 +347,7 @@ func (h *HFresh) Multivector() bool {
 }
 
 func (h *HFresh) ContainsDoc(id uint64) bool {
-	v, err := h.VersionMap.Get(context.Background(), id)
+	v, err := h.VersionMap.VectorExists(context.Background(), id)
 	if err != nil {
 		h.logger.WithField("vectorID", id).
 			Debug("vector version get failed, returning false")
