@@ -37,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -1340,4 +1341,26 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	w.WriteHeader(status)
 	w.Write(jsonBytes)
+}
+
+// setupTelemetryDebugHandlers registers debug endpoints for inspecting live telemetry data.
+// It must be called after the telemeter has been created.
+func setupTelemetryDebugHandlers(telemeter *telemetry.Telemeter) {
+	http.HandleFunc("/debug/telemetry/clients", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		type clientsResponse struct {
+			ClientUsage            map[telemetry.ClientType]map[string]int64 `json:"clientUsage"`
+			ClientIntegrationUsage map[string]map[string]int64               `json:"clientIntegrationUsage"`
+		}
+
+		resp := clientsResponse{}
+		if ct := telemeter.GetClientTracker(); ct != nil {
+			resp.ClientUsage = ct.Get()
+		}
+		if it := telemeter.GetIntegrationTracker(); it != nil {
+			resp.ClientIntegrationUsage = it.Get()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, http.StatusOK, resp)
+	}))
 }
