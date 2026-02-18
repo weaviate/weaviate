@@ -19,32 +19,28 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
-	value         []byte
-	bucket        *lsmkv.Bucket
-	operator      filters.Operator
-	keyOnly       bool
-	shardVersion  uint16
-	bitmapFactory *roaringset.BitmapFactory
-	isDenyList    bool
+	value        []byte
+	bucket       *lsmkv.Bucket
+	operator     filters.Operator
+	keyOnly      bool
+	shardVersion uint16
+	isDenyList   bool
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
-		bucket:        bucket,
-		value:         value,
-		operator:      operator,
-		keyOnly:       keyOnly,
-		shardVersion:  shardVersion,
-		bitmapFactory: bitmapFactory,
+		bucket:       bucket,
+		value:        value,
+		operator:     operator,
+		keyOnly:      keyOnly,
+		shardVersion: shardVersion,
 	}
 }
 

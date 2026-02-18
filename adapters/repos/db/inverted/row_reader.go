@@ -19,32 +19,29 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
-	value         []byte
-	bucket        *lsmkv.Bucket
-	operator      filters.Operator
-	keyOnly       bool
-	bitmapFactory *roaringset.BitmapFactory
-	isDenyList    bool
+	value      []byte
+	bucket     *lsmkv.Bucket
+	operator   filters.Operator
+	keyOnly    bool
+	isDenyList bool
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
+	keyOnly bool,
 ) *RowReader {
 	return &RowReader{
-		bucket:        bucket,
-		value:         value,
-		operator:      operator,
-		keyOnly:       keyOnly,
-		bitmapFactory: bitmapFactory,
+		bucket:   bucket,
+		value:    value,
+		operator: operator,
+		keyOnly:  keyOnly,
 	}
 }
 
