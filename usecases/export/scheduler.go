@@ -55,6 +55,7 @@ type ShardLike = interface {
 
 // Scheduler manages export operations
 type Scheduler struct {
+	shutdownCtx  context.Context
 	logger       logrus.FieldLogger
 	authorizer   authorization.Authorizer
 	selector     Selector
@@ -67,7 +68,9 @@ type Scheduler struct {
 
 // NewScheduler creates a new export scheduler.
 // When client and nodeResolver are nil, operates in single-node mode.
+// The shutdownCtx is cancelled on graceful server shutdown.
 func NewScheduler(
+	shutdownCtx context.Context,
 	authorizer authorization.Authorizer,
 	selector Selector,
 	backends BackendProvider,
@@ -78,6 +81,7 @@ func NewScheduler(
 	participant *Participant,
 ) *Scheduler {
 	return &Scheduler{
+		shutdownCtx:  shutdownCtx,
 		logger:       logger,
 		authorizer:   authorizer,
 		selector:     selector,
@@ -146,7 +150,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	}
 
 	enterrors.GoWrapper(func() {
-		s.performExport(context.Background(), backendStore, id, status, classes, bucket, path)
+		s.performExport(s.shutdownCtx, backendStore, id, status, classes, bucket, path)
 	}, s.logger)
 
 	return status, nil
@@ -523,8 +527,12 @@ func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter
 	return nil
 }
 
-// writeMetadata writes the export metadata file (single-node path)
-func (s *Scheduler) writeMetadata(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *ExportStatus) error {
+// writeMetadata writes the export metadata file (single-node path).
+// It uses a fresh context with a timeout so the write succeeds even if the
+// original context was cancelled (e.g. during graceful shutdown).
+func (s *Scheduler) writeMetadata(_ context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *ExportStatus) error {
+	ctx := context.Background()
+
 	metadata := &ExportMetadata{
 		ID:          status.ID,
 		Backend:     status.Backend,

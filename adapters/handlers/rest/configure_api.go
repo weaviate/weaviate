@@ -671,7 +671,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.BackupManager = backupManager
 
 	// Create export participant early so the cluster API server can register it
-	appState.ExportParticipant = exportUsecase.NewParticipant(appState.DB, appState.Modules, appState.Logger)
+	appState.ExportParticipant = exportUsecase.NewParticipant(serverShutdownCtx, appState.DB, appState.Modules, appState.Logger)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
@@ -969,7 +969,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
-	exportScheduler := startExportScheduler(appState)
+	exportScheduler := startExportScheduler(serverShutdownCtx, appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
@@ -1107,7 +1107,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	return backupScheduler
 }
 
-func startExportScheduler(appState *state.State) *exportUsecase.Scheduler {
+func startExportScheduler(shutdownCtx context.Context, appState *state.State) *exportUsecase.Scheduler {
 	var client exportUsecase.ExportClient
 	var nodeResolver exportUsecase.NodeResolver
 	var localNode string
@@ -1119,6 +1119,7 @@ func startExportScheduler(appState *state.State) *exportUsecase.Scheduler {
 	}
 
 	exportScheduler := exportUsecase.NewScheduler(
+		shutdownCtx,
 		appState.Authorizer,
 		appState.DB,
 		appState.Modules,

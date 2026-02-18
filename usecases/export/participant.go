@@ -28,21 +28,26 @@ import (
 // Participant handles export requests on a single node.
 // It exports its assigned shards directly to S3 and writes status files.
 type Participant struct {
-	selector Selector
-	backends BackendProvider
-	logger   logrus.FieldLogger
+	shutdownCtx context.Context
+	selector    Selector
+	backends    BackendProvider
+	logger      logrus.FieldLogger
 }
 
-// NewParticipant creates a new export participant
+// NewParticipant creates a new export participant.
+// The shutdownCtx is cancelled on graceful server shutdown, allowing in-flight
+// exports to detect the shutdown and write a failed status before exiting.
 func NewParticipant(
+	shutdownCtx context.Context,
 	selector Selector,
 	backends BackendProvider,
 	logger logrus.FieldLogger,
 ) *Participant {
 	return &Participant{
-		selector: selector,
-		backends: backends,
-		logger:   logger,
+		shutdownCtx: shutdownCtx,
+		selector:    selector,
+		backends:    backends,
+		logger:      logger,
 	}
 }
 
@@ -65,7 +70,7 @@ func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
 		Info("participant starting export")
 
 	enterrors.GoWrapper(func() {
-		p.executeExport(context.Background(), backendStore, req)
+		p.executeExport(p.shutdownCtx, backendStore, req)
 	}, p.logger)
 
 	return nil
@@ -221,7 +226,11 @@ func (p *Participant) exportShardToFile(
 }
 
 // writeNodeStatus writes the node status file to S3.
-func (p *Participant) writeNodeStatus(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, status *NodeStatus) {
+// It uses a fresh context with a timeout so the write succeeds even if the
+// original context was cancelled (e.g. during graceful shutdown).
+func (p *Participant) writeNodeStatus(_ context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, status *NodeStatus) {
+	ctx := context.Background()
+
 	key := fmt.Sprintf("node_%s_status.json", status.NodeName)
 	data, err := json.MarshalIndent(status, "", "  ")
 	if err != nil {
