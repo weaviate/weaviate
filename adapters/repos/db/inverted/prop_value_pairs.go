@@ -285,8 +285,9 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (
 	case filters.OperatorOr:
 		efficientMergeSwap(operator)
 		return a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE), false
+	default:
+		return nil, false
 	}
-	return nil, false
 }
 
 // mergeDocIDs merges provided docBitmaps using given operator.
