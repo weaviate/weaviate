@@ -179,6 +179,18 @@ func TestVersionMap(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, deleted)
 	})
+
+	t.Run("get non-cached vector", func(t *testing.T) {
+		versionMap := makeVersionMap(t)
+
+		v3 := v1.Increment().Increment()
+		err := versionMap.store.Set(ctx, 1, v3)
+		require.NoError(t, err)
+
+		v, err := versionMap.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, v3, v)
+	})
 }
 
 func TestVersionStore(t *testing.T) {
