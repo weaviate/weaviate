@@ -153,6 +153,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.haltForTransferMux.Lock()
 		s.haltForTransferCount = 1
 		s.haltForTransferMux.Unlock()
+
+		// The caller must call maybeResumeAfterInit after storing the shard in the shard map. Otherwise we might race
+		// with an ending backup
 	}
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
@@ -174,11 +177,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			q.Pause()
 			return nil
 		})
-
-		// NOTE: compaction is already paused right after initLSMStore above.
-		// NOTE: self-resume check is NOT done here because the shard is not yet
-		// in i.shards at this point. The caller must call maybeResumeAfterInit
-		// after storing the shard in the shard map.
 	} else if asyncEnabled() {
 		f := func() {
 			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
