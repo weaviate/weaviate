@@ -77,13 +77,19 @@ func (f *FastSet) hash(key uint64) uint64 {
 // Visit marks a node as visited.
 func (f *FastSet) Visit(node uint64) {
 	idx := f.hash(node)
+	// Cache struct fields in locals so the compiler can keep them in registers
+	// across loop iterations, avoiding repeated loads through the f pointer.
+	markers := f.markers
+	keys := f.keys
+	marker := f.marker
+	mask := f.mask
 
 	// Linear probing
 	for {
-		if f.markers[idx] != f.marker {
+		if markers[idx] != marker {
 			// Empty slot - insert here
-			f.keys[idx] = node
-			f.markers[idx] = f.marker
+			keys[idx] = node
+			markers[idx] = marker
 			f.size++
 
 			// Check load factor (75%)
@@ -92,30 +98,36 @@ func (f *FastSet) Visit(node uint64) {
 			}
 			return
 		}
-		if f.keys[idx] == node {
+		if keys[idx] == node {
 			// Already visited
 			return
 		}
 		// Collision - probe next
-		idx = (idx + 1) & f.mask
+		idx = (idx + 1) & mask
 	}
 }
 
 // Visited checks if a node was visited.
 func (f *FastSet) Visited(node uint64) bool {
 	idx := f.hash(node)
+	// Cache struct fields in locals so the compiler can keep them in registers
+	// across loop iterations, avoiding repeated loads through the f pointer.
+	markers := f.markers
+	keys := f.keys
+	marker := f.marker
+	mask := f.mask
 
 	// Linear probing
 	for {
-		if f.markers[idx] != f.marker {
+		if markers[idx] != marker {
 			// Empty slot - not found
 			return false
 		}
-		if f.keys[idx] == node {
+		if keys[idx] == node {
 			return true
 		}
 		// Collision - probe next
-		idx = (idx + 1) & f.mask
+		idx = (idx + 1) & mask
 	}
 }
 
