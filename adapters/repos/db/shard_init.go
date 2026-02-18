@@ -87,7 +87,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	// Check if this shard should initialize in halted state
-	s.haltedOnInit = index.shouldShardInitHalted(shardName)
+	_, s.haltedOnInit = index.haltedShardsForTransfer.Load(shardName)
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
@@ -145,6 +145,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
+	// Pause compaction immediately after store init, no buckets have been added yet, so no compactions have run
+	if s.haltedOnInit {
+		if err := s.store.PauseCompaction(ctx); err != nil {
+			return nil, fmt.Errorf("pause compaction on halted init: %w", err)
+		}
+	}
+
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
 	if s.index.Config.LazySegmentsDisabled {
@@ -182,11 +189,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			return nil
 		})
 
-		// Pause compaction at store level
-		if err := s.store.PauseCompaction(ctx); err != nil {
-			return nil, fmt.Errorf("pause compaction on halted init: %w", err)
-		}
-
+		// NOTE: compaction is already paused right after initLSMStore above.
 		// NOTE: self-resume check is NOT done here because the shard is not yet
 		// in i.shards at this point. The caller must call maybeResumeAfterInit
 		// after storing the shard in the shard map.
@@ -232,15 +235,20 @@ func (s *Shard) NotifyReady() {
 // that releaseBackupAndResume uses to clear it. If the map was already cleared,
 // the release is underway and this shard should self-resume.
 func (s *Shard) maybeResumeAfterInit(ctx context.Context) {
-	if !s.haltedOnInit {
+	// Read haltedOnInit under haltForTransferMux to synchronize with
+	// mayForceResumeMaintenanceCycles which clears it under the same lock.
+	s.haltForTransferMux.Lock()
+	halted := s.haltedOnInit
+	s.haltForTransferMux.Unlock()
+
+	if !halted {
 		return
 	}
 
-	s.index.haltedShardsForTransferLock.Lock()
-	stillHalted := s.index.shouldShardInHaltedMap(s.name)
-	s.index.haltedShardsForTransferLock.Unlock()
-
-	if !stillHalted {
+	// If the shard is no longer in the halted map, the backup was released
+	// while this shard was initializing. Self-resume since releaseBackupAndResume's
+	// ForEachShard may have missed us.
+	if _, ok := s.index.haltedShardsForTransfer.Load(s.name); !ok {
 		if err := s.resumeMaintenanceCycles(ctx); err != nil {
 			s.index.logger.WithError(err).WithField("shard", s.name).
 				Warn("failed to resume shard after backup released during init")

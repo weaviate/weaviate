@@ -300,10 +300,9 @@ type Index struct {
 
 	// Tracks shards that are halted for backup/transfer.
 	// When a shard is halted via HaltForTransfer, it's added here.
-	// When a shard is resumed via resumeMaintenanceCycles, it's removed.
+	// When backup is released, the map is cleared.
 	// New shards check this map during init to know if they should start halted.
-	haltedShardsForTransfer     map[string]struct{}
-	haltedShardsForTransferLock sync.RWMutex
+	haltedShardsForTransfer sync.Map
 }
 
 func (i *Index) ID() string {

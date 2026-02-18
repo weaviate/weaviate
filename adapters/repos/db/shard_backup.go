@@ -36,7 +36,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	s.haltForTransferCount++
 
 	// Register with index so state persists across shard drop/create
-	s.index.markShardHaltedForTransfer(s.name)
+	s.index.haltedShardsForTransfer.Store(s.name, struct{}{})
 
 	defer func() {
 		if err == nil && inactivityTimeout > 0 {
@@ -151,22 +151,17 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.haltForTransferCancel = cancel
 
-	s.haltForTransferInactivityTimer = time.NewTimer(s.haltForTransferInactivityTimeout)
+	timer := time.NewTimer(s.haltForTransferInactivityTimeout)
+	s.haltForTransferInactivityTimer = timer
 
 	enterrors.GoWrapper(func() {
 		// this goroutine will release maintenance cycles if no file activity
 		// is detected in the specified inactivity timeout
-		defer func() {
-			s.haltForTransferMux.Lock()
-			s.haltForTransferInactivityTimer.Stop()
-			s.haltForTransferCancel = nil
-			s.haltForTransferMux.Unlock()
-		}()
-
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-s.haltForTransferInactivityTimer.C:
+		case <-timer.C:
 			s.haltForTransferMux.Lock()
 			s.mayForceResumeMaintenanceCycles(context.Background(), true)
 			s.haltForTransferMux.Unlock()
@@ -242,11 +237,12 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	}
 
 	// Unregister from index halted tracking
-	s.index.unmarkShardHaltedForTransfer(s.name)
+	s.index.haltedShardsForTransfer.Delete(s.name)
 
 	if s.haltForTransferCancel != nil {
 		// terminate background goroutine checking for inactivity timeout
 		s.haltForTransferCancel()
+		s.haltForTransferCancel = nil
 	}
 
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)

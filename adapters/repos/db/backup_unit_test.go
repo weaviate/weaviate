@@ -17,55 +17,53 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestShouldShardInitHalted(t *testing.T) {
-	t.Run("returns true when shard is explicitly in halted map", func(t *testing.T) {
-		idx := &Index{
-			haltedShardsForTransfer: map[string]struct{}{
-				"shard1": {},
-			},
-		}
+func TestHaltedShardsForTransfer(t *testing.T) {
+	t.Run("returns true when shard is in halted map", func(t *testing.T) {
+		idx := &Index{}
+		idx.haltedShardsForTransfer.Store("shard1", struct{}{})
 
-		assert.True(t, idx.shouldShardInitHalted("shard1"))
+		_, ok := idx.haltedShardsForTransfer.Load("shard1")
+		assert.True(t, ok)
 	})
 
 	t.Run("returns false when shard is not in halted map", func(t *testing.T) {
-		idx := &Index{
-			haltedShardsForTransfer: map[string]struct{}{
-				"shard1": {},
-			},
-		}
+		idx := &Index{}
+		idx.haltedShardsForTransfer.Store("shard1", struct{}{})
 
-		assert.False(t, idx.shouldShardInitHalted("shard2"))
+		_, ok := idx.haltedShardsForTransfer.Load("shard2")
+		assert.False(t, ok)
 	})
 
-	t.Run("returns false when halted map is nil", func(t *testing.T) {
+	t.Run("returns false when halted map is empty", func(t *testing.T) {
 		idx := &Index{}
 
-		assert.False(t, idx.shouldShardInitHalted("shard1"))
+		_, ok := idx.haltedShardsForTransfer.Load("shard1")
+		assert.False(t, ok)
 	})
 
-	t.Run("returns false when backup is in progress but shard not in halted map", func(t *testing.T) {
+	t.Run("clear removes all entries", func(t *testing.T) {
 		idx := &Index{}
-		idx.lastBackup.Store(&BackupState{
-			BackupID:   "backup-1",
-			InProgress: true,
-		})
+		idx.haltedShardsForTransfer.Store("shard1", struct{}{})
+		idx.haltedShardsForTransfer.Store("shard2", struct{}{})
 
-		assert.False(t, idx.shouldShardInitHalted("shard1"))
+		idx.haltedShardsForTransfer.Clear()
+
+		_, ok1 := idx.haltedShardsForTransfer.Load("shard1")
+		_, ok2 := idx.haltedShardsForTransfer.Load("shard2")
+		assert.False(t, ok1)
+		assert.False(t, ok2)
 	})
 
-	t.Run("does not add shard to halted map when backup is in progress", func(t *testing.T) {
+	t.Run("delete removes single entry", func(t *testing.T) {
 		idx := &Index{}
-		idx.lastBackup.Store(&BackupState{
-			BackupID:   "backup-1",
-			InProgress: true,
-		})
+		idx.haltedShardsForTransfer.Store("shard1", struct{}{})
+		idx.haltedShardsForTransfer.Store("shard2", struct{}{})
 
-		idx.shouldShardInitHalted("shard1")
+		idx.haltedShardsForTransfer.Delete("shard1")
 
-		idx.haltedShardsForTransferLock.Lock()
-		_, inMap := idx.haltedShardsForTransfer["shard1"]
-		idx.haltedShardsForTransferLock.Unlock()
-		assert.False(t, inMap)
+		_, ok1 := idx.haltedShardsForTransfer.Load("shard1")
+		_, ok2 := idx.haltedShardsForTransfer.Load("shard2")
+		assert.False(t, ok1)
+		assert.True(t, ok2)
 	})
 }

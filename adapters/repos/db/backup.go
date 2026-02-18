@@ -251,60 +251,28 @@ func (i *Index) initBackup(id string) error {
 	return nil
 }
 
-// releaseBackupAndResume clears the halted shard map, resumes all halted shards,
+// releaseBackupAndResume clears the halted shard map, resumes all shards,
 // then clears lastBackup. lastBackup stays set during resume so that initBackup's
 // CAS prevents a new backup from starting while shards are still being resumed.
 // Shards not yet in the shard map will self-resume via maybeResumeAfterInit, which
-// checks the halted map under the same lock.
+// checks the halted map after being stored.
 func (i *Index) releaseBackupAndResume(ctx context.Context) (lastErr error) {
-	i.haltedShardsForTransferLock.Lock()
-	haltedShards := i.haltedShardsForTransfer
-	i.haltedShardsForTransfer = nil
-	i.haltedShardsForTransferLock.Unlock()
+	i.haltedShardsForTransfer.Clear()
 
-	for name := range haltedShards {
-		if shard := i.shards.Load(name); shard != nil {
-			if err := shard.resumeMaintenanceCycles(ctx); err != nil {
-				lastErr = err
-				i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
-			}
+	// Resume all shards. resumeMaintenanceCycles is a no-op for shards that
+	// are not halted (haltForTransferCount == 0).
+	if err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+			lastErr = err
+			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
 		}
-		// Shards not yet in shard map will self-resume when init completes
-		// (see maybeResumeAfterInit in shard_init.go)
+		return nil
+	}); err != nil {
+		lastErr = err
 	}
 
 	i.lastBackup.Store(nil)
 	return lastErr
-}
-
-func (i *Index) markShardHaltedForTransfer(shardName string) {
-	i.haltedShardsForTransferLock.Lock()
-	defer i.haltedShardsForTransferLock.Unlock()
-	if i.haltedShardsForTransfer == nil {
-		i.haltedShardsForTransfer = make(map[string]struct{})
-	}
-	i.haltedShardsForTransfer[shardName] = struct{}{}
-}
-
-func (i *Index) unmarkShardHaltedForTransfer(shardName string) {
-	i.haltedShardsForTransferLock.Lock()
-	defer i.haltedShardsForTransferLock.Unlock()
-	delete(i.haltedShardsForTransfer, shardName)
-}
-
-func (i *Index) shouldShardInitHalted(shardName string) bool {
-	i.haltedShardsForTransferLock.Lock()
-	defer i.haltedShardsForTransferLock.Unlock()
-
-	_, ok := i.haltedShardsForTransfer[shardName]
-	return ok
-}
-
-// shouldShardInHaltedMap checks if the shard is in the halted map.
-// Caller must hold haltedShardsForTransferLock.
-func (i *Index) shouldShardInHaltedMap(shardName string) bool {
-	_, ok := i.haltedShardsForTransfer[shardName]
-	return ok
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
