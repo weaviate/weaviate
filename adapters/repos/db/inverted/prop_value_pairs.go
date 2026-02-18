@@ -241,47 +241,51 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *
 		}
 	}()
 
-	efficientMergeSwap := func(operation filters.Operator) {
-		if (operation == filters.OperatorOr && a.docIDs.CompareNumKeys(b.docIDs) < 0) ||
-			(operation == filters.OperatorAnd && a.docIDs.CompareNumKeys(b.docIDs) > 0) {
+	// swapForEfficiency puts the larger bitmap in `a` for Or (fewer union ops),
+	// or the smaller bitmap in `a` for And (fewer intersection ops).
+	swapForEfficiency := func(op filters.Operator) {
+		if (op == filters.OperatorOr && a.docIDs.CompareNumKeys(b.docIDs) < 0) ||
+			(op == filters.OperatorAnd && a.docIDs.CompareNumKeys(b.docIDs) > 0) {
 			a, b = b, a
 		}
 	}
 
-	bothDenyLists := a.IsDenyList() && b.IsDenyList()
-
-	// both A and B are denylists
-	if bothDenyLists {
+	switch {
+	case a.IsDenyList() && b.IsDenyList():
+		// Both denylists — apply De Morgan: invert the operation.
+		// !A and !B -> !(A or B)  -> denylist A.Or(B)
+		// !A  or !B -> !(A and B) -> denylist A.And(B)
 		if operator == filters.OperatorAnd {
-			efficientMergeSwap(filters.OperatorOr)
+			swapForEfficiency(filters.OperatorOr)
 			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
-		} else if operator == filters.OperatorOr {
-			efficientMergeSwap(filters.OperatorAnd)
+		} else {
+			swapForEfficiency(filters.OperatorAnd)
 			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
 		}
-		// One of A and B is a denylist, the other an allowlist
-	} else if a.IsDenyList() || b.IsDenyList() {
 
-		// swap A and B, so that A is always the denylist.
-		// This allows us to reuse the same code for both cases where one of the two is a denylist
+	case a.IsDenyList() || b.IsDenyList():
+		// Mixed: one denylist, one allowlist.
+		// Normalise so that a=denylist, b=allowlist.
 		if b.IsDenyList() {
 			a, b = b, a
 		}
-
+		// !A and B -> allowlist B.AndNot(A)
+		// !A  or B -> denylist  A.AndNot(B)
 		if operator == filters.OperatorAnd {
 			b.docIDs.AndNotConc(a.docIDs, concurrency.SROAR_MERGE)
-			a, b = b, a
-		} else if operator == filters.OperatorOr {
+			a, b = b, a // a=result(allowlist), b=old denylist(released by defer)
+		} else {
 			a.docIDs.AndNotConc(b.docIDs, concurrency.SROAR_MERGE)
-			a.isDenyList = true
-
 		}
-	} else if operator == filters.OperatorAnd {
-		efficientMergeSwap(operator)
-		a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
-	} else if operator == filters.OperatorOr {
-		efficientMergeSwap(operator)
-		a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+
+	default:
+		// Both allowlists.
+		swapForEfficiency(operator)
+		if operator == filters.OperatorAnd {
+			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
+		} else {
+			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+		}
 	}
 	return a
 }
