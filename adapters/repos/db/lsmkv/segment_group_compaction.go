@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -739,13 +740,13 @@ func (sg *SegmentGroup) launchOrSyncDelete(segs ...Segment) {
 
 	sg.asyncDeletionWg.Add(1)
 	sg.pendingAsyncDeletions.Add(1)
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer sg.asyncDeletionWg.Done()
 		defer sg.pendingAsyncDeletions.Add(-1)
 		if err := sg.deleteOldSegmentsFromDisk(segs...); err != nil {
 			sg.logger.WithError(err).Error("failed to delete old segment files (async)")
 		}
-	}()
+	}, sg.logger)
 }
 
 func (sg *SegmentGroup) compactionFitsSizeLimit(left, right Segment) bool {
