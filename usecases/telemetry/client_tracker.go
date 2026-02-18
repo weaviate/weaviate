@@ -41,6 +41,9 @@ const knownClientTypeCount = 7
 // integrationHeaderKey is the HTTP header used to identify the client integration.
 const integrationHeaderKey = "X-Weaviate-Client-Integration"
 
+// integrationHeaderKey is the HTTP header used to identify the client integration.
+const integrationHeaderKey = "X-Weaviate-Client-Integration"
+
 // ClientInfo represents a client SDK with its type and version
 type ClientInfo struct {
 	Type    ClientType `json:"type"`
