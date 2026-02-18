@@ -344,7 +344,7 @@ func TestShard_ReleaseBeforeShardStored(t *testing.T) {
 	require.True(t, shardIsHalted(idx, shd.Name()))
 
 	// Simulate the shard having been initialized halted (as NewShard would set it)
-	s.haltedOnInit = true
+	s.haltedOnInit.Store(true)
 
 	// Now simulate the race: release completes BEFORE the shard calls maybeResumeAfterInit.
 	// Remove the shard from the shard map so releaseBackupAndResume won't find it.
@@ -436,7 +436,7 @@ func TestShard_InitHaltedCompactionPaused(t *testing.T) {
 	ns := newShard.(*Shard)
 
 	// The shard should have initialized in halted state
-	assert.True(t, ns.haltedOnInit, "shard should be marked as haltedOnInit")
+	assert.True(t, ns.haltedOnInit.Load(), "shard should be marked as haltedOnInit")
 	ns.haltForTransferMux.Lock()
 	assert.Equal(t, 1, ns.haltForTransferCount, "haltForTransferCount should be 1")
 	ns.haltForTransferMux.Unlock()
@@ -457,7 +457,7 @@ func TestShard_InitHaltedCompactionPaused(t *testing.T) {
 	// After resume, halted state should be cleared
 	ns.haltForTransferMux.Lock()
 	assert.Equal(t, 0, ns.haltForTransferCount, "haltForTransferCount should be 0 after resume")
-	assert.False(t, ns.haltedOnInit, "haltedOnInit should be false after resume")
+	assert.False(t, ns.haltedOnInit.Load(), "haltedOnInit should be false after resume")
 	ns.haltForTransferMux.Unlock()
 
 	// Listing backup files should fail after resume (not paused)
@@ -508,7 +508,7 @@ func TestShard_ReleaseDuringShardInitRepeated(t *testing.T) {
 		require.NoError(t, shd.HaltForTransfer(ctx, false, 0))
 
 		// Simulate the shard having been initialized halted
-		s.haltedOnInit = true
+		s.haltedOnInit.Store(true)
 
 		// Remove shard from map to simulate it not being stored yet
 		idx.shards.LoadAndDelete(shd.Name())

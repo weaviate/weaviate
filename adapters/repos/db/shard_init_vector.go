@@ -86,7 +86,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			vectorIndex = noop.NewIndex()
 		} else {
 			// starts vector cycles if vector is configured (unless shard is halted)
-			if !s.haltedOnInit {
+			if !s.haltedOnInit.Load() {
 				s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 				s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 			}
@@ -149,7 +149,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
-		if !s.haltedOnInit {
+		if !s.haltedOnInit.Load() {
 			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		}
 
@@ -183,7 +183,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Errorf("dynamic vector index: config is not dynamic.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
-		if !s.haltedOnInit {
+		if !s.haltedOnInit.Load() {
 			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		}
 

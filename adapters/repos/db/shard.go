@@ -309,7 +309,7 @@ type Shard struct {
 	//   never initialized. Resume must actually start these for the first time.
 	// We need this flag because while vector cycle Start() is idempotent,
 	// initAsyncReplication() is not - it creates hashtrees and spawns goroutines.
-	haltedOnInit bool
+	haltedOnInit atomic.Bool
 }
 
 func (s *Shard) ID() string {

@@ -87,7 +87,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	// Check if this shard should initialize in halted state
-	_, s.haltedOnInit = index.haltedShardsForTransfer.Load(shardName)
+	if _, ok := index.haltedShardsForTransfer.Load(shardName); ok {
+		s.haltedOnInit.Store(true)
+	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
@@ -146,7 +148,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	// Pause compaction immediately after store init, no buckets have been added yet, so no compactions have run
-	if s.haltedOnInit {
+	if s.haltedOnInit.Load() {
 		if err := s.store.PauseCompaction(ctx); err != nil {
 			return nil, fmt.Errorf("pause compaction on halted init: %w", err)
 		}
@@ -171,7 +173,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
-	if s.haltedOnInit {
+	if s.haltedOnInit.Load() {
 		// Pause all vector queues immediately
 		_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 			q.Pause()
@@ -226,17 +228,10 @@ func (s *Shard) NotifyReady() {
 // no window where releaseBackupAndResume misses it and the self-check also
 // misses the backup release.
 //
-// It checks whether the shard is still in the halted map under the same lock
-// that releaseBackupAndResume uses to clear it. If the map was already cleared,
-// the release is underway and this shard should self-resume.
+// It checks whether the shard is still in the halted map. If the map was
+// already cleared, the release is underway and this shard should self-resume.
 func (s *Shard) maybeResumeAfterInit(ctx context.Context) {
-	// Read haltedOnInit under haltForTransferMux to synchronize with
-	// mayForceResumeMaintenanceCycles which clears it under the same lock.
-	s.haltForTransferMux.Lock()
-	halted := s.haltedOnInit
-	s.haltForTransferMux.Unlock()
-
-	if !halted {
+	if !s.haltedOnInit.Load() {
 		return
 	}
 
