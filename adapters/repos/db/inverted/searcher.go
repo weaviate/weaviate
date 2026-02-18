@@ -107,15 +107,6 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		helpers.AnnotateSlowQueryLog(ctx, "sort_doc_ids_took", time.Since(beforeSort))
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
-		if allowList.IsDenyList() {
-			// if it's a deny list, we need to invert it to get the actual doc ids to fetch
-			bitmapAllowList, ok := allowList.(*helpers.BitmapAllowList)
-			if ok {
-				inverted, release := s.bitmapFactory.GetBitmap()
-				defer release()
-				bitmapAllowList.Bm = inverted.AndNotConc(bitmapAllowList.Bm, concurrency.SROAR_MERGE)
-			}
-		}
 		it = allowList.Iterator()
 	}
 
@@ -256,7 +247,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
-	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release), nil
+	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release, s.bitmapFactory), nil
 }
 
 func (s *Searcher) extractPropValuePair(

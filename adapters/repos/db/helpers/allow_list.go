@@ -12,8 +12,11 @@
 package helpers
 
 import (
+	"fmt"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 type AllowList interface {
@@ -48,11 +51,11 @@ func NewAllowList(ids ...uint64) AllowList {
 }
 
 func NewAllowListFromBitmap(bm *sroar.Bitmap) AllowList {
-	return NewAllowListCloseableFromBitmap(bm, false, func() {})
+	return NewAllowListCloseableFromBitmap(bm, false, func() {}, nil)
 }
 
-func NewAllowListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func()) AllowList {
-	return &BitmapAllowList{Bm: bm, release: release, isDenyList: isDenyList}
+func NewAllowListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func(), bitmapFactory *roaringset.BitmapFactory) AllowList {
+	return &BitmapAllowList{Bm: bm, release: release, isDenyList: isDenyList, bitmapFactory: bitmapFactory}
 }
 
 func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
@@ -63,9 +66,10 @@ func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
 // We should consider making this private again and adding a method to intersect two AllowLists, but at the same time, it would also make the interface bloated
 // and add the burden of supporting this method in all (future, if any) implementations of AllowList
 type BitmapAllowList struct {
-	Bm         *sroar.Bitmap
-	release    func()
-	isDenyList bool
+	Bm            *sroar.Bitmap
+	release       func()
+	isDenyList    bool
+	bitmapFactory *roaringset.BitmapFactory
 }
 
 func (al *BitmapAllowList) Close() {
@@ -129,6 +133,13 @@ func (al *BitmapAllowList) Truncate(upTo uint64) AllowList {
 }
 
 func (al *BitmapAllowList) Iterator() AllowListIterator {
+	// if it's a deny list, we need to invert it to get the actual doc ids to iterate over
+	if al.isDenyList {
+		err := al.invert()
+		if err != nil {
+			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+	}
 	return al.LimitedIterator(0)
 }
 
@@ -138,6 +149,20 @@ func (al *BitmapAllowList) LimitedIterator(limit int) AllowListIterator {
 
 func (al *BitmapAllowList) IsDenyList() bool {
 	return al.isDenyList
+}
+
+func (al *BitmapAllowList) invert() error {
+	if al.isDenyList && al.bitmapFactory == nil {
+		return fmt.Errorf("bitmap factory is not set")
+	}
+	if al.isDenyList && al.bitmapFactory != nil {
+		inverted, release := al.bitmapFactory.GetBitmap()
+		al.Bm = inverted.AndNotConc(al.Bm, concurrency.SROAR_MERGE)
+		al.release()
+		al.release = release
+		al.isDenyList = false
+	}
+	return nil
 }
 
 type bitmapAllowListIterator struct {
