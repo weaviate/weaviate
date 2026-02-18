@@ -783,6 +783,14 @@ func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent stri
 	tel.clientTracker.Track(req)
 }
 
+// trackIntegrationRequest is a helper function to simulate an integration request
+func trackIntegrationRequest(t *testing.T, tel *Telemeter, integrationHeader string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+	req.Header.Set("X-Weaviate-Client-Integration", integrationHeader)
+	tel.integrationTracker.Track(req)
+}
+
 func TestClientTracker(t *testing.T) {
 	t.Run("track and get client counts", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
@@ -953,6 +961,151 @@ func TestClientTracker(t *testing.T) {
 			tracker.Stop()
 		})
 	})
+}
+
+func TestIntegrationTracker(t *testing.T) {
+	t.Run("track and get integration counts", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		langchainReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		langchainReq.Header.Set("X-Weaviate-Client-Integration", "langchain/0.3.0")
+
+		llamaIndexReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		llamaIndexReq.Header.Set("X-Weaviate-Client-Integration", "llama-index/0.10.0")
+
+		tracker.Track(langchainReq)
+		tracker.Track(langchainReq)
+		tracker.Track(llamaIndexReq)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(2), counts["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts["llama-index"]["0.10.0"])
+
+		// Counts preserved after Get
+		counts2 := tracker.Get()
+		assert.Equal(t, int64(2), counts2["langchain"]["0.3.0"])
+
+		// GetAndReset returns and clears
+		counts3 := tracker.GetAndReset()
+		assert.Equal(t, int64(2), counts3["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts3["llama-index"]["0.10.0"])
+
+		counts4 := tracker.Get()
+		assert.Empty(t, counts4)
+	})
+
+	t.Run("accepts arbitrary integration names without validation", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set("X-Weaviate-Client-Integration", "anydatahere/0.3.0")
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts["anydatahere"]["0.3.0"])
+	})
+
+	t.Run("skips empty header", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		tracker.Track(req) // no header set
+
+		counts := tracker.Get()
+		assert.Empty(t, counts)
+	})
+
+	t.Run("tracks integration name only when no version provided", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set("X-Weaviate-Client-Integration", "my-integration")
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts["my-integration"]["unknown"])
+	})
+
+	t.Run("Get and GetAndReset return nil after Stop", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set("X-Weaviate-Client-Integration", "langchain/0.3.0")
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.NotNil(t, counts)
+
+		tracker.Stop()
+
+		assert.Nil(t, tracker.Get())
+		assert.Nil(t, tracker.GetAndReset())
+	})
+
+	t.Run("double Stop does not panic", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		assert.NotPanics(t, func() {
+			tracker.Stop()
+			tracker.Stop()
+			tracker.Stop()
+		})
+	})
+}
+
+func TestIdentifyIntegration(t *testing.T) {
+	testCases := []struct {
+		name            string
+		header          string
+		expectedName    string
+		expectedVersion string
+	}{
+		{
+			name:            "name and version",
+			header:          "langchain/0.3.0",
+			expectedName:    "langchain",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:            "arbitrary integration name",
+			header:          "anydatahere/0.3.0",
+			expectedName:    "anydatahere",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:         "name only (no version)",
+			header:       "my-integration",
+			expectedName: "my-integration",
+		},
+		{
+			name: "empty header",
+		},
+		{
+			name:   "whitespace only",
+			header: "   ",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			if tc.header != "" {
+				req.Header.Set("X-Weaviate-Client-Integration", tc.header)
+			}
+			name, version := identifyIntegration(req)
+			assert.Equal(t, tc.expectedName, name)
+			assert.Equal(t, tc.expectedVersion, version)
+		})
+	}
 }
 
 type gcpTestConsumer struct {

@@ -232,3 +232,157 @@ func identifyClient(r *http.Request) ClientInfo {
 	}
 	return ClientInfo{Type: ClientTypeUnknown, Version: ""}
 }
+
+// IntegrationTracker tracks client integration usage using channel-based concurrency.
+// Unlike ClientTracker, it accepts any arbitrary integration name without a predefined list,
+// since new integrations are created frequently.
+// A background goroutine aggregates tracking events, eliminating lock
+// contention on the hot path (Track method).
+type IntegrationTracker struct {
+	trackChan chan [2]string                             // Buffered, for non-blocking Track()
+	getChan   chan chan map[string]map[string]int64      // Request/response for Get()
+	resetChan chan chan map[string]map[string]int64      // Request/response for GetAndReset()
+	stopChan  chan struct{}                              // Signal to stop goroutine
+	stopOnce  sync.Once                                  // Ensures Stop() is safe to call multiple times
+}
+
+// NewIntegrationTracker creates a new integration tracker and starts its background goroutine.
+func NewIntegrationTracker(logger logrus.FieldLogger) *IntegrationTracker {
+	it := &IntegrationTracker{
+		trackChan: make(chan [2]string, 1024),
+		getChan:   make(chan chan map[string]map[string]int64),
+		resetChan: make(chan chan map[string]map[string]int64),
+		stopChan:  make(chan struct{}),
+	}
+	errors.GoWrapper(it.run, logger)
+	return it
+}
+
+// run is the background goroutine that aggregates all tracking events.
+// It owns the counts map exclusively, eliminating the need for locks.
+func (it *IntegrationTracker) run() {
+	counts := make(map[string]map[string]int64)
+	for {
+		// Priority: drain all pending tracking events first
+		select {
+		case info := <-it.trackChan:
+			it.processTrackEvent(counts, info)
+			continue
+		case <-it.stopChan:
+			return
+		default:
+			// No pending track events, proceed to handle other operations
+		}
+
+		// Handle Get, GetAndReset, or more Track events
+		select {
+		case info := <-it.trackChan:
+			it.processTrackEvent(counts, info)
+
+		case respChan := <-it.getChan:
+			respChan <- it.deepCopy(counts)
+
+		case respChan := <-it.resetChan:
+			respChan <- it.deepCopy(counts)
+			counts = make(map[string]map[string]int64)
+
+		case <-it.stopChan:
+			return
+		}
+	}
+}
+
+// processTrackEvent aggregates a single tracking event into the counts map.
+func (it *IntegrationTracker) processTrackEvent(counts map[string]map[string]int64, info [2]string) {
+	name, version := info[0], info[1]
+	if counts[name] == nil {
+		counts[name] = make(map[string]int64)
+	}
+	if version == "" {
+		version = "unknown"
+	}
+	counts[name][version]++
+}
+
+// deepCopy creates a deep copy of the counts map.
+func (it *IntegrationTracker) deepCopy(counts map[string]map[string]int64) map[string]map[string]int64 {
+	result := make(map[string]map[string]int64, len(counts))
+	for name, versions := range counts {
+		versionMap := make(map[string]int64, len(versions))
+		for version, count := range versions {
+			versionMap[version] = count
+		}
+		result[name] = versionMap
+	}
+	return result
+}
+
+// Track records a client integration request. This is non-blocking and safe to call
+// from any goroutine. If the internal buffer is full, the event is dropped
+// silently (telemetry is best-effort). Any non-empty integration name is accepted.
+func (it *IntegrationTracker) Track(r *http.Request) {
+	name, version := identifyIntegration(r)
+	if name == "" {
+		return // No integration header present
+	}
+
+	select {
+	case it.trackChan <- [2]string{name, version}:
+		// Successfully queued
+	default:
+		// Channel full - drop silently, telemetry is best-effort.
+	}
+}
+
+// GetAndReset returns the current integration counts and resets the tracker.
+// Returns nil if the tracker has been stopped.
+func (it *IntegrationTracker) GetAndReset() map[string]map[string]int64 {
+	respChan := make(chan map[string]map[string]int64, 1)
+	select {
+	case it.resetChan <- respChan:
+		return <-respChan
+	case <-it.stopChan:
+		return nil
+	}
+}
+
+// Get returns the current integration counts without resetting.
+// Returns nil if the tracker has been stopped.
+func (it *IntegrationTracker) Get() map[string]map[string]int64 {
+	respChan := make(chan map[string]map[string]int64, 1)
+	select {
+	case it.getChan <- respChan:
+		return <-respChan
+	case <-it.stopChan:
+		return nil
+	}
+}
+
+// Stop gracefully shuts down the background goroutine.
+// This is safe to call multiple times.
+func (it *IntegrationTracker) Stop() {
+	it.stopOnce.Do(func() {
+		close(it.stopChan)
+	})
+}
+
+// identifyIntegration reads the X-Weaviate-Client-Integration header and returns
+// the integration name and version. The header format is: {name}/{version}
+// Any non-empty name is accepted — there is no predefined list of known integrations.
+// Returns ("", "") if the header is absent or empty.
+func identifyIntegration(r *http.Request) (name, version string) {
+	header := strings.TrimSpace(r.Header.Get("X-Weaviate-Client-Integration"))
+	if header == "" {
+		return "", ""
+	}
+
+	parts := strings.SplitN(header, "/", 2)
+	name = strings.TrimSpace(parts[0])
+	if name == "" {
+		return "", ""
+	}
+	if len(parts) == 2 {
+		version = strings.TrimSpace(parts[1])
+	}
+	return name, version
+}

@@ -37,16 +37,17 @@ const (
 
 // TelemetryPayload represents the telemetry data structure
 type TelemetryPayload struct {
-	MachineID        string                      `json:"machineId"`
-	Type             string                      `json:"type"`
-	Version          string                      `json:"version"`
-	ObjectsCount     int64                       `json:"objs"`
-	OS               string                      `json:"os"`
-	Arch             string                      `json:"arch"`
-	UsedModules      []string                    `json:"usedModules,omitempty"`
-	CollectionsCount int                         `json:"collectionsCount"`
-	ClientUsage      map[string]map[string]int64 `json:"clientUsage,omitempty"`
-	ReceivedAt       time.Time                   `json:"receivedAt"`
+	MachineID              string                      `json:"machineId"`
+	Type                   string                      `json:"type"`
+	Version                string                      `json:"version"`
+	ObjectsCount           int64                       `json:"objs"`
+	OS                     string                      `json:"os"`
+	Arch                   string                      `json:"arch"`
+	UsedModules            []string                    `json:"usedModules,omitempty"`
+	CollectionsCount       int                         `json:"collectionsCount"`
+	ClientUsage            map[string]map[string]int64 `json:"clientUsage,omitempty"`
+	ClientIntegrationUsage map[string]map[string]int64 `json:"clientIntegrationUsage,omitempty"`
+	ReceivedAt             time.Time                   `json:"receivedAt"`
 }
 
 // Dashboard stores telemetry data
@@ -59,18 +60,19 @@ type Dashboard struct {
 
 // MachineStats aggregates statistics per machine
 type MachineStats struct {
-	MachineID        string                      `json:"machineId"`
-	FirstSeen        time.Time                   `json:"firstSeen"`
-	LastSeen         time.Time                   `json:"lastSeen"`
-	Version          string                      `json:"version"`
-	OS               string                      `json:"os"`
-	Arch             string                      `json:"arch"`
-	TotalPayloads    int                         `json:"totalPayloads"`
-	TotalObjects     int64                       `json:"totalObjects"`
-	CollectionsCount int                         `json:"collectionsCount"`
-	UsedModules      map[string]bool             `json:"usedModules"`
-	ClientUsage      map[string]map[string]int64 `json:"clientUsage"`
-	PayloadTypes     map[string]int              `json:"payloadTypes"`
+	MachineID              string                      `json:"machineId"`
+	FirstSeen              time.Time                   `json:"firstSeen"`
+	LastSeen               time.Time                   `json:"lastSeen"`
+	Version                string                      `json:"version"`
+	OS                     string                      `json:"os"`
+	Arch                   string                      `json:"arch"`
+	TotalPayloads          int                         `json:"totalPayloads"`
+	TotalObjects           int64                       `json:"totalObjects"`
+	CollectionsCount       int                         `json:"collectionsCount"`
+	UsedModules            map[string]bool             `json:"usedModules"`
+	ClientUsage            map[string]map[string]int64 `json:"clientUsage"`
+	ClientIntegrationUsage map[string]map[string]int64 `json:"clientIntegrationUsage"`
+	PayloadTypes           map[string]int              `json:"payloadTypes"`
 }
 
 func NewDashboard(maxItems int) *Dashboard {
@@ -98,11 +100,12 @@ func (d *Dashboard) AddPayload(payload *TelemetryPayload) {
 	stats, exists := d.machines[machineID]
 	if !exists {
 		stats = &MachineStats{
-			MachineID:    machineID,
-			FirstSeen:    payload.ReceivedAt,
-			UsedModules:  make(map[string]bool),
-			ClientUsage:  make(map[string]map[string]int64),
-			PayloadTypes: make(map[string]int),
+			MachineID:              machineID,
+			FirstSeen:              payload.ReceivedAt,
+			UsedModules:            make(map[string]bool),
+			ClientUsage:            make(map[string]map[string]int64),
+			ClientIntegrationUsage: make(map[string]map[string]int64),
+			PayloadTypes:           make(map[string]int),
 		}
 		d.machines[machineID] = stats
 	}
@@ -129,6 +132,15 @@ func (d *Dashboard) AddPayload(payload *TelemetryPayload) {
 		}
 		for version, count := range versions {
 			stats.ClientUsage[clientType][version] += count
+		}
+	}
+
+	for integration, versions := range payload.ClientIntegrationUsage {
+		if stats.ClientIntegrationUsage[integration] == nil {
+			stats.ClientIntegrationUsage[integration] = make(map[string]int64)
+		}
+		for version, count := range versions {
+			stats.ClientIntegrationUsage[integration][version] += count
 		}
 	}
 }
@@ -428,6 +440,14 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
                     }).join(', ');
                     return '<span class="client-item"><strong>' + type + ':</strong> ' + versionItems + '</span>';
                 }).join('');
+                const integrationUsage = p.clientIntegrationUsage || {};
+                const integrationHtml = Object.keys(integrationUsage).map(function(name) {
+                    const versions = integrationUsage[name] || {};
+                    const versionItems = Object.keys(versions).map(function(version) {
+                        return version + ' (' + versions[version] + ')';
+                    }).join(', ');
+                    return '<span class="client-item" style="background:#d1fae5;"><strong>' + name + ':</strong> ' + versionItems + '</span>';
+                }).join('');
                 var html = '<div class="payload-item">' +
                     '<div class="payload-header">' +
                     '<span class="badge badge-' + p.type.toLowerCase() + '">' + p.type + '</span>' +
@@ -444,6 +464,9 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
                 }
                 if (clientHtml) {
                     html += '<div class="client-usage"><strong>Client Usage:</strong><br>' + clientHtml + '</div>';
+                }
+                if (integrationHtml) {
+                    html += '<div class="client-usage"><strong>Integration Usage:</strong><br>' + integrationHtml + '</div>';
                 }
                 if (p.usedModules && p.usedModules.length > 0) {
                     html += '<div><strong>Modules:</strong> ' + p.usedModules.join(', ') + '</div>';
@@ -506,11 +529,24 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
                     '<div class="stat-value">' + modules.length + '</div>' +
                     '</div>' +
                     '</div>';
+                const integrationUsage = m.clientIntegrationUsage || {};
+                const integrationHtml = Object.keys(integrationUsage).map(function(name) {
+                    const versions = integrationUsage[name] || {};
+                    var totalCount = 0;
+                    const versionDetails = Object.keys(versions).map(function(version) {
+                        totalCount += versions[version];
+                        return version + ' (' + versions[version] + ')';
+                    }).join(', ');
+                    return '<span class="client-item" style="background:#d1fae5;"><strong>' + name + ':</strong> ' + totalCount + ' total (' + versionDetails + ')</span>';
+                }).join('');
                 if (modules.length > 0) {
                     html += '<div style="margin-top: 10px;"><strong>Modules:</strong> ' + modules.join(', ') + '</div>';
                 }
                 if (clientHtml) {
                     html += '<div class="client-usage" style="margin-top: 10px;"><strong>Total Client Usage:</strong><br>' + clientHtml + '</div>';
+                }
+                if (integrationHtml) {
+                    html += '<div class="client-usage" style="margin-top: 10px;"><strong>Total Integration Usage:</strong><br>' + integrationHtml + '</div>';
                 }
                 html += '<div style="margin-top: 10px; font-size: 11px; color: #666;">' +
                     'First seen: ' + formatTime(m.firstSeen) + '<br>' +
@@ -578,6 +614,17 @@ func renderPayloadsHTML(payloads []*TelemetryPayload) string {
 			}
 			html += `</div>`
 		}
+		if len(p.ClientIntegrationUsage) > 0 {
+			html += `<div class="client-usage"><strong>Integration Usage:</strong><br>`
+			for integration, versions := range p.ClientIntegrationUsage {
+				versionItems := make([]string, 0)
+				for version, count := range versions {
+					versionItems = append(versionItems, fmt.Sprintf("%s (%d)", version, count))
+				}
+				html += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %s</span>`, integration, joinStrings(versionItems, ", "))
+			}
+			html += `</div>`
+		}
 		if len(p.UsedModules) > 0 {
 			html += fmt.Sprintf(`<div><strong>Modules:</strong> %s</div>`, joinStrings(p.UsedModules, ", "))
 		}
@@ -616,6 +663,21 @@ func renderMachinesHTML(machines map[string]*MachineStats) string {
 				clientUsageHtml += fmt.Sprintf(`<span class="client-item"><strong>%s:</strong> %d total (%s)</span>`, clientType, totalCount, joinStrings(versionItems, ", "))
 			}
 			clientUsageHtml += `</div>`
+		}
+
+		integrationUsageHtml := ""
+		if len(m.ClientIntegrationUsage) > 0 {
+			integrationUsageHtml = `<div class="client-usage" style="margin-top: 10px;"><strong>Total Integration Usage:</strong><br>`
+			for integration, versions := range m.ClientIntegrationUsage {
+				var totalCount int64
+				versionItems := make([]string, 0)
+				for version, count := range versions {
+					totalCount += count
+					versionItems = append(versionItems, fmt.Sprintf("%s (%d)", version, count))
+				}
+				integrationUsageHtml += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %d total (%s)</span>`, integration, totalCount, joinStrings(versionItems, ", "))
+			}
+			integrationUsageHtml += `</div>`
 		}
 
 		modulesHtml := ""
@@ -659,6 +721,7 @@ func renderMachinesHTML(machines map[string]*MachineStats) string {
 				</div>
 				%s
 				%s
+				%s
 				<div style="margin-top: 10px; font-size: 11px; color: #666;">
 					First seen: %s<br>
 					Last seen: %s (%s)
@@ -669,6 +732,7 @@ func renderMachinesHTML(machines map[string]*MachineStats) string {
 			m.TotalPayloads, formatNumber(m.TotalObjects), m.CollectionsCount, len(modules),
 			modulesHtml,
 			clientUsageHtml,
+			integrationUsageHtml,
 			formatTime(m.FirstSeen), formatTime(m.LastSeen), formatRelativeTime(m.LastSeen))
 	}
 	return html
