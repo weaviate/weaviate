@@ -214,42 +214,71 @@ func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap,
 	}
 }
 
-func generateOperator(first, second *docBitmap, operator filters.Operator) (func(*sroar.Bitmap, int) *sroar.Bitmap, bool, *docBitmap) {
-	// if both are deny lists, we can swap the operator, as NOT (A AND B) == NOT A OR NOT B and NOT (A OR B) == NOT A AND NOT B
-	if first.IsDenyList() && second.IsDenyList() {
-		switch operator {
-		case filters.OperatorAnd:
-			return first.docIDs.OrConc, true, second
-		case filters.OperatorOr:
-			return first.docIDs.AndConc, true, second
-		default:
-			return nil, false, nil
+func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (*sroar.Bitmap, bool) {
+	/*
+		- both A and B are denylists
+		  !A  or !B -> !(A and B) -> denylist A.And(B)
+		  !A and !B -> !(A  or B) -> denylist A.Or(B)
+
+		- one of A and B is a denylist, the other an allowlist
+		  !A and B ->   B and !A  -> allowlist B.AndNot(A)
+		  !A  or B -> !(A and !B) ->  denylist A.AndNot(B)
+
+		  (done by swapping A and B in the code below to avoid code duplication)
+		  A and !B -> allowlist A.AndNot(B): (same as !B and A)
+		  A  or !B -> !B or A -> !(B and !A) -> denylist B.AndNot(A): (same as !A or B)
+
+		- base case: both A and B are allowlists
+		  A or B -> allowlist A.Or(B)
+		  A and B -> allowlist A.And(B)
+
+		- for completeness, here are the remaining combinations, used as part of the Not and NotEqual operators:
+		  A -> allowlist A
+		  !A -> denylist A
+		  !!A -> allowlist A
+	*/
+
+	// clean up resources of bitmap that is not used in the final result. May be a or b, depending on the case
+	var toRelease *docBitmap
+	defer func() {
+		if toRelease != nil {
+			toRelease.release()
 		}
+	}()
+
+	bothDenyLists := a.IsDenyList() && b.IsDenyList()
+
+	// second (b) bitmap is released, unless the order is reversed for the (!A and B) and (A and !B) cases
+	toRelease = b
+
+	// both A and B are denylists
+	if bothDenyLists && operator == filters.OperatorAnd {
+		return a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE), true
+	} else if bothDenyLists && operator == filters.OperatorOr {
+		return a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE), true
 	}
 
-	if second.IsDenyList() {
-		first, second = second, first
+	// One of A and B is a denylist, the other an allowlist
+	if b.IsDenyList() {
+		// swap A and B, so we can reuse the same code for both cases where one of the two is a denylist
+		a, b = b, a
 	}
 
-	if first.IsDenyList() {
-		switch operator {
-		case filters.OperatorAnd:
-			return second.docIDs.AndNotConc, false, first
-		case filters.OperatorOr:
-			return first.docIDs.AndNotConc, true, second
-		default:
-			return nil, false, nil
-		}
+	if a.IsDenyList() && operator == filters.OperatorAnd {
+		toRelease = a
+		return b.docIDs.AndNotConc(a.docIDs, concurrency.SROAR_MERGE), false
+	} else if a.IsDenyList() && operator == filters.OperatorOr {
+		return a.docIDs.AndNotConc(b.docIDs, concurrency.SROAR_MERGE), true
 	}
 
+	// Default case: both are allowlists, so we can use the regular And/Or operations and release the second bitmap
 	switch operator {
 	case filters.OperatorAnd:
-		return first.docIDs.AndConc, false, second
+		return a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE), false
 	case filters.OperatorOr:
-		return first.docIDs.OrConc, false, second
-	default:
-		return nil, false, nil
+		return a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE), false
 	}
+	return nil, false
 }
 
 // mergeDocIDs merges provided docBitmaps using given operator.
@@ -279,15 +308,7 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 	}
 
 	for i := 0; i < len(dbms)-1; i++ {
-		mergeFn, isDenyList, other := generateOperator(dbms[0], dbms[i+1], operator)
-		// should never happen, as operator is already checked in generateOperator, but just in case
-		if mergeFn == nil {
-			continue
-		}
-		dbms[0].docIDs = mergeFn(other.docIDs, concurrency.SROAR_MERGE)
-		dbms[0].isDenyList = isDenyList
-		// order can change, so we always release the "other" bitmap, which is not needed anymore
-		other.release()
+		dbms[0].docIDs, dbms[0].isDenyList = mergeBitmapsAndOrWithDenyList(dbms[0], dbms[i+1], operator)
 	}
 
 	return dbms[:1]
