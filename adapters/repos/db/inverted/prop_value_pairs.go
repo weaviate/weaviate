@@ -14,7 +14,6 @@ package inverted
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/weaviate/sroar"
@@ -215,28 +214,26 @@ func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap,
 }
 
 func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (*sroar.Bitmap, bool) {
-	/*
-		- both A and B are denylists
-		  !A  or !B -> !(A and B) -> denylist A.And(B)
-		  !A and !B -> !(A  or B) -> denylist A.Or(B)
-
-		- one of A and B is a denylist, the other an allowlist
-		  !A and B ->   B and !A  -> allowlist B.AndNot(A)
-		  !A  or B -> !(A and !B) ->  denylist A.AndNot(B)
-
-		  (done by swapping A and B in the code below to avoid code duplication)
-		  A and !B -> allowlist A.AndNot(B): (same as !B and A)
-		  A  or !B -> !B or A -> !(B and !A) -> denylist B.AndNot(A): (same as !A or B)
-
-		- base case: both A and B are allowlists
-		  A or B -> allowlist A.Or(B)
-		  A and B -> allowlist A.And(B)
-
-		- for completeness, here are the remaining combinations, used as part of the Not and NotEqual operators:
-		  A -> allowlist A
-		  !A -> denylist A
-		  !!A -> allowlist A
-	*/
+	//	- both A and B are denylists
+	//	  !A  or !B -> !(A and B) -> denylist A.And(B)
+	//	  !A and !B -> !(A  or B) -> denylist A.Or(B)
+	//
+	//	- one of A and B is a denylist, the other an allowlist
+	//	  !A and B ->   B and !A  -> allowlist B.AndNot(A)
+	//	  !A  or B -> !(A and !B) ->  denylist A.AndNot(B)
+	//
+	//	  (done by swapping A and B in the code below to avoid code duplication)
+	//	  A and !B -> allowlist A.AndNot(B): (same as !B and A)
+	//	  A  or !B -> !B or A -> !(B and !A) -> denylist B.AndNot(A): (same as !A or B)
+	//
+	//	- base case: both A and B are allowlists
+	//	  A or B -> allowlist A.Or(B)
+	//	  A and B -> allowlist A.And(B)
+	//
+	//	- for completeness, here are the remaining combinations, used as part of the Not and NotEqual operators:
+	//	  A -> allowlist A
+	//	  !A -> denylist A
+	//	  !!A -> allowlist A
 
 	// clean up resources of bitmap that is not used in the final result. May be a or b, depending on the case
 	var toRelease *docBitmap
@@ -246,6 +243,13 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (
 		}
 	}()
 
+	efficientMergeSwap := func(operation filters.Operator) {
+		if (operation == filters.OperatorOr && a.docIDs.CompareNumKeys(b.docIDs) < 0) ||
+			(operation == filters.OperatorAnd && a.docIDs.CompareNumKeys(b.docIDs) > 0) {
+			a, b = b, a
+		}
+	}
+
 	bothDenyLists := a.IsDenyList() && b.IsDenyList()
 
 	// second (b) bitmap is released, unless the order is reversed for the (!A and B) and (A and !B) cases
@@ -253,8 +257,10 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (
 
 	// both A and B are denylists
 	if bothDenyLists && operator == filters.OperatorAnd {
+		efficientMergeSwap(operator)
 		return a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE), true
 	} else if bothDenyLists && operator == filters.OperatorOr {
+		efficientMergeSwap(operator)
 		return a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE), true
 	}
 
@@ -274,8 +280,10 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (
 	// Default case: both are allowlists, so we can use the regular And/Or operations and release the second bitmap
 	switch operator {
 	case filters.OperatorAnd:
+		efficientMergeSwap(operator)
 		return a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE), false
 	case filters.OperatorOr:
+		efficientMergeSwap(operator)
 		return a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE), false
 	}
 	return nil, false
@@ -290,21 +298,6 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (
 func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 	if len(dbms) <= 1 {
 		return dbms
-	}
-
-	// not sure this ordering makes sense with the Not operations.
-	if operator == filters.OperatorOr {
-		// biggest to smallest, so smaller bitmaps are merged into biggest one,
-		// minimising chance of expanding destination bitmap (memory allocations)
-		slices.SortFunc(dbms, func(dbma, dbmb *docBitmap) int {
-			return -dbma.docIDs.CompareNumKeys(dbmb.docIDs)
-		})
-	} else {
-		// smallest to biggest, so data is removed from smallest bitmap
-		// allowing bigger bitmaps to be garbage collected asap
-		slices.SortFunc(dbms, func(dbma, dbmb *docBitmap) int {
-			return dbma.docIDs.CompareNumKeys(dbmb.docIDs)
-		})
 	}
 
 	for i := 0; i < len(dbms)-1; i++ {
