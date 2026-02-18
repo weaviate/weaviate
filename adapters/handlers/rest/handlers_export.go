@@ -117,10 +117,6 @@ func convertToExportCreateResponse(status *export.ExportStatus) *models.ExportCr
 		resp.Error = status.Error
 	}
 
-	if status.Progress != nil {
-		resp.Progress = convertProgress(status.Progress)
-	}
-
 	return resp
 }
 
@@ -142,28 +138,27 @@ func convertToExportStatusResponse(status *export.ExportStatus) *models.ExportSt
 		resp.Error = status.Error
 	}
 
-	if status.Progress != nil {
-		resp.Progress = convertProgress(status.Progress)
+	if status.ShardStatus != nil {
+		resp.ShardStatus = convertShardStatus(status.ShardStatus)
 	}
 
 	return resp
 }
 
-// convertProgress converts internal progress map to API progress map
-func convertProgress(progress map[string]*export.ClassProgress) map[string]models.ClassProgress {
-	result := make(map[string]models.ClassProgress)
-	for className, p := range progress {
-		cp := models.ClassProgress{
-			Status:          string(p.Status),
-			ObjectsExported: p.ObjectsExported,
+func convertShardStatus(shardStatus map[string]map[string]*export.ShardExportStatus) map[string]map[string]models.ShardExportStatus {
+	result := make(map[string]map[string]models.ShardExportStatus, len(shardStatus))
+	for className, shards := range shardStatus {
+		result[className] = make(map[string]models.ShardExportStatus, len(shards))
+		for shardName, sp := range shards {
+			m := models.ShardExportStatus{
+				Status:          string(sp.Status),
+				ObjectsExported: sp.ObjectsExported,
+			}
+			if sp.Error != "" {
+				m.Error = sp.Error
+			}
+			result[className][shardName] = m
 		}
-		if p.FileSizeBytes > 0 {
-			cp.FileSizeBytes = p.FileSizeBytes
-		}
-		if p.Error != "" {
-			cp.Error = p.Error
-		}
-		result[className] = cp
 	}
 	return result
 }

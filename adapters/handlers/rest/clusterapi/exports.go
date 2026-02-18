@@ -35,6 +35,30 @@ func (e *exports) Execute() http.Handler {
 	return e.auth.handleFunc(e.executeHandler())
 }
 
+// Status handles GET /exports/status?id={exportID}
+func (e *exports) Status() http.Handler {
+	return e.auth.handleFunc(e.statusHandler())
+}
+
+func (e *exports) statusHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		exportID := r.URL.Query().Get("id")
+		if exportID == "" {
+			http.Error(w, "missing 'id' query parameter", http.StatusBadRequest)
+			return
+		}
+
+		resp := export.ExportStatusResponse{Running: e.participant.IsRunning(exportID)}
+
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "marshal response: "+err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
 func (e *exports) executeHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)

@@ -140,13 +140,6 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		Status:    export.Started,
 		StartedAt: time.Now().UTC(),
 		Classes:   classes,
-		Progress:  make(map[string]*ClassProgress),
-	}
-
-	for _, class := range classes {
-		status.Progress[class] = &ClassProgress{
-			Status: export.Started,
-		}
 	}
 
 	enterrors.GoWrapper(func() {
@@ -193,7 +186,6 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		Status:    meta.Status,
 		StartedAt: meta.StartedAt,
 		Classes:   meta.Classes,
-		Progress:  meta.Progress,
 		Error:     meta.Error,
 	}, nil
 }
@@ -211,20 +203,13 @@ func (s *Scheduler) assembleStatusFromPlan(
 	}
 
 	status := &ExportStatus{
-		ID:        plan.ID,
-		Backend:   plan.Backend,
-		Path:      backend.HomeDir(id, bucket, path),
-		Status:    export.Transferring,
-		StartedAt: plan.StartedAt,
-		Classes:   plan.Classes,
-		Progress:  make(map[string]*ClassProgress),
-	}
-
-	// Initialize progress for all classes
-	for _, class := range plan.Classes {
-		status.Progress[class] = &ClassProgress{
-			Status: export.Transferring,
-		}
+		ID:          plan.ID,
+		Backend:     plan.Backend,
+		Path:        backend.HomeDir(id, bucket, path),
+		Status:      export.Transferring,
+		StartedAt:   plan.StartedAt,
+		Classes:     plan.Classes,
+		ShardStatus: make(map[string]map[string]*ShardExportStatus),
 	}
 
 	allSuccess := true
@@ -233,34 +218,60 @@ func (s *Scheduler) assembleStatusFromPlan(
 	for nodeName := range plan.NodeAssignments {
 		nodeStatus, err := s.getNodeStatus(ctx, backend, id, bucket, path, nodeName)
 		if err != nil {
-			// Missing status file means still in progress
-			allSuccess = false
-			continue
+			// No status file yet — treat as non-terminal and check liveness below
+			nodeStatus = &NodeStatus{
+				NodeName: nodeName,
+				Status:   export.Transferring,
+			}
 		}
 
-		if nodeStatus.Status == export.Failed {
+		effectiveStatus := nodeStatus.Status
+		switch nodeStatus.Status {
+		case export.Success:
+		case export.Failed:
 			anyFailed = true
+			allSuccess = false
 			if status.Error == "" {
 				status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
 			}
-		}
-
-		if nodeStatus.Status != export.Success {
+		default:
+			// Non-terminal (Transferring/Started): verify the node is still running
 			allSuccess = false
-		}
-
-		// Merge class progress from this node
-		for className, cp := range nodeStatus.ClassProgress {
-			if existing, ok := status.Progress[className]; ok {
-				existing.ObjectsExported += cp.ObjectsExported
-				if cp.Status == export.Failed {
-					existing.Status = export.Failed
-					existing.Error = cp.Error
-				} else if cp.Status == export.Success && existing.Status != export.Failed {
-					existing.Status = export.Success
+			host, alive := s.nodeResolver.NodeHostname(nodeName)
+			if !alive {
+				anyFailed = true
+				effectiveStatus = export.Failed
+				if status.Error == "" {
+					status.Error = fmt.Sprintf("node %s is no longer part of the cluster", nodeName)
+				}
+			} else if s.client != nil {
+				running, runErr := s.client.IsRunning(ctx, host, id)
+				if runErr != nil || !running {
+					anyFailed = true
+					effectiveStatus = export.Failed
+					if status.Error == "" {
+						status.Error = fmt.Sprintf("node %s is no longer running export %s", nodeName, id)
+					}
 				}
 			}
 		}
+		// Record per-shard status: use node's ShardProgress when available,
+		// but override non-terminal shards if the node is effectively failed.
+		for className, shards := range plan.NodeAssignments[nodeName] {
+			if status.ShardStatus[className] == nil {
+				status.ShardStatus[className] = make(map[string]*ShardExportStatus)
+			}
+			for _, shardName := range shards {
+				sp := nodeStatus.ShardProgress[className][shardName]
+				if sp == nil {
+					sp = &ShardExportStatus{Status: effectiveStatus}
+				} else if sp.Status != export.Success && sp.Status != export.Failed {
+					sp.Status = effectiveStatus
+				}
+				status.ShardStatus[className][shardName] = sp
+			}
+		}
+
 	}
 
 	if anyFailed {
@@ -372,14 +383,12 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 // performSingleNodeExport runs the original single-node export path.
 func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *ExportStatus, classes []string, bucket, path string) {
 	for _, className := range classes {
-		if err := s.exportClass(ctx, backend, exportID, bucket, path, status, className); err != nil {
+		if err := s.exportClass(ctx, backend, exportID, bucket, path, className); err != nil {
 			s.logger.WithField("action", "export_class").
 				WithField("export_id", exportID).
 				WithField("class", className).
 				WithError(err).Error("failed to export class")
 
-			status.Progress[className].Status = export.Failed
-			status.Progress[className].Error = err.Error()
 			status.Status = export.Failed
 			status.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
 
@@ -405,10 +414,7 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 }
 
 // exportClass exports a single class to a Parquet file (single-node path)
-func (s *Scheduler) exportClass(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *ExportStatus, className string) error {
-	progress := status.Progress[className]
-	progress.Status = export.Transferring
-
+func (s *Scheduler) exportClass(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, className string) error {
 	shards, err := s.selector.GetShardsForClass(ctx, className)
 	if err != nil {
 		return fmt.Errorf("get shards for class %s: %w", className, err)
@@ -420,7 +426,6 @@ func (s *Scheduler) exportClass(ctx context.Context, backend modulecapabilities.
 
 	if len(shards) == 0 {
 		s.logger.WithField("class", className).Warn("no shards found for class")
-		progress.Status = export.Success
 		return nil
 	}
 
@@ -462,11 +467,8 @@ func (s *Scheduler) exportClass(ctx context.Context, backend modulecapabilities.
 		return fmt.Errorf("upload parquet file: %w", err)
 	}
 
-	progress.ObjectsExported = writer.ObjectsWritten()
-	progress.Status = export.Success
-
 	s.logger.WithField("class", className).
-		WithField("objects", progress.ObjectsExported).
+		WithField("objects", writer.ObjectsWritten()).
 		Info("class export completed")
 
 	return nil
@@ -540,7 +542,6 @@ func (s *Scheduler) writeMetadata(_ context.Context, backend modulecapabilities.
 		CompletedAt: time.Now().UTC(),
 		Status:      status.Status,
 		Classes:     status.Classes,
-		Progress:    status.Progress,
 		Error:       status.Error,
 		Version:     config.ServerVersion,
 	}

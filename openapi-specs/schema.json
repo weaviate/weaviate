@@ -697,6 +697,16 @@
           },
           "description": "Per-collection progress information"
         },
+        "shardStatus": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardExportStatus"
+            }
+          },
+          "description": "Per-shard progress: className -> shardName -> status"
+        },
         "error": {
           "type": "string",
           "description": "Error message if export failed"
@@ -743,6 +753,16 @@
           },
           "description": "Per-collection progress information"
         },
+        "shardStatus": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardExportStatus"
+            }
+          },
+          "description": "Per-shard progress: className -> shardName -> status"
+        },
         "error": {
           "type": "string",
           "description": "Error message if export failed"
@@ -771,6 +791,26 @@
         "error": {
           "type": "string",
           "description": "Error message if this collection's export failed"
+        }
+      }
+    },
+    "ShardExportStatus": {
+      "description": "Progress information for exporting a single shard",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Status of this shard's export",
+          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED"]
+        },
+        "objectsExported": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Number of objects exported from this shard"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if this shard's export failed"
         }
       }
     },

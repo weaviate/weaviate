@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -28,10 +29,12 @@ import (
 // Participant handles export requests on a single node.
 // It exports its assigned shards directly to S3 and writes status files.
 type Participant struct {
-	shutdownCtx context.Context
-	selector    Selector
-	backends    BackendProvider
-	logger      logrus.FieldLogger
+	shutdownCtx    context.Context
+	selector       Selector
+	backends       BackendProvider
+	logger         logrus.FieldLogger
+	exportOngoing  atomic.Bool
+	activeExportID string
 }
 
 // NewParticipant creates a new export participant.
@@ -54,12 +57,19 @@ func NewParticipant(
 // OnExecute handles an export request from the coordinator.
 // It fires off an async goroutine to export assigned shards and returns immediately.
 func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
+	if !p.exportOngoing.CompareAndSwap(false, true) {
+		return fmt.Errorf("export %q already in progress", p.activeExportID)
+	}
+	p.activeExportID = req.ID
+
 	backendStore, err := p.backends.BackupBackend(req.Backend)
 	if err != nil {
+		p.exportOngoing.Store(false)
 		return fmt.Errorf("backend %s not available: %w", req.Backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); err != nil {
+		p.exportOngoing.Store(false)
 		return fmt.Errorf("initialize backend: %w", err)
 	}
 
@@ -77,11 +87,18 @@ func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
 }
 
 // executeExport performs the actual export work for this node's assigned shards.
+func (p *Participant) IsRunning(id string) bool {
+	return p.exportOngoing.Load() && p.activeExportID == id
+}
+
 func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) {
+	defer p.exportOngoing.Store(false)
+
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
 		ClassProgress: make(map[string]*ClassProgress),
+		ShardProgress: make(map[string]map[string]*ShardExportStatus),
 	}
 
 	for _, className := range req.Classes {
@@ -91,6 +108,12 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		}
 		nodeStatus.ClassProgress[className] = &ClassProgress{
 			Status: export.Transferring,
+		}
+		nodeStatus.ShardProgress[className] = make(map[string]*ShardExportStatus)
+		for _, shardName := range shardNames {
+			nodeStatus.ShardProgress[className][shardName] = &ShardExportStatus{
+				Status: export.Transferring,
+			}
 		}
 	}
 
@@ -156,11 +179,15 @@ func (p *Participant) exportClassShards(
 
 		objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard)
 		if err != nil {
+			nodeStatus.ShardProgress[className][shardName].Status = export.Failed
+			nodeStatus.ShardProgress[className][shardName].Error = err.Error()
 			return fmt.Errorf("export shard %s: %w", shardName, err)
 		}
 		totalObjects += objects
 
 		// Update incremental progress
+		nodeStatus.ShardProgress[className][shardName].Status = export.Success
+		nodeStatus.ShardProgress[className][shardName].ObjectsExported = objects
 		nodeStatus.ClassProgress[className].ObjectsExported = totalObjects
 		p.writeNodeStatus(ctx, backend, req, nodeStatus)
 	}

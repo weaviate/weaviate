@@ -19,9 +19,15 @@ import (
 // It sends fire-and-forget requests to participant nodes.
 type ExportClient interface {
 	Execute(ctx context.Context, host string, req *ExportRequest) error
+	IsRunning(ctx context.Context, host, exportID string) (bool, error)
 }
 
 // NodeResolver resolves node names to hostnames.
 type NodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
+}
+
+// ExportStatusResponse is the JSON payload for GET /exports/status.
+type ExportStatusResponse struct {
+	Running bool `json:"running"`
 }

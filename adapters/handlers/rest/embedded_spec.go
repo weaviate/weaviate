@@ -7427,6 +7427,16 @@ func init() {
             "$ref": "#/definitions/ClassProgress"
           }
         },
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardExportStatus"
+            }
+          }
+        },
         "startedAt": {
           "description": "When the export started",
           "type": "string",
@@ -7476,6 +7486,16 @@ func init() {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/ClassProgress"
+          }
+        },
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardExportStatus"
+            }
           }
         },
         "startedAt": {
@@ -9247,6 +9267,31 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
+    },
+    "ShardExportStatus": {
+      "description": "Progress information for exporting a single shard",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Error message if this shard's export failed",
+          "type": "string"
+        },
+        "objectsExported": {
+          "description": "Number of objects exported from this shard",
+          "type": "integer",
+          "format": "int64"
+        },
+        "status": {
+          "description": "Status of this shard's export",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
     },
     "ShardStatus": {
       "description": "The status of a single shard",
@@ -17515,6 +17560,16 @@ func init() {
             "$ref": "#/definitions/ClassProgress"
           }
         },
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardExportStatus"
+            }
+          }
+        },
         "startedAt": {
           "description": "When the export started",
           "type": "string",
@@ -17564,6 +17619,16 @@ func init() {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/ClassProgress"
+          }
+        },
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardExportStatus"
+            }
           }
         },
         "startedAt": {
@@ -19544,6 +19609,31 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
+    },
+    "ShardExportStatus": {
+      "description": "Progress information for exporting a single shard",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Error message if this shard's export failed",
+          "type": "string"
+        },
+        "objectsExported": {
+          "description": "Number of objects exported from this shard",
+          "type": "integer",
+          "format": "int64"
+        },
+        "status": {
+          "description": "Status of this shard's export",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
     },
     "ShardStatus": {
       "description": "The status of a single shard",

@@ -25,6 +25,7 @@ import (
 
 const (
 	pathExportExecute = "/exports/execute"
+	pathExportStatus  = "/exports/status"
 )
 
 // ClusterExports handles inter-node export communication.
@@ -64,6 +65,32 @@ func (c *ClusterExports) Execute(ctx context.Context, host string, req *export.E
 	}
 
 	return nil
+}
+
+// IsRunning checks whether a participant node is still running the given export.
+func (c *ClusterExports) IsRunning(ctx context.Context, host, exportID string) (bool, error) {
+	u := url.URL{Scheme: "http", Host: host, Path: pathExportStatus, RawQuery: "id=" + url.QueryEscape(exportID)}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return false, fmt.Errorf("new status request: %w", err)
+	}
+
+	respBody, statusCode, err := c.do(httpReq)
+	if err != nil {
+		return false, fmt.Errorf("status request: %w", err)
+	}
+
+	if statusCode != http.StatusOK {
+		return false, fmt.Errorf("unexpected status code %d (%s)", statusCode, respBody)
+	}
+
+	var result export.ExportStatusResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return false, fmt.Errorf("unmarshal status response: %w", err)
+	}
+
+	return result.Running, nil
 }
 
 func (c *ClusterExports) do(req *http.Request) (body []byte, statusCode int, err error) {

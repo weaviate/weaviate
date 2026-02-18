@@ -19,14 +19,21 @@ import (
 
 // ExportStatus represents the current status of an export
 type ExportStatus struct {
-	ID        string                    `json:"id"`
-	Backend   string                    `json:"backend"`
-	Path      string                    `json:"path"`
-	Status    export.Status             `json:"status"`
-	StartedAt time.Time                 `json:"startedAt"`
-	Error     string                    `json:"error,omitempty"`
-	Classes   []string                  `json:"classes,omitempty"`
-	Progress  map[string]*ClassProgress `json:"progress,omitempty"`
+	ID          string                                   `json:"id"`
+	Backend     string                                   `json:"backend"`
+	Path        string                                   `json:"path"`
+	Status      export.Status                            `json:"status"`
+	StartedAt   time.Time                                `json:"startedAt"`
+	Error       string                                   `json:"error,omitempty"`
+	Classes     []string                                 `json:"classes,omitempty"`
+	ShardStatus map[string]map[string]*ShardExportStatus `json:"shardStatus,omitempty"` // className → shardName → progress
+}
+
+// ShardExportStatus tracks the progress of exporting a single shard
+type ShardExportStatus struct {
+	Status          export.Status `json:"status"`
+	ObjectsExported int64         `json:"objectsExported"`
+	Error           string        `json:"error,omitempty"`
 }
 
 // ClassProgress tracks the progress of exporting a single class
@@ -63,11 +70,12 @@ type ExportRequest struct {
 
 // NodeStatus is written to S3 by each participant node
 type NodeStatus struct {
-	NodeName      string                    `json:"nodeName"`
-	Status        export.Status             `json:"status"`
-	ClassProgress map[string]*ClassProgress `json:"classProgress,omitempty"`
-	Error         string                    `json:"error,omitempty"`
-	CompletedAt   time.Time                 `json:"completedAt,omitempty"`
+	NodeName      string                                   `json:"nodeName"`
+	Status        export.Status                            `json:"status"`
+	ClassProgress map[string]*ClassProgress                `json:"classProgress,omitempty"`
+	ShardProgress map[string]map[string]*ShardExportStatus `json:"shardProgress,omitempty"` // className → shardName → progress
+	Error         string                                   `json:"error,omitempty"`
+	CompletedAt   time.Time                                `json:"completedAt,omitempty"`
 }
 
 // ExportPlan is written to S3 by the coordinator
