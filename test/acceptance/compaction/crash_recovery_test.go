@@ -14,12 +14,7 @@
 //
 // Running:
 //
-//	go test ./test/acceptance/compaction/... -v -run TestAsyncDeletion_HighLimit -timeout 15m
-//
-// With a pre-built image (faster):
-//
-//	TEST_WEAVIATE_IMAGE=semitechnologies/weaviate:preview \
-//	  go test ./test/acceptance/compaction/... -v -run TestAsyncDeletion_HighLimit -timeout 15m
+//	go test ./test/acceptance/compaction/... -v -run TestAsyncDeletion_CrashRecovery -timeout 15m
 package compaction_test
 
 import (
@@ -102,7 +97,7 @@ func getShardName(t *testing.T) string {
 //     (the ref-counted segment group cannot unlink files while refs are pinned).
 //  2. After a simulated crash + restart, startup cleanup (segment_group.go:304) removes
 //     all .deleteme files so the bucket is clean.
-func TestAsyncDeletion_HighLimit(t *testing.T) {
+func TestAsyncDeletion_CrashRecovery(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
