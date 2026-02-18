@@ -197,6 +197,20 @@ func (v *VersionMap) FlushPosting(ctx context.Context, postingID uint64, p Posti
 	return nil
 }
 
+// VectorExists checks if a version exists for the given vector ID.
+// It reads from the disk to ensure that we don't return false positives for vectors that are not in the cache but do exist on-disk.
+func (v *VersionMap) VectorExists(ctx context.Context, vectorID uint64) (bool, error) {
+	_, err := v.store.Get(ctx, vectorID)
+	if err != nil {
+		if errors.Is(err, ErrVectorNotFound) {
+			return false, nil
+		}
+		return false, errors.Wrap(err, "failed to check if vector exists")
+	}
+
+	return true, nil
+}
+
 // VersionStore is a persistent store for vector versions.
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
