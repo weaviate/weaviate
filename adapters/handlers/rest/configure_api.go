@@ -670,6 +670,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
+	// Create export participant early so the cluster API server can register it
+	appState.ExportParticipant = exportUsecase.NewParticipant(appState.DB, appState.Modules, appState.Logger)
+
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
@@ -1105,14 +1108,26 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 }
 
 func startExportScheduler(appState *state.State) *exportUsecase.Scheduler {
-	dbWrapper := exportUsecase.NewDBWrapper(appState.DB)
-	dbAdapter := exportUsecase.NewDBAdapter(dbWrapper)
-	backendProvider := exportUsecase.NewBackendProviderWrapper(appState.Modules)
+	var client exportUsecase.ExportClient
+	var nodeResolver exportUsecase.NodeResolver
+	var localNode string
+
+	if appState.Cluster != nil && appState.ClusterHttpClient != nil {
+		client = clients.NewClusterExports(appState.ClusterHttpClient)
+		nodeResolver = appState.Cluster
+		localNode = appState.Cluster.LocalName()
+	}
+
 	exportScheduler := exportUsecase.NewScheduler(
 		appState.Authorizer,
-		dbAdapter,
-		backendProvider,
-		appState.Logger)
+		appState.DB,
+		appState.Modules,
+		appState.Logger,
+		client,
+		nodeResolver,
+		localNode,
+		appState.ExportParticipant,
+	)
 	return exportScheduler
 }
 

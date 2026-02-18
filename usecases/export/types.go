@@ -49,3 +49,32 @@ type ExportMetadata struct {
 	Error       string                    `json:"error,omitempty"`
 	Version     string                    `json:"version"`
 }
+
+// ExportRequest is sent from coordinator to participant nodes
+type ExportRequest struct {
+	ID       string              `json:"id"`
+	Backend  string              `json:"backend"`
+	Classes  []string            `json:"classes"`
+	Shards   map[string][]string `json:"shards"` // className → []shardName
+	Bucket   string              `json:"bucket"`
+	Path     string              `json:"path"`
+	NodeName string              `json:"nodeName"`
+}
+
+// NodeStatus is written to S3 by each participant node
+type NodeStatus struct {
+	NodeName      string                    `json:"nodeName"`
+	Status        export.Status             `json:"status"`
+	ClassProgress map[string]*ClassProgress `json:"classProgress,omitempty"`
+	Error         string                    `json:"error,omitempty"`
+	CompletedAt   time.Time                 `json:"completedAt,omitempty"`
+}
+
+// ExportPlan is written to S3 by the coordinator
+type ExportPlan struct {
+	ID              string                         `json:"id"`
+	Backend         string                         `json:"backend"`
+	Classes         []string                       `json:"classes"`
+	NodeAssignments map[string]map[string][]string `json:"nodeAssignments"` // node → className → []shardName
+	StartedAt       time.Time                      `json:"startedAt"`
+}
