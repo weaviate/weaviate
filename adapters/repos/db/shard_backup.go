@@ -271,8 +271,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	}
 
 	// If shard was initialized halted, also start processes that were skipped
-	if s.haltedOnInit {
-		s.haltedOnInit = false // Clear the flag
+	if s.haltedOnInit.CompareAndSwap(true, false) {
 
 		// Start vector cycles
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
