@@ -35,7 +35,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	rescoreLimit := int(h.rescoreLimit)
 	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
-		return nil, nil, errors.New("quantizer not initialized")
+		return nil, nil, nil
 	}
 	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
 

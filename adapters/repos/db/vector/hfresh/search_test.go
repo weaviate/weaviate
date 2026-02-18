@@ -12,52 +12,50 @@
 package hfresh
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestSearchWithEmptyIndex(t *testing.T) {
-	cfg := DefaultConfig()
-	scheduler := queue.NewScheduler(
-		queue.SchedulerOptions{
-			Logger: logrus.New(),
-		},
-	)
-	cfg.Scheduler = scheduler
-	cfg.RootPath = t.TempDir()
-	cfg.Centroids.HNSWConfig = &hnsw.Config{
-		RootPath:              t.TempDir(),
-		ID:                    "hfresh",
-		MakeCommitLoggerThunk: makeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
-	}
-	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
-
-	scheduler.Start()
-	defer scheduler.Close()
-
-	uc := ent.NewDefaultUserConfig()
 	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
 
-	index, err := New(cfg, uc, store)
+	vectors, _ := testinghelpers.RandomVecs(1, 0, 32)
+
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+		if indexID == 0 {
+			return vectors[0], nil
+		}
+		return nil, fmt.Errorf("vector not found for ID %d", indexID)
+	})
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	// search on empty index returns 0 results and no error
+	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, nil)
 	require.NoError(t, err)
-	defer index.Shutdown(t.Context())
+	require.Empty(t, ids)
+	require.Empty(t, dists)
 
-	_, _, err = index.SearchByVector(t.Context(), []float32{1, 2, 3}, 10, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "quantizer not initialized")
+	err = index.Add(t.Context(), 0, vectors[0])
+	require.NoError(t, err)
+
+	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	require.NoError(t, err)
+	require.Len(t, ids, 1)
+	require.Len(t, dists, 1)
+	require.Equal(t, uint64(0), ids[0])
+
+	err = index.Delete(0)
+	require.NoError(t, err)
+
+	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	require.NoError(t, err)
+	require.Empty(t, ids)
+	require.Empty(t, dists)
 }
