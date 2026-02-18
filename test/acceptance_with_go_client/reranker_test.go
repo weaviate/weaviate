@@ -94,3 +94,5 @@ func TestReRanker(t *testing.T) {
 		}
 	})
 }
+
+func TestReRanker_WithHybrid(t *testing.T) {}
