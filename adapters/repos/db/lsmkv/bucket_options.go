@@ -269,7 +269,8 @@ func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 // WithMaxPendingAsyncDeletions limits the number of in-flight background
 // goroutines waiting to delete old segment files. When the limit is reached
 // the next deletion falls back to synchronous execution rather than spawning
-// yet another goroutine. Setting the limit to 0 disables the cap entirely.
+// yet another goroutine. Setting the limit to 0 disables async deletion
+// entirely (all deletions run synchronously).
 func WithMaxPendingAsyncDeletions(limit int) BucketOption {
 	return func(b *Bucket) error {
 		b.maxPendingAsyncDeletions = limit

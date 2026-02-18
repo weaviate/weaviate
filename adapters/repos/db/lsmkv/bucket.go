@@ -525,7 +525,8 @@ func (b *Bucket) PendingAsyncDeletions() int {
 }
 
 // MaxPendingAsyncDeletions returns the configured upper bound on in-flight
-// async segment deletions. 0 means no limit is enforced.
+// async segment deletions. 0 means async deletion is disabled (all deletions
+// run synchronously).
 func (b *Bucket) MaxPendingAsyncDeletions() int {
 	return b.maxPendingAsyncDeletions
 }

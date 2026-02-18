@@ -46,6 +46,7 @@ func TestAsyncDeletionLimit(t *testing.T) {
 		WithStrategy(StrategyReplace),
 		WithMaxPendingAsyncDeletions(1))
 	require.NoError(t, err)
+	t.Cleanup(func() { bucketB.Shutdown(ctx) })
 
 	bucketB.SetMemtableThreshold(1e9)
 

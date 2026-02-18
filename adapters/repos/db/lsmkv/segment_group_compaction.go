@@ -724,11 +724,12 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 // synchronous deletion.
 func (sg *SegmentGroup) launchOrSyncDelete(segs ...Segment) {
 	limit := sg.maxPendingAsyncDeletions
-	if int(sg.pendingAsyncDeletions.Load()) >= limit {
+	pending := int(sg.pendingAsyncDeletions.Load())
+	if pending >= limit {
 		sg.logger.WithFields(logrus.Fields{
 			"action":  "lsm_async_deletion_limit_reached",
 			"limit":   limit,
-			"pending": sg.pendingAsyncDeletions.Load(),
+			"pending": pending,
 		}).Warn("async deletion limit reached, falling back to synchronous deletion")
 		if err := sg.deleteOldSegmentsFromDisk(segs...); err != nil {
 			sg.logger.WithError(err).Error("failed to delete old segment files (sync fallback)")

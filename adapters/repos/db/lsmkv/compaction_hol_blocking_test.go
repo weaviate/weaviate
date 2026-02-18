@@ -97,7 +97,7 @@ func TestCompactionNotHOLBlocked(t *testing.T) {
 	assert.True(t, compacted, "expected bucket B compaction to produce a merged segment")
 
 	// Now release bucket A's consistent view. The background deletion goroutine
-	// inside bucket A (if any) will then proceed. We must wait for it before
+	// inside bucket B (if any) will then proceed. We must wait for it before
 	// the deferred Shutdown calls run.
 	releaseA()
 
