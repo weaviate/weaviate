@@ -61,14 +61,14 @@ var v1 = VectorVersion(0).Increment()
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
 type VersionMap struct {
-	data  *common.PagedArray[VectorVersion]
+	data  *common.GroupedPagedArray[VectorVersion]
 	locks *common.ShardedRWLocks
 	store *VersionStore
 }
 
 func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
 	return &VersionMap{
-		data:  common.NewPagedArray[VectorVersion](16384, 64*1024), // 1 billion entries with 64k per page
+		data:  common.NewGroupedPagedArray[VectorVersion](16*1024, 64*1024), // 1 billion entries with 64k per page
 		locks: common.NewShardedRWLocks(512),
 		store: NewVersionStore(bucket),
 	}
@@ -141,6 +141,7 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 	if err != nil {
 		return old, err
 	}
+	page[slot] = newVersion
 	return newVersion, nil
 }
 
@@ -173,6 +174,8 @@ func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVe
 	if err != nil {
 		return old, err
 	}
+	page[slot] = newVersion
+
 	return newVersion, nil
 }
 
