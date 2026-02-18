@@ -107,16 +107,8 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	readFn ReadFn,
 ) error {
-	v, eqRelease, err := rr.equalHelper(ctx)
-	if err != nil {
-		return err
-	}
-	defer eqRelease()
-
 	rr.isDenyList = !rr.isDenyList
-	// Invert the Equal results for an efficient NotEqual
-	_, err = readFn(rr.value, v, eqRelease)
-	return err
+	return rr.equal(ctx, readFn)
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
