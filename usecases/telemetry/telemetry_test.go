@@ -933,33 +933,18 @@ func TestClientTracker(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewClientTracker(logger)
 
-		// Track some requests
 		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
 		pythonReq.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
 		tracker.Track(pythonReq)
 
-		// Verify we can get counts before stop
-		counts := tracker.Get()
-		assert.NotNil(t, counts)
-
-		// Stop the tracker
-		tracker.Stop()
-
-		// Get and GetAndReset should return nil after stop (not block forever)
-		assert.Nil(t, tracker.Get())
-		assert.Nil(t, tracker.GetAndReset())
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
 	})
 
 	t.Run("double Stop does not panic", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewClientTracker(logger)
-
-		// Should not panic when called multiple times
-		assert.NotPanics(t, func() {
-			tracker.Stop()
-			tracker.Stop()
-			tracker.Stop()
-		})
+		testMapTrackerDoubleStop(t, tracker.inner)
 	})
 }
 
@@ -1042,23 +1027,14 @@ func TestIntegrationTracker(t *testing.T) {
 		req.Header.Set("X-Weaviate-Client-Integration", "langchain/0.3.0")
 		tracker.Track(req)
 
-		counts := tracker.Get()
-		assert.NotNil(t, counts)
-
-		tracker.Stop()
-
-		assert.Nil(t, tracker.Get())
-		assert.Nil(t, tracker.GetAndReset())
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
 	})
 
 	t.Run("double Stop does not panic", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewIntegrationTracker(logger)
-		assert.NotPanics(t, func() {
-			tracker.Stop()
-			tracker.Stop()
-			tracker.Stop()
-		})
+		testMapTrackerDoubleStop(t, tracker.inner)
 	})
 }
 
@@ -1106,6 +1082,26 @@ func TestIdentifyIntegration(t *testing.T) {
 			assert.Equal(t, tc.expectedVersion, version)
 		})
 	}
+}
+
+// testMapTrackerStopBehavior verifies that get and getAndReset return nil
+// after the tracker has been stopped. Uses the inner mapTracker directly
+// since this test file is in the same package.
+func testMapTrackerStopBehavior[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	inner.stop()
+	assert.Nil(t, inner.get())
+	assert.Nil(t, inner.getAndReset())
+}
+
+// testMapTrackerDoubleStop verifies that calling stop multiple times does not panic.
+func testMapTrackerDoubleStop[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	assert.NotPanics(t, func() {
+		inner.stop()
+		inner.stop()
+		inner.stop()
+	})
 }
 
 type gcpTestConsumer struct {
