@@ -23,12 +23,24 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/tracing"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	ctx = tracing.WithFlags(ctx, tracing.Flags{
+		VectorSearch: t.config.Config.TraceVectorSearch.Get(),
+	})
+
+	ctx, span := tracing.StartSpan(ctx, tracing.PathVectorSearch, "weaviate.traverser.GetClass",
+		trace.WithAttributes(attribute.String("weaviate.collection", params.ClassName)))
+	defer span.End()
+
 	before := time.Now()
 
 	ok := t.ratelimiter.TryInc()

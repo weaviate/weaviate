@@ -62,6 +62,8 @@ type WeaviateRuntimeConfig struct {
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
 	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`
 
+	TraceVectorSearch *runtime.DynamicValue[bool] `json:"trace_vector_search" yaml:"trace_vector_search"`
+
 	// Authentication OIDC settings
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"authentication_oidc_issuer" yaml:"authentication_oidc_issuer"`
 	OIDCClientID          *runtime.DynamicValue[string]   `json:"authentication_oidc_client_id" yaml:"authentication_oidc_client_id"`
