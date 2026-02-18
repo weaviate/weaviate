@@ -444,7 +444,7 @@ func trace() string {
 	pcs = pcs[:n]
 	for i := range pcs {
 		f := errors.Frame(pcs[i])
-		sb.WriteString(fmt.Sprintf("%n@%s:%d", f, f, f))
+		fmt.Fprintf(&sb, "%n@%s:%d", f, f, f)
 		if i < n-1 {
 			sb.WriteString(";")
 		}
