@@ -257,10 +257,10 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) (
 
 	// both A and B are denylists
 	if bothDenyLists && operator == filters.OperatorAnd {
-		efficientMergeSwap(operator)
+		efficientMergeSwap(filters.OperatorOr)
 		return a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE), true
 	} else if bothDenyLists && operator == filters.OperatorOr {
-		efficientMergeSwap(operator)
+		efficientMergeSwap(filters.OperatorAnd)
 		return a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE), true
 	}
 
