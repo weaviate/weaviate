@@ -12,6 +12,7 @@
 package visited
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -324,5 +325,42 @@ func BenchmarkListSet_Visit_Clustered(b *testing.B) {
 			l.Visit(id)
 		}
 		l.Reset()
+	}
+}
+
+func BenchmarkVisit_1M(b *testing.B) {
+	// 1M max node ID, varying number of visited nodes
+	for _, visitCount := range []int{1_000, 10_000, 100_000} {
+		rng := rand.New(rand.NewSource(42))
+		nodeIDs := make([]uint64, visitCount)
+		for i := range nodeIDs {
+			nodeIDs[i] = uint64(rng.Intn(1_000_000))
+		}
+
+		name := fmt.Sprintf("%dk", visitCount/1000)
+
+		b.Run("FastSet/"+name, func(b *testing.B) {
+			f := NewFastSet(visitCount)
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				for _, id := range nodeIDs {
+					f.Visit(id)
+				}
+				f.Reset()
+			}
+		})
+
+		b.Run("ListSet/"+name, func(b *testing.B) {
+			l := NewList(1_000_000)
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				for _, id := range nodeIDs {
+					l.Visit(id)
+				}
+				l.Reset()
+			}
+		})
 	}
 }
