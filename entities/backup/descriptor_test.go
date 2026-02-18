@@ -624,7 +624,8 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 						},
 					},
 				},
-				TotalSize: unchangedInfo.Size(),
+				TotalSize:       unchangedInfo.Size(),
+				NumFilesSkipped: 1,
 			},
 		},
 		{
@@ -718,7 +719,8 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 						},
 					},
 				},
-				TotalSize: unchangedInfo.Size(),
+				TotalSize:       unchangedInfo.Size(),
+				NumFilesSkipped: 1,
 			},
 		},
 		{
@@ -760,7 +762,8 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 						},
 					},
 				},
-				TotalSize: unchangedInfo.Size(),
+				TotalSize:       unchangedInfo.Size(),
+				NumFilesSkipped: 1,
 			},
 		},
 		{
@@ -811,7 +814,8 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 						},
 					},
 				},
-				TotalSize: unchangedInfo.Size() + int64(len("modified content")),
+				TotalSize:       unchangedInfo.Size() + int64(len("modified content")),
+				NumFilesSkipped: 2,
 			},
 		},
 		{
@@ -858,7 +862,8 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 						},
 					},
 				},
-				TotalSize: unchangedInfo.Size(),
+				TotalSize:       unchangedInfo.Size(),
+				NumFilesSkipped: 1,
 			},
 		},
 		{
@@ -900,7 +905,8 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 						},
 					},
 				},
-				TotalSize: unchangedInfo.Size(),
+				TotalSize:       unchangedInfo.Size(),
+				NumFilesSkipped: 1,
 			},
 		},
 	}
@@ -922,6 +928,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				assert.Equal(t, tc.expectedFiles, s.Files, "Files list should match expected")
 				assert.Equal(t, tc.expectedIncreInfo.FilesPerBackup, s.IncrementalBackupInfo.FilesPerBackup, "IncrementalBackupInfo.FilesPerBackup should match expected")
 				assert.Equal(t, tc.expectedIncreInfo.TotalSize, s.IncrementalBackupInfo.TotalSize, "IncrementalBackupInfo.TotalSize should match expected")
+				assert.Equal(t, tc.expectedIncreInfo.NumFilesSkipped, s.IncrementalBackupInfo.NumFilesSkipped, "IncrementalBackupInfo.NumFilesSkipped should match expected")
 			}
 		})
 	}

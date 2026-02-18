@@ -297,6 +297,7 @@ FilesLoop:
 						IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
 					)
 					s.IncrementalBackupInfo.TotalSize += info.Size
+					s.IncrementalBackupInfo.NumFilesSkipped += 1
 					continue FilesLoop
 				}
 			}
@@ -369,8 +370,9 @@ func (f *FileList) GetFileSize(relPath string) int64 {
 }
 
 type IncrementalBackupInfos struct {
-	FilesPerBackup map[string][]IncrementalBackupInfo
-	TotalSize      int64
+	FilesPerBackup  map[string][]IncrementalBackupInfo
+	TotalSize       int64
+	NumFilesSkipped int // how many files are skipped in the current backup because they are identical to previous backups
 }
 
 type IncrementalBackupInfo struct {

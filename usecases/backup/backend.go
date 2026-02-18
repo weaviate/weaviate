@@ -617,15 +617,15 @@ func (u *uploader) createFileList(shard *backup.ShardDescriptor) (*backup.FileLi
 	return &backup.FileList{
 		Files:      filesCopy,
 		FileSizes:  fileSizes,
-		Top100Size: calculateTop100Size(fileSizes),
+		Top100Size: calculateTop100Size(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped),
 	}, nil
 }
 
 // calculateTop100Size returns the size of the 100th biggest file (or smallest if fewer than 100),
 // with a minimum of 1MB. Uses a min-heap of size 100 for O(n) time and O(1) space complexity.
-func calculateTop100Size(fileSizes map[string]int64) int64 {
-	const minSize int64 = 1 << 20 // 1MB
-	const k = 100
+func calculateTop100Size(fileSizes map[string]int64, numSkippedFiles int) int64 {
+	const minSize int64 = 1 << 20    // 1MB
+	k := max(100-numSkippedFiles, 1) // take into account that this might be a
 
 	if len(fileSizes) == 0 {
 		return minSize

@@ -177,3 +177,93 @@ func TestCreateFileList(t *testing.T) {
 		assert.Contains(t, err.Error(), "not found")
 	})
 }
+
+func TestCalculateTop100Size(t *testing.T) {
+	const mb = 1 << 20
+
+	// Helper to create fileSizes map with n files of increasing size starting at 2MB
+	makeFiles := func(n int) map[string]int64 {
+		files := make(map[string]int64, n)
+		for i := 0; i < n; i++ {
+			files[filepath.Join("dir", filepath.Base(
+				filepath.Join("f", string(rune('a'+i%26))+string(rune('0'+i/26))),
+			))] = int64((i + 2)) * mb
+		}
+		return files
+	}
+
+	tests := []struct {
+		name            string
+		fileSizes       map[string]int64
+		numSkippedFiles int
+		expected        int64
+	}{
+		{
+			name:            "empty files returns minSize",
+			fileSizes:       map[string]int64{},
+			numSkippedFiles: 0,
+			expected:        mb,
+		},
+		{
+			name:            "empty files with skipped returns minSize",
+			fileSizes:       map[string]int64{},
+			numSkippedFiles: 50,
+			expected:        mb,
+		},
+		{
+			name:            "single small file no skipped",
+			fileSizes:       map[string]int64{"a.db": 500},
+			numSkippedFiles: 0,
+			expected:        mb, // below minSize
+		},
+		{
+			name:            "single large file no skipped",
+			fileSizes:       map[string]int64{"a.db": 5 * mb},
+			numSkippedFiles: 0,
+			expected:        5 * mb,
+		},
+		{
+			name:            "fewer than k files - returns smallest",
+			fileSizes:       map[string]int64{"a.db": 2 * mb, "b.db": 5 * mb, "c.db": 3 * mb},
+			numSkippedFiles: 0,
+			expected:        2 * mb, // k=100, only 3 files, smallest is 2MB
+		},
+		{
+			name:            "skipped reduces k - changes result",
+			fileSizes:       makeFiles(105), // files from 2MB to 106MB
+			numSkippedFiles: 0,
+			expected:        7 * mb, // k=100, 105 files, 100th largest = 6th smallest (index 5) = 7MB
+		},
+		{
+			name:            "skipped 50 reduces k to 50",
+			fileSizes:       makeFiles(105), // files from 2MB to 106MB
+			numSkippedFiles: 50,
+			expected:        57 * mb, // k=50, 50th largest = 56th smallest (index 55) = 57MB
+		},
+		{
+			name:            "skipped 99 reduces k to 1 - returns largest",
+			fileSizes:       makeFiles(105),
+			numSkippedFiles: 99,
+			expected:        106 * mb, // k=1, returns the largest file
+		},
+		{
+			name:            "skipped >= 100 clamps k to 1",
+			fileSizes:       makeFiles(105),
+			numSkippedFiles: 100,
+			expected:        106 * mb, // k=max(100-100,1)=1, returns largest
+		},
+		{
+			name:            "skipped > 100 clamps k to 1",
+			fileSizes:       makeFiles(105),
+			numSkippedFiles: 200,
+			expected:        106 * mb,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := calculateTop100Size(tc.fileSizes, tc.numSkippedFiles)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
