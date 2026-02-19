@@ -116,7 +116,7 @@ Never use bare `go` statements. Always use the wrapper from `entities/errors/go_
 Uses `golangci-lint` v2 with `gofumpt` formatter. Key enabled linters: `bodyclose`, `errorlint`, `exhaustive`, `forbidigo` (no `fmt.Print*` or `println`), `gocritic` (deferInLoop), `misspell`, `nolintlint`.
 
 ### Logging
-We use logrus as logger. Always populate errors using using `.Error(err)` and do NOT use `WithError`.
+We use logrus as logger. Always populate errors using `.Error(err)` and do NOT use `WithError`.
 
 
 ### API Code Generation
