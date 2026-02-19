@@ -285,8 +285,23 @@ func TestGRPC(t *testing.T) {
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Results)
 		require.Len(t, resp.Results, 1)
-		require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
-		require.Equal(t, "978-0593099322", resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["isbn"].GetTextValue())
+
+		title := resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue()
+		require.Equal(t, "Dune", title)
+
+		isbn := resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["isbn"].GetTextValue()
+		require.Equal(t, "978-0593099322", isbn)
+
+		objText := resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["obj"].GetObjectValue().Fields["text"].GetTextValue()
+		require.Equal(t, "some text", objText)
+
+		objs := resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["objs"].GetListValue().GetObjectValues()
+		require.NotNil(t, objs)
+		require.Len(t, objs.Values, 1)
+		require.Equal(t, "some text", objs.Values[0].GetFields()["text"].GetTextValue())
+
+		_, ok := resp.Results[0].Properties.NonRefProps.Fields["reviews"]
+		require.False(t, ok)
 	})
 
 	t.Run("Aggregate", func(t *testing.T) {

@@ -712,7 +712,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrapf(err, "get property by name %v for class %v", normalizedRefPropName, className)
 			}
 			if !isNested(schemaProp.DataType) {
 				props = append(props, search.SelectProperty{
@@ -722,18 +722,9 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 				})
 				continue
 			}
-			nestedProps := make([]search.SelectProperty, 0, len(schemaProp.NestedProperties))
-			for _, nestedProp := range schemaProp.NestedProperties {
-				if isNested(nestedProp.DataType) {
-					// only return one level of nested properties implicitly
-					// deeper levels must be specified explicitly in the request using the objectProperties field
-					continue
-				}
-				nestedProps = append(nestedProps, search.SelectProperty{
-					Name:        nestedProp.Name,
-					IsPrimitive: true,
-					IsObject:    false,
-				})
+			nestedProps, err := getAllNonRefNonBlobNestedProperties(&Property{Property: schemaProp})
+			if err != nil {
+				return nil, errors.Wrapf(err, "get all non ref non blob nested properties for property %v", normalizedRefPropName)
 			}
 			props = append(props, search.SelectProperty{
 				Name:        normalizedRefPropName,

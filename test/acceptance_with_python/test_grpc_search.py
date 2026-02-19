@@ -183,7 +183,10 @@ def test_implicit_nested_object_return_props(collection_factory: CollectionFacto
     uuid = collection.data.insert({
         "name": "test",
         "nested": {
-            "nested_name": "nested_test"
+            "nested_name": "nested_test",
+            "nested_nested": {
+                "nested_nested_name": "nested_nested_test"
+            }
         }
     })
 
@@ -191,4 +194,4 @@ def test_implicit_nested_object_return_props(collection_factory: CollectionFacto
     assert obj["name"] == "test"
     assert isinstance(obj["nested"], dict)
     assert obj["nested"]["nested_name"] == "nested_test"
-    assert "nested_nested" not in obj["nested"]
+    assert obj["nested"]["nested_nested"]["nested_nested_name"] == "nested_nested_test"
