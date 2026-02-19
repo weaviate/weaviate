@@ -115,5 +115,10 @@ Never use bare `go` statements. Always use the wrapper from `entities/errors/go_
 ### Linter Configuration
 Uses `golangci-lint` v2 with `gofumpt` formatter. Key enabled linters: `bodyclose`, `errorlint`, `exhaustive`, `forbidigo` (no `fmt.Print*` or `println`), `gocritic` (deferInLoop), `misspell`, `nolintlint`.
 
+### Logging
+We use logrus as logger. Always populate errors using using `.Error(err)` and do NOT use `WithError`.
+
+
 ### API Code Generation
-REST API is generated from OpenAPI specs via go-swagger (`openapi-specs/`). gRPC is generated from protobuf definitions in `grpc/proto/` using `buf`.
+REST API is generated from OpenAPI specs via go-swagger (`openapi-specs/`). You can regenerate by running `./tools/gen-code-from-swagger.sh`.
+gRPC is generated from protobuf definitions in `grpc/proto/` using `buf`.
