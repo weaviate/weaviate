@@ -12,7 +12,6 @@
 package export
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -578,8 +577,7 @@ func (s *Scheduler) writeMetadata(_ context.Context, backend modulecapabilities.
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
 
-	reader := io.NopCloser(bytes.NewReader(data))
-	_, err = backend.Write(ctx, exportID, exportMetadataFile, bucket, path, reader)
+	_, err = backend.Write(ctx, exportID, exportMetadataFile, bucket, path, newBytesReadCloser(data))
 	return err
 }
 
@@ -590,8 +588,7 @@ func (s *Scheduler) writeExportPlan(ctx context.Context, backend modulecapabilit
 		return fmt.Errorf("marshal export plan: %w", err)
 	}
 
-	reader := io.NopCloser(bytes.NewReader(data))
-	_, err = backend.Write(ctx, exportID, exportPlanFile, bucket, path, reader)
+	_, err = backend.Write(ctx, exportID, exportPlanFile, bucket, path, newBytesReadCloser(data))
 	return err
 }
 

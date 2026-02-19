@@ -12,7 +12,6 @@
 package export
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -260,8 +259,7 @@ func (p *Participant) writeNodeStatus(_ context.Context, backend modulecapabilit
 		return
 	}
 
-	reader := io.NopCloser(bytes.NewReader(data))
-	if _, err := backend.Write(ctx, req.ID, key, req.Bucket, req.Path, reader); err != nil {
+	if _, err := backend.Write(ctx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
 		p.logger.WithField("action", "export").WithField("node", status.NodeName).Error(err)
 	}
 }

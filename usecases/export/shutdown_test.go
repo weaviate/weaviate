@@ -12,7 +12,6 @@
 package export
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -24,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/models"
@@ -249,7 +249,7 @@ type fakeBackend struct {
 	written map[string][]byte
 }
 
-func (b *fakeBackend) Write(_ context.Context, _, key, _, _ string, r io.ReadCloser) (int64, error) {
+func (b *fakeBackend) Write(_ context.Context, _, key, _, _ string, r backup.ReadCloserWithError) (int64, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return 0, err
@@ -467,7 +467,7 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", io.NopCloser(bytes.NewReader(data)))
+	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
 
 	resolver := &fakeNodeResolver{
 		nodes: map[string]string{
@@ -531,7 +531,7 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", io.NopCloser(bytes.NewReader(data)))
+	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
 
 	// node1 is no longer in the cluster
 	resolver := &fakeNodeResolver{

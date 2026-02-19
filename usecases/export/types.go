@@ -12,10 +12,25 @@
 package export
 
 import (
+	"bytes"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 )
+
+// newBytesReadCloser wraps data in a backup.ReadCloserWithError suitable for
+// BackupBackend.Write calls that write small blobs (metadata, status JSON).
+func newBytesReadCloser(data []byte) backup.ReadCloserWithError {
+	return &bytesReadCloser{Reader: bytes.NewReader(data)}
+}
+
+type bytesReadCloser struct {
+	*bytes.Reader
+}
+
+func (*bytesReadCloser) Close() error               { return nil }
+func (*bytesReadCloser) CloseWithError(error) error { return nil }
 
 // ShardProgress tracks the progress of exporting a single shard.
 // Used internally and in the S3 NodeStatus format.
