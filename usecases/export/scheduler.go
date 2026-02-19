@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/models"
@@ -627,14 +629,21 @@ func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilitie
 // checkIfExportExists checks if an export already exists in the backend
 func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) error {
 	if s.isMultiNode() {
-		if _, err := s.getExportPlan(ctx, backend, exportID, bucket, path); err == nil {
+		_, err := s.getExportPlan(ctx, backend, exportID, bucket, path)
+		if err == nil {
 			return fmt.Errorf("export %q already exists at %q", exportID, backend.HomeDir(exportID, bucket, path))
+		}
+		if !errors.As(err, &backup.ErrNotFound{}) {
+			return fmt.Errorf("check existing export: %w", err)
 		}
 		return nil
 	}
 
 	meta, err := s.getExportMetadata(ctx, backend, exportID, bucket, path)
 	if err != nil {
+		if !errors.As(err, &backup.ErrNotFound{}) {
+			return fmt.Errorf("check existing export: %w", err)
+		}
 		return nil
 	}
 
