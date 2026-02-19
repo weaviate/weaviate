@@ -282,23 +282,17 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
 		return err
 	}
 
-	maxErrors := 3
-	errsCount := 0
-	ecBatch := errorcompounder.New()
+	ec := errorcompounder.New()
 	for idx := range resp {
 		if err := resp[idx].Err; err != nil {
-			// limit number of returned errors to [maxErrors]
-			if errsCount < maxErrors {
-				errsCount++
-				ecBatch.Add(fmt.Errorf("%s: %w", resp[idx].UUID, err))
-			}
-		} else {
-			deleted++
+			ec.Add(fmt.Errorf("%s: %w", resp[idx].UUID, err))
+			continue
 		}
+		deleted++
 	}
 	countDeleted(deleted)
 
-	return ecBatch.ToError()
+	return ec.ToErrorLimited(3)
 }
 
 func (i *Index) findUUIDsForExpiredObjects(ctx context.Context,
