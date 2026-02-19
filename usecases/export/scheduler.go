@@ -422,6 +422,8 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 		}
 	}
 
+	status.Status = string(export.Success)
+
 	if err := s.writeMetadata(ctx, backend, exportID, bucket, path, status); err != nil {
 		s.logger.WithField("action", "export").
 			WithField("export_id", exportID).
@@ -432,7 +434,6 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 		return
 	}
 
-	status.Status = string(export.Success)
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
 		Info("export completed successfully")

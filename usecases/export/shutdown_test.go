@@ -571,3 +571,55 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	assert.Equal(t, string(export.Failed), status.ShardStatus["TestClass"]["shard1"].Status)
 	assert.Equal(t, int64(100), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
 }
+
+func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	// emptySelector returns no shards, so exportClass succeeds immediately
+	selector := &emptySelector{classList: []string{"TestClass"}}
+
+	s := &Scheduler{
+		shutdownCtx: context.Background(),
+		logger:      logger,
+		selector:    selector,
+		backends:    &fakeBackendProvider{backend: backend},
+	}
+
+	status := &models.ExportStatusResponse{
+		ID:      "test-export",
+		Backend: "s3",
+		Status:  string(export.Transferring),
+		Classes: []string{"TestClass"},
+	}
+
+	s.performSingleNodeExport(context.Background(), backend, "test-export", status, []string{"TestClass"}, "", "")
+
+	require.Equal(t, string(export.Success), status.Status)
+
+	written := backend.getWritten(exportMetadataFile)
+	require.NotNil(t, written, "expected metadata to be written")
+
+	var meta ExportMetadata
+	require.NoError(t, json.Unmarshal(written, &meta))
+	assert.Equal(t, export.Success, meta.Status)
+	assert.Empty(t, meta.Error)
+}
+
+// emptySelector returns no shards for any class, allowing exportClass to
+// complete immediately without needing real store/parquet infrastructure.
+type emptySelector struct {
+	classList []string
+}
+
+func (s *emptySelector) GetShardsForClass(context.Context, string) ([]ShardLike, error) {
+	return nil, nil
+}
+
+func (s *emptySelector) ListClasses(context.Context) []string {
+	return s.classList
+}
+
+func (s *emptySelector) ShardOwnership(context.Context, string) (map[string][]string, error) {
+	return nil, nil
+}
