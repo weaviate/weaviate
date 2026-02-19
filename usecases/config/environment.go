@@ -981,6 +981,8 @@ func FromEnv(config *Config) error {
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
+	config.MuveraRescoreLimit = configRuntime.NewDynamicValue(0)
+
 	return nil
 }
 

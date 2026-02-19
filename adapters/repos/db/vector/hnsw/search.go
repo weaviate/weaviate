@@ -955,6 +955,15 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 		}
 	}
 
+	// Compute the per-candidate vector budget for strided sampling.
+	// 0 means no limit (use all vectors).
+	vectorsPerCandidate := 0
+	if h.muvera.Load() && h.muveraRescoreLimit != nil {
+		if limit := h.muveraRescoreLimit.Get(); limit > 0 && len(ids) > 0 {
+			vectorsPerCandidate = max(1, limit/len(ids))
+		}
+	}
+
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
 		workerID := workerID
@@ -967,7 +976,7 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 					return fmt.Errorf("computeLateInteraction: %w", err)
 				}
 				docID := ids[idPos]
-				sim, err := h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
+				sim, err := h.computeScoreWithView(ctx, queryVectors, docID, slice, view, vectorsPerCandidate)
 				if err != nil {
 					h.logger.
 						WithField("action", "computeLateInteraction").
@@ -1051,18 +1060,26 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	return similarity, nil
 }
 
-func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32, docID uint64, slice *common.VectorSlice, view common.BucketView) (float32, error) {
+func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32, docID uint64, slice *common.VectorSlice, view common.BucketView, maxDocVecs int) (float32, error) {
 	docVecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
 	if err != nil {
 		return 0, errors.Wrap(err, "get vectors for docID")
+	}
+
+	// Determine stride for deterministic sampling. A stride > 1 is only used
+	// when the caller imposed a per-candidate budget and the document has more
+	// vectors than that budget.
+	step := 1
+	if maxDocVecs > 0 && len(docVecs) > maxDocVecs {
+		step = len(docVecs) / maxDocVecs
 	}
 
 	similarity := float32(0.0)
 	for _, searchVec := range searchVecs {
 		maxSim := float32(math.MaxFloat32)
 		dist := h.multiDistancerProvider.New(searchVec)
-		for _, docVec := range docVecs {
-			d, err := dist.Distance(docVec)
+		for i := 0; i < len(docVecs); i += step {
+			d, err := dist.Distance(docVecs[i])
 			if err != nil {
 				return 0, errors.Wrap(err, "calculate distance")
 			}

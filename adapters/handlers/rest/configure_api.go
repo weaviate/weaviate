@@ -428,6 +428,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
+		MuveraRescoreLimit:                           appState.ServerConfig.Config.MuveraRescoreLimit,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		SPFreshEnabled:                               appState.ServerConfig.Config.SPFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
@@ -1959,6 +1960,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.MuveraRescoreLimit = appState.ServerConfig.Config.MuveraRescoreLimit
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
