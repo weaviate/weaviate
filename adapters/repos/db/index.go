@@ -2963,7 +2963,7 @@ func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, ta
 	if shard == nil {
 		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 	}
-	return shard.UpdateStatus(targetStatus, "manually set by user")
+	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -2977,7 +2977,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 		return fmt.Errorf("shard %s does not exist locally", shardName)
 	}
 
-	return shard.UpdateStatus(targetStatus, "manually set by user")
+	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
