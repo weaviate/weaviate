@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -57,6 +58,8 @@ type Config struct {
 	ClassName string
 
 	VisitedListPoolMaxSize int
+
+	MuveraRescoreLimit *configRuntime.DynamicValue[int]
 }
 
 func (c Config) Validate() error {
