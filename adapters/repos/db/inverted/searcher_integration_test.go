@@ -356,11 +356,7 @@ func TestDocIDs(t *testing.T) {
 	for _, tc := range tests {
 		allow, err := searcher.DocIDs(context.Background(), &tc.filter, additional.Properties{}, className)
 		require.Nil(t, err)
-		if allow.IsDenyList() {
-			assert.Equal(t, tc.expectedMatches, numObjects-allow.Len())
-		} else {
-			assert.Equal(t, tc.expectedMatches, allow.Len())
-		}
+		assert.Equal(t, tc.expectedMatches, allow.Len())
 		allow.Close()
 	}
 }
