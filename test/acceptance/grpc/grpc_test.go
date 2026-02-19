@@ -267,6 +267,28 @@ func TestGRPC(t *testing.T) {
 		require.Len(t, resp.GroupByResults, 1)
 	})
 
+	t.Run("Search returning nested objects implicitly", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			Properties: &pb.PropertiesRequest{
+				NonRefProperties: []string{"title", "meta"},
+			},
+			NearText: &pb.NearTextSearch{
+				Query: []string{"Dune"},
+			},
+			Limit:       1,
+			Uses_123Api: true,
+			Uses_125Api: true,
+			Uses_127Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Results)
+		require.Len(t, resp.Results, 1)
+		require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
+		require.Equal(t, "978-0593099322", resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["isbn"].GetTextValue())
+	})
+
 	t.Run("Aggregate", func(t *testing.T) {
 		resp, err := grpcClient.Aggregate(context.TODO(), &pb.AggregateRequest{
 			Collection:   booksClass.Class,

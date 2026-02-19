@@ -674,6 +674,10 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
+func isNested(dataType []string) bool {
+	return len(dataType) == 1 && schema.IsNested(schema.DataType(dataType[0]))
+}
+
 func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
@@ -685,6 +689,11 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
 		return nonRefProps, nil
+	}
+
+	class, err := authorizedGetClass(className)
+	if err != nil {
+		return nil, err
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
@@ -700,20 +709,42 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 		// This catches the case where users send an empty list of non ref properties as their request,
 		// i.e. they want no non-ref properties
 		for _, prop := range reqProps.NonRefProperties {
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
+			if err != nil {
+				return nil, err
+			}
+			if !isNested(schemaProp.DataType) {
+				props = append(props, search.SelectProperty{
+					Name:        normalizedRefPropName,
+					IsPrimitive: true,
+					IsObject:    false,
+				})
+				continue
+			}
+			nestedProps := make([]search.SelectProperty, 0, len(schemaProp.NestedProperties))
+			for _, nestedProp := range schemaProp.NestedProperties {
+				if isNested(nestedProp.DataType) {
+					// only return one level of nested properties implicitly
+					// deeper levels must be specified explicitly in the request using the objectProperties field
+					continue
+				}
+				nestedProps = append(nestedProps, search.SelectProperty{
+					Name:        nestedProp.Name,
+					IsPrimitive: true,
+					IsObject:    false,
+				})
+			}
 			props = append(props, search.SelectProperty{
-				Name:        schema.LowercaseFirstLetter(prop),
-				IsPrimitive: true,
-				IsObject:    false,
+				Name:        normalizedRefPropName,
+				IsPrimitive: false,
+				IsObject:    true,
+				Props:       nestedProps,
 			})
 		}
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		class, err := authorizedGetClass(className)
-		if err != nil {
-			return nil, err
-		}
-
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
