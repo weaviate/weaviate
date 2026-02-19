@@ -61,12 +61,13 @@ func (e *exports) statusHandler() http.HandlerFunc {
 
 func (e *exports) executeHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, fmt.Errorf("read request body: %w", err).Error(), http.StatusInternalServerError)
 			return
 		}
-		defer r.Body.Close()
 
 		var req export.ExportRequest
 		if err := json.Unmarshal(body, &req); err != nil {
