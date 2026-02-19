@@ -355,9 +355,13 @@ type QueryDefaults struct {
 // DefaultBackupMinChunkSize is the default minimum size for backup chunks
 const DefaultBackupMinChunkSize = 1024 * 1024 // 1MB
 
+// DefaultBackupChunkTargetSize is the default target size for packing small files into chunks
+const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
+
 // Backup contains backup-related configuration
 type Backup struct {
-	MinChunkSize int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
+	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
+	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

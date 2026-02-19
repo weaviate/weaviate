@@ -499,10 +499,11 @@ func (u *uploader) compress(ctx context.Context,
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 
-	// use the size of the 100th biggest file in the shard as the target chunk size, with a minimum of MinChunkSize.
-	// Files above this threshold will be compressed in their own chunk, while files below this threshold will be grouped together.
-	chunkTargetSize := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize)
+	// minIndividualFileSize determines which files are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together.
+	minIndividualFileSize := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
+	chunkTargetSize := u.cfg.ChunkTargetSize
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, minIndividualFileSize)
 	if err != nil {
 		return shards, preCompressionSize.Load(), err
 	}
