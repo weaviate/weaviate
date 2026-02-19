@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,7 +40,9 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
-func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter, db *db.DB, logger logrus.FieldLogger, clusterClient *http.Client, nodeResolver nodeResolver) *Coordinator {
+func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter, db *db.DB,
+	logger logrus.FieldLogger, clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
+) *Coordinator {
 	return &Coordinator{
 		schemaReader:     schemaReader,
 		schemaGetter:     schemaGetter,
@@ -49,6 +52,7 @@ func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.Sc
 		db:               db,
 		objectTTLOngoing: atomic.Bool{},
 		remoteObjectTTL:  newRemoteObjectTTL(clusterClient, nodeResolver),
+		localStatus:      localStatus,
 	}
 }
 
@@ -62,6 +66,7 @@ type Coordinator struct {
 	clusterClient     *http.Client
 	nodeResolver      nodeResolver
 	remoteObjectTTL   *remoteObjectTTL
+	localStatus       *LocalStatus
 }
 
 // Start triggers the deletion of expired objects.
@@ -134,9 +139,79 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 	return c.triggerDeletionObjectsExpiredRemoteNode(ctx, classesWithTTL, ttlTime, deletionTime, remoteNodeSelected)
 }
 
+func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, error) {
+	localNode := c.schemaGetter.NodeName()
+	allNodes := c.schemaGetter.Nodes()
+
+	var remoteNodes []string
+	if !targetOwnNode {
+		remoteNodes = make([]string, 0, len(allNodes))
+		for _, node := range allNodes {
+			if node != localNode {
+				remoteNodes = append(remoteNodes, node)
+			}
+		}
+	}
+
+	localAborted := c.localStatus.ResetRunning("aborted")
+
+	// abort just on local node
+	if targetOwnNode || len(remoteNodes) == 0 {
+		c.logger.WithFields(logrus.Fields{
+			"action":  "objects_ttl_deletion",
+			"aborted": localAborted,
+			"node":    localNode,
+		}).Warn("abort ttl deletion on local node")
+		return localAborted, nil
+	}
+
+	// abort also on all remote nodes
+	ec := errorcompounder.NewSafe()
+	eg := enterrors.NewErrorGroupWrapper(c.logger)
+	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
+
+	abortedNodes := make(map[string]bool, len(remoteNodes)+1)
+	abortedNodes[localNode] = localAborted
+	anyAborted := localAborted
+
+	for _, nodeName := range remoteNodes {
+		eg.Go(func() error {
+			aborted, err := c.remoteObjectTTL.AbortRemoteDelete(ctx, nodeName)
+			if err != nil {
+				ec.AddGroups(err, nodeName)
+			}
+			anyAborted = anyAborted || aborted
+			abortedNodes[nodeName] = aborted
+			return nil
+		})
+	}
+	eg.Wait()
+	err := ec.ToError()
+
+	l := c.logger.WithFields(logrus.Fields{
+		"action":  "objects_ttl_deletion",
+		"aborted": anyAborted,
+		"nodes":   abortedNodes,
+	})
+	if err != nil {
+		l.WithError(err)
+	}
+	l.Warn("abort ttl deletion on all nodes")
+
+	if anyAborted {
+		return true, nil
+	}
+	return false, ec.ToError()
+}
+
 func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, classesWithTTL map[string]objectTTLAndVersion,
 	ttlTime, deletionTime time.Time,
 ) (err error) {
+	ok, deleteCtx := c.localStatus.SetRunning()
+	if !ok {
+		return fmt.Errorf("another request is still being processed")
+	}
+
 	started := time.Now()
 
 	metrics := monitoring.GetMetrics()
@@ -187,7 +262,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		objsDeletedCounters[name] = &atomic.Int32{}
 		countDeleted := func(count int32) { objsDeletedCounters[name].Add(count) }
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
-		c.db.DeleteExpiredObjects(ctx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
+		c.db.DeleteExpiredObjects(deleteCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
 	}
 
 	eg.Wait() // ignore errors from eg as they are already collected in ec
@@ -217,6 +292,20 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 		l.Info("ttl deletion on remote node finished")
 	}()
 
+	// check if deletion is running on the last node we picked
+	if c.objectTTLLastNode != "" {
+		l := l.WithField("last_node", c.objectTTLLastNode)
+
+		ttlOngoing, err := c.remoteObjectTTL.CheckIfStillRunning(ctx, c.objectTTLLastNode)
+		if err != nil {
+			l.Errorf("Checking objectTTL running status failed: %v", err)
+			// proceed with deletion
+		} else if ttlOngoing {
+			l.Warn("ObjectTTL is still running, skipping this round")
+			return nil // deletion for collection still running, skip this round
+		}
+	}
+
 	ttlCollections := make([]ObjectsExpiredPayload, 0, len(classesWithTTL))
 	for name, collection := range classesWithTTL {
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
@@ -228,19 +317,6 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 			TtlMilli:     ttlThreshold.UnixMilli(),
 			DelMilli:     deletionTime.UnixMilli(),
 		})
-	}
-
-	// check if deletion is running on the last node we picked
-	if c.objectTTLLastNode != "" {
-		l := l.WithField("last_node", c.objectTTLLastNode)
-
-		ttlOngoing, err := c.remoteObjectTTL.CheckIfStillRunning(ctx, c.objectTTLLastNode)
-		if err != nil {
-			l.Errorf("Checking objectTTL running status failed: %v", err)
-		} else if ttlOngoing {
-			l.Warn("ObjectTTL is still running, skipping this round")
-			return nil // deletion for collection still running, skip this round
-		}
 	}
 
 	c.objectTTLLastNode = node
@@ -298,6 +374,10 @@ func (c *remoteObjectTTL) CheckIfStillRunning(ctx context.Context, nodeName stri
 		return false, enterrors.NewErrUnmarshalBody(err)
 	}
 
+	if ct, ok := stillRunning.CheckContentTypeHeader(res); !ok {
+		return false, enterrors.NewErrUnexpectedContentType(ct)
+	}
+
 	return stillRunning.DeletionOngoing, nil
 }
 
@@ -334,6 +414,44 @@ func (c *remoteObjectTTL) StartRemoteDelete(ctx context.Context, nodeName string
 	return nil
 }
 
+func (c *remoteObjectTTL) AbortRemoteDelete(ctx context.Context, nodeName string) (bool, error) {
+	p := "/cluster/object_ttl/abort"
+	hostName, found := c.nodeResolver.NodeHostname(nodeName)
+	if !found {
+		return false, fmt.Errorf("unable to resolve hostname for %s", nodeName)
+	}
+
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: p}
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return false, enterrors.NewErrOpenHttpRequest(err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return false, enterrors.NewErrSendHttpRequest(err)
+	}
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		return false, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
+	}
+
+	var abortedResponse ObjectsExpiredAbortResponse
+	err = json.Unmarshal(body, &abortedResponse)
+	if err != nil {
+		return false, enterrors.NewErrUnmarshalBody(err)
+	}
+
+	if ct, ok := abortedResponse.CheckContentTypeHeader(res); !ok {
+		return false, enterrors.NewErrUnexpectedContentType(ct)
+	}
+
+	return abortedResponse.Aborted, nil
+}
+
 type DeletedCounters map[string]*atomic.Int32
 
 func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.Fields, total int32) {
@@ -356,4 +474,55 @@ func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.F
 	}
 	fields["total_deleted"] = total
 	return fields, total
+}
+
+// ----------------------------------------------------------------------------
+
+type LocalStatus struct {
+	lock          *sync.Mutex
+	isRunning     bool
+	runningCtx    context.Context
+	runningCancel context.CancelCauseFunc
+}
+
+func NewLocalStatus() *LocalStatus {
+	return &LocalStatus{
+		lock:      new(sync.Mutex),
+		isRunning: false,
+	}
+}
+
+func (s *LocalStatus) IsRunning() bool {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	return s.isRunning
+}
+
+func (s *LocalStatus) SetRunning() (success bool, ctx context.Context) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if s.isRunning {
+		return false, nil
+	}
+
+	s.isRunning = true
+	s.runningCtx, s.runningCancel = context.WithCancelCause(context.Background())
+	return true, s.runningCtx
+}
+
+func (s *LocalStatus) ResetRunning(cause string) (success bool) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if !s.isRunning {
+		return false
+	}
+
+	s.runningCancel(enterrors.NewCanceledCause(cause))
+
+	s.isRunning = false
+	s.runningCtx, s.runningCancel = nil, nil
+	return true
 }

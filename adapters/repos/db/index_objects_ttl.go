@@ -29,18 +29,25 @@ import (
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 )
 
-func (i *Index) IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
+func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
+	// TODO aliszka:ttl find better way to merge contexts / use single context
+	mergedCtx, mergedCancel := context.WithCancelCause(ctx)
+	enterrors.GoWrapper(func() {
+		<-i.closingCtx.Done()
+		mergedCancel(context.Cause(i.closingCtx))
+	}, i.logger)
+
 	// use closing context to stop long-running TTL deletions in case index is closed
-	i.incomingDeleteObjectsExpired(i.closingCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
+	i.incomingDeleteObjectsExpired(mergedCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
 }
 
 func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
 	class := i.getClass()
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		ec.AddGroups(err, class.Class)
 		return
 	}
@@ -63,17 +70,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	// deletion process happens to run on that node again, the object will be deleted then.
 	replProps := defaultConsistency()
 
-	sleepWithCtx := func(ctx context.Context, d time.Duration) (val time.Time, err error) {
-		timer := time.NewTimer(d)
-		select {
-		case t := <-timer.C:
-			return t, nil
-		case <-ctx.Done():
-			timer.Stop()
-			return time.Time{}, ctx.Err()
-		}
-	}
-
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
 		if err != nil {
@@ -90,7 +86,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				processedBatches := 0
 				// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 				for {
-					if err := ctx.Err(); err != nil {
+					if err := context.Cause(ctx); err != nil {
 						ec.AddGroups(err, class.Class, tenant)
 						return nil
 					}
@@ -139,7 +135,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						t1 := time.Now()
 						t2, err := sleepWithCtx(ctx, pauseDuration)
 						if err != nil {
-							ec.AddGroups(ctx.Err(), class.Class, tenant)
+							ec.AddGroups(err, class.Class, tenant)
 							return nil
 						}
 						i.logger.WithFields(logrus.Fields{
@@ -162,7 +158,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		processedBatches := 0
 		// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 		for {
-			if err := ctx.Err(); err != nil {
+			if err := context.Cause(ctx); err != nil {
 				ec.AddGroups(err, class.Class)
 				return nil
 			}
@@ -222,7 +218,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				t1 := time.Now()
 				t2, err := sleepWithCtx(ctx, pauseDuration)
 				if err != nil {
-					ec.AddGroups(ctx.Err(), class.Class)
+					ec.AddGroups(err, class.Class)
 					return nil
 				}
 				i.logger.WithFields(logrus.Fields{
@@ -346,4 +342,15 @@ func (i *Index) findUUIDsForExpiredObjects(ctx context.Context,
 	}()
 
 	return i.findUUIDs(ctx, filters, tenant, repl, perShardLimit)
+}
+
+func sleepWithCtx(ctx context.Context, d time.Duration) (val time.Time, err error) {
+	timer := time.NewTimer(d)
+	select {
+	case t := <-timer.C:
+		return t, nil
+	case <-ctx.Done():
+		timer.Stop()
+		return time.Time{}, context.Cause(ctx)
+	}
 }

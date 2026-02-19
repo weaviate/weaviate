@@ -1114,12 +1114,7 @@ func setupDebugHandlers(appState *state.State) {
 			expirationTime = time.Now()
 		}
 
-		targetOwnNode := false
-		if targetOwnNodeStr != "" {
-			if targetOwnNodeStr == "true" {
-				targetOwnNode = true
-			}
-		}
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
 
 		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
 		if err != nil {
@@ -1128,6 +1123,19 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
+
+		aborted, err := appState.ObjectTTLCoordinator.Abort(context.Background(), targetOwnNode)
+		if err != nil {
+			http.Error(w, "failed to abort expired objects deletion", http.StatusInternalServerError)
+			return
+		}
+
+		w.Write([]byte(fmt.Sprint(aborted)))
 	}))
 
 	// Debug endpoint to hold/release/check a consistent view of segments on a bucket.
