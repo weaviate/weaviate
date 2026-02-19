@@ -30,6 +30,7 @@ import (
 //
 // swagger:model ShardProgress
 type ShardProgress struct {
+
 	// Error message if this shard's export failed
 	Error string `json:"error,omitempty"`
 
