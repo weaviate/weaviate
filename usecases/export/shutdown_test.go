@@ -280,7 +280,7 @@ func (b *fakeBackend) GetObject(_ context.Context, _ string, key string, _, _ st
 	if data, ok := b.written[key]; ok {
 		return data, nil
 	}
-	return nil, fmt.Errorf("not found: %s", key)
+	return nil, backup.NewErrNotFound(fmt.Errorf("not found: %s", key))
 }
 
 func (b *fakeBackend) IsExternal() bool       { return true }
