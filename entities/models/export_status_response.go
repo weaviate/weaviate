@@ -56,8 +56,8 @@ type ExportStatusResponse struct {
 	// Enum: [STARTED TRANSFERRING SUCCESS FAILED]
 	Status string `json:"status,omitempty"`
 
-	// Duration of the export from start to the last node finishing, e.g. '2m30s'
-	Took string `json:"took,omitempty"`
+	// Duration of the export in seconds
+	TookInS int64 `json:"tookInS,omitempty"`
 }
 
 // Validate validates this export status response

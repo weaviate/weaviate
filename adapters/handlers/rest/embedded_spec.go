@@ -7452,9 +7452,10 @@ func init() {
             "FAILED"
           ]
         },
-        "took": {
-          "description": "Duration of the export from start to the last node finishing, e.g. '2m30s'",
-          "type": "string"
+        "tookInS": {
+          "description": "Duration of the export in seconds",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -17528,9 +17529,10 @@ func init() {
             "FAILED"
           ]
         },
-        "took": {
-          "description": "Duration of the export from start to the last node finishing, e.g. '2m30s'",
-          "type": "string"
+        "tookInS": {
+          "description": "Duration of the export in seconds",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

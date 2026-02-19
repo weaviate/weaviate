@@ -196,7 +196,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if !meta.CompletedAt.IsZero() {
-		es.Took = meta.CompletedAt.Sub(meta.StartedAt).String()
+		es.TookInS = int64(meta.CompletedAt.Sub(meta.StartedAt).Seconds())
 	}
 
 	return es, nil
@@ -304,7 +304,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 	}
 
 	if !lastCompleted.IsZero() && (allSuccess || anyFailed) {
-		status.Took = lastCompleted.Sub(plan.StartedAt).String()
+		status.TookInS = int64(lastCompleted.Sub(plan.StartedAt).Seconds())
 	}
 
 	return status, nil

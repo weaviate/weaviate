@@ -718,9 +718,10 @@
           "format": "date-time",
           "description": "When the export started"
         },
-        "took": {
-          "type": "string",
-          "description": "Duration of the export from start to the last node finishing, e.g. '2m30s'"
+        "tookInS": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Duration of the export in seconds"
         },
         "classes": {
           "type": "array",
