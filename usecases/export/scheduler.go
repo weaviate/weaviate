@@ -171,7 +171,19 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	if s.isMultiNode() {
 		plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
 		if err != nil {
-			return nil, fmt.Errorf("export %s not found: %w", id, err)
+			// Plan may not exist if the export failed before/during plan writing.
+			// Fall back to reading the metadata file which may contain the FAILED state.
+			meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+			if metaErr != nil {
+				return nil, fmt.Errorf("export %s not found: %w", id, err)
+			}
+			// Missing plan is always a failure — override the status and preserve
+			// any error already recorded in the metadata.
+			meta.Status = export.Failed
+			if meta.Error == "" {
+				meta.Error = fmt.Sprintf("export plan not found: %v", err)
+			}
+			return s.statusFromMetadata(backendStore, id, bucket, path, meta)
 		}
 		return s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
 	}
@@ -185,10 +197,16 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
+	return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+}
+
+// statusFromMetadata builds an ExportStatusResponse from an ExportMetadata record.
+// Used for single-node exports and as a fallback when the multi-node plan is missing.
+func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend, id, bucket, path string, meta *ExportMetadata) (*models.ExportStatusResponse, error) {
 	es := &models.ExportStatusResponse{
 		ID:        meta.ID,
 		Backend:   meta.Backend,
-		Path:      backendStore.HomeDir(id, bucket, path),
+		Path:      backend.HomeDir(id, bucket, path),
 		Status:    string(meta.Status),
 		StartedAt: strfmt.DateTime(meta.StartedAt),
 		Classes:   meta.Classes,
@@ -632,29 +650,31 @@ func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilitie
 	return &status, nil
 }
 
-// checkIfExportExists checks if an export already exists in the backend
+// checkIfExportExists checks if an export already exists in the backend by
+// looking for any known artifact (metadata or plan). If either file exists the
+// export folder is considered occupied regardless of its status.
 func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) error {
+	home := backend.HomeDir(exportID, bucket, path)
+
+	// Check metadata file — written in both single-node and multi-node paths.
+	_, err := s.getExportMetadata(ctx, backend, exportID, bucket, path)
+	if err == nil {
+		return fmt.Errorf("export %q already exists at %q", exportID, home)
+	}
+	if !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("check existing export: %w", err)
+	}
+
+	// In multi-node mode also check the plan file, which is written before
+	// metadata in the happy path.
 	if s.isMultiNode() {
 		_, err := s.getExportPlan(ctx, backend, exportID, bucket, path)
 		if err == nil {
-			return fmt.Errorf("export %q already exists at %q", exportID, backend.HomeDir(exportID, bucket, path))
+			return fmt.Errorf("export %q already exists at %q", exportID, home)
 		}
 		if !errors.As(err, &backup.ErrNotFound{}) {
 			return fmt.Errorf("check existing export: %w", err)
 		}
-		return nil
-	}
-
-	meta, err := s.getExportMetadata(ctx, backend, exportID, bucket, path)
-	if err != nil {
-		if !errors.As(err, &backup.ErrNotFound{}) {
-			return fmt.Errorf("check existing export: %w", err)
-		}
-		return nil
-	}
-
-	if meta.Status == export.Success || meta.Status == export.Transferring || meta.Status == export.Started {
-		return fmt.Errorf("export %q already exists at %q", exportID, backend.HomeDir(exportID, bucket, path))
 	}
 
 	return nil
