@@ -30,6 +30,8 @@ type AllowList interface {
 
 	IsEmpty() bool
 	Len() int
+	Cardinality() int
+
 	Min() uint64
 	Max() uint64
 	Size() uint64
@@ -126,6 +128,10 @@ func (al *BitmapAllowList) Len() int {
 			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
 		}
 	}
+	return al.Cardinality()
+}
+
+func (al *BitmapAllowList) Cardinality() int {
 	return al.Bm.GetCardinality()
 }
 

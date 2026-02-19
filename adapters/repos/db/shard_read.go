@@ -409,7 +409,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		took := time.Since(beforeFilter)
 		s.metrics.FilteredVectorFilter(took)
 		helpers.AnnotateSlowQueryLog(ctx, "filters_build_allow_list_took", took)
-		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Len())
+		helpers.AnnotateSlowQueryLog(ctx, "filters_ids_matched", allowList.Cardinality())
+		helpers.AnnotateSlowQueryLog(ctx, "filters_is_deny_list", allowList.IsDenyList())
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)

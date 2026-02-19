@@ -95,7 +95,8 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	}
 	defer allowList.Close()
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_took", time.Since(beforeFilters))
-	helpers.AnnotateSlowQueryLog(ctx, "allow_list_doc_ids_count", allowList.Len())
+	helpers.AnnotateSlowQueryLog(ctx, "allow_list_doc_ids_count", allowList.Cardinality())
+	helpers.AnnotateSlowQueryLog(ctx, "allow_list_is_deny_list", allowList.IsDenyList())
 
 	var it docIDsIterator
 	if len(sort) > 0 {

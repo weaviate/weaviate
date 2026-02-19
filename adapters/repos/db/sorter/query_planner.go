@@ -111,7 +111,11 @@ func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList,
 	if ids == nil {
 		matches = totalObjects
 	} else {
-		matches = ids.Len()
+		if ids.IsDenyList() {
+			matches = totalObjects - ids.Cardinality()
+		} else {
+			matches = ids.Cardinality()
+		}
 	}
 	var filterMatchRatio float64
 	if totalObjects == 0 {

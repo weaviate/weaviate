@@ -92,6 +92,14 @@ func (al *wrappedAllowList) Len() int {
 	return al.allowList.Len() + al.wAllowList.Len()
 }
 
+func (al *wrappedAllowList) Cardinality() int {
+	if al.allowList == nil {
+		return al.wAllowList.Cardinality()
+	}
+
+	return al.allowList.Cardinality() + al.wAllowList.Cardinality()
+}
+
 func (al *wrappedAllowList) Min() uint64 {
 	if al.allowList == nil {
 		return al.wAllowList.Min()

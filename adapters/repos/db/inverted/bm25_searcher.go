@@ -119,7 +119,8 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	}
 	end := time.Since(start)
 	if filterDocIds != nil {
-		helpers.AnnotateSlowQueryLog(ctx, "kwd_filter_size", filterDocIds.Len())
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_filter_size", filterDocIds.Cardinality())
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_filter_is_deny_list", filterDocIds.IsDenyList())
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_method", method)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_time", end)

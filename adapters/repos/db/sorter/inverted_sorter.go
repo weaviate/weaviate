@@ -382,7 +382,11 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 		// no allow-list, so we assume all IDs match
 		matchRate = 1.0
 	} else {
-		matchRate = float64(ids.Len()) / float64(totalCount)
+		size := ids.Cardinality()
+		if ids.IsDenyList() {
+			size = totalCount - size
+		}
+		matchRate = float64(size) / float64(totalCount)
 	}
 
 	estimatedRowsHit := max(1, int(float64(limit)/matchRate*2)) // safety factor of 20
