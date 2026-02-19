@@ -500,9 +500,9 @@ func (u *uploader) compress(ctx context.Context,
 	)
 
 	// minIndividualFileSize determines which files are "big" and get their own chunk (tracked for incremental dedup).
-	// chunkTargetSize controls the max size when packing small files together.
+	// chunkTargetSize controls the max size when packing small files together; it must be at least minIndividualFileSize.
 	minIndividualFileSize := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
-	chunkTargetSize := u.cfg.ChunkTargetSize
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, minIndividualFileSize)
 	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, minIndividualFileSize)
 	if err != nil {
 		return shards, preCompressionSize.Load(), err
