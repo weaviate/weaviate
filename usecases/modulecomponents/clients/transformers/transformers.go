@@ -218,3 +218,90 @@ func (c *Client) MetaInfo(endpoint string) (map[string]any, error) {
 	}
 	return resBody, nil
 }
+
+// ============================================================================
+// BATCH VECTORIZATION SUPPORT
+// ============================================================================
+
+// vecBatchRequest is the request format for batch vectorization.
+type vecBatchRequest struct {
+	Texts  []string         `json:"texts"`
+	Config vecRequestConfig `json:"config,omitempty"`
+}
+
+// vecBatchResponse is the response format for batch vectorization.
+type vecBatchResponse struct {
+	Vectors [][]float32 `json:"vectors"`
+	Dims    int         `json:"dims"`
+	Error   string      `json:"error,omitempty"`
+}
+
+// VectorizeObjects sends all texts in a single HTTP batch request for passage/document vectorization.
+// Requires an inference server that supports batch format: {"texts": [...]}
+func (c *Client) VectorizeObjects(ctx context.Context, inputs []string,
+	config VectorizationConfig,
+) ([][]float32, error) {
+	return c.vectorizeBatch(ctx, inputs, config, c.urlBuilder.GetPassageURL, passage)
+}
+
+// VectorizeQueries sends all texts in a single HTTP batch request for query vectorization.
+// Requires an inference server that supports batch format: {"texts": [...]}
+func (c *Client) VectorizeQueries(ctx context.Context, inputs []string,
+	config VectorizationConfig,
+) ([][]float32, error) {
+	return c.vectorizeBatch(ctx, inputs, config, c.urlBuilder.GetQueryURL, query)
+}
+
+func (c *Client) vectorizeBatch(ctx context.Context, inputs []string,
+	config VectorizationConfig, url func(string, VectorizationConfig) string,
+	task taskType,
+) ([][]float32, error) {
+	if len(inputs) == 0 {
+		return [][]float32{}, nil
+	}
+
+	body, err := json.Marshal(vecBatchRequest{
+		Texts: inputs,
+		Config: vecRequestConfig{
+			PoolingStrategy: config.PoolingStrategy,
+			TaskType:        task,
+			Dimensions:      config.Dimensions,
+		},
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal batch body")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url("/vectors", config),
+		bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.Wrap(err, "create batch POST request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "send batch POST request")
+	}
+	defer res.Body.Close()
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read batch response body")
+	}
+
+	var resBody vecBatchResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrapf(err, "unmarshal batch response body. Got: %s", string(bodyBytes))
+	}
+
+	if res.StatusCode != 200 {
+		return nil, errors.Errorf("batch vectorize failed with status %d: %s", res.StatusCode, resBody.Error)
+	}
+
+	if len(resBody.Vectors) != len(inputs) {
+		return nil, errors.Errorf("expected %d vectors, got %d", len(inputs), len(resBody.Vectors))
+	}
+
+	return resBody.Vectors, nil
+}
