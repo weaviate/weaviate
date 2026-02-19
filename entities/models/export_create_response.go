@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -44,6 +45,10 @@ type ExportCreateResponse struct {
 	// When the export started
 	// Format: date-time
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
+
+	// Current status of the export
+	// Enum: [STARTED]
+	Status string `json:"status,omitempty"`
 }
 
 // Validate validates this export create response
@@ -51,6 +56,10 @@ func (m *ExportCreateResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStatus(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -66,6 +75,45 @@ func (m *ExportCreateResponse) validateStartedAt(formats strfmt.Registry) error 
 	}
 
 	if err := validate.FormatOf("startedAt", "body", "date-time", m.StartedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var exportCreateResponseTypeStatusPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["STARTED"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		exportCreateResponseTypeStatusPropEnum = append(exportCreateResponseTypeStatusPropEnum, v)
+	}
+}
+
+const (
+
+	// ExportCreateResponseStatusSTARTED captures enum value "STARTED"
+	ExportCreateResponseStatusSTARTED string = "STARTED"
+)
+
+// prop value enum
+func (m *ExportCreateResponse) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, exportCreateResponseTypeStatusPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ExportCreateResponse) validateStatus(formats strfmt.Registry) error {
+	if swag.IsZero(m.Status) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
 		return err
 	}
 

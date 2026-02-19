@@ -49,7 +49,7 @@ func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
 	}
 
 	// Start export
-	status, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude, bucket, path)
+	resp, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude, bucket, path)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
@@ -63,7 +63,7 @@ func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
 	}
 
 	h.metricRequestsTotal.logOk("")
-	return exports.NewExportsCreateOK().WithPayload(statusToCreateResponse(status))
+	return exports.NewExportsCreateOK().WithPayload(resp)
 }
 
 // exportStatus handles GET /v1/export/{backend}/{id}
@@ -96,17 +96,6 @@ func (h *exportHandlers) exportStatus(params exports.ExportsStatusParams,
 
 	h.metricRequestsTotal.logOk("")
 	return exports.NewExportsStatusOK().WithPayload(status)
-}
-
-// statusToCreateResponse converts ExportStatusResponse to ExportCreateResponse
-func statusToCreateResponse(status *models.ExportStatusResponse) *models.ExportCreateResponse {
-	return &models.ExportCreateResponse{
-		ID:        status.ID,
-		Backend:   status.Backend,
-		Path:      status.Path,
-		Classes:   status.Classes,
-		StartedAt: status.StartedAt,
-	}
 }
 
 // setupExportHandlers wires up the export handlers to the API

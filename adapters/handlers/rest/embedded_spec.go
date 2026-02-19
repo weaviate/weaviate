@@ -7390,6 +7390,13 @@ func init() {
           "description": "When the export started",
           "type": "string",
           "format": "date-time"
+        },
+        "status": {
+          "description": "Current status of the export",
+          "type": "string",
+          "enum": [
+            "STARTED"
+          ]
         }
       }
     },
@@ -17459,6 +17466,13 @@ func init() {
           "description": "When the export started",
           "type": "string",
           "format": "date-time"
+        },
+        "status": {
+          "description": "Current status of the export",
+          "type": "string",
+          "enum": [
+            "STARTED"
+          ]
         }
       }
     },

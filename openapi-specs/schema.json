@@ -673,6 +673,11 @@
           "type": "string",
           "description": "Full path where the export is being written"
         },
+        "status": {
+          "type": "string",
+          "description": "Current status of the export",
+          "enum": ["STARTED"]
+        },
         "startedAt": {
           "type": "string",
           "format": "date-time",

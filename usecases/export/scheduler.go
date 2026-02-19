@@ -104,7 +104,7 @@ func (s *Scheduler) isMultiNode() bool {
 }
 
 // Export starts a new export operation
-func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportStatusResponse, error) {
+func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
 	if id == "" {
 		return nil, fmt.Errorf("export ID is required")
 	}
@@ -138,20 +138,21 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
-	status := &models.ExportStatusResponse{
-		ID:        id,
-		Backend:   backend,
-		Path:      backendStore.HomeDir(id, bucket, path),
-		Status:    string(export.Started),
-		StartedAt: strfmt.DateTime(time.Now().UTC()),
-		Classes:   classes,
-	}
+	now := strfmt.DateTime(time.Now().UTC())
+	homePath := backendStore.HomeDir(id, bucket, path)
 
 	enterrors.GoWrapper(func() {
-		s.performExport(s.shutdownCtx, backendStore, id, status, classes, bucket, path)
+		s.performExport(s.shutdownCtx, backendStore, id, backend, now, classes, bucket, path)
 	}, s.logger)
 
-	return status, nil
+	return &models.ExportCreateResponse{
+		ID:        id,
+		Backend:   backend,
+		Path:      homePath,
+		Status:    string(export.Started),
+		StartedAt: now,
+		Classes:   classes,
+	}, nil
 }
 
 // Status retrieves the status of an export.
@@ -311,7 +312,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 // performExport executes the export.
 // In multi-node mode: writes plan to S3, fires requests to all nodes.
 // In single-node mode: exports all shards locally.
-func (s *Scheduler) performExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) {
+func (s *Scheduler) performExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, backendName string, startedAt strfmt.DateTime, classes []string, bucket, path string) {
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
 		WithField("classes", classes).
@@ -319,7 +320,13 @@ func (s *Scheduler) performExport(ctx context.Context, backend modulecapabilitie
 		WithField("multi_node", s.isMultiNode()).
 		Info("starting export")
 
-	status.Status = string(export.Transferring)
+	status := &models.ExportStatusResponse{
+		ID:        exportID,
+		Backend:   backendName,
+		Status:    string(export.Transferring),
+		StartedAt: startedAt,
+		Classes:   classes,
+	}
 
 	if s.isMultiNode() {
 		s.performMultiNodeExport(ctx, backend, exportID, status, classes, bucket, path)
