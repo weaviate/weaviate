@@ -160,6 +160,7 @@ func (p *Participant) exportClassShards(
 	nodeStatus *NodeStatus,
 ) error {
 	// Get all shards for the class (we need the ShardLike handles)
+	// TODO: This needs to be adapted to MT
 	allShards, err := p.selector.GetShardsForClass(ctx, className)
 	if err != nil {
 		return fmt.Errorf("get shards for class %s: %w", className, err)

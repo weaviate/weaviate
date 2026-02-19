@@ -233,8 +233,9 @@ func (s *Scheduler) assembleStatusFromPlan(
 		if err != nil {
 			// No status file yet — treat as non-terminal and check liveness below
 			nodeStatus = &NodeStatus{
-				NodeName: nodeName,
-				Status:   export.Transferring,
+				NodeName:      nodeName,
+				Status:        export.Transferring,
+				ShardProgress: make(map[string]map[string]*ShardProgress),
 			}
 		}
 
