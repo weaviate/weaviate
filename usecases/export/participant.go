@@ -57,8 +57,10 @@ func NewParticipant(
 // It fires off an async goroutine to export assigned shards and returns immediately.
 func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
 	if !p.exportOngoing.CompareAndSwap(false, true) {
-		id := p.activeExportID.Load()
-		return fmt.Errorf("export %q already in progress", *id)
+		if id := p.activeExportID.Load(); id != nil {
+			return fmt.Errorf("export %q already in progress", *id)
+		}
+		return fmt.Errorf("an export is already in progress")
 	}
 	id := req.ID
 	p.activeExportID.Store(&id)
