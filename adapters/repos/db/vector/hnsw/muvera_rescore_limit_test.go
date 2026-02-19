@@ -56,7 +56,7 @@ func TestComputeScoreWithView_NoLimit(t *testing.T) {
 	slice := &common.VectorSlice{}
 
 	// With maxDocVecs=0: all 4 doc vectors are evaluated.
-	score0, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
+	score0, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
 	require.NoError(t, err)
 
 	// Manually compute expected: dot product is a distance (lower = more similar).
@@ -78,7 +78,7 @@ func TestComputeScoreWithView_WithLimit(t *testing.T) {
 	slice := &common.VectorSlice{}
 
 	// maxDocVecs=2 with 10 doc vectors → step=5, indices 0 and 5 are sampled.
-	score, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
+	score, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
 	require.NoError(t, err)
 
 	// DotProduct distances for searchVec=(1,0):
@@ -98,15 +98,15 @@ func TestComputeScoreWithView_LimitGELength(t *testing.T) {
 	slice := &common.VectorSlice{}
 
 	// Score with no limit.
-	scoreNoLimit, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
+	scoreNoLimit, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
 	require.NoError(t, err)
 
 	// Score with maxDocVecs == len(docVecs): should behave identically.
-	scoreLimitEqual, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 3)
+	scoreLimitEqual, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 3)
 	require.NoError(t, err)
 
 	// Score with maxDocVecs > len(docVecs): should also behave identically.
-	scoreLimitMore, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 100)
+	scoreLimitMore, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 100)
 	require.NoError(t, err)
 
 	assert.Equal(t, scoreNoLimit, scoreLimitEqual)
@@ -122,11 +122,11 @@ func TestComputeScoreWithView_Determinism(t *testing.T) {
 	h := minimalMuveraHnsw(t, docVecs, nil)
 	slice := &common.VectorSlice{}
 
-	first, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
+	first, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		again, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
+		again, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
 		require.NoError(t, err)
 		assert.Equal(t, first, again, "result must be deterministic (run %d)", i)
 	}
