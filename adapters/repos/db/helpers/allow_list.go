@@ -17,7 +17,6 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 type AllowList interface {
@@ -71,6 +70,7 @@ func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
 type BitmapAllowList struct {
 	sync.Mutex
 	Bm            *sroar.Bitmap
+	universe      *sroar.Bitmap
 	release       func()
 	isDenyList    bool
 	bitmapFactory *roaringset.BitmapFactory
@@ -109,6 +109,16 @@ func (al *BitmapAllowList) Slice() []uint64 {
 		if err != nil {
 			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
 		}
+		cardinality := al.universe.GetCardinality() - al.Bm.GetCardinality()
+		result := make([]uint64, 0, cardinality)
+		it := al.universe.NewIterator()
+		for i := 0; i < al.universe.GetCardinality(); i++ {
+			id := it.Next()
+			if !al.Bm.Contains(id) {
+				result = append(result, id)
+			}
+		}
+		return result
 	}
 	return al.Bm.ToArray()
 }
@@ -119,6 +129,7 @@ func (al *BitmapAllowList) IsEmpty() bool {
 		if err != nil {
 			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
 		}
+		return al.universe.GetCardinality() == al.Bm.GetCardinality()
 	}
 	return al.Bm.IsEmpty()
 }
@@ -129,6 +140,7 @@ func (al *BitmapAllowList) Len() int {
 		if err != nil {
 			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
 		}
+		return int(al.universe.GetCardinality() - al.Bm.GetCardinality())
 	}
 	return al.Cardinality()
 }
@@ -143,6 +155,12 @@ func (al *BitmapAllowList) Min() uint64 {
 		if err != nil {
 			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
 		}
+		for i := 0; i < al.universe.GetCardinality(); i++ {
+			id := al.universe.NewIterator().Next()
+			if !al.Bm.Contains(id) {
+				return id
+			}
+		}
 	}
 	return al.Bm.Minimum()
 }
@@ -152,6 +170,15 @@ func (al *BitmapAllowList) Max() uint64 {
 		err := al.invert()
 		if err != nil {
 			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+		for i := al.universe.GetCardinality() - 1; i >= 0; i-- {
+			id, err := al.universe.Select(uint64(i))
+			if err != nil {
+				panic(fmt.Sprintf("failed to select id from universe bitmap: %v", err))
+			}
+			if !al.Bm.Contains(id) {
+				return id
+			}
 		}
 	}
 	return al.Bm.Maximum()
@@ -177,11 +204,20 @@ func (al *BitmapAllowList) Iterator() AllowListIterator {
 		if err != nil {
 			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
 		}
+		return newCombinedUniverseDenyListIterator(newBitmapAllowListIterator(al.universe, 0), al.Bm, 0, al.universe.GetCardinality(), al.Bm.GetCardinality())
 	}
 	return al.LimitedIterator(0)
 }
 
 func (al *BitmapAllowList) LimitedIterator(limit int) AllowListIterator {
+	// if it's a deny list, we need to invert it to get the actual doc ids to iterate over
+	if al.isDenyList {
+		err := al.invert()
+		if err != nil {
+			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+		return newCombinedUniverseDenyListIterator(newBitmapAllowListIterator(al.universe, 0), al.Bm, limit, al.universe.GetCardinality(), al.Bm.GetCardinality())
+	}
 	return newBitmapAllowListIterator(al.Bm, limit)
 }
 
@@ -192,15 +228,20 @@ func (al *BitmapAllowList) IsDenyList() bool {
 func (al *BitmapAllowList) invert() error {
 	al.Lock()
 	defer al.Unlock()
+	if al.universe != nil {
+		return nil
+	}
 	if al.isDenyList && al.bitmapFactory == nil {
 		return fmt.Errorf("bitmap factory is not set")
 	}
 	if al.isDenyList && al.bitmapFactory != nil {
-		inverted, release := al.bitmapFactory.GetBitmap()
-		al.Bm = inverted.AndNotConc(al.Bm, concurrency.SROAR_MERGE)
-		al.release()
-		al.release = release
-		al.isDenyList = false
+		var release, oldRelease func()
+		al.universe, release = al.bitmapFactory.GetBitmap()
+		oldRelease = al.release
+		al.release = func() {
+			release()
+			oldRelease()
+		}
 	}
 	return nil
 }
@@ -234,4 +275,46 @@ func (i *bitmapAllowListIterator) Next() (uint64, bool) {
 
 func (i *bitmapAllowListIterator) Len() int {
 	return i.len
+}
+
+type combinedUniverseDenyListIterator struct {
+	universe        AllowListIterator
+	universeLen     int
+	deny            *sroar.Bitmap
+	denyCardinality int
+	limit           int
+	itCount         int
+}
+
+func newCombinedUniverseDenyListIterator(universe AllowListIterator, deny *sroar.Bitmap, limit int, universeLen int, denyCardinality int) AllowListIterator {
+	return &combinedUniverseDenyListIterator{
+		universe:        universe,
+		universeLen:     universeLen,
+		deny:            deny,
+		denyCardinality: denyCardinality,
+		limit:           limit,
+	}
+}
+
+func (i *combinedUniverseDenyListIterator) Next() (uint64, bool) {
+	if i.limit > 0 && i.itCount >= i.limit {
+		return 0, false
+	}
+	for {
+		val, ok := i.universe.Next()
+		if !ok {
+			return 0, false
+		}
+		if !i.deny.Contains(val) {
+			i.itCount++
+			if i.limit > 0 && i.itCount >= i.limit {
+				return 0, false
+			}
+			return val, true
+		}
+	}
+}
+
+func (i *combinedUniverseDenyListIterator) Len() int {
+	return i.universeLen - i.denyCardinality
 }
