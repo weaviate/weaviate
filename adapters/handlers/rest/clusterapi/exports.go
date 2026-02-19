@@ -52,10 +52,14 @@ func (e *exports) statusHandler() http.HandlerFunc {
 
 		resp := export.ExportStatusResponse{Running: e.participant.IsRunning(exportID)}
 
-		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
+		data, err := json.Marshal(resp)
+		if err != nil {
 			http.Error(w, "marshal response: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
 	}
 }
 
