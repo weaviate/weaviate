@@ -164,3 +164,31 @@ def test_hybrid_near_vector_search(collection_factory: CollectionFactory) -> Non
 
     assert hybrid_objs2[0].uuid == uuid_banana
     assert len(hybrid_objs2) == 1
+
+
+def test_implicit_nested_object_return_props(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        properties=[
+            Property(name="name", data_type=DataType.TEXT),
+            Property(name="nested", data_type=DataType.OBJECT, nested_properties=[
+                Property(name="nested_name", data_type=DataType.TEXT),
+                Property(name="nested_nested", data_type=DataType.OBJECT, nested_properties=[
+                    Property(name="nested_nested_name", data_type=DataType.TEXT)
+                ]),
+            ]),
+        ],
+        vectorizer_config=Configure.Vectorizer.none(),
+    )
+
+    uuid = collection.data.insert({
+        "name": "test",
+        "nested": {
+            "nested_name": "nested_test"
+        }
+    })
+
+    obj = collection.query.fetch_object_by_id(uuid, return_properties=["name", "nested"]).properties
+    assert obj["name"] == "test"
+    assert isinstance(obj["nested"], dict)
+    assert obj["nested"]["nested_name"] == "nested_test"
+    assert "nested_nested" not in obj["nested"]
