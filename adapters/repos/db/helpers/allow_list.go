@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -68,6 +69,7 @@ func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
 // We should consider making this private again and adding a method to intersect two AllowLists, but at the same time, it would also make the interface bloated
 // and add the burden of supporting this method in all (future, if any) implementations of AllowList
 type BitmapAllowList struct {
+	sync.Mutex
 	Bm            *sroar.Bitmap
 	release       func()
 	isDenyList    bool
@@ -188,6 +190,8 @@ func (al *BitmapAllowList) IsDenyList() bool {
 }
 
 func (al *BitmapAllowList) invert() error {
+	al.Lock()
+	defer al.Unlock()
 	if al.isDenyList && al.bitmapFactory == nil {
 		return fmt.Errorf("bitmap factory is not set")
 	}
