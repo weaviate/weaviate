@@ -34,7 +34,7 @@ type Participant struct {
 	backends       BackendProvider
 	logger         logrus.FieldLogger
 	exportOngoing  atomic.Bool
-	activeExportID string
+	activeExportID atomic.Pointer[string]
 }
 
 // NewParticipant creates a new export participant.
@@ -58,9 +58,11 @@ func NewParticipant(
 // It fires off an async goroutine to export assigned shards and returns immediately.
 func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
 	if !p.exportOngoing.CompareAndSwap(false, true) {
-		return fmt.Errorf("export %q already in progress", p.activeExportID)
+		id := p.activeExportID.Load()
+		return fmt.Errorf("export %q already in progress", *id)
 	}
-	p.activeExportID = req.ID
+	id := req.ID
+	p.activeExportID.Store(&id)
 
 	backendStore, err := p.backends.BackupBackend(req.Backend)
 	if err != nil {
@@ -88,7 +90,11 @@ func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
 
 // executeExport performs the actual export work for this node's assigned shards.
 func (p *Participant) IsRunning(id string) bool {
-	return p.exportOngoing.Load() && p.activeExportID == id
+	if !p.exportOngoing.Load() {
+		return false
+	}
+	active := p.activeExportID.Load()
+	return active != nil && *active == id
 }
 
 func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) {
