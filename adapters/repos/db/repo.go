@@ -315,6 +315,7 @@ type Config struct {
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	MuveraRescoreLimit          *configRuntime.DynamicValue[int]
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
