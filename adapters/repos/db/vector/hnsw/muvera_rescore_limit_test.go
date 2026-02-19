@@ -56,7 +56,7 @@ func TestComputeScoreWithView_NoLimit(t *testing.T) {
 	slice := &common.VectorSlice{}
 
 	// With maxDocVecs=0: all 4 doc vectors are evaluated.
-	score0, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
+	score0, _, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
 	require.NoError(t, err)
 
 	// Manually compute expected: dot product is a distance (lower = more similar).
@@ -65,27 +65,38 @@ func TestComputeScoreWithView_NoLimit(t *testing.T) {
 	assert.Equal(t, float32(-1), score0)
 }
 
-// TestComputeScoreWithView_WithLimit verifies that maxDocVecs<len(docVecs) uses strided sampling.
+// TestComputeScoreWithView_WithLimit verifies that maxDocVecs<len(docVecs) uses strided sampling
+// and that both nDocVecsRead and nDistanceComputations are returned correctly.
 func TestComputeScoreWithView_WithLimit(t *testing.T) {
 	// 10 doc vectors; budget = 2 → step = 10/2 = 5, so indices 0 and 5 are used.
 	docVecs := make([][]float32, 10)
 	for i := range docVecs {
 		docVecs[i] = []float32{float32(i), 0}
 	}
-	searchVecs := [][]float32{{1, 0}}
+	// 2 search vectors to verify nDistanceComputations = nDocVecsRead * len(searchVecs).
+	searchVecs := [][]float32{{1, 0}, {0, 1}}
 
 	h := minimalMuveraHnsw(t, docVecs, nil)
 	slice := &common.VectorSlice{}
 
 	// maxDocVecs=2 with 10 doc vectors → step=5, indices 0 and 5 are sampled.
-	score, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
+	score, nDocVecs, nDistComps, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
 	require.NoError(t, err)
 
 	// DotProduct distances for searchVec=(1,0):
 	//   index 0: (0,0)·(1,0) = 0, dist = -0 = 0
 	//   index 5: (5,0)·(1,0) = 5, dist = -5
-	// min = -5, so similarity = -5
+	// min = -5
+	// DotProduct distances for searchVec=(0,1):
+	//   index 0: (0,0)·(0,1) = 0, dist = 0
+	//   index 5: (5,0)·(0,1) = 0, dist = 0
+	// min = 0
+	// similarity = -5 + 0 = -5
 	assert.Equal(t, float32(-5), score)
+	// 2 doc-vector slots sampled (step=5, indices 0 and 5).
+	assert.Equal(t, 2, nDocVecs)
+	// 2 doc vecs × 2 query vecs = 4 distance computations.
+	assert.Equal(t, 4, nDistComps)
 }
 
 // TestComputeScoreWithView_LimitGELength verifies that when maxDocVecs >= len(docVecs),
@@ -98,15 +109,15 @@ func TestComputeScoreWithView_LimitGELength(t *testing.T) {
 	slice := &common.VectorSlice{}
 
 	// Score with no limit.
-	scoreNoLimit, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
+	scoreNoLimit, _, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 0)
 	require.NoError(t, err)
 
 	// Score with maxDocVecs == len(docVecs): should behave identically.
-	scoreLimitEqual, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 3)
+	scoreLimitEqual, _, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 3)
 	require.NoError(t, err)
 
 	// Score with maxDocVecs > len(docVecs): should also behave identically.
-	scoreLimitMore, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 100)
+	scoreLimitMore, _, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 100)
 	require.NoError(t, err)
 
 	assert.Equal(t, scoreNoLimit, scoreLimitEqual)
@@ -122,11 +133,11 @@ func TestComputeScoreWithView_Determinism(t *testing.T) {
 	h := minimalMuveraHnsw(t, docVecs, nil)
 	slice := &common.VectorSlice{}
 
-	first, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
+	first, _, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		again, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
+		again, _, _, err := h.computeScoreWithView(context.Background(), searchVecs, 0, slice, &noopBucketView{}, 2)
 		require.NoError(t, err)
 		assert.Equal(t, first, again, "result must be deterministic (run %d)", i)
 	}
