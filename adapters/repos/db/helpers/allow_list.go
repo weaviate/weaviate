@@ -100,22 +100,52 @@ func (al *BitmapAllowList) WrapOnWrite() AllowList {
 }
 
 func (al *BitmapAllowList) Slice() []uint64 {
+	if al.isDenyList {
+		err := al.invert()
+		if err != nil {
+			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+	}
 	return al.Bm.ToArray()
 }
 
 func (al *BitmapAllowList) IsEmpty() bool {
+	if al.isDenyList {
+		err := al.invert()
+		if err != nil {
+			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+	}
 	return al.Bm.IsEmpty()
 }
 
 func (al *BitmapAllowList) Len() int {
+	if al.isDenyList {
+		err := al.invert()
+		if err != nil {
+			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+	}
 	return al.Bm.GetCardinality()
 }
 
 func (al *BitmapAllowList) Min() uint64 {
+	if al.isDenyList {
+		err := al.invert()
+		if err != nil {
+			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+	}
 	return al.Bm.Minimum()
 }
 
 func (al *BitmapAllowList) Max() uint64 {
+	if al.isDenyList {
+		err := al.invert()
+		if err != nil {
+			panic(fmt.Sprintf("failed to invert bitmap allow list: %v", err))
+		}
+	}
 	return al.Bm.Maximum()
 }
 
