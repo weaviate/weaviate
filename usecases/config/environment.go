@@ -1019,6 +1019,16 @@ func FromEnv(config *Config) error {
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
+	muveraRescoreLimit := 0
+	if err := parsePositiveInt(
+		"MUVERA_RESCORE_LIMIT",
+		func(val int) { muveraRescoreLimit = val },
+		0,
+	); err != nil {
+		return err
+	}
+	config.MuveraRescoreLimit = configRuntime.NewDynamicValue(muveraRescoreLimit)
+
 	return nil
 }
 

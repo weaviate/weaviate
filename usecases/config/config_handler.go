@@ -226,6 +226,12 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// MuveraRescoreLimit caps the total number of vectors considered during
+	// Muvera late-interaction rescoring. 0 means no limit (default behavior).
+	// When set, vectors are sampled deterministically using a stride so that
+	// results remain reproducible.
+	MuveraRescoreLimit *runtime.DynamicValue[int] `json:"muvera_rescore_limit" yaml:"muvera_rescore_limit"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
