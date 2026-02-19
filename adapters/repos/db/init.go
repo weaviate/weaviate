@@ -155,13 +155,14 @@ func (db *DB) init(ctx context.Context) error {
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 				HFreshEnabled:                                db.config.HFreshEnabled,
+				AutoTenantActivation:                         schema.AutoTenantActivationEnabled(class),
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
-				db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled)
+				db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled, db.tenantsManager)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

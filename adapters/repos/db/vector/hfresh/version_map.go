@@ -15,9 +15,9 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
@@ -61,97 +61,137 @@ var v1 = VectorVersion(0).Increment()
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
 type VersionMap struct {
-	cache *otter.Cache[uint64, VectorVersion]
+	data  *common.GroupedPagedArray[VectorVersion]
+	locks *common.ShardedRWLocks
 	store *VersionStore
 }
 
 func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
-	cache, _ := otter.New[uint64, VectorVersion](nil)
-
 	return &VersionMap{
-		cache: cache,
+		data:  common.NewGroupedPagedArray[VectorVersion](16*1024, 64*1024), // 1 billion entries with 64k per page
+		locks: common.NewShardedRWLocks(512),
 		store: NewVersionStore(bucket),
 	}
 }
 
 // Get returns the size of the vector with the given ID.
 func (v *VersionMap) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	loader := otter.LoaderFunc[uint64, VectorVersion](func(ctx context.Context, key uint64) (VectorVersion, error) {
+	page, slot := v.data.GetPageFor(vectorID)
+	if page == nil {
+		// not in cache, check store
 		version, err := v.store.Get(ctx, vectorID)
-		if err != nil {
-			if errors.Is(err, ErrVectorNotFound) {
-				return v1, nil
-			}
-
-			return 0, err
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
+		}
+		if errors.Is(err, ErrVectorNotFound) {
+			version = v1
 		}
 
+		// update cache
+		page, slot := v.data.EnsurePageFor(vectorID)
+		v.locks.Lock(vectorID)
+		page[slot] = version
+		v.locks.Unlock(vectorID)
+
 		return version, nil
-	})
-	version, err := v.cache.Get(ctx, vectorID, loader)
-	if errors.Is(err, otter.ErrNotFound) {
-		return 0, ErrVectorNotFound
 	}
 
-	return version, err
+	v.locks.RLock(vectorID)
+	version := page[slot]
+	v.locks.RUnlock(vectorID)
+
+	if version == 0 {
+		v.locks.Lock(vectorID)
+		defer v.locks.Unlock(vectorID)
+
+		// double-check after acquiring the lock
+		version = page[slot]
+		if version != 0 {
+			return version, nil
+		}
+
+		// not in cache, check store
+		var err error
+		version, err = v.store.Get(ctx, vectorID)
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
+		}
+		if errors.Is(err, ErrVectorNotFound) {
+			version = v1
+		}
+
+		// update cache
+		page[slot] = version
+	}
+
+	return version, nil
 }
 
 // Incr increments the version of the vector and returns the new version.
 func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, error) {
 	var err error
-	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
-		if !found {
-			oldVersion, err = v.store.Get(ctx, vectorID)
-			if err != nil && !errors.Is(err, ErrVectorNotFound) {
-				return 0, otter.CancelOp
-			}
-			if err != nil {
-				oldVersion = v1
-			}
-		}
-		if oldVersion.Deleted() || oldVersion != previousVersion {
-			err = ErrVersionIncrementFailed
-			return oldVersion, otter.CancelOp
-		}
 
-		newVersion := oldVersion.Increment()
-		err = v.store.Set(ctx, vectorID, newVersion)
-		if err != nil {
-			return oldVersion, otter.CancelOp
-		}
+	page, slot := v.data.EnsurePageFor(vectorID)
+	v.locks.Lock(vectorID)
+	defer v.locks.Unlock(vectorID)
 
-		return newVersion, otter.WriteOp
-	})
-	return version, err
+	old := page[slot]
+	if old == 0 {
+		// not in cache, check store
+		old, err = v.store.Get(ctx, vectorID)
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
+		}
+		if errors.Is(err, ErrVectorNotFound) {
+			old = v1
+		}
+	}
+
+	if old.Deleted() || old != previousVersion {
+		return old, ErrVersionIncrementFailed
+	}
+
+	newVersion := old.Increment()
+	err = v.store.Set(ctx, vectorID, newVersion)
+	if err != nil {
+		return old, err
+	}
+	page[slot] = newVersion
+	return newVersion, nil
 }
 
 func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, error) {
 	var err error
-	version, _ := v.cache.Compute(vectorID, func(oldVersion VectorVersion, found bool) (newValue VectorVersion, op otter.ComputeOp) {
-		if !found {
-			oldVersion, err = v.store.Get(ctx, vectorID)
-			if err != nil && !errors.Is(err, ErrVectorNotFound) {
-				return 0, otter.CancelOp
-			}
-			if err != nil {
-				oldVersion = v1
-			}
-		}
 
-		if oldVersion.Deleted() {
-			return oldVersion, otter.CancelOp
-		}
+	page, slot := v.data.EnsurePageFor(vectorID)
+	v.locks.Lock(vectorID)
+	defer v.locks.Unlock(vectorID)
 
-		counter := uint8(oldVersion) & counterMask // 0-127
-		newVersion := VectorVersion(tombstoneMask | counter)
-		err = v.store.Set(ctx, vectorID, newVersion)
-		if err != nil {
-			return oldVersion, otter.CancelOp
+	old := page[slot]
+	if old == 0 {
+		// not in cache, check store
+		old, err = v.store.Get(ctx, vectorID)
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return 0, errors.Wrapf(err, "failed to get version for vector %d", vectorID)
 		}
+		if errors.Is(err, ErrVectorNotFound) {
+			old = v1
+		}
+	}
 
-		return VectorVersion(newVersion), otter.WriteOp
-	})
-	return version, err
+	if old.Deleted() {
+		return old, nil
+	}
+
+	counter := uint8(old) & counterMask // 0-127
+	newVersion := VectorVersion(tombstoneMask | counter)
+	err = v.store.Set(ctx, vectorID, newVersion)
+	if err != nil {
+		return old, err
+	}
+	page[slot] = newVersion
+
+	return newVersion, nil
 }
 
 func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, error) {

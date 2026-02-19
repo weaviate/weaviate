@@ -97,8 +97,10 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
 	data := make([][]float32, 0, len(p))
 
+	var buf []uint64
 	for _, v := range p {
-		data = append(data, quantizer.Decode(quantizer.FromCompressedBytes(v.Data())))
+		buf = quantizer.FromCompressedBytesInto(v.Data(), buf)
+		data = append(data, quantizer.Decode(buf))
 	}
 
 	return data

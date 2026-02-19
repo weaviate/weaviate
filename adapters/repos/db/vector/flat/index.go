@@ -798,6 +798,10 @@ func (index *flat) PrepareForBackup(context.Context) error {
 	return nil
 }
 
+func (index *flat) ResumeAfterBackup(context.Context) error {
+	return nil
+}
+
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	var files []string
 

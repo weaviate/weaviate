@@ -209,7 +209,7 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
 	restored := rq.Restore(compressed)
-	unrotated := rq.rotation.UnRotate(restored)
+	unrotated := rq.rotation.UnRotateInPlace(restored)
 	return unrotated[:rq.originalDim]
 }
 
@@ -258,7 +258,7 @@ type RQMultiBitCode struct {
 
 func (c RQMultiBitCode) String() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("bits0[0]: %064b, ", c.bits0[0]))
+	fmt.Fprintf(&sb, "bits0[0]: %064b, ", c.bits0[0])
 	return fmt.Sprintf("RQMultiBitCode{Step: %.4f, SquaredNorm: %.4f, bits: %s",
 		c.Step, c.SquaredNorm, sb.String())
 }
