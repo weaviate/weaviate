@@ -2,8 +2,6 @@ import uuid
 from typing import List, Optional
 
 import pytest
-import weaviate
-
 from weaviate.classes.config import Configure, Property, DataType
 from weaviate.classes.query import TargetVectors
 import weaviate.classes as wvc
@@ -294,91 +292,61 @@ def test_flipping(collection_factory: CollectionFactory):
         assert all(hy[i].uuid == hy2[i].uuid for i in range(len(hy)))
 
 
-def test_hybrid_with_reranker_search() -> None:
+def test_hybrid_with_reranker_search(collection_factory: CollectionFactory) -> None:
     """Python gRPC equivalent of TestReRanker_WithHybrid_Search (Go REST client test).
 
     Verifies that hybrid search combined with reranking works through the gRPC code path.
     The Go test uses GraphQL (REST); this test uses the Python client which goes via gRPC,
     making it possible to compare whether both code paths produce reranked results correctly.
     """
-    client = weaviate.connect_to_local()
-    collection_name = "HybridRerankerTestPython"
+    collection = collection_factory(
+        reranker_config=Configure.Reranker.custom("reranker-dummy"),
+        vector_config=Configure.Vectors.self_provided(),
+        properties=[
+            Property(name="title", data_type=DataType.TEXT),
+            Property(name="description", data_type=DataType.TEXT),
+        ],
+    )
 
-    try:
-        client.collections.delete(collection_name)
+    test_data = [
+        ("Python Programming", "Learn Python programming from scratch to advanced concepts"),
+        ("JavaScript Basics", "Introduction to JavaScript for web development"),
+        ("Go Web Services", "Building REST APIs with Go programming language"),
+        ("Python Data Science", "Data analysis and machine learning with Python"),
+        ("JavaScript Advanced", "Advanced JavaScript patterns and best practices"),
+        ("Go Concurrency", "Mastering concurrent programming in Go"),
+        ("Python Automation", "Automate tasks with Python scripts"),
+        ("JavaScript Frameworks", "React, Vue, and Angular frameworks explained"),
+        ("Go Microservices", "Building scalable microservices with Go"),
+    ]
 
-        # reranker-dummy is not supported in the typed Python API, so use create_from_dict.
-        # A named vector "title" is created using text2vec-contextionary, vectorizing
-        # both title and description properties.
-        collection = client.collections.create_from_dict(
-            {
-                "class": collection_name,
-                "moduleConfig": {"reranker-dummy": {}},
-                "vectorConfig": {
-                    "title": {
-                        "vectorizer": {
-                            "text2vec-contextionary": {
-                                "properties": ["title", "description"],
-                                "vectorizeClassName": False,
-                            }
-                        },
-                        "vectorIndexType": "hnsw",
-                    }
-                },
-                "properties": [
-                    {"name": "title", "dataType": ["text"]},
-                    {"name": "description", "dataType": ["text"]},
-                ],
-            }
-        )
+    for i, (title, description) in enumerate(test_data):
+        collection.data.insert({"title": title, "description": description}, vector=[float(i), float(i + 1), float(i + 2)])
 
-        test_data = [
-            ("Python Programming", "Learn Python programming from scratch to advanced concepts"),
-            ("JavaScript Basics", "Introduction to JavaScript for web development"),
-            ("Go Web Services", "Building REST APIs with Go programming language"),
-            ("Python Data Science", "Data analysis and machine learning with Python"),
-            ("JavaScript Advanced", "Advanced JavaScript patterns and best practices"),
-            ("Go Concurrency", "Mastering concurrent programming in Go"),
-            ("Python Automation", "Automate tasks with Python scripts"),
-            ("JavaScript Frameworks", "React, Vue, and Angular frameworks explained"),
-            ("Go Microservices", "Building scalable microservices with Go"),
-        ]
+    # Hybrid search via gRPC with reranker applied on final results.
+    # alpha=0.5: balanced between BM25 and vector search.
+    # query="programming": matches objects via BM25 and vector similarity.
+    # rerank on "title" with query="Python": reranker re-scores returned objects.
+    result = collection.query.hybrid(
+        "programming",
+        query_properties=["title"],
+        alpha=0.5,
+        vector=[1.0, 2.0, 3.0],
+        rerank=wvc.query.Rerank(prop="title", query="Python"),
+    )
 
-        for title, description in test_data:
-            collection.data.insert({"title": title, "description": description})
+    assert len(result.objects) >= 1, "hybrid search with rerank should return at least 1 result"
 
-        # Hybrid search via gRPC with reranker applied on final results.
-        # alpha=0.5: balanced between BM25 and vector search.
-        # query="programming": matches objects via BM25 and the "title" named vector.
-        # rerank on "title" with query="Python": reranker re-scores returned objects.
-        result = collection.query.hybrid(
-            "programming",
-            query_properties=["title"],
-            alpha=0.5,
-            rerank=wvc.query.Rerank(prop="title", query="Python"),
-        )
+    # All returned objects must have a rerank score — this verifies the reranker ran
+    # on the hybrid results via the gRPC code path.
+    for obj in result.objects:
+        assert (
+            obj.metadata.rerank_score is not None
+        ), f"object {obj.uuid} missing rerank_score"
 
-        assert len(result.objects) >= 1, "hybrid search with rerank should return at least 1 result"
-
-        # All returned objects must have a rerank score — this verifies the reranker ran
-        # on the hybrid results via the gRPC code path.
-        for obj in result.objects:
-            assert (
-                obj.metadata.rerank_score is not None
-            ), f"object {obj.uuid} missing rerank_score"
-
-        # The dummy reranker scores by length of the reranked property value.
-        # Verify the results are sorted in descending order of rerank score.
-        scores = [obj.metadata.rerank_score for obj in result.objects]
-        assert scores == sorted(scores, reverse=True), (
-            "results should be sorted by rerank score (descending)"
-        )
-
-        # Print results for debugging
-        print(f"\nHybrid search with rerank returned {len(result.objects)} results:")
-        for i, obj in enumerate(result.objects):
-            print(f"  {i+1}. {obj.properties['title']} - rerank score: {obj.metadata.rerank_score}")
-
-    finally:
-        client.collections.delete(collection_name)
-        client.close()
+    # The dummy reranker scores by length of the reranked property value.
+    # Verify the results are sorted in descending order of rerank score.
+    scores = [obj.metadata.rerank_score for obj in result.objects]
+    assert scores == sorted(scores, reverse=True), (
+        "results should be sorted by rerank score (descending)"
+    )
