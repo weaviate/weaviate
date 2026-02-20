@@ -434,9 +434,18 @@ func Test_UploadS3Journey(t *testing.T) {
 			}
 		})
 
+		t.Run("verify object creation", func(t *testing.T) {
+			for i, obj := range tenantObjects {
+				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
+				require.Nil(t, err)
+				assert.Equal(t, obj.Class, resp.Class)
+				assert.Equal(t, obj.Properties, resp.Properties)
+			}
+		})
+
 		// Add many objects so offload takes long enough to observe FREEZING.
 		t.Run("add many objects to tenant to prolong FREEZING", func(t *testing.T) {
-			const extraObjects = 1000
+			const extraObjects = 2000
 			for i := 0; i < extraObjects; i++ {
 				obj := &models.Object{
 					ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", i+1)),
@@ -447,15 +456,6 @@ func Test_UploadS3Journey(t *testing.T) {
 					Tenant: tenantNames[0],
 				}
 				assert.Nil(t, helper.CreateObject(t, obj))
-			}
-		})
-
-		t.Run("verify object creation", func(t *testing.T) {
-			for i, obj := range tenantObjects {
-				resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
-				require.Nil(t, err)
-				assert.Equal(t, obj.Class, resp.Class)
-				assert.Equal(t, obj.Properties, resp.Properties)
 			}
 		})
 
