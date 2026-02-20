@@ -34,13 +34,16 @@ type exportHandlers struct {
 func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// Extract parameters
+	if params.Body.ID == nil || *params.Body.ID == "" {
+		return exports.NewExportsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(errors.New("export ID is required")))
+	}
+
 	id := *params.Body.ID
 	backend := params.Backend
 	include := params.Body.Include
 	exclude := params.Body.Exclude
 
-	// Extract bucket and path from config
 	bucket := ""
 	path := ""
 	if params.Body.Config != nil {
