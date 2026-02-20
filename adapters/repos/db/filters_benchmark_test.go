@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,25 +164,36 @@ func buildBenchFilter(className, propName string, value interface{}, operator fi
 	}
 }
 
-func benchCompoundFilter(operator filters.Operator, operands ...*filters.LocalFilter) *filters.LocalFilter {
+func benchCompoundFilter(operator filters.Operator, operands ...*filters.LocalFilter) (*filters.LocalFilter, string) {
 	clauses := make([]filters.Clause, len(operands))
+
+	name := ""
 	for i, f := range operands {
 		clauses[i] = *f.Root
+		name += fmt.Sprintf("%s_%s_%v_%s_", f.Root.Operator.Name(), f.Root.On.Property, f.Root.Value.Value, strings.ToUpper(operator.Name()))
 	}
+	name = name[:len(name)-1-len(operator.Name())] // remove trailing operator name and underscore
+	name += ""
+
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: operator,
 			Operands: clauses,
 		},
+	}, name
+}
+
+func buildFilterTestCase(filter *filters.LocalFilter) filterTestCase {
+	name := fmt.Sprintf("%s_%s_%v", filter.Root.On.Property, filter.Root.Operator.Name(), filter.Root.Value.Value)
+	return filterTestCase{
+		name:                    name,
+		filter:                  filter,
+		expectedMatchPercentage: computeExpectedMatchPercentage(filter),
 	}
 }
 
-func buildFilterTestCase(operator filters.Operator, operands ...*filters.LocalFilter) filterTestCase {
-	name := operator.Name()
-	for _, operand := range operands {
-		name += fmt.Sprintf("_%s_%v", operand.Root.On.Property, operand.Root.Value.Value)
-	}
-	filter := benchCompoundFilter(operator, operands...)
+func buildCompundFilterTestCase(operator filters.Operator, operands ...*filters.LocalFilter) filterTestCase {
+	filter, name := benchCompoundFilter(operator, operands...)
 	return filterTestCase{
 		name:                    name,
 		filter:                  filter,
@@ -368,12 +380,6 @@ func computeExpectedMatchPercentage(filter *filters.LocalFilter) int {
 	}
 }
 
-// allFilterTestCases returns all filter combinations to test.
-// Each filter uses integer fields whose values are set so that:
-//   - intField_<pct> == 1  matches <pct>% of documents
-//   - intField_<pct> != 1  matches (100-pct)% of documents
-//
-// The matchPct parameter selects which intField to use.
 func allFilterTestCases(matchPcts []int) []filterTestCase {
 	results := make([]filterTestCase, 0)
 
@@ -381,14 +387,12 @@ func allFilterTestCases(matchPcts []int) []filterTestCase {
 
 	for _, matchPct := range matchPcts {
 		for _, propName := range []string{"intField", "intFieldRev"} {
-			results = append(results, buildFilterTestCase(filters.OperatorAnd, buildBenchFilter("TestClass", propName, matchPct, filters.OperatorNotEqual, schema.DataTypeInt)))
+			results = append(results, buildFilterTestCase(buildBenchFilter("TestClass", propName, matchPct, filters.OperatorNotEqual, schema.DataTypeInt)))
 		}
 	}
 
-	// Combination filters
-
-	results = append(results, buildFilterTestCase(filters.OperatorAnd, buildBenchFilter("TestClass", "intField", 10, filters.OperatorNotEqual, schema.DataTypeInt), buildBenchFilter("TestClass", "intFieldRev", 90, filters.OperatorNotEqual, schema.DataTypeInt)))
-	results = append(results, buildFilterTestCase(filters.OperatorOr, buildBenchFilter("TestClass", "intField", 10, filters.OperatorNotEqual, schema.DataTypeInt), buildBenchFilter("TestClass", "intFieldRev", 90, filters.OperatorNotEqual, schema.DataTypeInt)))
+	results = append(results, buildCompundFilterTestCase(filters.OperatorAnd, buildBenchFilter("TestClass", "intField", 10, filters.OperatorNotEqual, schema.DataTypeInt), buildBenchFilter("TestClass", "intFieldRev", 90, filters.OperatorNotEqual, schema.DataTypeInt)))
+	results = append(results, buildCompundFilterTestCase(filters.OperatorOr, buildBenchFilter("TestClass", "intField", 10, filters.OperatorNotEqual, schema.DataTypeInt), buildBenchFilter("TestClass", "intFieldRev", 90, filters.OperatorNotEqual, schema.DataTypeInt)))
 
 	return results
 }
@@ -704,8 +708,8 @@ func TestFiltersBenchmark(t *testing.T) {
 func BenchmarkFilters(b *testing.B) {
 	// set env var to increase search limit
 	corpusCounts := []int{100}
-	matchPcts := []int{1, 10, 50, 90, 99}
-	vectorDim := 512
+	matchPcts := []int{1, 50, 99}
+	vectorDim := 4
 
 	searchVector := make([]float32, vectorDim)
 	for d := range searchVector {
