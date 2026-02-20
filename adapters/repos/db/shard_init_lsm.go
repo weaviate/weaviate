@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -197,7 +198,9 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
+
 	s.maxIdGetter = func() uint64 { return s.counter.Get() - 1 }
+	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, s.maxIdGetter)
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")
