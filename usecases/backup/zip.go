@@ -253,7 +253,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 			// we ignore in case the ctx was cancelled
 			return written, nil
 		}
-		return written, fmt.Errorf("copy: %s %w", relPath, err)
+		return written, fmt.Errorf("copy: %s with filesize %d: %w", relPath, info.Size(), err)
 	}
 	return written, err
 }
