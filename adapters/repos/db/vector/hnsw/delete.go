@@ -321,10 +321,22 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	resetCtx := h.resetCtx
 	h.resetLock.Unlock()
 
+	breakCleanUpTombstonedNodes := func() bool {
+		return resetCtx.Err() != nil || shouldAbort()
+	}
+
+	executed := false
+	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
+	if !ok {
+		return executed, nil
+	}
+
 	// Start a background goroutine that periodically checks memory pressure.
 	// If pressure is detected, memCancel is called and the cleanup aborts
-	// gracefully via the breakCleanUpTombstonedNodes check.
-	memCtx, memCancel := context.WithCancel(context.Background())
+	// gracefully via the breakCleanUpTombstonedNodes check. This is started
+	// after copyTombstonesToAllowList to avoid spawning a goroutine/ticker
+	// on cycles where there are no tombstones to clean.
+	memCtx, memCancel := context.WithCancel(resetCtx)
 	defer memCancel()
 
 	if h.allocChecker != nil {
@@ -338,30 +350,23 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 					if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
 						h.logger.WithFields(logrus.Fields{
 							"action": "hnsw_tombstone_cleanup",
-							"event":  "cleanup_aborted_oom",
 							"class":  h.className,
 							"shard":  h.shardName,
-						}).Error(err)
+							"id":     h.id,
+						}).Error(fmt.Errorf("aborting cleanup due to memory pressure: %w", err))
 						memCancel()
 						return
 					}
 				case <-memCtx.Done():
-					return
-				case <-resetCtx.Done():
 					return
 				}
 			}
 		}, h.logger)
 	}
 
-	breakCleanUpTombstonedNodes := func() bool {
+	// Re-bind with the memory pressure context now that the monitor is running.
+	breakCleanUpTombstonedNodes = func() bool {
 		return resetCtx.Err() != nil || memCtx.Err() != nil || shouldAbort()
-	}
-
-	executed := false
-	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
-	if !ok {
-		return executed, nil
 	}
 
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
