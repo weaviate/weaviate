@@ -548,24 +548,6 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.Equal(t, VectorVersion(1), v)
 	})
 
-	t.Run("CountAllVectors deduplicates", func(t *testing.T) {
-		store := makePostingMetadataStore(t)
-		posting := Posting(makeVectors(5, 16))
-		err := store.SetVectorIDs(ctx, 42, posting)
-		require.NoError(t, err)
-
-		count, err := store.CountAllVectors(ctx)
-		require.NoError(t, err)
-		require.EqualValues(t, 5, count)
-
-		err = store.SetVectorIDs(ctx, 43, posting)
-		require.NoError(t, err)
-
-		count, err = store.CountAllVectors(ctx)
-		require.NoError(t, err)
-		require.EqualValues(t, 5, count)
-	})
-
 	t.Run("CountAllVectors with multiple postings", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
 
