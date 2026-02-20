@@ -223,16 +223,16 @@ func (v *PostingMap) Restore(ctx context.Context) error {
 // setSizeMetricIfDue updates the size metric if the next update is due.
 // It is called after any operation that modifies the postings to ensure the metric is reasonably up-to-date without causing too much overhead.
 func (v *PostingMap) setSizeMetricIfDue(ctx context.Context) {
-	var err error
-	v.sizeMetric.do(func() {
-		var count uint64
-		count, err = v.CountAllVectors(ctx)
-		if err != nil {
-			return
-		}
+	// var err error
+	// v.sizeMetric.do(func() {
+	// 	var count uint64
+	// 	count, err = v.CountAllVectors(ctx)
+	// 	if err != nil {
+	// 		return
+	// 	}
 
-		v.metrics.SetSize(int(count))
-	})
+	// 	v.metrics.SetSize(int(count))
+	// })
 }
 
 // PostingMapStore is a persistent store for vector IDs.
