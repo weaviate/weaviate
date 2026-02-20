@@ -233,6 +233,7 @@ func computeExpectedMatchPercentage(filter *filters.LocalFilter) int {
 					op = filters.OperatorGreaterThan
 				case filters.OperatorLessThanEqual:
 					op = filters.OperatorGreaterThanEqual
+				default:
 				}
 			}
 			if i == 0 {
@@ -261,6 +262,7 @@ func computeExpectedMatchPercentage(filter *filters.LocalFilter) int {
 					for i := 1; i <= value; i++ {
 						normalizedFound[i] = true
 					}
+				default:
 				}
 			} else {
 				switch op {
@@ -300,6 +302,7 @@ func computeExpectedMatchPercentage(filter *filters.LocalFilter) int {
 							delete(normalizedFound, k)
 						}
 					}
+				default:
 				}
 			}
 		}
@@ -328,6 +331,7 @@ func computeExpectedMatchPercentage(filter *filters.LocalFilter) int {
 					op = filters.OperatorGreaterThan
 				case filters.OperatorLessThanEqual:
 					op = filters.OperatorGreaterThanEqual
+				default:
 				}
 			}
 			switch op {
@@ -355,6 +359,7 @@ func computeExpectedMatchPercentage(filter *filters.LocalFilter) int {
 				for i := 1; i <= value; i++ {
 					normalizedFound[i] = true
 				}
+			default:
 			}
 		}
 		return len(normalizedFound)
@@ -558,11 +563,6 @@ func TestFiltersBenchmark(t *testing.T) {
 	}
 
 	vectorSetups := allVectorIndexSetups()
-
-	vectorSetups = []vectorIndexSetup{
-		flatDefault(),
-		flatWithBQ(),
-	}
 
 	filterCases := allFilterTestCases(matchPcts)
 
