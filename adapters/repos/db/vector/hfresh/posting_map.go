@@ -90,36 +90,24 @@ func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32
 	return size, nil
 }
 
-// CountAllVectors returns the total number of vector IDs across all postings.
-// It deduplicates vector IDs across postings, so the count is an approximation of the total number of unique vectors in the index.
+// CountAllVectors returns the total number of vector IDs across all postings,
+// including deleted vectors that have not yet been cleaned up.
 // This is used for metrics and does not need to be exact, so it iterates over the in-memory cache without locking.
 func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
-	vectorIDSet := make(map[uint64]struct{})
-
-	var buf PackedPostingMetadata
+	var total uint64
 	for _, m := range v.data.AllRelaxed() {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
 
 		m.RLock()
-		if cap(buf) < len(m.PackedPostingMetadata) {
-			buf = make(PackedPostingMetadata, len(m.PackedPostingMetadata))
-		} else {
-			buf = buf[:len(m.PackedPostingMetadata)]
-		}
-		copy(buf, m.PackedPostingMetadata)
+		count := m.Count()
 		m.RUnlock()
 
-		for id, version := range buf.Iter() {
-			if version.Deleted() {
-				continue
-			}
-			vectorIDSet[id] = struct{}{}
-		}
+		total += uint64(count)
 	}
 
-	return uint64(len(vectorIDSet)), nil
+	return total, nil
 }
 
 // SetVectorIDs sets the vector IDs for the posting with the given ID in-memory and persists them to disk.
@@ -525,7 +513,7 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 
 type oncePer struct {
 	d    time.Duration
-	t    *time.Ticker
+	t    *time.Timer
 	mu   sync.Mutex
 	once sync.Once
 }
@@ -541,15 +529,18 @@ func (o *oncePer) do(f func()) {
 		o.mu.Lock()
 		defer o.mu.Unlock()
 		f()
-		o.t = time.NewTicker(o.d)
+		o.t = time.NewTimer(o.d)
 	})
+
+	if !o.mu.TryLock() {
+		return
+	}
+	defer o.mu.Unlock()
 
 	select {
 	case <-o.t.C:
-		if o.mu.TryLock() {
-			defer o.mu.Unlock()
-			f()
-		}
+		f()
+		o.t.Reset(o.d)
 	default:
 	}
 }
