@@ -513,7 +513,7 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 
 type oncePer struct {
 	d    time.Duration
-	t    *time.Ticker
+	t    *time.Timer
 	mu   sync.Mutex
 	once sync.Once
 }
@@ -529,15 +529,18 @@ func (o *oncePer) do(f func()) {
 		o.mu.Lock()
 		defer o.mu.Unlock()
 		f()
-		o.t = time.NewTicker(o.d)
+		o.t = time.NewTimer(o.d)
 	})
+
+	if !o.mu.TryLock() {
+		return
+	}
+	defer o.mu.Unlock()
 
 	select {
 	case <-o.t.C:
-		if o.mu.TryLock() {
-			defer o.mu.Unlock()
-			f()
-		}
+		f()
+		o.t.Reset(o.d)
 	default:
 	}
 }
