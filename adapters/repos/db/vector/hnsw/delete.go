@@ -36,6 +36,11 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
+// tombstoneCleanupMemoryNeeded is the estimated memory (in bytes) required for
+// HNSW tombstone cleanup. Used both for the pre-check before starting cleanup
+// and for periodic checks during cleanup to abort on memory pressure.
+const tombstoneCleanupMemoryNeeded = 100 * 1024 * 1024
+
 type breakCleanUpTombstonedNodesFunc func() bool
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
@@ -316,8 +321,41 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	resetCtx := h.resetCtx
 	h.resetLock.Unlock()
 
+	// Start a background goroutine that periodically checks memory pressure.
+	// If pressure is detected, memCancel is called and the cleanup aborts
+	// gracefully via the breakCleanUpTombstonedNodes check.
+	memCtx, memCancel := context.WithCancel(context.Background())
+	defer memCancel()
+
+	if h.allocChecker != nil {
+		enterrors.GoWrapper(func() {
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
+						h.logger.WithFields(logrus.Fields{
+							"action": "hnsw_tombstone_cleanup",
+							"event":  "cleanup_aborted_oom",
+							"class":  h.className,
+							"shard":  h.shardName,
+						}).Error(err)
+						memCancel()
+						return
+					}
+				case <-memCtx.Done():
+					return
+				case <-resetCtx.Done():
+					return
+				}
+			}
+		}, h.logger)
+	}
+
 	breakCleanUpTombstonedNodes := func() bool {
-		return resetCtx.Err() != nil || shouldAbort()
+		return resetCtx.Err() != nil || memCtx.Err() != nil || shouldAbort()
 	}
 
 	executed := false
