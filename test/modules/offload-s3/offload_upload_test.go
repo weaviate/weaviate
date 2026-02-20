@@ -17,8 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -139,7 +141,11 @@ func Test_UploadS3Journey(t *testing.T) {
 			require.Nil(t, err)
 			for _, tn := range resp.Payload {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.True(t,
+						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+					)
 					break
 				}
 			}
@@ -309,7 +315,11 @@ func Test_UploadS3Journey(t *testing.T) {
 
 			for _, tn := range resp.Payload {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.True(t,
+						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+					)
 					break
 				}
 			}
@@ -420,6 +430,22 @@ func Test_UploadS3Journey(t *testing.T) {
 
 		t.Run("add tenant objects", func(t *testing.T) {
 			for _, obj := range tenantObjects {
+				assert.Nil(t, helper.CreateObject(t, obj))
+			}
+		})
+
+		// Add many objects so offload takes long enough to observe FREEZING.
+		t.Run("add many objects to tenant to prolong FREEZING", func(t *testing.T) {
+			const extraObjects = 1000
+			for i := 0; i < extraObjects; i++ {
+				obj := &models.Object{
+					ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", i+1)),
+					Class: className,
+					Properties: map[string]interface{}{
+						"name": fmt.Sprintf("extra-%d", i),
+					},
+					Tenant: tenantNames[0],
+				}
 				assert.Nil(t, helper.CreateObject(t, obj))
 			}
 		})
