@@ -184,15 +184,15 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
-	tenantShards, err := h.schemaReader.TenantsShardsWithVersion(ctx, version, class, tNames...)
+	tenantsStatus, err := h.schemaReader.TenantsShardsWithVersion(ctx, version, class, tNames...)
 	if err != nil {
 		return nil, err
 	}
-	uTenants := make([]*models.Tenant, len(tenantShards))
-	for name, shardStatus := range tenantShards {
+	uTenants := make([]*models.Tenant, len(tenantsStatus))
+	for name, status := range tenantsStatus {
 		uTenants = append(uTenants, &models.Tenant{
 			Name:           name,
-			ActivityStatus: schema.ActivityStatus(shardStatus),
+			ActivityStatus: schema.ActivityStatus(status),
 		})
 	}
 	return uTenants, err
