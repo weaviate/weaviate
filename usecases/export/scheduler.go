@@ -759,8 +759,16 @@ func (s *Scheduler) resolveClasses(ctx context.Context, include, exclude []strin
 	}
 
 	if len(exclude) > 0 {
-		excludeMap := make(map[string]bool)
+		classMap := make(map[string]bool, len(allClasses))
+		for _, class := range allClasses {
+			classMap[class] = true
+		}
+
+		excludeMap := make(map[string]bool, len(exclude))
 		for _, class := range exclude {
+			if !classMap[class] {
+				return nil, fmt.Errorf("class %s does not exist", class)
+			}
 			excludeMap[class] = true
 		}
 

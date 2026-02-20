@@ -98,6 +98,51 @@ func TestScheduler_StatusFallsBackToMetadataAndForcesFailed(t *testing.T) {
 	assert.Contains(t, status.Error, "export plan not found")
 }
 
+func TestScheduler_ResolveClasses(t *testing.T) {
+	selector := &emptySelector{classList: []string{"Article", "Product", "Author"}}
+
+	s := &Scheduler{selector: selector}
+	ctx := context.Background()
+
+	t.Run("include valid", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, []string{"Article", "Product"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Article", "Product"}, classes)
+	})
+
+	t.Run("include nonexistent", func(t *testing.T) {
+		_, err := s.resolveClasses(ctx, []string{"DoesNotExist"}, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "DoesNotExist")
+		assert.Contains(t, err.Error(), "does not exist")
+	})
+
+	t.Run("exclude valid", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, nil, []string{"Product"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Article", "Author"}, classes)
+	})
+
+	t.Run("exclude nonexistent", func(t *testing.T) {
+		_, err := s.resolveClasses(ctx, nil, []string{"DoesNotExist"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "DoesNotExist")
+		assert.Contains(t, err.Error(), "does not exist")
+	})
+
+	t.Run("both include and exclude", func(t *testing.T) {
+		_, err := s.resolveClasses(ctx, []string{"Article"}, []string{"Product"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot specify both")
+	})
+
+	t.Run("neither returns all", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Article", "Product", "Author"}, classes)
+	})
+}
+
 func TestScheduler_StatusReturnsNotFoundWhenNothingExists(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
