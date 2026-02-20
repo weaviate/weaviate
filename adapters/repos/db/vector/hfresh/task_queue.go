@@ -156,7 +156,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 		return nil, errors.Wrap(err, "failed to initialize hfresh merge queue")
 	}
 
-	index.scheduler.RegisterQueue(tq.analyzeQueue)
+	// index.scheduler.RegisterQueue(tq.analyzeQueue)
 	index.scheduler.RegisterQueue(tq.splitQueue)
 	index.scheduler.RegisterQueue(tq.reassignQueue)
 	index.scheduler.RegisterQueue(tq.mergeQueue)

@@ -205,6 +205,11 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 			}
 
 			return true, nil
+		} else if count > h.maxPostingSize {
+			err = h.taskQueue.EnqueueSplit(centroidID)
+			if err != nil {
+				return false, err
+			}
 		}
 
 		// enqueue an analyze operation to persist the changes and update the posting map on disk
