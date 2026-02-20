@@ -30,7 +30,6 @@ import (
 //
 // swagger:model ExportStatusResponse
 type ExportStatusResponse struct {
-
 	// The backend storage system used
 	Backend string `json:"backend,omitempty"`
 
@@ -57,8 +56,8 @@ type ExportStatusResponse struct {
 	// Enum: [STARTED TRANSFERRING SUCCESS FAILED]
 	Status string `json:"status,omitempty"`
 
-	// Duration of the export in seconds
-	TookInS int64 `json:"tookInS,omitempty"`
+	// Duration of the export in milliseconds
+	TookInMs int64 `json:"tookInMs,omitempty"`
 }
 
 // Validate validates this export status response
@@ -89,7 +88,6 @@ func (m *ExportStatusResponse) validateShardStatus(formats strfmt.Registry) erro
 	}
 
 	for k := range m.ShardStatus {
-
 		for kk := range m.ShardStatus[k] {
 
 			if err := validate.Required("shardStatus"+"."+k+"."+kk, "body", m.ShardStatus[k][kk]); err != nil {
@@ -107,7 +105,6 @@ func (m *ExportStatusResponse) validateShardStatus(formats strfmt.Registry) erro
 			}
 
 		}
-
 	}
 
 	return nil
@@ -188,19 +185,14 @@ func (m *ExportStatusResponse) ContextValidate(ctx context.Context, formats strf
 }
 
 func (m *ExportStatusResponse) contextValidateShardStatus(ctx context.Context, formats strfmt.Registry) error {
-
 	for k := range m.ShardStatus {
-
 		for kk := range m.ShardStatus[k] {
-
 			if val, ok := m.ShardStatus[k][kk]; ok {
 				if err := val.ContextValidate(ctx, formats); err != nil {
 					return err
 				}
 			}
-
 		}
-
 	}
 
 	return nil

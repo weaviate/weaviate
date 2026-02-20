@@ -718,10 +718,10 @@
           "format": "date-time",
           "description": "When the export started"
         },
-        "tookInS": {
+        "tookInMs": {
           "type": "integer",
           "format": "int64",
-          "description": "Duration of the export in seconds"
+          "description": "Duration of the export in milliseconds"
         },
         "classes": {
           "type": "array",

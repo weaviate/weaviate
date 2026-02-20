@@ -7452,8 +7452,8 @@ func init() {
             "FAILED"
           ]
         },
-        "tookInS": {
-          "description": "Duration of the export in seconds",
+        "tookInMs": {
+          "description": "Duration of the export in milliseconds",
           "type": "integer",
           "format": "int64"
         }
@@ -17529,8 +17529,8 @@ func init() {
             "FAILED"
           ]
         },
-        "tookInS": {
-          "description": "Duration of the export in seconds",
+        "tookInMs": {
+          "description": "Duration of the export in milliseconds",
           "type": "integer",
           "format": "int64"
         }

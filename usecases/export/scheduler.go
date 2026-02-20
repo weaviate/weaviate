@@ -237,7 +237,7 @@ func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend,
 	}
 
 	if !meta.CompletedAt.IsZero() {
-		es.TookInS = int64(meta.CompletedAt.Sub(meta.StartedAt).Seconds())
+		es.TookInMs = meta.CompletedAt.Sub(meta.StartedAt).Milliseconds()
 	}
 
 	return es, nil
@@ -345,7 +345,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 	}
 
 	if !lastCompleted.IsZero() && (allSuccess || anyFailed) {
-		status.TookInS = int64(lastCompleted.Sub(plan.StartedAt).Seconds())
+		status.TookInMs = lastCompleted.Sub(plan.StartedAt).Milliseconds()
 	}
 
 	return status, nil
