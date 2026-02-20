@@ -328,7 +328,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true); err != nil {
+	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		updated.ObjectTTLConfig = ttlConfig
@@ -778,7 +778,7 @@ func (h *Handler) validateClassInvariants(
 		return err
 	}
 
-	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false); err != nil {
+	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		class.ObjectTTLConfig = ttlConfig
