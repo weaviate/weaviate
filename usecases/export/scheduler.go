@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -31,6 +32,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+var regExpID = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 const (
 	exportMetadataFile = "export_metadata.json"
@@ -107,8 +110,8 @@ func (s *Scheduler) isMultiNode() bool {
 
 // Export starts a new export operation.
 func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
-	if id == "" {
-		return nil, fmt.Errorf("export ID is required")
+	if !regExpID.MatchString(id) {
+		return nil, fmt.Errorf("invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", id)
 	}
 	if backend == "" {
 		return nil, fmt.Errorf("backend is required")
