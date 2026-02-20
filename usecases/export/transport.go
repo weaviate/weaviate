@@ -16,9 +16,14 @@ import (
 )
 
 // ExportClient is the HTTP client interface for inter-node export communication.
-// It sends fire-and-forget requests to participant nodes.
 type ExportClient interface {
-	Execute(ctx context.Context, host string, req *ExportRequest) error
+	// Prepare asks a participant to reserve its export slot.
+	Prepare(ctx context.Context, host string, req *ExportRequest) error
+	// Commit tells a participant to start the export.
+	Commit(ctx context.Context, host, exportID string) error
+	// Abort tells a participant to release its reservation.
+	Abort(ctx context.Context, host, exportID string)
+	// IsRunning checks whether a participant node is still running the given export.
 	IsRunning(ctx context.Context, host, exportID string) (bool, error)
 }
 

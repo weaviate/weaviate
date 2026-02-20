@@ -87,7 +87,9 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 
-	mux.Handle("/exports/execute", exportsHandler.Execute())
+	mux.Handle("/exports/prepare", exportsHandler.Prepare())
+	mux.Handle("/exports/commit", exportsHandler.Commit())
+	mux.Handle("/exports/abort", exportsHandler.Abort())
 	mux.Handle("/exports/status", exportsHandler.Status())
 
 	mux.Handle("/", index())

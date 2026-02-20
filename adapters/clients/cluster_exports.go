@@ -24,12 +24,13 @@ import (
 )
 
 const (
-	pathExportExecute = "/exports/execute"
+	pathExportPrepare = "/exports/prepare"
+	pathExportCommit  = "/exports/commit"
+	pathExportAbort   = "/exports/abort"
 	pathExportStatus  = "/exports/status"
 )
 
 // ClusterExports handles inter-node export communication.
-// It sends fire-and-forget requests to participant nodes.
 type ClusterExports struct {
 	client *http.Client
 }
@@ -39,32 +40,64 @@ func NewClusterExports(client *http.Client) *ClusterExports {
 	return &ClusterExports{client: client}
 }
 
-// Execute sends an export request to a participant node.
-// This is fire-and-forget: the participant will export its shards asynchronously.
-func (c *ClusterExports) Execute(ctx context.Context, host string, req *export.ExportRequest) error {
-	u := url.URL{Scheme: "http", Host: host, Path: pathExportExecute}
+// Prepare asks a participant to reserve its export slot.
+func (c *ClusterExports) Prepare(ctx context.Context, host string, req *export.ExportRequest) error {
+	u := url.URL{Scheme: "http", Host: host, Path: pathExportPrepare}
 
 	b, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("marshal export request: %w", err)
+		return fmt.Errorf("marshal prepare request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(b))
 	if err != nil {
-		return fmt.Errorf("new export request: %w", err)
+		return fmt.Errorf("new prepare request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	respBody, statusCode, err := c.do(httpReq)
 	if err != nil {
-		return fmt.Errorf("export request: %w", err)
+		return fmt.Errorf("prepare request: %w", err)
 	}
 
-	if statusCode != http.StatusAccepted {
-		return fmt.Errorf("unexpected status code %d (%s)", statusCode, respBody)
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("prepare failed: status %d (%s)", statusCode, respBody)
 	}
 
 	return nil
+}
+
+// Commit tells a participant to start the export.
+func (c *ClusterExports) Commit(ctx context.Context, host, exportID string) error {
+	u := url.URL{Scheme: "http", Host: host, Path: pathExportCommit, RawQuery: "id=" + url.QueryEscape(exportID)}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("new commit request: %w", err)
+	}
+
+	respBody, statusCode, err := c.do(httpReq)
+	if err != nil {
+		return fmt.Errorf("commit request: %w", err)
+	}
+
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("commit failed: status %d (%s)", statusCode, respBody)
+	}
+
+	return nil
+}
+
+// Abort tells a participant to release its reservation.
+func (c *ClusterExports) Abort(ctx context.Context, host, exportID string) {
+	u := url.URL{Scheme: "http", Host: host, Path: pathExportAbort, RawQuery: "id=" + url.QueryEscape(exportID)}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
+	if err != nil {
+		return
+	}
+
+	c.do(httpReq)
 }
 
 // IsRunning checks whether a participant node is still running the given export.

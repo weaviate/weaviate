@@ -30,9 +30,19 @@ func NewExports(participant *export.Participant, auth auth) *exports {
 	return &exports{participant: participant, auth: auth}
 }
 
-// Execute handles POST /exports/execute
-func (e *exports) Execute() http.Handler {
-	return e.auth.handleFunc(e.executeHandler())
+// Prepare handles POST /exports/prepare — reserves the export slot.
+func (e *exports) Prepare() http.Handler {
+	return e.auth.handleFunc(e.prepareHandler())
+}
+
+// Commit handles POST /exports/commit?id={exportID} — starts the export.
+func (e *exports) Commit() http.Handler {
+	return e.auth.handleFunc(e.commitHandler())
+}
+
+// Abort handles POST /exports/abort?id={exportID} — releases the reservation.
+func (e *exports) Abort() http.Handler {
+	return e.auth.handleFunc(e.abortHandler())
 }
 
 // Status handles GET /exports/status?id={exportID}
@@ -63,7 +73,7 @@ func (e *exports) statusHandler() http.HandlerFunc {
 	}
 }
 
-func (e *exports) executeHandler() http.HandlerFunc {
+func (e *exports) prepareHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
@@ -79,11 +89,45 @@ func (e *exports) executeHandler() http.HandlerFunc {
 			return
 		}
 
-		if err := e.participant.OnExecute(r.Context(), &req); err != nil {
-			http.Error(w, fmt.Errorf("execute export: %w", err).Error(), http.StatusInternalServerError)
+		if err := e.participant.Prepare(r.Context(), &req); err != nil {
+			http.Error(w, fmt.Errorf("prepare export: %w", err).Error(), http.StatusConflict)
 			return
 		}
 
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (e *exports) commitHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		exportID := r.URL.Query().Get("id")
+		if exportID == "" {
+			http.Error(w, "missing 'id' query parameter", http.StatusBadRequest)
+			return
+		}
+
+		if err := e.participant.Commit(r.Context(), exportID); err != nil {
+			http.Error(w, fmt.Errorf("commit export: %w", err).Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (e *exports) abortHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		exportID := r.URL.Query().Get("id")
+		if exportID == "" {
+			http.Error(w, "missing 'id' query parameter", http.StatusBadRequest)
+			return
+		}
+
+		e.participant.Abort(exportID)
+		w.WriteHeader(http.StatusOK)
 	}
 }

@@ -52,6 +52,12 @@ type ExportMetadata struct {
 	Version     string        `json:"version"`
 }
 
+// exportNodeInfo holds per-node information during 2PC coordination.
+type exportNodeInfo struct {
+	req  *ExportRequest
+	host string // empty for local node
+}
+
 // ExportRequest is sent from coordinator to participant nodes
 type ExportRequest struct {
 	ID       string              `json:"id"`

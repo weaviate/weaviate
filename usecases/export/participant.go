@@ -16,7 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -25,15 +25,30 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
+const reservationTimeout = 30 * time.Second
+
 // Participant handles export requests on a single node.
 // It exports its assigned shards directly to S3 and writes status files.
+//
+// The two-phase commit protocol works as follows:
+//  1. Prepare: reserves the export slot (atomic CAS). A background timer
+//     auto-aborts after reservationTimeout if Commit is not called.
+//  2. Commit: cancels the timer and starts the actual export work.
+//  3. Abort: releases the reservation immediately.
 type Participant struct {
-	shutdownCtx    context.Context
-	selector       Selector
-	backends       BackendProvider
-	logger         logrus.FieldLogger
-	exportOngoing  atomic.Bool
-	activeExportID atomic.Pointer[string]
+	shutdownCtx context.Context
+	selector    Selector
+	backends    BackendProvider
+	logger      logrus.FieldLogger
+
+	// mu guards preparedReq, abortTimer, and cancelExport, which are set
+	// during Prepare/Commit and consumed during Commit/Abort.
+	mu           sync.Mutex
+	preparedReq  *ExportRequest
+	abortTimer   *time.Timer
+	cancelExport context.CancelFunc
+	// this stays set from the moment Prepare() reserves the slot until Commit() or Abort() releases it. Used for IsRunning() checks.
+	activeExport string
 }
 
 // NewParticipant creates a new export participant.
@@ -53,27 +68,112 @@ func NewParticipant(
 	}
 }
 
-// OnExecute handles an export request from the coordinator.
-// It fires off an async goroutine to export assigned shards and returns immediately.
-func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
-	if !p.exportOngoing.CompareAndSwap(false, true) {
-		if id := p.activeExportID.Load(); id != nil {
-			return fmt.Errorf("export %q already in progress", *id)
+// Prepare reserves the export slot for the given request. If no Commit
+// arrives within reservationTimeout the reservation is automatically released.
+func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
+	f := func() error {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if req == nil {
+			return fmt.Errorf("request cannot be nil")
 		}
-		return fmt.Errorf("an export is already in progress")
-	}
-	id := req.ID
-	p.activeExportID.Store(&id)
 
-	backendStore, err := p.backends.BackupBackend(req.Backend)
-	if err != nil {
-		p.exportOngoing.Store(false)
-		return fmt.Errorf("backend %s not available: %w", req.Backend, err)
+		if req.ID == "" {
+			return fmt.Errorf("export ID cannot be empty")
+		}
+
+		if p.activeExport != "" {
+			return fmt.Errorf("active export %q already in progress", p.activeExport)
+		}
+
+		p.activeExport = req.ID
+
+		p.preparedReq = req
+		p.abortTimer = time.AfterFunc(reservationTimeout, func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+
+			p.logger.WithField("export_id", req.ID).
+				Warn("export reservation timed out, auto-aborting")
+			p.clearAndRelease()
+		})
+
+		return nil
+	}
+	if err := f(); err != nil {
+		return err
 	}
 
-	if err := backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); err != nil {
-		p.exportOngoing.Store(false)
-		return fmt.Errorf("initialize backend: %w", err)
+	p.logger.WithField("action", "export_participant").
+		WithField("export_id", req.ID).
+		WithField("node", req.NodeName).
+		Info("participant prepared for export")
+
+	return nil
+}
+
+// Commit starts the actual export. Must be called after a successful Prepare.
+func (p *Participant) Commit(ctx context.Context, exportID string) error {
+	if exportID == "" {
+		return fmt.Errorf("export ID cannot be empty")
+	}
+
+	var req *ExportRequest
+	var backendStore modulecapabilities.BackupBackend
+	var exportCtx context.Context
+	f := func() (errRet error) {
+		p.mu.Lock()
+		defer func() {
+			if errRet != nil {
+				p.clearAndRelease()
+			}
+			p.mu.Unlock()
+		}()
+
+		timer := p.abortTimer
+		if timer == nil {
+			errRet = fmt.Errorf("timer is nil. No export prepared")
+			return errRet
+		}
+		timer.Stop()
+
+		if p.activeExport != exportID {
+			errRet = fmt.Errorf("active export ID mismatch: expected %q, got %q", p.activeExport, exportID)
+			return errRet
+		}
+
+		req = p.preparedReq
+		if req == nil {
+			errRet = fmt.Errorf("no export prepared")
+			return errRet
+		}
+		if req.ID != exportID {
+			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", req.ID, exportID)
+			return errRet
+		}
+		backendStore2, err := p.backends.BackupBackend(req.Backend)
+		if err != nil {
+			errRet = fmt.Errorf("backend %s not available: %w", req.Backend, err)
+			return errRet
+		}
+		backendStore = backendStore2
+
+		if err := backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); err != nil {
+			errRet = fmt.Errorf("initialize backend: %w", err)
+			return errRet
+		}
+
+		p.preparedReq = nil
+		p.abortTimer = nil
+
+		exportCtx2, cancel := context.WithCancel(p.shutdownCtx)
+		p.cancelExport = cancel
+		exportCtx = exportCtx2
+
+		return nil
+	}
+	if err := f(); err != nil {
+		return err
 	}
 
 	p.logger.WithField("action", "export_participant").
@@ -83,24 +183,73 @@ func (p *Participant) OnExecute(ctx context.Context, req *ExportRequest) error {
 		Info("participant starting export")
 
 	enterrors.GoWrapper(func() {
-		p.executeExport(p.shutdownCtx, backendStore, req)
+		p.executeExport(exportCtx, backendStore, req)
 	}, p.logger)
 
 	return nil
 }
 
-// executeExport performs the actual export work for this node's assigned shards.
+// Abort cancels a prepared or running export.
+// If the export is still in the prepared state, the reservation is released.
+// If the export has already been committed, the running export is cancelled.
+func (p *Participant) Abort(exportID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.activeExport != exportID {
+		return
+	}
+
+	if p.cancelExport != nil {
+		// Export is running — cancel it. The goroutine will detect context
+		// cancellation, write a failed status, and call clearAndRelease()
+		// via its defer.
+		p.cancelExport()
+		p.cancelExport = nil
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", exportID).
+			Info("participant aborted running export")
+	} else {
+		// Still in prepared state — full cleanup.
+		p.clearAndRelease()
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", exportID).
+			Info("participant aborted export reservation")
+	}
+}
+
+// clearAndRelease is called by the reservation timer. It only releases the
+// slot if preparedReq is still set — if Commit or Abort already consumed it,
+// the timer is a no-op.
+func (p *Participant) clearAndRelease() {
+	p.preparedReq = nil
+	if p.abortTimer != nil {
+		p.abortTimer.Stop()
+	}
+	p.abortTimer = nil
+	if p.cancelExport != nil {
+		p.cancelExport()
+	}
+	p.cancelExport = nil
+	p.activeExport = ""
+}
+
+// IsRunning reports whether the given export is currently running on this node.
 func (p *Participant) IsRunning(id string) bool {
-	if !p.exportOngoing.Load() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.activeExport == "" {
 		return false
 	}
-	active := p.activeExportID.Load()
-	return active != nil && *active == id
+	return p.activeExport == id
 }
 
 func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) {
-	defer p.exportOngoing.Store(false)
-
+	defer func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.clearAndRelease()
+	}()
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,

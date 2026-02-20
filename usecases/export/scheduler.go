@@ -55,7 +55,9 @@ type ShardLike = interface {
 	Name() string
 }
 
-// Scheduler manages export operations
+// Scheduler manages export operations.
+// In multi-node mode the RAFT leader acts as the single coordinator and uses
+// a two-phase commit protocol (prepare/commit/abort) across participant nodes.
 type Scheduler struct {
 	shutdownCtx  context.Context
 	logger       logrus.FieldLogger
@@ -103,7 +105,7 @@ func (s *Scheduler) isMultiNode() bool {
 	return s.client != nil && s.nodeResolver != nil
 }
 
-// Export starts a new export operation
+// Export starts a new export operation.
 func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
 	if id == "" {
 		return nil, fmt.Errorf("export ID is required")
@@ -141,8 +143,29 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	now := strfmt.DateTime(time.Now().UTC())
 	homePath := backendStore.HomeDir(id, bucket, path)
 
-	if err := s.performExport(ctx, backendStore, id, backend, now, classes, bucket, path); err != nil {
-		return nil, err
+	s.logger.WithField("action", "export").
+		WithField("export_id", id).
+		WithField("classes", classes).
+		WithField("class_count", len(classes)).
+		WithField("multi_node", s.isMultiNode()).
+		Info("starting export")
+
+	status := &models.ExportStatusResponse{
+		ID:        id,
+		Backend:   backend,
+		Status:    string(export.Transferring),
+		StartedAt: now,
+		Classes:   classes,
+	}
+
+	if s.isMultiNode() {
+		if err := s.performMultiNodeExport(ctx, backendStore, id, status, classes, bucket, path); err != nil {
+			return nil, err
+		}
+	} else {
+		enterrors.GoWrapper(func() {
+			s.performSingleNodeExport(s.shutdownCtx, backendStore, id, status, classes, bucket, path)
+		}, s.logger)
 	}
 
 	return &models.ExportCreateResponse{
@@ -328,36 +351,11 @@ func (s *Scheduler) assembleStatusFromPlan(
 	return status, nil
 }
 
-// performExport executes the export.
-// In multi-node mode: writes plan to S3, fires requests to all nodes.
-// In single-node mode: exports all shards locally.
-func (s *Scheduler) performExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, backendName string, startedAt strfmt.DateTime, classes []string, bucket, path string) error {
-	s.logger.WithField("action", "export").
-		WithField("export_id", exportID).
-		WithField("classes", classes).
-		WithField("class_count", len(classes)).
-		WithField("multi_node", s.isMultiNode()).
-		Info("starting export")
-
-	status := &models.ExportStatusResponse{
-		ID:        exportID,
-		Backend:   backendName,
-		Status:    string(export.Transferring),
-		StartedAt: startedAt,
-		Classes:   classes,
-	}
-
-	if s.isMultiNode() {
-		return s.performMultiNodeExport(ctx, backend, exportID, status, classes, bucket, path)
-	}
-
-	enterrors.GoWrapper(func() {
-		s.performSingleNodeExport(s.shutdownCtx, backend, exportID, status, classes, bucket, path)
-	}, s.logger)
-	return nil
-}
-
-// performMultiNodeExport orchestrates export across multiple nodes.
+// performMultiNodeExport orchestrates export across multiple nodes using
+// a two-phase commit protocol:
+//  1. Prepare all nodes (reserve the export slot).
+//  2. If all prepared successfully, commit all (start the export).
+//  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
 	// Build node assignments: node → className → []shardName
 	nodeAssignments := make(map[string]map[string][]string)
@@ -380,7 +378,48 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 		}
 	}
 
-	// Write export plan to S3
+	// Build per-node requests and resolve hostnames.
+	nodes := make([]exportNodeInfo, 0, len(nodeAssignments))
+	for node, classShards := range nodeAssignments {
+		ni := exportNodeInfo{
+			req: &ExportRequest{
+				ID:       exportID,
+				Backend:  status.Backend,
+				Classes:  classes,
+				Shards:   classShards,
+				Bucket:   bucket,
+				Path:     path,
+				NodeName: node,
+			},
+		}
+		if node != s.localNode {
+			host, ok := s.nodeResolver.NodeHostname(node)
+			if !ok {
+				return fmt.Errorf("failed to resolve hostname for node %s", node)
+			}
+			ni.host = host
+		}
+		nodes = append(nodes, ni)
+	}
+
+	// Phase 1: Prepare all nodes.
+	var prepared []exportNodeInfo
+	for _, ni := range nodes {
+		var err error
+		if ni.host == "" {
+			err = s.participant.Prepare(ctx, ni.req)
+		} else {
+			err = s.client.Prepare(ctx, ni.host, ni.req)
+		}
+		if err != nil {
+			// Abort all previously prepared nodes.
+			s.abortAll(ctx, exportID, prepared)
+			return fmt.Errorf("prepare node %s: %w", ni.req.NodeName, err)
+		}
+		prepared = append(prepared, ni)
+	}
+
+	// Write export plan to S3 after all nodes are prepared.
 	plan := &ExportPlan{
 		ID:              exportID,
 		Backend:         status.Backend,
@@ -390,50 +429,47 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 	}
 
 	if err := s.writeExportPlan(ctx, backend, exportID, bucket, path, plan); err != nil {
-		s.logger.WithField("action", "export").WithField("export_id", exportID).Error(err)
+		s.abortAll(ctx, exportID, prepared)
 		status.Status = string(export.Failed)
 		status.Error = fmt.Sprintf("failed to write export plan: %v", err)
 		s.writeMetadata(ctx, backend, exportID, bucket, path, status)
 		return fmt.Errorf("failed to write export plan: %w", err)
 	}
 
-	// Fire-and-forget to all nodes
-	for node, classShards := range nodeAssignments {
-		// Build per-node shard map: className → []shardName
-		req := &ExportRequest{
-			ID:       exportID,
-			Backend:  status.Backend,
-			Classes:  classes,
-			Shards:   classShards,
-			Bucket:   bucket,
-			Path:     path,
-			NodeName: node,
-		}
-
-		if node == s.localNode {
-			// Local node: call participant directly
-			if err := s.participant.OnExecute(ctx, req); err != nil {
-				s.logger.WithField("action", "export").WithField("node", node).Error(err)
-			}
+	// Phase 2: Commit all nodes.
+	for _, ni := range prepared {
+		var err error
+		if ni.host == "" {
+			err = s.participant.Commit(ctx, exportID)
 		} else {
-			// Remote node: fire-and-forget HTTP
-			host, ok := s.nodeResolver.NodeHostname(node)
-			if !ok {
-				s.logger.WithField("node", node).Error("failed to resolve node hostname")
-				continue
-			}
-			if err := s.client.Execute(ctx, host, req); err != nil {
-				s.logger.WithField("action", "export").WithField("node", node).Error(err)
-			}
+			err = s.client.Commit(ctx, ni.host, exportID)
+		}
+		if err != nil {
+			s.abortAll(ctx, exportID, prepared)
+			status.Status = string(export.Failed)
+			status.Error = fmt.Sprintf("commit node %s failed: %v", ni.req.NodeName, err)
+			s.writeMetadata(ctx, backend, exportID, bucket, path, status)
+			return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
 		}
 	}
 
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
-		WithField("nodes", len(nodeAssignments)).
-		Info("multi-node export requests dispatched")
+		WithField("nodes", len(prepared)).
+		Info("multi-node export committed on all nodes")
 
 	return nil
+}
+
+// abortAll sends abort to all previously prepared nodes (best-effort).
+func (s *Scheduler) abortAll(ctx context.Context, exportID string, nodes []exportNodeInfo) {
+	for _, ni := range nodes {
+		if ni.host == "" {
+			s.participant.Abort(exportID)
+		} else {
+			s.client.Abort(ctx, ni.host, exportID)
+		}
+	}
 }
 
 // performSingleNodeExport runs the original single-node export path.

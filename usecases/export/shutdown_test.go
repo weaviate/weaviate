@@ -316,9 +316,15 @@ type fakeExportClient struct {
 	isRunningFn func(ctx context.Context, host, exportID string) (bool, error)
 }
 
-func (c *fakeExportClient) Execute(_ context.Context, _ string, _ *ExportRequest) error {
+func (c *fakeExportClient) Prepare(_ context.Context, _ string, _ *ExportRequest) error {
 	return nil
 }
+
+func (c *fakeExportClient) Commit(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (c *fakeExportClient) Abort(_ context.Context, _, _ string) {}
 
 func (c *fakeExportClient) IsRunning(ctx context.Context, host, exportID string) (bool, error) {
 	if c.isRunningFn != nil {
@@ -329,18 +335,13 @@ func (c *fakeExportClient) IsRunning(ctx context.Context, host, exportID string)
 
 func TestParticipant_RejectsSecondExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
 
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
-	}
-
-	p := &Participant{
-		shutdownCtx: context.Background(),
-		selector:    selector,
-		backends:    &fakeBackendProvider{backend: backend},
-		logger:      logger,
-	}
+	p := NewParticipant(
+		context.Background(),
+		&blockingSelector{blockCh: make(chan struct{})},
+		&fakeBackendProvider{backend: &fakeBackend{}},
+		logger,
+	)
 
 	req1 := &ExportRequest{
 		ID:       "export-1",
@@ -350,7 +351,7 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.OnExecute(context.Background(), req1)
+	err := p.Prepare(context.Background(), req1)
 	require.NoError(t, err)
 
 	req2 := &ExportRequest{
@@ -361,28 +362,23 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err = p.OnExecute(context.Background(), req2)
+	err = p.Prepare(context.Background(), req2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already in progress")
 
 	// Clean up
-	close(selector.blockCh)
+	p.Abort("export-1")
 }
 
 func TestParticipant_IsRunning(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
 
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
-	}
-
-	p := &Participant{
-		shutdownCtx: context.Background(),
-		selector:    selector,
-		backends:    &fakeBackendProvider{backend: backend},
-		logger:      logger,
-	}
+	p := NewParticipant(
+		context.Background(),
+		&blockingSelector{blockCh: make(chan struct{})},
+		&fakeBackendProvider{backend: &fakeBackend{}},
+		logger,
+	)
 
 	// Nothing running yet
 	assert.False(t, p.IsRunning("export-1"))
@@ -395,16 +391,16 @@ func TestParticipant_IsRunning(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.OnExecute(context.Background(), req)
+	err := p.Prepare(context.Background(), req)
 	require.NoError(t, err)
 
-	// Now it should be running
+	// After Prepare the slot is reserved — IsRunning should be true
 	assert.True(t, p.IsRunning("export-1"))
 	// Different ID should not match
 	assert.False(t, p.IsRunning("export-other"))
 
 	// Clean up
-	close(selector.blockCh)
+	p.Abort("export-1")
 }
 
 func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
