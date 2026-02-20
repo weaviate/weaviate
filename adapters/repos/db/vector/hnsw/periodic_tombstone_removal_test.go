@@ -122,7 +122,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 
 func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
+	logger, logHook := test.NewNullLogger()
 	cleanupIntervalSeconds := 1
 	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
 	tombstoneCleanupCycle := cyclemanager.NewManager(
@@ -138,6 +138,7 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 		AllocChecker:          allocChecker,
+		Logger:                logger,
 		GetViewThunk:          func() common.BucketView { return &periodicNoopBucketView{} },
 	}, ent.UserConfig{
 		CleanupIntervalSeconds: cleanupIntervalSeconds,
@@ -145,6 +146,9 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 		EFConstruction:         128,
 	}, tombstoneCallbacks, testinghelpers.NewDummyStore(t))
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, index.Shutdown(context.Background()))
+	})
 	index.PostStartup(context.Background())
 
 	for i, vec := range testVectors {
@@ -172,10 +176,23 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 
 	// Start the cleanup cycle — it should abort due to memory pressure
 	tombstoneCleanupCycle.Start()
+	t.Cleanup(func() {
+		require.NoError(t, tombstoneCleanupCycle.StopAndWait(context.Background()))
+	})
 
-	// Wait long enough for at least one cleanup cycle to have attempted and
-	// the background memory monitor goroutine to have detected pressure
-	time.Sleep(3 * time.Second)
+	// Wait for the OOM skip log entry to confirm a cleanup cycle was attempted
+	// and rejected due to memory pressure (the pre-check in tombstoneCleanup).
+	hasOOMLogEntry := func() bool {
+		for _, entry := range logHook.AllEntries() {
+			if event, ok := entry.Data["event"]; ok && event == "cleanup_skipped_oom" {
+				return true
+			}
+		}
+		return false
+	}
+	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		return hasOOMLogEntry()
+	}, "expected cleanup_skipped_oom log entry")
 
 	// Tombstones should still be present because cleanup was aborted
 	index.tombstoneLock.RLock()
@@ -192,11 +209,4 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 		index.tombstoneLock.RUnlock()
 		return remaining == 0
 	}, "tombstones should be cleaned up after memory pressure subsides")
-
-	if err := index.Shutdown(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := tombstoneCleanupCycle.StopAndWait(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 }
