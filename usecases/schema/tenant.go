@@ -182,17 +182,18 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		return nil, err
 	}
 
-	// Ensure local schema has caught up to the update version before we or callers
-	// perform any subsequent operations that depend on the new tenant state.
-	if err := h.schemaReader.WaitForUpdate(ctx, version); err != nil {
-		return nil, err
-	}
-
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
-	uTenants, _, err := h.schemaManager.QueryTenants(class, tNames)
+	tenantShards, err := h.schemaReader.TenantsShardsWithVersion(ctx, version, class, tNames...)
 	if err != nil {
 		return nil, err
+	}
+	uTenants := make([]*models.Tenant, len(tenantShards))
+	for name, shardStatus := range tenantShards {
+		uTenants = append(uTenants, &models.Tenant{
+			Name:           name,
+			ActivityStatus: schema.ActivityStatus(shardStatus),
+		})
 	}
 	return uTenants, err
 }
