@@ -173,6 +173,7 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 	abortedNodes := make(map[string]bool, len(remoteNodes)+1)
 	abortedNodes[localNode] = localAborted
 	anyAborted := localAborted
+	abortedLock := new(sync.Mutex)
 
 	for _, nodeName := range remoteNodes {
 		eg.Go(func() error {
@@ -180,8 +181,10 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 			if err != nil {
 				ec.AddGroups(err, nodeName)
 			}
+			abortedLock.Lock()
 			anyAborted = anyAborted || aborted
 			abortedNodes[nodeName] = aborted
+			abortedLock.Unlock()
 			return nil
 		})
 	}
@@ -198,19 +201,17 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 	}
 	l.Warn("abort ttl deletion on all nodes")
 
-	if anyAborted {
-		return true, nil
-	}
-	return false, ec.ToError()
+	return anyAborted, err
 }
 
 func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, classesWithTTL map[string]objectTTLAndVersion,
 	ttlTime, deletionTime time.Time,
 ) (err error) {
-	ok, deleteCtx := c.localStatus.SetRunning()
+	ok, ttlCtx := c.localStatus.SetRunning()
 	if !ok {
 		return fmt.Errorf("another request is still being processed")
 	}
+	defer c.localStatus.ResetRunning("finished")
 
 	started := time.Now()
 
@@ -262,7 +263,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		objsDeletedCounters[name] = &atomic.Int32{}
 		countDeleted := func(count int32) { objsDeletedCounters[name].Add(count) }
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
-		c.db.DeleteExpiredObjects(deleteCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
+		c.db.DeleteExpiredObjects(ttlCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
 	}
 
 	eg.Wait() // ignore errors from eg as they are already collected in ec
@@ -478,6 +479,14 @@ func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.F
 
 // ----------------------------------------------------------------------------
 
+// LocalStatus keeps status of ongoing TTL deletion on local node.
+// isRunning is set to true when TTL deletion start and reset when finishes.
+// Status is global per node. Only one deletion can run at a time, following requests
+// to start new deletion should be rejected until ongoing one finishes.
+// When running flag is set new context is created to be passed to started process.
+// Context can be cancelled by abort call, which should eventually stop ongoing deletion.
+// Abort call do not change isRunning flag. It is changed when deletion is actually finished,
+// as context can be verified with delay.
 type LocalStatus struct {
 	lock          *sync.Mutex
 	isRunning     bool

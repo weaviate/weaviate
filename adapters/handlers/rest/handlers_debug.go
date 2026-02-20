@@ -1098,6 +1098,11 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		expiration := r.URL.Query().Get("expiration")
 		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
 
@@ -1126,16 +1131,27 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
 		targetOwnNode := config.Enabled(targetOwnNodeStr)
 
 		aborted, err := appState.ObjectTTLCoordinator.Abort(context.Background(), targetOwnNode)
+		var errMsg string
 		if err != nil {
-			http.Error(w, "failed to abort expired objects deletion", http.StatusInternalServerError)
+			errMsg = err.Error()
+		}
+		resp := map[string]any{"aborted": aborted, "error": errMsg}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
 			return
 		}
-
-		w.Write([]byte(fmt.Sprint(aborted)))
 	}))
 
 	// Debug endpoint to hold/release/check a consistent view of segments on a bucket.

@@ -16,10 +16,9 @@ import (
 	"fmt"
 )
 
-func NewCanceledCause(format string, a ...any) error {
-	err := fmt.Errorf(format, a...)
+func NewCanceledCause(cause string) error {
 	return &CanceledCause{
-		err: fmt.Sprintf("%s: %s", context.Canceled, err),
+		err: fmt.Sprintf("%s: %s", context.Canceled, cause),
 	}
 }
 

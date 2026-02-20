@@ -32,14 +32,8 @@ import (
 func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
-	// TODO aliszka:ttl find better way to merge contexts / use single context
-	mergedCtx, mergedCancel := context.WithCancelCause(ctx)
-	enterrors.GoWrapper(func() {
-		<-i.closingCtx.Done()
-		mergedCancel(context.Cause(i.closingCtx))
-	}, i.logger)
-
 	// use closing context to stop long-running TTL deletions in case index is closed
+	mergedCtx, _ := mergeContexts(ctx, i.closingCtx, i.logger)
 	i.incomingDeleteObjectsExpired(mergedCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
 }
 
@@ -347,4 +341,19 @@ func sleepWithCtx(ctx context.Context, d time.Duration) (val time.Time, err erro
 		timer.Stop()
 		return time.Time{}, context.Cause(ctx)
 	}
+}
+
+// TODO aliszka:ttl find better way to merge contexts
+func mergeContexts(parentCtx, secondCtx context.Context, logger logrus.FieldLogger) (context.Context, context.CancelCauseFunc) {
+	ctx, cancel := context.WithCancelCause(parentCtx)
+
+	enterrors.GoWrapper(func() {
+		select {
+		case <-secondCtx.Done():
+			cancel(context.Cause(secondCtx))
+		case <-parentCtx.Done():
+		}
+	}, logger)
+
+	return ctx, cancel
 }

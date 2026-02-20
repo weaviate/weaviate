@@ -58,7 +58,7 @@ func (p ObjectsExpiredPayload) SetContentTypeHeaderReq(r *http.Request) {
 // ----------------------------------------------------------------------------
 
 type ObjectsExpiredAbortResponse struct {
-	Aborted bool `json:"deletion_ongoing"`
+	Aborted bool `json:"aborted"`
 }
 
 func (p ObjectsExpiredAbortResponse) MIME() string {

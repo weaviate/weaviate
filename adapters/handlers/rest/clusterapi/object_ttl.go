@@ -113,7 +113,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
-		ok, ctx := d.localStatus.SetRunning()
+		ok, ttlCtx := d.localStatus.SetRunning()
 		if !ok {
 			http.Error(w, "another request is still being processed", http.StatusTooManyRequests)
 			return
@@ -187,7 +187,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 					continue
 				}
 
-				idx.IncomingDeleteObjectsExpired(ctx, eg, ec, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli),
+				idx.IncomingDeleteObjectsExpired(ttlCtx, eg, ec, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli),
 					time.UnixMilli(classPayload.DelMilli), countDeleted, classPayload.ClassVersion)
 			}
 
