@@ -250,7 +250,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
-	return helpers.NewAllowDenyListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release, s.maxIdGetter()), nil
+	return helpers.NewAllowDenyListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release, s.maxIdGetter()+1), nil
 }
 
 func (s *Searcher) extractPropValuePair(

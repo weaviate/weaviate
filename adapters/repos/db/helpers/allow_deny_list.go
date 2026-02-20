@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 // this was changed to be public to allow for accessing the underlying bitmap and intersecting it with other *sroar.Bitmap for faster keyword retrieval
@@ -22,19 +23,40 @@ type BitmapAllowDenyList struct {
 	Bm         *sroar.Bitmap
 	release    func()
 	isDenyList bool
-	maxId      uint64
+	size       uint64
 }
 
-func NewAllowDenyListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func(), maxId uint64) AllowList {
-	return &BitmapAllowDenyList{Bm: bm, release: release, isDenyList: isDenyList, maxId: maxId}
+func NewAllowDenyList(allowListIds ...uint64) AllowList {
+	return NewAllowDenyListFromBitmap(roaringset.NewBitmap(allowListIds...), false, 0)
 }
 
-func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, maxId uint64) AllowList {
-	return NewAllowDenyListCloseableFromBitmap(bm, isDenyList, func() {}, maxId)
+func NewDeniedAllowDenyListFromAllowList(size uint64, allowListIds []uint64) AllowList {
+	return NewAllowDenyListFromBitmap(roaringset.NewBitmap(allowListIds...), true, size)
 }
 
-func NewAllowDenyListFromBitmapDeepCopy(bm *sroar.Bitmap, isDenyList bool, maxId uint64) AllowList {
-	return NewAllowDenyListFromBitmap(bm.Clone(), isDenyList, maxId)
+func NewAllowDenyListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func(), size uint64) AllowList {
+	return &BitmapAllowDenyList{Bm: bm, release: release, isDenyList: isDenyList, size: size}
+}
+
+func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, size uint64) AllowList {
+	if isDenyList {
+		allowListIds := bm.ToArray()
+		inverseIds := make([]uint64, 0, size-uint64(len(allowListIds)))
+		iIds := 0
+		for id := uint64(0); id < size; id++ {
+			if iIds < len(allowListIds) && allowListIds[iIds] == id {
+				iIds++
+			} else {
+				inverseIds = append(inverseIds, id)
+			}
+		}
+		return NewAllowDenyListCloseableFromBitmap(roaringset.NewBitmap(inverseIds...), true, func() {}, size)
+	}
+	return NewAllowDenyListCloseableFromBitmap(bm, isDenyList, func() {}, size)
+}
+
+func NewAllowDenyListFromBitmapDeepCopy(bm *sroar.Bitmap, isDenyList bool, size uint64) AllowList {
+	return NewAllowDenyListFromBitmap(bm.Clone(), isDenyList, size)
 }
 
 func (al *BitmapAllowDenyList) Close() {
@@ -57,7 +79,7 @@ func (al *BitmapAllowDenyList) Contains(id uint64) bool {
 }
 
 func (al *BitmapAllowDenyList) DeepCopy() AllowList {
-	return NewAllowDenyListFromBitmapDeepCopy(al.Bm, al.isDenyList, al.maxId)
+	return NewAllowDenyListCloseableFromBitmap(al.Bm.Clone(), al.isDenyList, func() {}, al.size)
 }
 
 func (al *BitmapAllowDenyList) WrapOnWrite() AllowList {
@@ -66,8 +88,8 @@ func (al *BitmapAllowDenyList) WrapOnWrite() AllowList {
 
 func (al *BitmapAllowDenyList) Slice() []uint64 {
 	if al.isDenyList {
-		result := make([]uint64, 0, al.maxId)
-		for id := 0; id <= int(al.maxId); id++ {
+		result := make([]uint64, 0, al.size)
+		for id := 0; id < int(al.size); id++ {
 			if !al.Bm.Contains(uint64(id)) {
 				result = append(result, uint64(id))
 			}
@@ -79,14 +101,14 @@ func (al *BitmapAllowDenyList) Slice() []uint64 {
 
 func (al *BitmapAllowDenyList) IsEmpty() bool {
 	if al.isDenyList {
-		return al.Bm.GetCardinality() == int(al.maxId+1)
+		return al.Bm.GetCardinality() == int(al.size)
 	}
 	return al.Bm.IsEmpty()
 }
 
 func (al *BitmapAllowDenyList) Len() int {
 	if al.isDenyList {
-		return int(al.maxId+1) - al.Bm.GetCardinality()
+		return int(al.size) - al.Bm.GetCardinality()
 	}
 	return al.Cardinality()
 }
@@ -101,7 +123,7 @@ func (al *BitmapAllowDenyList) Min() uint64 {
 		if alMin > 0 {
 			return 0
 		}
-		for id := uint64(0); id <= al.maxId; id++ {
+		for id := uint64(0); id < al.size; id++ {
 			if !al.Bm.Contains(id) {
 				return id
 			}
@@ -113,10 +135,13 @@ func (al *BitmapAllowDenyList) Min() uint64 {
 
 func (al *BitmapAllowDenyList) Max() uint64 {
 	if al.isDenyList {
-		if al.Bm.Maximum() != al.maxId {
-			return al.maxId
+		if al.IsEmpty() {
+			return 0
 		}
-		for id := al.maxId - 1; id > 0; id-- {
+		if al.Bm.Maximum() != al.size-1 {
+			return al.size - 1
+		}
+		for id := al.size - 2; id > 0; id-- {
 			if !al.Bm.Contains(id) {
 				return id
 			}
@@ -146,7 +171,7 @@ func (al *BitmapAllowDenyList) Iterator() AllowListIterator {
 func (al *BitmapAllowDenyList) LimitedIterator(limit int) AllowListIterator {
 	// if it's a deny list, we need to invert it to get the actual doc ids to iterate over
 	if al.isDenyList {
-		return newBitmapAllowDenyListIterator(al.Bm, limit, al.maxId+1, al.Bm.GetCardinality())
+		return newBitmapAllowDenyListIterator(al.Bm, limit, al.size, al.Bm.GetCardinality())
 	}
 	return newBitmapAllowListIterator(al.Bm, limit)
 }
@@ -165,6 +190,9 @@ type bitmapAllowDenyListIterator struct {
 }
 
 func newBitmapAllowDenyListIterator(deny *sroar.Bitmap, limit int, universeSize uint64, denyCardinality int) AllowListIterator {
+	if limit == 0 {
+		limit = int(universeSize) - denyCardinality
+	}
 	return &bitmapAllowDenyListIterator{
 		universeSize:    universeSize,
 		deny:            deny,
@@ -189,5 +217,5 @@ func (i *bitmapAllowDenyListIterator) Next() (uint64, bool) {
 }
 
 func (i *bitmapAllowDenyListIterator) Len() int {
-	return int(i.universeSize) - i.denyCardinality
+	return min(int(i.universeSize)-i.denyCardinality, i.limit)
 }
