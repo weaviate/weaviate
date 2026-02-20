@@ -55,6 +55,7 @@ type Searcher struct {
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
+	maxIdGetter         helpers.MaxIdGetterFunc
 }
 
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
@@ -64,7 +65,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
+	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory, maxIdGetter helpers.MaxIdGetterFunc,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -78,6 +79,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
+		maxIdGetter:            maxIdGetter,
 	}
 }
 
@@ -248,7 +250,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
-	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release, s.bitmapFactory), nil
+	return helpers.NewAllowDenyListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release, s.maxIdGetter()), nil
 }
 
 func (s *Searcher) extractPropValuePair(

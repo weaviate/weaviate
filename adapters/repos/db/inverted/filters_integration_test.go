@@ -92,7 +92,7 @@ func Test_Filters_String(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
 
 	type test struct {
 		name                     string
@@ -370,7 +370,7 @@ func Test_Filters_Int(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
 
 	type test struct {
 		name                     string
@@ -1153,7 +1153,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
 
 	type test struct {
 		name                     string
