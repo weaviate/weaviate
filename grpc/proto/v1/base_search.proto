@@ -50,7 +50,7 @@ message Hybrid {
   repeated string properties = 2;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vectors
-  float alpha = 4;
+  float alpha = 4 [deprecated = true]; // deprecated in 1.36.0 - use alpha_param
   enum FusionType {
     FUSION_TYPE_UNSPECIFIED = 0;
     FUSION_TYPE_RANKED = 1;
@@ -63,6 +63,7 @@ message Hybrid {
   NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
   Targets targets = 10;
   optional SearchOperatorOptions bm25_search_operator = 11;
+  optional float alpha_param = 12;
 
   // only vector distance, but keep it extendable
   oneof threshold {
