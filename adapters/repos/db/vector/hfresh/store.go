@@ -93,7 +93,7 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		p.locks.RUnlock(postingID)
 		return nil, err
 	}
-	list, err := p.bucket.SetList(key)
+	list, err := p.bucket.SetPostings(key)
 	p.locks.RUnlock(postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
