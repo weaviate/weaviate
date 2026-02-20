@@ -158,7 +158,7 @@ func (e errorMissingDeleteOnPropIndex) Unwrap() error {
 }
 
 func newErrorScheduleNotSet() errorScheduleNotSet {
-	return errorScheduleNotSet{errorTtl{fmt.Errorf("objects ttl requires env variable OBJECTS_TTL_DELETE_SCHEDULE to be configured")}}
+	return errorScheduleNotSet{errorTtl{fmt.Errorf("enabling objectTTL requires a running background scheduler. Set OBJECTS_TTL_DELETE_SCHEDULE to activate it")}}
 }
 
 func (e errorScheduleNotSet) Unwrap() error {
