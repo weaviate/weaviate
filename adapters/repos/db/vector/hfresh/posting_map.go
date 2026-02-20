@@ -47,7 +47,7 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 		data:       xsync.NewMap[uint64, *PostingMetadata](),
 		metrics:    metrics,
 		bucket:     b,
-		sizeMetric: OncePer(5 * time.Second),
+		sizeMetric: OncePer(30 * time.Second),
 	}
 }
 
@@ -96,19 +96,27 @@ func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32
 func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
 	vectorIDSet := make(map[uint64]struct{})
 
+	var buf PackedPostingMetadata
 	for _, m := range v.data.AllRelaxed() {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
 
 		m.RLock()
-		for id, version := range m.Iter() {
+		if cap(buf) < len(m.PackedPostingMetadata) {
+			buf = make(PackedPostingMetadata, len(m.PackedPostingMetadata))
+		} else {
+			buf = buf[:len(m.PackedPostingMetadata)]
+		}
+		copy(buf, m.PackedPostingMetadata)
+		m.RUnlock()
+
+		for id, version := range buf.Iter() {
 			if version.Deleted() {
 				continue
 			}
 			vectorIDSet[id] = struct{}{}
 		}
-		m.RUnlock()
 	}
 
 	return uint64(len(vectorIDSet)), nil
