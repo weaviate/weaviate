@@ -447,7 +447,7 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 		// memory than before. Either way, it's probably a good idea not to
 		// start a cleanup cycle if we are already this close to running out of
 		// memory.
-		memoryNeeded := int64(100 * 1024 * 1024)
+		memoryNeeded := int64(tombstoneCleanupMemoryNeeded)
 
 		if err := h.allocChecker.CheckAlloc(memoryNeeded); err != nil {
 			h.logger.WithFields(logrus.Fields{

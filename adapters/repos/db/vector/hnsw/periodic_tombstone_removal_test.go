@@ -13,6 +13,8 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,6 +33,25 @@ import (
 type periodicNoopBucketView struct{}
 
 func (n *periodicNoopBucketView) ReleaseView() {}
+
+// toggleAllocChecker is a thread-safe AllocChecker that can be toggled to
+// simulate memory pressure during cleanup.
+type toggleAllocChecker struct {
+	shouldErr atomic.Bool
+}
+
+func (t *toggleAllocChecker) CheckAlloc(sizeInBytes int64) error {
+	if t.shouldErr.Load() {
+		return fmt.Errorf("insufficient memory: need %d bytes", sizeInBytes)
+	}
+	return nil
+}
+
+func (t *toggleAllocChecker) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
+	return nil
+}
+
+func (t *toggleAllocChecker) Refresh(updateMappings bool) {}
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
 	ctx := context.Background()
@@ -90,6 +111,87 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 			return ts == 0
 		}, "wait until tombstones have been cleaned up")
 	})
+
+	if err := index.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := tombstoneCleanupCycle.StopAndWait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	cleanupIntervalSeconds := 1
+	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
+	tombstoneCleanupCycle := cyclemanager.NewManager(
+		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
+		tombstoneCallbacks.CycleCallback, logger)
+
+	allocChecker := &toggleAllocChecker{}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "tombstone-oom-abort",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+		AllocChecker:          allocChecker,
+		GetViewThunk:          func() common.BucketView { return &periodicNoopBucketView{} },
+	}, ent.UserConfig{
+		CleanupIntervalSeconds: cleanupIntervalSeconds,
+		MaxConnections:         30,
+		EFConstruction:         128,
+	}, tombstoneCallbacks, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	index.PostStartup(context.Background())
+
+	for i, vec := range testVectors {
+		err := index.Add(ctx, uint64(i), vec)
+		require.NoError(t, err)
+	}
+
+	// Delete some entries to create tombstones
+	for i := range testVectors {
+		if i%2 != 0 {
+			continue
+		}
+		err := index.Delete(uint64(i))
+		require.NoError(t, err)
+	}
+
+	// Verify tombstones exist
+	index.tombstoneLock.RLock()
+	ts := len(index.tombstones)
+	index.tombstoneLock.RUnlock()
+	require.True(t, ts > 0, "expected tombstones to exist")
+
+	// Simulate memory pressure before starting cleanup cycle
+	allocChecker.shouldErr.Store(true)
+
+	// Start the cleanup cycle — it should abort due to memory pressure
+	tombstoneCleanupCycle.Start()
+
+	// Wait long enough for at least one cleanup cycle to have attempted and
+	// the background memory monitor goroutine to have detected pressure
+	time.Sleep(3 * time.Second)
+
+	// Tombstones should still be present because cleanup was aborted
+	index.tombstoneLock.RLock()
+	tsAfter := len(index.tombstones)
+	index.tombstoneLock.RUnlock()
+	assert.Equal(t, ts, tsAfter, "tombstones should remain when cleanup is aborted due to memory pressure")
+
+	// Now release memory pressure and verify cleanup proceeds
+	allocChecker.shouldErr.Store(false)
+
+	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		index.tombstoneLock.RLock()
+		remaining := len(index.tombstones)
+		index.tombstoneLock.RUnlock()
+		return remaining == 0
+	}, "tombstones should be cleaned up after memory pressure subsides")
 
 	if err := index.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
