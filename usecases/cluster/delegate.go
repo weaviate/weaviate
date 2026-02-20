@@ -14,17 +14,13 @@ package cluster
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
-	"fmt"
 	"math/rand"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/hashicorp/memberlist"
+	"github.com/hashicorp/serf/serf"
 	"github.com/sirupsen/logrus"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // _OpCode represents the type of supported operation
@@ -110,165 +106,53 @@ func (d *spaceMsg) unmarshal(data []byte) (err error) {
 	return nil
 }
 
-// delegate implements the memberList delegate interface
-type delegate struct {
-	Name     string
-	dataPath string
-	log      logrus.FieldLogger
-	//  All the methods must be thread-safe,
-	// see https://github.com/hashicorp/memberlist/blob/master/delegate.go#L7-L8
+// diskSpaceCache is a thread-safe cache of node disk space information.
+// It replaces the old memberlist delegate cache.
+type diskSpaceCache struct {
 	sync.RWMutex
-	Cache map[string]NodeInfo
-
-	hostInfo NodeInfo
-
-	metadata NodeMetadata
+	data map[string]NodeInfo
 }
 
-type NodeMetadata struct {
-	RestPort int `json:"rest_port"`
-	GrpcPort int `json:"grpc_port"`
-}
-
-func (d *delegate) setOwnSpace(x DiskUsage) {
-	d.Lock()
-	defer d.Unlock()
-	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli()}
-}
-
-func (d *delegate) ownInfo() NodeInfo {
-	d.RLock()
-	defer d.RUnlock()
-	return d.hostInfo
-}
-
-// init must be called first to initialize the cache
-func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
-	d.Cache = make(map[string]NodeInfo, 32)
-	if diskSpace == nil {
-		return fmt.Errorf("function calculating disk space cannot be empty")
+func newDiskSpaceCache() *diskSpaceCache {
+	return &diskSpaceCache{
+		data: make(map[string]NodeInfo, 32),
 	}
-	lastTime := time.Now()
-	minUpdatePeriod := time.Second + _ProtoTTL/3
-	space, err := diskSpace(d.dataPath)
-	if err != nil {
-		lastTime = lastTime.Add(-minUpdatePeriod)
-		d.log.WithError(err).Error("calculate disk space")
-	}
-
-	d.setOwnSpace(space)
-	d.set(d.Name, NodeInfo{space, lastTime.UnixMilli()}) // cache
-
-	// delegate remains alive throughout the entire program.
-	enterrors.GoWrapper(func() { d.updater(_ProtoTTL, minUpdatePeriod, diskSpace) }, d.log)
-	return nil
 }
 
-// NodeMeta is used to retrieve meta-data about the current node
-// when broadcasting an alive message. It's length is limited to
-// the given byte size. This metadata is available in the Node structure.
-func (d *delegate) NodeMeta(limit int) (meta []byte) {
-	data, err := json.Marshal(d.metadata)
-	if err != nil {
-		return nil
-	}
-	if len(data) > limit {
-		return nil
-	}
-	return data
-}
-
-// LocalState is used for a TCP Push/Pull. This is sent to
-// the remote side in addition to the membership information. Any
-// data can be sent here. See MergeRemoteState as well. The `join`
-// boolean indicates this is for a join instead of a push/pull.
-func (d *delegate) LocalState(join bool) []byte {
-	var (
-		info = d.ownInfo()
-		err  error
-	)
-
-	d.set(d.Name, info) // cache new value
-
-	x := spaceMsg{
-		header{
-			OpCode:       _OpCodeDisk,
-			ProtoVersion: _ProtoVersion,
-		},
-		info.DiskUsage,
-		uint8(len(d.Name)),
-		d.Name,
-	}
-	bytes, err := x.marshal()
-	if err != nil {
-		d.log.WithField("action", "delegate.local_state.marshal").WithError(err).
-			Error("failed to marshal local state")
-		return nil
-	}
-	return bytes
-}
-
-// MergeRemoteState is invoked after a TCP Push/Pull. This is the
-// state received from the remote side and is the result of the
-// remote side's LocalState call. The 'join'
-// boolean indicates this is for a join instead of a push/pull.
-func (d *delegate) MergeRemoteState(data []byte, join bool) {
-	// Does operation match _OpCodeDisk
-	if _OpCode(data[0]) != _OpCodeDisk {
-		return
-	}
-	var x spaceMsg
-	if err := x.unmarshal(data); err != nil || x.Node == "" {
-		d.log.WithFields(logrus.Fields{
-			"action": "delegate.merge_remote.unmarshal",
-			"data":   string(data),
-		}).WithError(err).Error("failed to unmarshal remote state")
-		return
-	}
-	info := NodeInfo{x.DiskUsage, time.Now().UnixMilli()}
-	d.set(x.Node, info)
-}
-
-func (d *delegate) NotifyMsg(data []byte) {}
-
-func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
-	return nil
-}
-
-// get returns info about about a specific node in the cluster
-func (d *delegate) get(node string) (NodeInfo, bool) {
-	d.RLock()
-	defer d.RUnlock()
-	x, ok := d.Cache[node]
+// get returns info about a specific node in the cluster
+func (c *diskSpaceCache) get(node string) (NodeInfo, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	x, ok := c.data[node]
 	return x, ok
 }
 
-func (d *delegate) set(node string, x NodeInfo) {
-	d.Lock()
-	defer d.Unlock()
-	d.Cache[node] = x
+func (c *diskSpaceCache) set(node string, info NodeInfo) {
+	c.Lock()
+	defer c.Unlock()
+	c.data[node] = info
 }
 
-// delete key from the cache
-func (d *delegate) delete(node string) {
-	d.Lock()
-	defer d.Unlock()
-	delete(d.Cache, node)
+// delete removes a node from the cache
+func (c *diskSpaceCache) delete(node string) {
+	c.Lock()
+	defer c.Unlock()
+	delete(c.data, node)
 }
 
-// sortCandidates by the amount of free space in descending order
+// sortCandidates sorts passed node names by the free amount of disk space in descending order.
 //
 // Two nodes are considered equivalent if the difference between their
 // free spaces is less than 32MB.
-// The free space is just an rough estimate of the actual amount.
-// The Lower bound 32MB helps to mitigate the risk of selecting same set of nodes
-// when selections happens concurrently on different initiator nodes.
-func (d *delegate) sortCandidates(names []string) []string {
+// The free space is just a rough estimate of the actual amount.
+// The lower bound 32MB helps to mitigate the risk of selecting same set of nodes
+// when selections happen concurrently on different initiator nodes.
+func (c *diskSpaceCache) sortCandidates(names []string) []string {
 	rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
 
-	d.RLock()
-	defer d.RUnlock()
-	m := d.Cache
+	c.RLock()
+	defer c.RUnlock()
+	m := c.data
 	sort.Slice(names, func(i, j int) bool {
 		return (m[names[j]].Available >> 25) < (m[names[i]].Available >> 25)
 	})
@@ -276,46 +160,55 @@ func (d *delegate) sortCandidates(names []string) []string {
 	return names
 }
 
-// updater a function which updates node information periodically
-func (d *delegate) updater(period, minPeriod time.Duration, du func(path string) (DiskUsage, error)) {
-	t := time.NewTicker(period)
-	defer t.Stop()
-	curTime := time.Now()
-	for range t.C {
-		if time.Since(curTime) < minPeriod { // too short
-			continue // wait for next cycle to avoid overwhelming the disk
+// runSerfEventLoop processes Serf membership and user events, updating the disk space cache.
+// It runs until eventCh is closed (on Serf shutdown).
+func runSerfEventLoop(eventCh <-chan serf.Event, cache *diskSpaceCache, log logrus.FieldLogger) {
+	for event := range eventCh {
+		switch e := event.(type) {
+		case serf.MemberEvent:
+			if e.EventType() == serf.EventMemberLeave || e.EventType() == serf.EventMemberFailed {
+				for _, m := range e.Members {
+					cache.delete(m.Name)
+				}
+			}
+		case serf.UserEvent:
+			if e.Name == "disk_space" {
+				var msg spaceMsg
+				if err := msg.unmarshal(e.Payload); err == nil && msg.Node != "" {
+					cache.set(msg.Node, NodeInfo{msg.DiskUsage, time.Now().UnixMilli()})
+				}
+			}
 		}
-		space, err := du(d.dataPath)
-		if err != nil {
-			d.log.WithField("action", "delegate.local_state.disk_usage").WithError(err).
-				Error("disk space updater failed")
-		} else {
-			d.setOwnSpace(space)
-		}
-		curTime = time.Now()
 	}
 }
 
-// events implement memberlist.EventDelegate interface
-// EventDelegate is a simpler delegate that is used only to receive
-// notifications about members joining and leaving. The methods in this
-// delegate may be called by multiple goroutines, but never concurrently.
-// This allows you to reason about ordering.
-type events struct {
-	d *delegate
+// runDiskSpaceUpdater periodically measures local disk usage and broadcasts it
+// to other cluster nodes via a Serf user event. It also updates the local cache entry.
+func runDiskSpaceUpdater(serfNode *serf.Serf, nodeName string, dataPath string,
+	cache *diskSpaceCache, log logrus.FieldLogger,
+) {
+	t := time.NewTicker(_ProtoTTL)
+	defer t.Stop()
+	for range t.C {
+		space, err := diskSpace(dataPath)
+		if err != nil {
+			log.WithField("action", "disk_space_updater").Error(err)
+			continue
+		}
+		cache.set(nodeName, NodeInfo{space, time.Now().UnixMilli()})
+		msg := spaceMsg{
+			header{_OpCodeDisk, _ProtoVersion},
+			space,
+			uint8(len(nodeName)),
+			nodeName,
+		}
+		payload, err := msg.marshal()
+		if err != nil {
+			log.WithField("action", "disk_space_updater.marshal").Error(err)
+			continue
+		}
+		if err := serfNode.UserEvent("disk_space", payload, false); err != nil {
+			log.WithField("action", "disk_space_updater.broadcast").Error(err)
+		}
+	}
 }
-
-// NotifyJoin is invoked when a node is detected to have joined.
-// The Node argument must not be modified.
-func (e events) NotifyJoin(*memberlist.Node) {}
-
-// NotifyLeave is invoked when a node is detected to have left.
-// The Node argument must not be modified.
-func (e events) NotifyLeave(node *memberlist.Node) {
-	e.d.delete(node.Name)
-}
-
-// NotifyUpdate is invoked when a node is detected to have
-// updated, usually involving the meta data. The Node argument
-// must not be modified.
-func (e events) NotifyUpdate(*memberlist.Node) {}
