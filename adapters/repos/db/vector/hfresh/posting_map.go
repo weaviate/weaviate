@@ -47,7 +47,7 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 		data:       xsync.NewMap[uint64, *PostingMetadata](),
 		metrics:    metrics,
 		bucket:     b,
-		sizeMetric: OncePer(5 * time.Second),
+		sizeMetric: OncePer(30 * time.Second),
 	}
 }
 
