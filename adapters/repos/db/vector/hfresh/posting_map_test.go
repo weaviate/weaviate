@@ -12,8 +12,10 @@
 package hfresh
 
 import (
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -578,5 +580,91 @@ func TestPostingMetadataStore(t *testing.T) {
 		count, err := store.CountAllVectors(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 10, count)
+	})
+}
+
+func TestOncePer(t *testing.T) {
+	t.Run("first call always runs f", func(t *testing.T) {
+		var count atomic.Int64
+		op := OncePer(time.Hour)
+		op.do(func() { count.Add(1) })
+		require.EqualValues(t, 1, count.Load())
+	})
+
+	t.Run("subsequent calls within duration are skipped", func(t *testing.T) {
+		var count atomic.Int64
+		op := OncePer(time.Hour)
+		for range 10 {
+			op.do(func() { count.Add(1) })
+		}
+		require.EqualValues(t, 1, count.Load())
+	})
+
+	t.Run("call after duration runs f again", func(t *testing.T) {
+		var count atomic.Int64
+		op := OncePer(100 * time.Millisecond)
+		op.do(func() { count.Add(1) })
+		require.EqualValues(t, 1, count.Load())
+
+		time.Sleep(300 * time.Millisecond)
+
+		op.do(func() { count.Add(1) })
+		require.EqualValues(t, 2, count.Load())
+	})
+
+	t.Run("timer resets after each invocation", func(t *testing.T) {
+		var count atomic.Int64
+		op := OncePer(100 * time.Millisecond)
+
+		op.do(func() { count.Add(1) })
+		require.EqualValues(t, 1, count.Load())
+
+		time.Sleep(300 * time.Millisecond)
+		op.do(func() { count.Add(1) })
+		require.EqualValues(t, 2, count.Load())
+
+		// Timer was reset: calls within the new window are skipped.
+		op.do(func() { count.Add(1) })
+		op.do(func() { count.Add(1) })
+		require.EqualValues(t, 2, count.Load())
+
+		time.Sleep(300 * time.Millisecond)
+		op.do(func() { count.Add(1) })
+		require.EqualValues(t, 3, count.Load())
+	})
+
+	t.Run("concurrent callers are skipped while f is running", func(t *testing.T) {
+		var count atomic.Int64
+		op := OncePer(time.Hour)
+
+		// Exhaust once.Do with a no-op so subsequent calls go through the TryLock path.
+		op.do(func() {})
+
+		// Reset the timer to 0 so it fires immediately, unblocking the select.
+		op.t.Reset(0)
+		time.Sleep(5 * time.Millisecond)
+
+		var wg sync.WaitGroup
+		const goroutines = 50
+		ready := make(chan struct{})
+		release := make(chan struct{})
+
+		for range goroutines {
+			wg.Go(func() {
+				<-ready
+				op.do(func() {
+					count.Add(1)
+					<-release
+				})
+			})
+		}
+
+		close(ready)
+		time.Sleep(100 * time.Millisecond) // let goroutines reach do()
+		close(release)
+		wg.Wait()
+
+		// Only one goroutine should have executed f; the rest were skipped by TryLock.
+		require.EqualValues(t, 1, count.Load())
 	})
 }
