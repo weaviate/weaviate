@@ -136,3 +136,4 @@ test/modules/backup-filesystem/bucketPath
 # Claude
 .claude/*
 !.claude/settings.json
+!.claude/scripts/
