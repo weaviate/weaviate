@@ -17,17 +17,17 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// SetPostings returns all Set entries for a given key.
+// SetRawList returns all Set entries for a given key.
 //
-// SetPostings is specific to the Set Strategy with HFresh postings
-func (b *Bucket) SetPostings(key []byte) ([][]byte, error) {
+// SetRawList is specific to the Set Strategy with HFresh postings
+func (b *Bucket) SetRawList(key []byte) ([][]byte, error) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	return b.setPostingsFromConsistentView(view, key)
+	return b.setRawListFromConsistentView(view, key)
 }
 
-func (b *Bucket) setPostingsFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
+func (b *Bucket) setRawListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
 	var out [][]byte
 
 	v, err := b.disk.getCollectionBytes(key, view.Disk)
