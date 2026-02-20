@@ -291,11 +291,16 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 		nearVec := req.HybridSearch.NearVector
 
+		alpha := float64(hs.Alpha)
+		if hs.AlphaParam != nil {
+			alpha = float64(*hs.AlphaParam)
+		}
+
 		out.HybridSearch = &searchparams.HybridSearch{
 			Query:           hs.Query,
 			Properties:      schema.LowercaseFirstLetterOfStrings(hs.Properties),
 			Vector:          vector,
-			Alpha:           float64(hs.Alpha),
+			Alpha:           alpha,
 			FusionAlgorithm: fusionType,
 			TargetVectors:   targetVectors,
 			Distance:        distance,
