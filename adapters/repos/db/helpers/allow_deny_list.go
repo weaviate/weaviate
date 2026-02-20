@@ -29,6 +29,14 @@ func NewAllowDenyListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, rele
 	return &BitmapAllowDenyList{Bm: bm, release: release, isDenyList: isDenyList, maxId: maxId}
 }
 
+func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, maxId uint64) AllowList {
+	return NewAllowDenyListCloseableFromBitmap(bm, isDenyList, func() {}, maxId)
+}
+
+func NewAllowDenyListFromBitmapDeepCopy(bm *sroar.Bitmap, isDenyList bool, maxId uint64) AllowList {
+	return NewAllowDenyListFromBitmap(bm.Clone(), isDenyList, maxId)
+}
+
 func (al *BitmapAllowDenyList) Close() {
 	al.release()
 }
@@ -49,7 +57,7 @@ func (al *BitmapAllowDenyList) Contains(id uint64) bool {
 }
 
 func (al *BitmapAllowDenyList) DeepCopy() AllowList {
-	return NewAllowListFromBitmapDeepCopy(al.Bm)
+	return NewAllowDenyListFromBitmapDeepCopy(al.Bm, al.isDenyList, al.maxId)
 }
 
 func (al *BitmapAllowDenyList) WrapOnWrite() AllowList {
