@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	golog "log"
 	"regexp"
 
 	"github.com/sirupsen/logrus"
@@ -25,8 +26,15 @@ type logParser struct {
 func newLogParser(logrus logrus.FieldLogger) *logParser {
 	return &logParser{
 		logrus: logrus.WithField("action", "memberlist"),
+		// Match both memberlist ([memberlist]/[serf]) and plain [DEBUG]/[INFO]/[ERR] prefixes
 		regexp: regexp.MustCompile(`(.*)\[(DEBUG|ERR|ERROR|INFO|WARNING|WARN)](.*)`),
 	}
+}
+
+// newSerfLogger wraps newLogParser in a standard library *log.Logger so it can
+// be assigned to serf.Config.Logger (which expects a *log.Logger).
+func newSerfLogger(logger logrus.FieldLogger) *golog.Logger {
+	return golog.New(newLogParser(logger), "", 0)
 }
 
 func (l *logParser) Write(in []byte) (int, error) {

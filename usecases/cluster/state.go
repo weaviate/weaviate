@@ -12,19 +12,22 @@
 package cluster
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/memberlist"
+	"github.com/hashicorp/serf/serf"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -70,13 +73,11 @@ type NodeSelector interface {
 }
 
 type State struct {
-	config Config
-	// memberlist methods are thread safe
-	// see https://github.com/hashicorp/memberlist/blob/master/memberlist.go#L502-L503
+	config    Config
+	serfNode  *serf.Serf
+	diskCache *diskSpaceCache
 
-	list                 *memberlist.Memberlist
 	nonStorageNodes      map[string]struct{}
-	delegate             delegate
 	maintenanceNodesLock sync.RWMutex
 }
 
@@ -108,6 +109,9 @@ type Config struct {
 	RaftBootstrapExpect int
 	// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
 	RequestQueueConfig RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
+	// SerfSnapshotEnabled controls whether Serf writes a snapshot file for split-brain protection.
+	// Defaults to true. Disable only in ephemeral/test environments where persistent state is unwanted.
+	SerfSnapshotEnabled bool `json:"serfSnapshotEnabled" yaml:"serfSnapshotEnabled"`
 }
 
 type AuthConfig struct {
@@ -155,75 +159,93 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	// Select appropriate memberlist configuration
-	cfg := selectMemberlistConfig(userConfig)
+	memberlistCfg := selectMemberlistConfig(userConfig)
 
 	// Configure basic settings
-	cfg.LogOutput = newLogParser(logger)
-	cfg.Name = userConfig.Hostname
+	memberlistCfg.LogOutput = newLogParser(logger)
+	memberlistCfg.Name = userConfig.Hostname
 
 	// Configure addresses
-	if err := configureMemberlistAddresses(cfg, userConfig); err != nil {
+	if err := configureMemberlistAddresses(memberlistCfg, userConfig); err != nil {
 		logger.Errorf("failed to configure memberlist addresses: %v", err)
 		return nil, errors.Wrap(err, "configure memberlist addresses")
 	}
 
 	// Configure ports
-	configureMemberlistPorts(cfg, userConfig)
+	configureMemberlistPorts(memberlistCfg, userConfig)
 
 	// Configure additional settings
-	configureMemberlistSettings(cfg, userConfig, raftTimeoutsMultiplier)
+	configureMemberlistSettings(memberlistCfg, userConfig, raftTimeoutsMultiplier)
 
-	// Create state
-	state := State{
-		config:          userConfig,
-		nonStorageNodes: nonStorageNodes,
-		delegate: delegate{
-			Name:     cfg.Name,
-			dataPath: dataPath,
-			log:      logger,
-			metadata: NodeMetadata{
-				RestPort: userConfig.DataBindPort,
-				GrpcPort: userConfig.DataBindPort,
-			},
-		},
+	// Build Serf configuration
+	serfCfg := serf.DefaultConfig()
+	serfCfg.NodeName = userConfig.Hostname
+	serfCfg.MemberlistConfig = memberlistCfg
+	serfCfg.Logger = newSerfLogger(logger)
+	serfCfg.Tags = map[string]string{
+		"rest_port": strconv.Itoa(userConfig.DataBindPort),
+		"grpc_port": strconv.Itoa(userConfig.DataBindPort),
 	}
+	eventCh := make(chan serf.Event, 64)
+	serfCfg.EventCh = eventCh
+	serfCfg.RejoinAfterLeave = true
+	serfCfg.TombstoneTimeout = 24 * time.Hour
+	serfCfg.ReconnectTimeout = 24 * time.Hour
 
-	// Initialize delegate
-	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delegate_init").Errorf("delegate init failed: %v", err)
-		return nil, errors.Wrap(err, "delegate init")
+	if userConfig.SerfSnapshotEnabled {
+		serfCfg.SnapshotPath = filepath.Join(dataPath, "serf.snapshot")
 	}
-
-	// Set delegate and events
-	cfg.Delegate = &state.delegate
-	cfg.Events = events{&state.delegate}
 
 	// Log configuration details
 	logger.WithFields(logrus.Fields{
-		"action":          "memberlist_config",
+		"action":          "serf_config",
 		"hostname":        userConfig.Hostname,
-		"bind_addr":       cfg.BindAddr,
-		"bind_port":       cfg.BindPort,
-		"advertise_addr":  cfg.AdvertiseAddr,
-		"advertise_port":  cfg.AdvertisePort,
+		"bind_addr":       memberlistCfg.BindAddr,
+		"bind_port":       memberlistCfg.BindPort,
+		"advertise_addr":  memberlistCfg.AdvertiseAddr,
+		"advertise_port":  memberlistCfg.AdvertisePort,
 		"config_type":     getConfigType(userConfig),
-		"tcp_timeout":     cfg.TCPTimeout,
+		"tcp_timeout":     memberlistCfg.TCPTimeout,
 		"raft_multiplier": raftTimeoutsMultiplier,
-	}).Info("memberlist configuration")
+		"snapshot_path":   serfCfg.SnapshotPath,
+	}).Info("serf configuration")
 
-	// Create memberlist
-	if state.list, err = memberlist.Create(cfg); err != nil {
+	// Create Serf node
+	serfNode, err := serf.Create(serfCfg)
+	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"action":         "memberlist_init",
+			"action":         "serf_init",
 			"hostname":       userConfig.Hostname,
-			"bind_addr":      cfg.BindAddr,
-			"bind_port":      cfg.BindPort,
-			"advertise_addr": cfg.AdvertiseAddr,
-			"advertise_port": cfg.AdvertisePort,
+			"bind_addr":      memberlistCfg.BindAddr,
+			"bind_port":      memberlistCfg.BindPort,
+			"advertise_addr": memberlistCfg.AdvertiseAddr,
+			"advertise_port": memberlistCfg.AdvertisePort,
 			"config_type":    getConfigType(userConfig),
-		}).Errorf("memberlist not created: %v", err)
-		return nil, errors.Wrap(err, "create memberlist")
+		}).Errorf("serf node not created: %v", err)
+		return nil, errors.Wrap(err, "create serf node")
 	}
+
+	// Initialise disk space cache with current node's own usage
+	diskCache := newDiskSpaceCache()
+	if space, err := diskSpace(dataPath); err != nil {
+		logger.WithField("action", "init_disk_cache").Error(err)
+	} else {
+		diskCache.set(userConfig.Hostname, NodeInfo{space, time.Now().UnixMilli()})
+	}
+
+	state := &State{
+		config:          userConfig,
+		serfNode:        serfNode,
+		diskCache:       diskCache,
+		nonStorageNodes: nonStorageNodes,
+	}
+
+	// Start background goroutines
+	enterrors.GoWrapper(func() { runSerfEventLoop(eventCh, diskCache, logger) }, logger)
+	enterrors.GoWrapper(func() {
+		runDiskSpaceUpdater(serfNode, userConfig.Hostname, dataPath, diskCache, logger)
+	}, logger)
+
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")
@@ -235,92 +257,86 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
 				"remote_hostname": joinAddr[0],
-			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
+			}).Warn(err,
+				"specified hostname to join cluster cannot be resolved. This is fine"+
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := state.list.Join(joinAddr)
-			if err != nil {
+			if _, err := serfNode.Join(joinAddr, false); err != nil {
 				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
+					"action":          "serf_init",
 					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
+				}).Errorf("serf join not successful: %v", err)
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}
 	}
 
-	return &state, nil
+	return state, nil
+}
+
+// dataPort extracts the REST/data port for a Serf member.
+// It reads the "rest_port" tag first; if absent (old memberlist-only node), it falls
+// back to the gossip port + 1 convention so rolling upgrades/downgrades continue working.
+func dataPort(m serf.Member) int {
+	if portStr, ok := m.Tags["rest_port"]; ok {
+		if port, err := strconv.Atoi(portStr); err == nil && port > 0 {
+			return port
+		}
+	}
+	// Old memberlist node has empty tags — use gossip port + 1 convention
+	return int(m.Port) + 1
+}
+
+// aliveMembers returns the subset of Serf members that are currently alive.
+func aliveMembers(members []serf.Member) []serf.Member {
+	out := make([]serf.Member, 0, len(members))
+	for _, m := range members {
+		if m.Status == serf.StatusAlive {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
-	mem := s.list.Members()
-	out := make([]string, len(mem))
+	mem := aliveMembers(s.serfNode.Members())
+	out := make([]string, 0, len(mem))
 
-	i := 0
+	localName := s.serfNode.LocalMember().Name
 	for _, m := range mem {
-		if m.Name == s.list.LocalNode().Name {
+		if m.Name == localName {
 			continue
 		}
-
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
-		i++
-	}
-
-	return out[:i]
-}
-
-func nodeMetadata(m *memberlist.Node) (NodeMetadata, error) {
-	if len(m.Meta) == 0 {
-		return NodeMetadata{}, errors.New("no metadata available")
-	}
-
-	var meta NodeMetadata
-	if err := json.Unmarshal(m.Meta, &meta); err != nil {
-		return NodeMetadata{}, errors.Wrap(err, "unmarshal node metadata")
-	}
-
-	return meta, nil
-}
-
-func (s *State) dataPort(m *memberlist.Node) int {
-	meta, err := nodeMetadata(m)
-	if err != nil {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action": "data_port_fallback",
-			"node":   m.Name,
-		}).WithError(err).Debug("unable to get node metadata, falling back to default data port")
-
-		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
-	}
-
-	return meta.RestPort
-}
-
-// AllHostnames for live members, including self.
-func (s *State) AllHostnames() []string {
-	if s.list == nil {
-		return []string{}
-	}
-
-	mem := s.list.Members()
-	out := make([]string, len(mem))
-
-	for i, m := range mem {
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
+		out = append(out, fmt.Sprintf("%s:%d", m.Addr.String(), dataPort(m)))
 	}
 
 	return out
 }
 
-// All node names (not their hostnames!) for live members, including self.
-func (s *State) AllNames() []string {
-	if s.list == nil {
+// AllHostnames for live members, including self.
+func (s *State) AllHostnames() []string {
+	if s.serfNode == nil {
 		return []string{}
 	}
-	mem := s.list.Members()
+
+	mem := aliveMembers(s.serfNode.Members())
+	out := make([]string, len(mem))
+
+	for i, m := range mem {
+		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), dataPort(m))
+	}
+
+	return out
+}
+
+// AllNames returns all node names (not their hostnames!) for live members, including self.
+func (s *State) AllNames() []string {
+	if s.serfNode == nil {
+		return []string{}
+	}
+	mem := aliveMembers(s.serfNode.Members())
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
@@ -330,30 +346,27 @@ func (s *State) AllNames() []string {
 	return out
 }
 
-// StorageNodes returns all nodes except non storage nodes
+// storageNodes returns all nodes except non storage nodes
 func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
 
-	members := s.list.Members()
-	out := make([]string, len(members))
-	n := 0
+	members := aliveMembers(s.serfNode.Members())
+	out := make([]string, 0, len(members))
 	for _, m := range members {
-		name := m.Name
-		if _, ok := s.nonStorageNodes[name]; !ok {
-			out[n] = m.Name
-			n++
+		if _, ok := s.nonStorageNodes[m.Name]; !ok {
+			out = append(out, m.Name)
 		}
 	}
 
-	return out[:n]
+	return out
 }
 
 // StorageCandidates returns list of storage nodes (names)
 // sorted by the free amount of disk space in descending order
 func (s *State) StorageCandidates() []string {
-	return s.delegate.sortCandidates(s.storageNodes())
+	return s.diskCache.sortCandidates(s.storageNodes())
 }
 
 // NonStorageNodes return nodes from member list which
@@ -367,26 +380,26 @@ func (s *State) NonStorageNodes() []string {
 	return nonStorage
 }
 
-// SortCandidates Sort passed nodes names by the
+// SortCandidates sorts passed nodes names by the
 // free amount of disk space in descending order
 func (s *State) SortCandidates(nodes []string) []string {
-	return s.delegate.sortCandidates(nodes)
+	return s.diskCache.sortCandidates(nodes)
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// NodeCount returns the number of live cluster nodes.
 func (s *State) NodeCount() int {
-	return s.list.NumMembers()
+	return s.serfNode.NumNodes()
 }
 
-// LocalName() return local node name
+// LocalName returns the local node name
 func (s *State) LocalName() string {
 	return s.config.Hostname
 }
 
-// LocalAddr() returns local address
+// LocalAddr returns the local address
 func (s *State) LocalAddr() string {
 	if s.config.AdvertiseAddr == "" {
-		return s.list.LocalNode().Addr.String()
+		return s.serfNode.LocalMember().Addr.String()
 	}
 
 	return s.config.AdvertiseAddr
@@ -400,13 +413,13 @@ func (s *State) LocalBindAddr() string {
 }
 
 func (s *State) ClusterHealthScore() int {
-	return s.list.GetHealthScore()
+	return s.serfNode.Memberlist().GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	for _, mem := range s.list.Members() {
+	for _, mem := range aliveMembers(s.serfNode.Members()) {
 		if mem.Name == nodeName {
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), s.dataPort(mem)), true
+			return fmt.Sprintf("%s:%d", mem.Addr.String(), dataPort(mem)), true
 		}
 	}
 
@@ -424,18 +437,19 @@ func (s *State) NodeAddress(id string) string {
 	return strings.Split(addr, ":")[0] // get address without port
 }
 
-// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
-// This is useful for bootstrap when the join config is incomplete
+// AllOtherClusterMembers returns all cluster members discovered via Serf with their raft addresses.
+// This is useful for bootstrap when the join config is incomplete.
 func (s *State) AllOtherClusterMembers(port int) map[string]string {
-	if s.list == nil {
+	if s.serfNode == nil {
 		return map[string]string{}
 	}
 
-	members := s.list.Members()
+	members := aliveMembers(s.serfNode.Members())
 	result := make(map[string]string, len(members))
 
+	localName := s.serfNode.LocalMember().Name
 	for _, m := range members {
-		if m.Name == s.list.LocalNode().Name {
+		if m.Name == localName {
 			// skip self
 			continue
 		}
@@ -447,33 +461,30 @@ func (s *State) AllOtherClusterMembers(port int) map[string]string {
 
 // Leave marks the node as leaving the cluster (still visible but shutting down)
 func (s *State) Leave() error {
-	if s.list == nil {
-		return fmt.Errorf("memberlist not initialized")
+	if s.serfNode == nil {
+		return fmt.Errorf("serf node not initialized")
 	}
 
-	s.delegate.log.Info("marking node as gracefully leaving...")
-
-	if err := s.list.Leave(5 * time.Second); err != nil {
-		return fmt.Errorf("failed to leave memberlist: %w", err)
+	if err := s.serfNode.Leave(); err != nil {
+		return fmt.Errorf("failed to leave serf cluster: %w", err)
 	}
 
-	s.delegate.log.Info("successfully marked as leaving in memberlist")
 	return nil
 }
 
-// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+// Shutdown called when leaves the cluster gracefully and shuts down the Serf instance
 func (s *State) Shutdown() error {
-	if s.list == nil {
-		return fmt.Errorf("memberlist not initialized")
+	if s.serfNode == nil {
+		return fmt.Errorf("serf node not initialized")
 	}
 
-	return s.list.Shutdown()
+	return s.serfNode.Shutdown()
 }
 
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
-	for _, mem := range s.list.Members() {
+	for _, mem := range aliveMembers(s.serfNode.Members()) {
 		if mem.Name == nodeID {
-			return s.dataPort(mem), nil
+			return dataPort(mem), nil
 		}
 	}
 	return 0, fmt.Errorf("node not found: %s", nodeID)
@@ -488,7 +499,7 @@ func (s *State) SkipSchemaRepair() bool {
 }
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
-	return s.delegate.get(node)
+	return s.diskCache.get(node)
 }
 
 // MaintenanceModeEnabledForLocalhost is experimental, may be removed/changed. It returns true if this node is in
@@ -565,7 +576,8 @@ func validateClusterConfig(userConfig Config) error {
 	return nil
 }
 
-// selectMemberlistConfig selects the appropriate memberlist configuration based on environment
+// selectMemberlistConfig selects the appropriate memberlist configuration based on environment.
+// The returned config is embedded into the Serf config.
 func selectMemberlistConfig(userConfig Config) *memberlist.Config {
 	var cfg *memberlist.Config
 

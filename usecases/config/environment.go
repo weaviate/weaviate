@@ -1610,6 +1610,11 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	cfg.MemberlistFastFailureDetection = entcfg.Enabled(os.Getenv("MEMBERLIST_FAST_FAILURE_DETECTION")) || entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION")) // backward compatibility
 
+	// CLUSTER_SERF_SNAPSHOT_ENABLED defaults to true; set to "false" only in ephemeral/test
+	// environments where persistent state is unwanted.
+	serfSnapshotDisabled := os.Getenv("CLUSTER_SERF_SNAPSHOT_ENABLED")
+	cfg.SerfSnapshotEnabled = serfSnapshotDisabled != "false"
+
 	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
 	// return an error for all data requests, but will still participate in the raft cluster and
