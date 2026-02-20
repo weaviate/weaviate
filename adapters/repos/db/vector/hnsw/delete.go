@@ -339,22 +339,40 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	memCtx, memCancel := context.WithCancel(resetCtx)
 	defer memCancel()
 
+	// Re-bind the break function to include the memory pressure context
+	// before spawning the monitor goroutine (which checks immediately).
+	breakCleanUpTombstonedNodes = func() bool {
+		return resetCtx.Err() != nil || memCtx.Err() != nil || shouldAbort()
+	}
+
 	if h.allocChecker != nil {
 		enterrors.GoWrapper(func() {
-			ticker := time.NewTicker(500 * time.Millisecond)
+			check := func() bool {
+				if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
+					h.logger.WithFields(logrus.Fields{
+						"action": "hnsw_tombstone_cleanup",
+						"class":  h.className,
+						"shard":  h.shardName,
+						"id":     h.id,
+					}).Error(fmt.Errorf("aborting cleanup due to memory pressure: %w", err))
+					memCancel()
+					return true
+				}
+				return false
+			}
+
+			// Check immediately on start, then periodically via ticker.
+			if check() {
+				return
+			}
+
+			ticker := time.NewTicker(h.tombstoneMemCheckInterval)
 			defer ticker.Stop()
 
 			for {
 				select {
 				case <-ticker.C:
-					if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
-						h.logger.WithFields(logrus.Fields{
-							"action": "hnsw_tombstone_cleanup",
-							"class":  h.className,
-							"shard":  h.shardName,
-							"id":     h.id,
-						}).Error(fmt.Errorf("aborting cleanup due to memory pressure: %w", err))
-						memCancel()
+					if check() {
 						return
 					}
 				case <-memCtx.Done():
@@ -362,11 +380,6 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 				}
 			}
 		}, h.logger)
-	}
-
-	// Re-bind with the memory pressure context now that the monitor is running.
-	breakCleanUpTombstonedNodes = func() bool {
-		return resetCtx.Err() != nil || memCtx.Err() != nil || shouldAbort()
 	}
 
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())

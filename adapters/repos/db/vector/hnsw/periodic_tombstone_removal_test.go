@@ -120,7 +120,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	}
 }
 
-func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
+func TestTombstoneCleanupAbortsOnMemoryPressure_PreCheck(t *testing.T) {
 	ctx := context.Background()
 	logger, logHook := test.NewNullLogger()
 	cleanupIntervalSeconds := 1
@@ -133,7 +133,7 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "tombstone-oom-abort",
+		ID:                    "tombstone-oom-precheck",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
@@ -174,7 +174,8 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 	// Simulate memory pressure before starting cleanup cycle
 	allocChecker.shouldErr.Store(true)
 
-	// Start the cleanup cycle — it should abort due to memory pressure
+	// Start the cleanup cycle — it should be skipped due to memory pressure
+	// at the pre-check in tombstoneCleanup (startup.go).
 	tombstoneCleanupCycle.Start()
 	t.Cleanup(func() {
 		require.NoError(t, tombstoneCleanupCycle.StopAndWait(context.Background()))
@@ -194,11 +195,11 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 		return hasOOMLogEntry()
 	}, "expected cleanup_skipped_oom log entry")
 
-	// Tombstones should still be present because cleanup was aborted
+	// Tombstones should still be present because cleanup was skipped
 	index.tombstoneLock.RLock()
 	tsAfter := len(index.tombstones)
 	index.tombstoneLock.RUnlock()
-	assert.Equal(t, ts, tsAfter, "tombstones should remain when cleanup is aborted due to memory pressure")
+	assert.Equal(t, ts, tsAfter, "tombstones should remain when cleanup is skipped due to memory pressure")
 
 	// Now release memory pressure and verify cleanup proceeds
 	allocChecker.shouldErr.Store(false)
@@ -209,4 +210,81 @@ func TestTombstoneCleanupAbortsOnMemoryPressure(t *testing.T) {
 		index.tombstoneLock.RUnlock()
 		return remaining == 0
 	}, "tombstones should be cleaned up after memory pressure subsides")
+}
+
+func TestTombstoneCleanupAbortsOnMemoryPressure_MidCleanup(t *testing.T) {
+	ctx := context.Background()
+	logger, logHook := test.NewNullLogger()
+
+	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
+
+	// Use DummyMonitor during setup so Add() calls pass without issues.
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "tombstone-oom-midcleanup",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		Logger:                logger,
+		GetViewThunk:          func() common.BucketView { return &periodicNoopBucketView{} },
+	}, ent.UserConfig{
+		CleanupIntervalSeconds: 1,
+		MaxConnections:         30,
+		EFConstruction:         128,
+	}, tombstoneCallbacks, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, index.Shutdown(context.Background()))
+	})
+	index.PostStartup(context.Background())
+
+	for i, vec := range testVectors {
+		err := index.Add(ctx, uint64(i), vec)
+		require.NoError(t, err)
+	}
+
+	// Delete some entries to create tombstones
+	for i := range testVectors {
+		if i%2 != 0 {
+			continue
+		}
+		err := index.Delete(uint64(i))
+		require.NoError(t, err)
+	}
+
+	index.tombstoneLock.RLock()
+	ts := len(index.tombstones)
+	index.tombstoneLock.RUnlock()
+	require.True(t, ts > 0, "expected tombstones to exist")
+
+	// Swap in a failing allocChecker and set a very short monitor interval
+	// so the background goroutine fires immediately. We call
+	// cleanUpTombstonedNodes directly to bypass the pre-check and exercise
+	// the background memory monitor path.
+	allocChecker := &toggleAllocChecker{}
+	allocChecker.shouldErr.Store(true)
+	index.allocChecker = allocChecker
+	index.tombstoneMemCheckInterval = 1 * time.Millisecond
+
+	executed, err := index.cleanUpTombstonedNodes(func() bool { return false })
+	require.NoError(t, err)
+	assert.True(t, executed, "cleanup should have started before being aborted")
+
+	// Verify the background monitor logged the abort
+	hasAbortLogEntry := func() bool {
+		for _, entry := range logHook.AllEntries() {
+			if action, ok := entry.Data["action"]; ok && action == "hnsw_tombstone_cleanup" {
+				return true
+			}
+		}
+		return false
+	}
+	assert.True(t, hasAbortLogEntry(), "expected mid-cleanup OOM abort log entry")
+
+	// Tombstones should still be present because cleanup was aborted mid-cycle
+	index.tombstoneLock.RLock()
+	tsAfter := len(index.tombstones)
+	index.tombstoneLock.RUnlock()
+	assert.True(t, tsAfter > 0, "tombstones should remain when cleanup is aborted mid-cycle due to memory pressure")
 }
