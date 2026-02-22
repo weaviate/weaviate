@@ -7905,7 +7905,8 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -7980,6 +7981,10 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -17733,7 +17738,8 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -17808,6 +17814,10 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",

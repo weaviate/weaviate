@@ -43,6 +43,11 @@ func ParagraphsClass() *models.Class {
 				Name:     "contents",
 				DataType: schema.DataTypeText.PropString(),
 			},
+			{
+				Name:         "title",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
 		},
 		Vectorizer: "none",
 	}

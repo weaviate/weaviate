@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/testcontainers/testcontainers-go"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
 	"golang.org/x/sync/errgroup"
 
@@ -122,6 +123,7 @@ type Compose struct {
 	withQnATransformers         bool
 	withWeaviateExposeGRPCPort  bool
 	withWeaviateExposeDebugPort bool
+	withWeaviateExposeMCPPort   bool
 	withSecondWeaviate          bool
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
@@ -154,6 +156,7 @@ type Compose struct {
 	withMockOIDCWithCertificate    bool
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
+	weaviateFiles                  []testcontainers.ContainerFile
 }
 
 func New() *Compose {
@@ -539,6 +542,23 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMCP() *Compose {
+	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
+	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_DISABLED", "false")
+	d.withWeaviateExposeMCPPort = true
+	return d
+}
+
+func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
+	d.weaviateFiles = append(d.weaviateFiles, testcontainers.ContainerFile{
+		HostFilePath:      hostPath,
+		ContainerFilePath: containerPath,
+		FileMode:          0o644,
+	})
+	d.WithWeaviateEnv("MCP_SERVER_CONFIG_PATH", containerPath)
+	return d
+}
+
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeDebugPort = true
@@ -914,7 +934,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, "/v1/.well-known/ready", d.weaviateFiles)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1049,7 +1069,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node1"))
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, wellKnownEndpointFunc("node1"), d.weaviateFiles)
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -1065,7 +1085,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node2"))
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, wellKnownEndpointFunc("node2"), d.weaviateFiles)
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -1082,7 +1102,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node3"))
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, wellKnownEndpointFunc("node3"), d.weaviateFiles)
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}
