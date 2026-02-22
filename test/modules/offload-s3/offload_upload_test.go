@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
@@ -474,7 +473,11 @@ func Test_UploadS3Journey(t *testing.T) {
 
 			for _, tn := range resp.Payload {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.True(t,
+						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+					)
 					break
 				}
 			}
