@@ -98,7 +98,7 @@ func TestAllowDenyList(t *testing.T) {
 	t.Run("allowlist created from bitmap", func(t *testing.T) {
 		bm := roaringset.NewBitmap(1, 2, 3)
 
-		al := NewAllowDenyListFromBitmap(bm, false, 5)
+		al := NewAllowDenyListFromBitmap(bm, false, 5, nil)
 		bm.SetMany([]uint64{4, 5})
 
 		assert.Equal(t, 5, al.Len())
@@ -117,7 +117,7 @@ func TestAllowDenyList(t *testing.T) {
 	t.Run("allowlist created from bitmap deepcopy", func(t *testing.T) {
 		bm := roaringset.NewBitmap(1, 2, 3)
 
-		al := NewAllowDenyListFromBitmapDeepCopy(bm, false, 5)
+		al := NewAllowDenyListFromBitmapDeepCopy(bm, false, 5, nil)
 		bm.SetMany([]uint64{4, 5})
 
 		assert.Equal(t, 3, al.Len())
@@ -284,8 +284,12 @@ func TestAllowDenyList_LimitedIterator(t *testing.T) {
 }
 
 func TestAllowDenyListDeny(t *testing.T) {
+	bitmapPool := roaringset.NewBitmapBufPoolNoop()
+
 	t.Run("allowlist created with no values", func(t *testing.T) {
-		al := NewDeniedAllowDenyListFromAllowList(0, []uint64{})
+		maxId := uint64(0)
+		bitmapFactory := roaringset.NewBitmapFactory(bitmapPool, func() uint64 { return maxId })
+		al := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{}, bitmapFactory)
 
 		assert.Equal(t, 0, al.Len())
 		assert.True(t, al.IsEmpty())
@@ -295,7 +299,9 @@ func TestAllowDenyListDeny(t *testing.T) {
 	})
 
 	t.Run("allowlist created with initial values", func(t *testing.T) {
-		al := NewDeniedAllowDenyListFromAllowList(4, []uint64{1, 2, 3})
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		al := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory)
 
 		assert.Equal(t, 3, al.Len())
 		assert.False(t, al.IsEmpty())
@@ -309,7 +315,9 @@ func TestAllowDenyListDeny(t *testing.T) {
 	})
 
 	t.Run("allowlist with inserted values", func(t *testing.T) {
-		al := NewDeniedAllowDenyListFromAllowList(6, []uint64{1, 2, 3})
+		maxId := uint64(5)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		al := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory)
 		al.Insert(4, 5)
 
 		assert.Equal(t, 5, al.Len())
@@ -326,14 +334,18 @@ func TestAllowDenyListDeny(t *testing.T) {
 	})
 
 	t.Run("allowlist exported to slice", func(t *testing.T) {
-		al := NewDeniedAllowDenyListFromAllowList(6, []uint64{1, 2, 3})
+		maxId := uint64(5)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		al := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory)
 		al.Insert(4, 5)
 
 		assert.ElementsMatch(t, []uint64{1, 2, 3, 4, 5}, al.Slice())
 	})
 
 	t.Run("allowlist deepcopy", func(t *testing.T) {
-		al := NewDeniedAllowDenyListFromAllowList(6, []uint64{1, 2, 3})
+		maxId := uint64(5)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		al := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory)
 		copy := al.DeepCopy()
 
 		al.Insert(4, 5)
@@ -362,7 +374,9 @@ func TestAllowDenyListDeny(t *testing.T) {
 	t.Run("allowlist created from bitmap deepcopy", func(t *testing.T) {
 		bm := roaringset.NewBitmap(1, 2, 3)
 
-		al := NewAllowDenyListFromBitmapDeepCopy(bm, true, 6)
+		maxId := uint64(5)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		al := NewAllowDenyListFromBitmapDeepCopy(bm, true, maxId+1, bitmapFactory)
 		bm.SetMany([]uint64{4, 5})
 
 		assert.Equal(t, 3, al.Len())
@@ -379,7 +393,9 @@ func TestAllowDenyListDeny(t *testing.T) {
 
 func TestAllowDenyList_IteratorDeny(t *testing.T) {
 	t.Run("empty bitmap iterator", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(0, []uint64{}).Iterator()
+		maxId := uint64(0)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{}, bitmapFactory).Iterator()
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -392,7 +408,9 @@ func TestAllowDenyList_IteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating step by step", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{1, 2, 3}).Iterator()
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory).Iterator()
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -411,7 +429,9 @@ func TestAllowDenyList_IteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating in loop", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{1, 2, 3}).Iterator()
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory).Iterator()
 		ids := []uint64{}
 
 		for id, ok := it.Next(); ok; id, ok = it.Next() {
@@ -425,7 +445,9 @@ func TestAllowDenyList_IteratorDeny(t *testing.T) {
 
 func TestAllowDenyList_LimitedIteratorDeny(t *testing.T) {
 	t.Run("empty bitmap iterator", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(0, []uint64{}).LimitedIterator(2)
+		maxId := uint64(0)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{}, bitmapFactory).LimitedIterator(2)
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -438,7 +460,9 @@ func TestAllowDenyList_LimitedIteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating step by step (higher limit)", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{1, 2, 3}).LimitedIterator(4)
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory).LimitedIterator(4)
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -457,7 +481,9 @@ func TestAllowDenyList_LimitedIteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating step by step (equal limit)", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{1, 2, 3}).LimitedIterator(4)
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{1, 2, 3}, bitmapFactory).LimitedIterator(4)
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -476,7 +502,9 @@ func TestAllowDenyList_LimitedIteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating step by step (lower limit)", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{3, 2, 1}).LimitedIterator(2)
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{3, 2, 1}, bitmapFactory).LimitedIterator(2)
 
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
@@ -492,7 +520,9 @@ func TestAllowDenyList_LimitedIteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating in loop (higher limit)", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{3, 2, 1}).LimitedIterator(4)
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{3, 2, 1}, bitmapFactory).LimitedIterator(4)
 		ids := []uint64{}
 
 		for id, ok := it.Next(); ok; id, ok = it.Next() {
@@ -504,7 +534,9 @@ func TestAllowDenyList_LimitedIteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating in loop (equal limit)", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{3, 2, 1}).LimitedIterator(4)
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{3, 2, 1}, bitmapFactory).LimitedIterator(4)
 		ids := []uint64{}
 
 		for id, ok := it.Next(); ok; id, ok = it.Next() {
@@ -516,7 +548,9 @@ func TestAllowDenyList_LimitedIteratorDeny(t *testing.T) {
 	})
 
 	t.Run("iterating in loop (lower limit)", func(t *testing.T) {
-		it := NewDeniedAllowDenyListFromAllowList(4, []uint64{3, 2, 1}).LimitedIterator(2)
+		maxId := uint64(3)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxId })
+		it := NewDeniedAllowDenyListFromAllowList(maxId+1, []uint64{3, 2, 1}, bitmapFactory).LimitedIterator(2)
 		ids := []uint64{}
 
 		for id, ok := it.Next(); ok; id, ok = it.Next() {

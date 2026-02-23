@@ -32,18 +32,18 @@ type BitmapAllowDenyList struct {
 }
 
 func NewAllowDenyList(allowListIds ...uint64) AllowList {
-	return NewAllowDenyListFromBitmap(roaringset.NewBitmap(allowListIds...), false, 0)
+	return NewAllowDenyListFromBitmap(roaringset.NewBitmap(allowListIds...), false, 0, nil)
 }
 
-func NewDeniedAllowDenyListFromAllowList(size uint64, allowListIds []uint64) AllowList {
-	return NewAllowDenyListFromBitmap(roaringset.NewBitmap(allowListIds...), true, size)
+func NewDeniedAllowDenyListFromAllowList(size uint64, allowListIds []uint64, bitmapFactory *roaringset.BitmapFactory) AllowList {
+	return NewAllowDenyListFromBitmap(roaringset.NewBitmap(allowListIds...), true, size, bitmapFactory)
 }
 
 func NewAllowDenyListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func(), size uint64, bitmapFactory *roaringset.BitmapFactory) AllowList {
 	return &BitmapAllowDenyList{Bm: bm, release: release, isDenyList: isDenyList, size: size, bitmapFactory: bitmapFactory}
 }
 
-func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, size uint64) AllowList {
+func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, size uint64, bitmapFactory *roaringset.BitmapFactory) AllowList {
 	if isDenyList {
 		allowListIds := bm.ToArray()
 		inverseIds := make([]uint64, 0, size-uint64(len(allowListIds)))
@@ -55,13 +55,13 @@ func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, size uint64) 
 				inverseIds = append(inverseIds, id)
 			}
 		}
-		return NewAllowDenyListCloseableFromBitmap(roaringset.NewBitmap(inverseIds...), true, func() {}, size, nil)
+		return NewAllowDenyListCloseableFromBitmap(roaringset.NewBitmap(inverseIds...), true, func() {}, size, bitmapFactory)
 	}
-	return NewAllowDenyListCloseableFromBitmap(bm, isDenyList, func() {}, size, nil)
+	return NewAllowDenyListCloseableFromBitmap(bm, isDenyList, func() {}, size, bitmapFactory)
 }
 
-func NewAllowDenyListFromBitmapDeepCopy(bm *sroar.Bitmap, isDenyList bool, size uint64) AllowList {
-	return NewAllowDenyListFromBitmap(bm.Clone(), isDenyList, size)
+func NewAllowDenyListFromBitmapDeepCopy(bm *sroar.Bitmap, isDenyList bool, size uint64, bitmapFactory *roaringset.BitmapFactory) AllowList {
+	return NewAllowDenyListFromBitmap(bm.Clone(), isDenyList, size, bitmapFactory)
 }
 
 func (al *BitmapAllowDenyList) Close() {
