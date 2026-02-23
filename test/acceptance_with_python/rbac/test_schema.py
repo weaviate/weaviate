@@ -255,6 +255,128 @@ def test_rbac_collection_create_with_ttl(
     admin_client.collections.delete(name)
 
 
+def test_rbac_collection_update_existing_ttl_without_delete_permission(
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
+):
+    """A user without data delete permission should be able to update a collection
+    that already has TTL enabled, as long as they don't change TTL settings."""
+    name = _sanitize_role_name(request.node.name) + "col"
+    admin_client.collections.delete(name)
+    admin_client.collections.create(
+        name=name,
+        properties=[
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+        object_ttl_config=Configure.ObjectTTL.delete_by_date_property(
+            property_name="custom_date",
+            ttl_offset=datetime.timedelta(minutes=10),
+        ),
+    )
+
+    required_permissions = [
+        Permissions.collections(collection=name, read_config=True, update_config=True),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        col_custom = custom_client.collections.get(name)
+        col_custom.config.update(description="updated description")
+
+        config = col_custom.config.get()
+        assert config.description == "updated description"
+
+    admin_client.collections.delete(name)
+
+
+def test_rbac_collection_change_ttl_settings_requires_delete_permission(
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
+):
+    """Changing TTL settings (e.g. ttl offset) on a collection requires data delete permission,
+    even when TTL stays enabled."""
+    name = _sanitize_role_name(request.node.name) + "col"
+    admin_client.collections.delete(name)
+    admin_client.collections.create(
+        name=name,
+        properties=[
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+        object_ttl_config=Configure.ObjectTTL.delete_by_date_property(
+            property_name="custom_date",
+            ttl_offset=datetime.timedelta(minutes=10),
+        ),
+    )
+
+    # Without delete permission, changing TTL offset should fail
+    permissions_without_delete = [
+        Permissions.collections(collection=name, read_config=True, update_config=True),
+    ]
+    with role_wrapper(admin_client, request, permissions_without_delete):
+        col_custom = custom_client.collections.get(name)
+        with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
+            col_custom.config.update(
+                object_ttl_config=Reconfigure.ObjectTTL.delete_by_date_property(
+                    property_name="custom_date",
+                    ttl_offset=datetime.timedelta(minutes=20),
+                ),
+            )
+        assert e.value.status_code == 403
+        assert "forbidden" in e.value.args[0]
+
+    # With delete permission, changing TTL offset should succeed
+    permissions_with_delete = [
+        Permissions.collections(collection=name, read_config=True, update_config=True),
+        Permissions.data(collection=name, delete=True),
+    ]
+    with role_wrapper(admin_client, request, permissions_with_delete):
+        col_custom = custom_client.collections.get(name)
+        col_custom.config.update(
+            object_ttl_config=Reconfigure.ObjectTTL.delete_by_date_property(
+                property_name="custom_date",
+                ttl_offset=datetime.timedelta(minutes=20),
+            ),
+        )
+
+    admin_client.collections.delete(name)
+
+
+def test_rbac_collection_disable_ttl_requires_delete_permission(
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
+):
+    """Disabling TTL on a collection requires data delete permission."""
+    name = _sanitize_role_name(request.node.name) + "col"
+    admin_client.collections.delete(name)
+    admin_client.collections.create(
+        name=name,
+        properties=[
+            wvc.config.Property(name="custom_date", data_type=wvc.config.DataType.DATE),
+        ],
+        object_ttl_config=Configure.ObjectTTL.delete_by_date_property(
+            property_name="custom_date",
+            ttl_offset=datetime.timedelta(minutes=10),
+        ),
+    )
+
+    # Without delete permission, disabling TTL should fail
+    permissions_without_delete = [
+        Permissions.collections(collection=name, read_config=True, update_config=True),
+    ]
+    with role_wrapper(admin_client, request, permissions_without_delete):
+        col_custom = custom_client.collections.get(name)
+        with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
+            col_custom.config.update(object_ttl_config=Reconfigure.ObjectTTL.disable())
+        assert e.value.status_code == 403
+        assert "forbidden" in e.value.args[0]
+
+    # With delete permission, disabling TTL should succeed
+    permissions_with_delete = [
+        Permissions.collections(collection=name, read_config=True, update_config=True),
+        Permissions.data(collection=name, delete=True),
+    ]
+    with role_wrapper(admin_client, request, permissions_with_delete):
+        col_custom = custom_client.collections.get(name)
+        col_custom.config.update(object_ttl_config=Reconfigure.ObjectTTL.disable())
+
+    admin_client.collections.delete(name)
+
+
 def test_rbac_collection_update_with_ttl(
     admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):

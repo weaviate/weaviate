@@ -322,7 +322,15 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	if updated.ObjectTTLConfig != nil && updated.ObjectTTLConfig.Enabled {
+	// Require DELETE permission on data when any TTL setting is being changed,
+	// but not when the user is updating other collection settings without
+	// touching TTL configuration.
+	initial := h.schemaReader.ReadOnlyClass(className)
+	var initialTTLConfig *models.ObjectTTLConfig
+	if initial != nil {
+		initialTTLConfig = initial.ObjectTTLConfig
+	}
+	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
 			return err
 		}
