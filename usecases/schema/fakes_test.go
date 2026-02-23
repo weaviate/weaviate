@@ -283,6 +283,11 @@ func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardS
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
 
+func (f *fakeSchemaManager) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	args := f.Called(class, targetVector)
+	return args.Get(0).(models.VectorIndexStatsList), args.Error(1)
+}
+
 func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return nil
 }

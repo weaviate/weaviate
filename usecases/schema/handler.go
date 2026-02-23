@@ -103,6 +103,7 @@ type SchemaReader interface {
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias
 
@@ -271,6 +272,22 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 	}
 
 	return h.schemaReader.GetShardsStatus(class, shard)
+}
+
+func (h *Handler) VectorIndexStats(ctx context.Context,
+	principal *models.Principal, class, targetVector string,
+) (models.VectorIndexStatsList, error) {
+	class = schema.UppercaseClassName(class)
+	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
+		class = rclass
+	}
+
+	err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, "*")...)
+	if err != nil {
+		return nil, err
+	}
+
+	return h.schemaReader.GetVectorIndexStats(class, targetVector)
 }
 
 // JoinNode adds the given node to the cluster.

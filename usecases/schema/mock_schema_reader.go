@@ -344,6 +344,65 @@ func (_c *MockSchemaReader_GetShardsStatus_Call) RunAndReturn(run func(string, s
 	return _c
 }
 
+// GetVectorIndexStats provides a mock function with given fields: class, targetVector
+func (_m *MockSchemaReader) GetVectorIndexStats(class string, targetVector string) (models.VectorIndexStatsList, error) {
+	ret := _m.Called(class, targetVector)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVectorIndexStats")
+	}
+
+	var r0 models.VectorIndexStatsList
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (models.VectorIndexStatsList, error)); ok {
+		return rf(class, targetVector)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) models.VectorIndexStatsList); ok {
+		r0 = rf(class, targetVector)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(models.VectorIndexStatsList)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(class, targetVector)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSchemaReader_GetVectorIndexStats_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVectorIndexStats'
+type MockSchemaReader_GetVectorIndexStats_Call struct {
+	*mock.Call
+}
+
+// GetVectorIndexStats is a helper method to define mock.On call
+//   - class string
+//   - targetVector string
+func (_e *MockSchemaReader_Expecter) GetVectorIndexStats(class interface{}, targetVector interface{}) *MockSchemaReader_GetVectorIndexStats_Call {
+	return &MockSchemaReader_GetVectorIndexStats_Call{Call: _e.mock.On("GetVectorIndexStats", class, targetVector)}
+}
+
+func (_c *MockSchemaReader_GetVectorIndexStats_Call) Run(run func(class string, targetVector string)) *MockSchemaReader_GetVectorIndexStats_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_GetVectorIndexStats_Call) Return(_a0 models.VectorIndexStatsList, _a1 error) *MockSchemaReader_GetVectorIndexStats_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSchemaReader_GetVectorIndexStats_Call) RunAndReturn(run func(string, string) (models.VectorIndexStatsList, error)) *MockSchemaReader_GetVectorIndexStats_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // LocalShards provides a mock function with given fields: class
 func (_m *MockSchemaReader) LocalShards(class string) ([]string, error) {
 	ret := _m.Called(class)
@@ -1372,7 +1431,8 @@ func (_c *MockSchemaReader_WaitForUpdate_Call) RunAndReturn(run func(context.Con
 func NewMockSchemaReader(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockSchemaReader {
+},
+) *MockSchemaReader {
 	mock := &MockSchemaReader{}
 	mock.Mock.Test(t)
 

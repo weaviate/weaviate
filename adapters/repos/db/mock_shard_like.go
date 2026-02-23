@@ -2479,6 +2479,26 @@ func (_c *MockShardLike_RequantizeIndex_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// GetVectorIndexStats provides a mock function with given fields: targetVector
+func (_m *MockShardLike) GetVectorIndexStats(targetVector string) *models.VectorIndexStats {
+	ret := _m.Called(targetVector)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVectorIndexStats")
+	}
+
+	var r0 *models.VectorIndexStats
+	if rf, ok := ret.Get(0).(func(string) *models.VectorIndexStats); ok {
+		r0 = rf(targetVector)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.VectorIndexStats)
+		}
+	}
+
+	return r0
+}
+
 // SetAsyncReplicationState provides a mock function with given fields: ctx, _a1, enabled
 func (_m *MockShardLike) SetAsyncReplicationState(ctx context.Context, _a1 AsyncReplicationConfig, enabled bool) error {
 	ret := _m.Called(ctx, _a1, enabled)
@@ -5033,7 +5053,8 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

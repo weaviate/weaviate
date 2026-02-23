@@ -1674,6 +1674,13 @@
       },
       "type": "array"
     },
+    "VectorIndexStatsList": {
+      "description": "Vector index statistics for all shards of a collection",
+      "items": {
+        "$ref": "#/definitions/VectorIndexStats"
+      },
+      "type": "array"
+    },
     "ShardStatusGetResponse": {
       "description": "Response body of shard status get request",
       "properties": {
@@ -3340,6 +3347,64 @@
           "items": {
             "$ref": "#/definitions/Alias"
           }
+        }
+      }
+    },
+    "VectorIndexStats": {
+      "description": "Vector index statistics for a single shard",
+      "type": "object",
+      "properties": {
+        "shard": {
+          "description": "The shard name",
+          "type": "string"
+        },
+        "compression": {
+          "$ref": "#/definitions/CompressionStats"
+        },
+        "adaptiveEf": {
+          "$ref": "#/definitions/AdaptiveEfStats"
+        },
+        "targetVector": {
+          "description": "The target vector name",
+          "type": "string",
+          "x-omitempty": false
+        }
+      }
+    },
+    "CompressionStats": {
+      "description": "Compression statistics",
+      "type": "object",
+      "properties": {
+        "compressed": {
+          "description": "Whether vectors are compressed",
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
+    "AdaptiveEfStats": {
+      "description": "Adaptive EF statistics",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether adaptive EF is enabled",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "inProgress": {
+          "description": "Whether calibration is currently in progress",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "targetRecall": {
+          "description": "The target recall level",
+          "type": "number",
+          "format": "float"
+        },
+        "weightedAverageEf": {
+          "description": "The weighted average EF across score bins",
+          "type": "integer",
+          "format": "int64"
         }
       }
     }
@@ -7844,6 +7909,63 @@
           },
           "500": {
             "description": "An error occurred while updating the collection. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/vector/stats": {
+      "get": {
+        "summary": "Get vector index statistics",
+        "description": "Returns per-shard vector index statistics including compression status and adaptive EF status for the specified collection.",
+        "operationId": "schema.objects.vector.stats.get",
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "targetVector",
+            "description": "The target vector name (for named vectors). Leave empty for the default vector.",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index statistics retrieved successfully.",
+            "schema": {
+              "$ref": "#/definitions/VectorIndexStatsList"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

@@ -379,6 +379,33 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
+func (s *schemaHandlers) statsGet(params schema.SchemaObjectsVectorStatsGetParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	targetVector := ""
+	if params.TargetVector != nil {
+		targetVector = *params.TargetVector
+	}
+
+	stats, err := s.manager.VectorIndexStats(ctx, principal, params.ClassName, targetVector)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return schema.NewSchemaObjectsVectorStatsGetForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsVectorStatsGetNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewSchemaObjectsVectorStatsGetOK().WithPayload(stats)
+}
+
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
 	h := &schemaHandlers{manager, newSchemaRequestsTotal(metrics, logger)}
 
@@ -403,6 +430,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
+
+	api.SchemaSchemaObjectsVectorStatsGetHandler = schema.
+		SchemaObjectsVectorStatsGetHandlerFunc(h.statsGet)
 
 	api.SchemaTenantsCreateHandler = schema.TenantsCreateHandlerFunc(h.createTenants)
 	api.SchemaTenantsUpdateHandler = schema.TenantsUpdateHandlerFunc(h.updateTenants)

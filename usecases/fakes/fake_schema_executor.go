@@ -115,6 +115,10 @@ func (m *MockSchemaExecutor) GetShardsStatus(class, tenant string) (models.Shard
 	return models.ShardStatusList{}, args.Error(1)
 }
 
+func (m *MockSchemaExecutor) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	return nil, nil
+}
+
 func (m *MockSchemaExecutor) Open(ctx context.Context) error {
 	args := m.Called(ctx)
 	return args.Error(0)

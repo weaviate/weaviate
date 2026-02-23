@@ -80,6 +80,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Repetitions:  hnsw.DefaultMultivectorRepetitions,
 						},
 					},
+					AdaptiveEF: hnsw.AdaptiveConfig{
+						Enabled:      hnsw.DefaultAdaptiveEFEnabled,
+						TargetRecall: hnsw.DefaultAdaptiveEFTargetRecall,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -158,6 +162,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 							DProjections: hnsw.DefaultMultivectorDProjections,
 							Repetitions:  hnsw.DefaultMultivectorRepetitions,
 						},
+					},
+					AdaptiveEF: hnsw.AdaptiveConfig{
+						Enabled:      hnsw.DefaultAdaptiveEFEnabled,
+						TargetRecall: hnsw.DefaultAdaptiveEFTargetRecall,
 					},
 				},
 				FlatUC: flat.UserConfig{
@@ -258,6 +266,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Repetitions:  hnsw.DefaultMultivectorRepetitions,
 						},
 					},
+					AdaptiveEF: hnsw.AdaptiveConfig{
+						Enabled:      hnsw.DefaultAdaptiveEFEnabled,
+						TargetRecall: hnsw.DefaultAdaptiveEFTargetRecall,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -356,6 +368,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 							DProjections: hnsw.DefaultMultivectorDProjections,
 							Repetitions:  hnsw.DefaultMultivectorRepetitions,
 						},
+					},
+					AdaptiveEF: hnsw.AdaptiveConfig{
+						Enabled:      hnsw.DefaultAdaptiveEFEnabled,
+						TargetRecall: hnsw.DefaultAdaptiveEFTargetRecall,
 					},
 				},
 				FlatUC: flat.UserConfig{

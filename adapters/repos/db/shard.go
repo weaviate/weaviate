@@ -192,6 +192,7 @@ type ShardLike interface {
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
 	RequantizeIndex(ctx context.Context, targetVector string) error
+	GetVectorIndexStats(targetVector string) *models.VectorIndexStats
 
 	// Debug method for docID lock debugging and contention detection and simulation
 	DebugGetDocIdLockStatus() (bool, error)

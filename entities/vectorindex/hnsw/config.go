@@ -65,6 +65,7 @@ type UserConfig struct {
 	Multivector              MultivectorConfig `json:"multivector"`
 	SkipDefaultQuantization  bool              `json:"skipDefaultQuantization"`
 	TrackDefaultQuantization bool              `json:"trackDefaultQuantization"`
+	AdaptiveEF               AdaptiveConfig    `json:"adaptiveEf"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -132,6 +133,10 @@ func (u *UserConfig) SetDefaults() {
 			DProjections: DefaultMultivectorDProjections,
 			Repetitions:  DefaultMultivectorRepetitions,
 		},
+	}
+	u.AdaptiveEF = AdaptiveConfig{
+		Enabled:      DefaultAdaptiveEFEnabled,
+		TargetRecall: DefaultAdaptiveEFTargetRecall,
 	}
 }
 
@@ -254,6 +259,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 		return uc, err
 	}
 
+	if err := parseAdaptiveEFMap(asMap, &uc.AdaptiveEF); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -313,6 +322,15 @@ func (u *UserConfig) validate() error {
 
 	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
 		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
+	}
+
+	if u.AdaptiveEF.Enabled {
+		if u.AdaptiveEF.TargetRecall <= 0 || u.AdaptiveEF.TargetRecall > 1 {
+			return fmt.Errorf("invalid hnsw config: adaptiveEf.targetRecall must be between 0 and 1, got %f", u.AdaptiveEF.TargetRecall)
+		}
+		if u.Distance != vectorIndexCommon.DistanceCosine && u.Distance != vectorIndexCommon.DistanceDot {
+			return fmt.Errorf("invalid hnsw config: adaptiveEf is only supported with cosine or dot distance, got %q", u.Distance)
+		}
 	}
 
 	return nil
