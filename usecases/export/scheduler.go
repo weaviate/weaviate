@@ -366,7 +366,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 	for _, className := range classes {
 		ownership, err := s.selector.ShardOwnership(ctx, className)
 		if err != nil {
-			s.logger.WithField("action", "export").WithField("class", className).Error(err)
+			s.logger.WithField("action", "export").WithField("class", className).Errorf("shard ownership: %v", err)
 			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("failed to get shard ownership for class %s: %v", className, err)
 			s.writeMetadata(backend, exportID, bucket, path, status)
@@ -461,7 +461,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
 		s.logger.WithField("action", "export").
 			WithField("export_id", exportID).
-			Error(err)
+			Errorf("failed to write metadata: %v", err)
 		return fmt.Errorf("failed to write export metadata: %w", err)
 	}
 
@@ -619,7 +619,7 @@ func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter
 			logger.WithField("action", "export").
 				WithField("shard", shard.Name()).
 				WithField("class", className).
-				Warn(err)
+				Warnf("failed to deserialize object, skipping: %v", err)
 			key, val = cursor.Next()
 			continue
 		}
