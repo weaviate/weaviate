@@ -70,3 +70,15 @@ func (e ErrUnmarshalBody) Error() string {
 func NewErrUnmarshalBody(err error) ErrUnmarshalBody {
 	return ErrUnmarshalBody{fmt.Errorf("unmarshal body: %w", err)}
 }
+
+type ErrUnexpectedContentType struct {
+	err error
+}
+
+func (e ErrUnexpectedContentType) Error() string {
+	return e.err.Error()
+}
+
+func NewErrUnexpectedContentType(ct string) ErrUnexpectedContentType {
+	return ErrUnexpectedContentType{fmt.Errorf("unexpected content type: %s", ct)}
+}
