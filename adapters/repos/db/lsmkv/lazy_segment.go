@@ -16,6 +16,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -148,6 +149,12 @@ func (s *lazySegment) getStrategy() segmentindex.Strategy {
 func (s *lazySegment) getSecondaryIndexCount() uint16 {
 	s.mustLoad()
 	return s.segment.getSecondaryIndexCount()
+}
+
+// hasSecondaryTombstones is resolved directly from the path without loading
+// the segment, matching the same fast-path pattern as getLevel/getStrategy.
+func (s *lazySegment) hasSecondaryTombstones() bool {
+	return strings.Contains(s.path, ".d1.")
 }
 
 func (s *lazySegment) getLevel() uint16 {

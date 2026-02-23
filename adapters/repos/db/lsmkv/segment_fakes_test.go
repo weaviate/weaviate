@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -402,6 +403,10 @@ func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable
 
 func (s *fakeSegment) existsKey(key []byte) (bool, error) {
 	panic("not implemented")
+}
+
+func (s *fakeSegment) hasSecondaryTombstones() bool {
+	return strings.Contains(s.path, ".d1.")
 }
 
 func (s *fakeSegment) exists(key []byte) error {

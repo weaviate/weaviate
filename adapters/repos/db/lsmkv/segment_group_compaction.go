@@ -263,7 +263,15 @@ func segmentID(path string) string {
 	return strings.TrimPrefix(filename, "segment-")
 }
 
-func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
+// segmentExtraInfo returns the extra filename components for a segment,
+// encoding the level, strategy, and optionally the secondary-tombstone format.
+// When hasSecondaryTombstones is true, ".d1" is appended, indicating that
+// every tombstone in the segment also carries a secondary-key tombstone, so
+// callers can skip the extra primary-key existence check on secondary lookups.
+func segmentExtraInfo(level uint16, strategy segmentindex.Strategy, hasSecondaryTombstones bool) string {
+	if hasSecondaryTombstones {
+		return fmt.Sprintf(".l%d.s%d.d1", level, strategy)
+	}
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
@@ -336,7 +344,8 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 
 	var filename string
 	if sg.writeSegmentInfoIntoFileName {
-		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + segmentExtraInfo(level, strategy) + ".db.tmp"
+		secTombstones := left.hasSecondaryTombstones() && right.hasSecondaryTombstones()
+		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + segmentExtraInfo(level, strategy, secTombstones) + ".db.tmp"
 	} else {
 		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + ".db.tmp"
 	}

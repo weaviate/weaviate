@@ -92,6 +92,13 @@ type Segment interface {
 	// replace specific
 	getCountNetAdditions() int
 	existsKey(key []byte) (bool, error)
+
+	// hasSecondaryTombstones reports whether this segment was written after the
+	// change that ensures every tombstone also carries a secondary-key tombstone
+	// (indicated by the ".d1" marker in the segment filename).  When true, a
+	// secondary-key lookup into this segment can skip the extra primary-key
+	// existence check because the secondary index itself will carry a tombstone.
+	hasSecondaryTombstones() bool
 }
 
 type segment struct {
@@ -604,6 +611,10 @@ func (s *segment) setPath(path string) {
 
 func (s *segment) getStrategy() segmentindex.Strategy {
 	return s.strategy
+}
+
+func (s *segment) hasSecondaryTombstones() bool {
+	return strings.Contains(s.path, ".d1.")
 }
 
 func (s *segment) getSecondaryIndexCount() uint16 {

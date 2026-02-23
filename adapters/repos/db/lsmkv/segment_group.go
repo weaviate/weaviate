@@ -287,7 +287,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		var newRightSegmentFileName string
 		if cfg.writeSegmentInfoIntoFileName && rightSegmentMetadata != nil {
-			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy))
+			// Derive the secondary-tombstone marker from the .tmp filename itself
+			// (the output of the interrupted compaction), not from the original
+			// right segment, so the final filename reflects what the file contains.
+			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1],
+				segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy, strings.Contains(entry, ".d1.")))
 		} else {
 			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
 		}
