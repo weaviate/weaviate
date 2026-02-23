@@ -127,6 +127,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		With3NodeCluster().
+		WithWeaviateEnv("OBJECTS_TTL_DELETE_SCHEDULE", "@every 12h").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

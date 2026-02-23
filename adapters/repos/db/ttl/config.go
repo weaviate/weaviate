@@ -20,15 +20,20 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const minDefaultTtl = time.Minute
 
-func ValidateObjectTTLConfig(collection *models.Class, isUpdate bool) (*models.ObjectTTLConfig, bool, error) {
+func ValidateObjectTTLConfig(collection *models.Class, isUpdate bool, dbConfig config.Config) (*models.ObjectTTLConfig, bool, error) {
 	ttlConfig := collection.ObjectTTLConfig
 
 	if !IsTtlEnabled(ttlConfig) {
 		return ttlConfig, false, nil
+	}
+
+	if dbConfig.ObjectsTTLDeleteSchedule.Get() == "" {
+		return nil, false, newErrorScheduleNotSet()
 	}
 
 	minimumTTL := minDefaultTtl
@@ -91,6 +96,7 @@ type (
 	errorMissingDeleteOnProp         struct{ errorTtl }
 	errorInvalidDeleteOnPropDatatype struct{ errorTtl }
 	errorMissingDeleteOnPropIndex    struct{ errorTtl }
+	errorScheduleNotSet              struct{ errorTtl }
 )
 
 func (e errorTtl) Error() string {
@@ -151,16 +157,10 @@ func (e errorMissingDeleteOnPropIndex) Unwrap() error {
 	return e.errorTtl
 }
 
-// type CollectionWithTTL struct {
-// 	CollectionName string
-// 	PropertyName   string
-// 	TtlThreshold   time.Time
-// }
+func newErrorScheduleNotSet() errorScheduleNotSet {
+	return errorScheduleNotSet{errorTtl{fmt.Errorf("enabling objectTTL requires a running background scheduler. Set OBJECTS_TTL_DELETE_SCHEDULE to activate it")}}
+}
 
-// func NewCollectionWithTTL(collectionName, propertyName string, ttlThreshold time.Time) CollectionWithTTL {
-// 	return CollectionWithTTL{
-// 		CollectionName: collectionName,
-// 		PropertyName:   propertyName,
-// 		TtlThreshold:   ttlThreshold,
-// 	}
-// }
+func (e errorScheduleNotSet) Unwrap() error {
+	return e.errorTtl
+}

@@ -44,6 +44,7 @@ func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
 	ctx := context.Background()
 
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 
 	class := &models.Class{
 		Class:      "TTLClass",
@@ -965,6 +966,7 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				collection := createCollection()
 				tc.reconfigure(collection)
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 
@@ -2293,6 +2295,8 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			t.Helper()
 
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 			store := NewFakeStore()
 			store.parser = handler.parser
 
@@ -2362,6 +2366,8 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				tc.reconfigure(updated)
 
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 				store := NewFakeStore()
 				store.parser = handler.parser
 
