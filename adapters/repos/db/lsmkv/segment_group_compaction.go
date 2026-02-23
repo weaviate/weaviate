@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -438,29 +439,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
-	// NOTE: The delete logic will wait for the ref count to reach zero, to
-	// ensure we are not deleting any segments that are still being referenced,
-	// e.g. from cursor or other "slow" readers.
-	//
-	// The whole compaction cycle is single-threaded, so waiting for a delete,
-	// also means we are essentially delaying the next compaction. That is not
-	// ideal and also not strictly necessary. We could extract the delete logic
-	// into a simple job queue that runs in a separate goroutine.
-	//
-	// However, https://github.com/weaviate/weaviate/pull/9104, where
-	// ref-counting is introduced, is already a significant change at the point
-	// of writing this comment. Thus, to minimize further risks, we keep the
-	// existing logic for now.
-	if err := sg.deleteOldSegmentsFromDisk(oldLeft, oldRight); err != nil {
-		// don't abort if the delete fails, we can still continue (albeit
-		// without freeing disk space that should have been freed). The
-		// compaction itself was successful.
-		sg.logger.WithError(err).WithFields(logrus.Fields{
-			"action":     "lsm_replace_compacted_segments_delete_files",
-			"file_left":  oldLeft.getPath(),
-			"file_right": oldRight.getPath(),
-		}).Error("failed to delete file already marked for deletion")
-	}
+	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
@@ -502,6 +481,7 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			precomputedCountNetAdditions: &updatedCountNetAdditions,
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
 			writeMetadata:                sg.writeMetadata,
+			deleteMarkerCounter:          sg.deleteMarkerCounter.Add(1),
 		})
 	if err != nil {
 		return nil, fmt.Errorf("initialize new segment: %w", err)
@@ -562,24 +542,97 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 	}
 }
 
-func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...Segment) error {
-	// wait for ref count to reach zero, close and delete files
-	// At this point those segments are no longer used, so we can drop them
-	// without holding the maintenance lock and therefore not block readers.
-	sg.waitForReferenceCountToReachZero(segments...)
+// Compacted or cleaned up segments are pushed to the array to be dropped later.
+// Immediate drop may not be possible due to files being in use by ongoing reads.
+func (sg *SegmentGroup) addSegmentsToAwaitingDrop(segments ...Segment) {
+	// as compaction / cleanup can not run in parallel, concurrent access to segmentsAwaitingDrop
+	// is not possible, therefore no synchornization is used
+	now := time.Now()
+	for _, seg := range segments {
+		sg.segmentsAwaitingDrop = append(sg.segmentsAwaitingDrop, struct {
+			seg  Segment
+			time time.Time
+		}{seg: seg, time: now})
+	}
+}
 
-	// it is now safe to close and drop them
-	for pos, seg := range segments {
-		if err := seg.close(); err != nil {
-			return fmt.Errorf("close segment at pos %d: %w", pos, err)
-		}
-
-		if err := seg.dropMarked(); err != nil {
-			return fmt.Errorf("drop segment at pos %d: %w", pos, err)
-		}
+// Compacted or cleaned up segments are closed and dropped only if there are
+// no active references (segments are not read at the moment).
+// Drop method should be called periodically to handle files that are no longer in use / read.
+// As segments are already replaced by new ones, reference counter is expected only to decrease over time.
+// Once it reaches 0, segment can be safely closed and its files removed from disk.
+func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
+	if len(sg.segmentsAwaitingDrop) == 0 {
+		return 0, nil
 	}
 
-	return nil
+	warnThreshold := 10 * time.Second
+	warnInterval := 10 * time.Second
+
+	now := time.Now()
+	skipWarning := sg.segmentsAwaitingLastWarn.Add(warnInterval).After(now)
+	waitingCount := 0
+	var maxWaitingDuration time.Duration
+	var maxWaitingSegment Segment
+	var maxWaitingRefs int
+
+	toDrop := []Segment{}
+	func() {
+		sg.segmentRefCounterLock.Lock()
+		defer sg.segmentRefCounterLock.Unlock()
+
+		i := 0
+		for _, st := range sg.segmentsAwaitingDrop {
+			if refs := st.seg.getRefs(); refs == 0 {
+				toDrop = append(toDrop, st.seg)
+			} else {
+				sg.segmentsAwaitingDrop[i] = st
+				i++
+
+				if !skipWarning {
+					if d := now.Sub(st.time); d >= warnThreshold {
+						waitingCount++
+						if d > maxWaitingDuration {
+							maxWaitingDuration = d
+							maxWaitingSegment = st.seg
+							maxWaitingRefs = refs
+						}
+					}
+				}
+			}
+		}
+		sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
+	}()
+
+	if !skipWarning && maxWaitingDuration > 0 {
+		sg.segmentsAwaitingLastWarn = now
+		sg.logger.WithFields(logrus.Fields{
+			"action":         "lsm_drop_segments_awaiting",
+			"path":           sg.dir,
+			"segment":        filepath.Base(maxWaitingSegment.getPath()),
+			"refcount":       maxWaitingRefs,
+			"wait":           maxWaitingDuration.String(),
+			"total_segments": waitingCount,
+		}).Warnf("skipping segments with refcounts (longest waiting %.2fs so far)", maxWaitingDuration.Seconds())
+	}
+
+	if len(toDrop) == 0 {
+		return 0, nil
+	}
+
+	ec := errorcompounder.New()
+	for _, seg := range toDrop {
+		if err := seg.close(); err != nil {
+			ec.Add(fmt.Errorf("close segment: %w", err))
+			continue
+		}
+		if err := seg.dropMarked(); err != nil {
+			ec.Add(fmt.Errorf("drop marked: %w", err))
+			continue
+		}
+		dropped++
+	}
+	return dropped, ec.ToError()
 }
 
 func (sg *SegmentGroup) monitorSegments() {

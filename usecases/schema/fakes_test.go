@@ -67,6 +67,9 @@ func (f *fakeSchemaManager) AddTenants(_ context.Context, class string, req *com
 
 func (f *fakeSchemaManager) UpdateTenants(_ context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
+	if args.Get(0) != nil {
+		return args.Get(0).(uint64), args.Error(1)
+	}
 	return 0, args.Error(0)
 }
 
@@ -250,6 +253,9 @@ func (f *fakeSchemaManager) ShardOwnerWithVersion(ctx context.Context, class, sh
 
 func (f *fakeSchemaManager) TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
 	args := f.Called(ctx, version, class, tenants)
+	if m, ok := args.Get(0).(map[string]string); ok {
+		return m, args.Error(1)
+	}
 	return map[string]string{args.String(0): args.String(1)}, args.Error(2)
 }
 
