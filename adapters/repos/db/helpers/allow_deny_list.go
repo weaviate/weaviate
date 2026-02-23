@@ -12,6 +12,8 @@
 package helpers
 
 import (
+	"sync"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -20,10 +22,14 @@ import (
 // We should consider making this private again and adding a method to intersect two AllowLists, but at the same time, it would also make the interface bloated
 // and add the burden of supporting this method in all (future, if any) implementations of AllowList
 type BitmapAllowDenyList struct {
-	Bm         *sroar.Bitmap
-	release    func()
-	isDenyList bool
-	size       uint64
+	sync.Mutex
+	Bm              *sroar.Bitmap
+	release         func()
+	bitmapFactory   *roaringset.BitmapFactory
+	inverted        *sroar.Bitmap
+	invertedRelease func()
+	isDenyList      bool
+	size            uint64
 }
 
 func NewAllowDenyList(allowListIds ...uint64) AllowList {
@@ -34,8 +40,8 @@ func NewDeniedAllowDenyListFromAllowList(size uint64, allowListIds []uint64) All
 	return NewAllowDenyListFromBitmap(roaringset.NewBitmap(allowListIds...), true, size)
 }
 
-func NewAllowDenyListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func(), size uint64) AllowList {
-	return &BitmapAllowDenyList{Bm: bm, release: release, isDenyList: isDenyList, size: size}
+func NewAllowDenyListCloseableFromBitmap(bm *sroar.Bitmap, isDenyList bool, release func(), size uint64, bitmapFactory *roaringset.BitmapFactory) AllowList {
+	return &BitmapAllowDenyList{Bm: bm, release: release, isDenyList: isDenyList, size: size, bitmapFactory: bitmapFactory}
 }
 
 func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, size uint64) AllowList {
@@ -50,9 +56,9 @@ func NewAllowDenyListFromBitmap(bm *sroar.Bitmap, isDenyList bool, size uint64) 
 				inverseIds = append(inverseIds, id)
 			}
 		}
-		return NewAllowDenyListCloseableFromBitmap(roaringset.NewBitmap(inverseIds...), true, func() {}, size)
+		return NewAllowDenyListCloseableFromBitmap(roaringset.NewBitmap(inverseIds...), true, func() {}, size, nil)
 	}
-	return NewAllowDenyListCloseableFromBitmap(bm, isDenyList, func() {}, size)
+	return NewAllowDenyListCloseableFromBitmap(bm, isDenyList, func() {}, size, nil)
 }
 
 func NewAllowDenyListFromBitmapDeepCopy(bm *sroar.Bitmap, isDenyList bool, size uint64) AllowList {
@@ -79,7 +85,7 @@ func (al *BitmapAllowDenyList) Contains(id uint64) bool {
 }
 
 func (al *BitmapAllowDenyList) DeepCopy() AllowList {
-	return NewAllowDenyListCloseableFromBitmap(al.Bm.Clone(), al.isDenyList, func() {}, al.size)
+	return NewAllowDenyListCloseableFromBitmap(al.Bm.Clone(), al.isDenyList, func() {}, al.size, al.bitmapFactory)
 }
 
 func (al *BitmapAllowDenyList) WrapOnWrite() AllowList {
@@ -88,22 +94,8 @@ func (al *BitmapAllowDenyList) WrapOnWrite() AllowList {
 
 func (al *BitmapAllowDenyList) Slice() []uint64 {
 	if al.isDenyList {
-		denyIds := al.Bm.ToArray()
-		result := make([]uint64, al.size-uint64(len(denyIds)))
-		pos := 0
-		prev := uint64(0)
-		for _, denyId := range denyIds {
-			for id := prev; id < denyId; id++ {
-				result[pos] = id
-				pos++
-			}
-			prev = denyId + 1
-		}
-		for id := prev; id < al.size; id++ {
-			result[pos] = id
-			pos++
-		}
-		return result
+		al.invert()
+		return al.inverted.ToArray()
 	}
 	return al.Bm.ToArray()
 }
@@ -177,8 +169,10 @@ func (al *BitmapAllowDenyList) Iterator() AllowListIterator {
 }
 
 func (al *BitmapAllowDenyList) LimitedIterator(limit int) AllowListIterator {
+	// if it's a deny list, we need to invert it to get the actual doc ids to iterate over
 	if al.isDenyList {
-		return newBitmapAllowDenyListIterator(al.Bm, limit, al.size, al.Bm.GetCardinality())
+		al.invert()
+		return newBitmapAllowListIterator(al.inverted, limit)
 	}
 	return newBitmapAllowListIterator(al.Bm, limit)
 }
@@ -187,44 +181,14 @@ func (al *BitmapAllowDenyList) IsDenyList() bool {
 	return al.isDenyList
 }
 
-type bitmapAllowDenyListIterator struct {
-	universeSize uint64
-	denyIds      []uint64
-	denyIdx      int
-	limit        int
-	itCount      int
-	index        uint64
-}
-
-func newBitmapAllowDenyListIterator(deny *sroar.Bitmap, limit int, universeSize uint64, denyCardinality int) AllowListIterator {
-	if limit == 0 {
-		limit = int(universeSize) - denyCardinality
+func (al *BitmapAllowDenyList) invert() {
+	al.Lock()
+	defer al.Unlock()
+	if al.inverted != nil {
+		return
 	}
-	return &bitmapAllowDenyListIterator{
-		universeSize: universeSize,
-		denyIds:      deny.ToArray(),
-		limit:        limit,
-	}
-}
-
-func (i *bitmapAllowDenyListIterator) Next() (uint64, bool) {
-	if i.limit > 0 && i.itCount >= i.limit {
-		return 0, false
-	}
-	// Skip past consecutive denied IDs
-	for i.denyIdx < len(i.denyIds) && i.index == i.denyIds[i.denyIdx] {
-		i.index++
-		i.denyIdx++
-	}
-	if i.index < i.universeSize {
-		id := i.index
-		i.index++
-		i.itCount++
-		return id, true
-	}
-	return 0, false
-}
-
-func (i *bitmapAllowDenyListIterator) Len() int {
-	return min(int(i.universeSize)-len(i.denyIds), i.limit)
+	universe, uRelease := al.bitmapFactory.GetBitmap()
+	universe.RemoveRange(al.size-1, universe.Maximum())
+	al.inverted = universe.AndNot(al.Bm)
+	al.invertedRelease = uRelease
 }
