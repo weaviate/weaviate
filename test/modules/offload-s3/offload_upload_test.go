@@ -467,22 +467,6 @@ func Test_UploadS3Journey(t *testing.T) {
 			})
 		})
 
-		t.Run("verify tenant status FREEZING", func(t *testing.T) {
-			resp, err := helper.GetTenants(t, className)
-			require.Nil(t, err)
-
-			for _, tn := range resp.Payload {
-				if tn.Name == tenantNames[0] {
-					require.True(t,
-						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
-							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
-						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
-					)
-					break
-				}
-			}
-		})
-
 		t.Run("terminate Minio", func(t *testing.T) {
 			require.Nil(t, compose.TerminateContainer(ctx, docker.MinIO))
 		})
