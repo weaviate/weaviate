@@ -338,6 +338,60 @@ func TestValidateObjectTTConfig(t *testing.T) {
 	})
 }
 
+func TestIsTtlConfigChanged(t *testing.T) {
+	base := &models.ObjectTTLConfig{
+		Enabled:              true,
+		DeleteOn:             filters.InternalPropCreationTimeUnix,
+		DefaultTTL:           3600,
+		FilterExpiredObjects: false,
+	}
+
+	copyConfig := func() *models.ObjectTTLConfig {
+		c := *base
+		return &c
+	}
+
+	t.Run("no change", func(t *testing.T) {
+		assert.False(t, IsTtlConfigChanged(base, copyConfig()))
+	})
+
+	t.Run("both nil", func(t *testing.T) {
+		assert.False(t, IsTtlConfigChanged(nil, nil))
+	})
+
+	t.Run("initial nil updated non-nil", func(t *testing.T) {
+		assert.True(t, IsTtlConfigChanged(nil, base))
+	})
+
+	t.Run("initial non-nil updated nil", func(t *testing.T) {
+		assert.True(t, IsTtlConfigChanged(base, nil))
+	})
+
+	t.Run("enabled changed", func(t *testing.T) {
+		updated := copyConfig()
+		updated.Enabled = false
+		assert.True(t, IsTtlConfigChanged(base, updated))
+	})
+
+	t.Run("deleteOn changed", func(t *testing.T) {
+		updated := copyConfig()
+		updated.DeleteOn = filters.InternalPropLastUpdateTimeUnix
+		assert.True(t, IsTtlConfigChanged(base, updated))
+	})
+
+	t.Run("defaultTTL changed", func(t *testing.T) {
+		updated := copyConfig()
+		updated.DefaultTTL = 7200
+		assert.True(t, IsTtlConfigChanged(base, updated))
+	})
+
+	t.Run("filterExpiredObjects changed", func(t *testing.T) {
+		updated := copyConfig()
+		updated.FilterExpiredObjects = true
+		assert.True(t, IsTtlConfigChanged(base, updated))
+	})
+}
+
 func TestValidateObjectTTConfigNoInvertedTimestamp(t *testing.T) {
 	dbConfig := config.Config{
 		ObjectsTTLDeleteSchedule: runtime.NewDynamicValue("@every 1h"),

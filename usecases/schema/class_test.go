@@ -2373,6 +2373,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				_, _, err := handler.AddClass(context.Background(), nil, initial)

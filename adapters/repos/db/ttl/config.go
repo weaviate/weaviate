@@ -88,6 +88,22 @@ func IsTtlEnabled(config *models.ObjectTTLConfig) bool {
 	return config != nil && config.Enabled
 }
 
+// IsTtlConfigChanged reports whether the TTL configuration differs between
+// the two classes. Any change to the TTL settings (enabled, deleteOn,
+// defaultTtl, filterExpiredObjects) is considered a change.
+func IsTtlConfigChanged(initial, updated *models.ObjectTTLConfig) bool {
+	if initial == nil && updated == nil {
+		return false
+	}
+	if initial == nil || updated == nil {
+		return true
+	}
+	return initial.Enabled != updated.Enabled ||
+		initial.DeleteOn != updated.DeleteOn ||
+		initial.DefaultTTL != updated.DefaultTTL ||
+		initial.FilterExpiredObjects != updated.FilterExpiredObjects
+}
+
 type (
 	errorTtl                         struct{ error }
 	errorEmptyDeleteOn               struct{ errorTtl }
