@@ -369,7 +369,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 			s.logger.WithField("action", "export").WithField("class", className).Error(err)
 			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("failed to get shard ownership for class %s: %v", className, err)
-			s.writeMetadata(ctx, backend, exportID, bucket, path, status)
+			s.writeMetadata(backend, exportID, bucket, path, status)
 			return fmt.Errorf("failed to get shard ownership for class %s: %w", className, err)
 		}
 
@@ -416,7 +416,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 		}
 		if err != nil {
 			// Abort all previously prepared nodes.
-			s.abortAll(ctx, exportID, prepared)
+			s.abortAll(exportID, prepared)
 			return fmt.Errorf("prepare node %s: %w", ni.req.NodeName, err)
 		}
 		prepared = append(prepared, ni)
@@ -432,10 +432,10 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 	}
 
 	if err := s.writeExportPlan(ctx, backend, exportID, bucket, path, plan); err != nil {
-		s.abortAll(ctx, exportID, prepared)
+		s.abortAll(exportID, prepared)
 		status.Status = string(export.Failed)
 		status.Error = fmt.Sprintf("failed to write export plan: %v", err)
-		s.writeMetadata(ctx, backend, exportID, bucket, path, status)
+		s.writeMetadata(backend, exportID, bucket, path, status)
 		return fmt.Errorf("failed to write export plan: %w", err)
 	}
 
@@ -448,12 +448,21 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 			err = s.client.Commit(ctx, ni.host, exportID)
 		}
 		if err != nil {
-			s.abortAll(ctx, exportID, prepared)
+			s.abortAll(exportID, prepared)
 			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("commit node %s failed: %v", ni.req.NodeName, err)
-			s.writeMetadata(ctx, backend, exportID, bucket, path, status)
+			s.writeMetadata(backend, exportID, bucket, path, status)
 			return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
 		}
+	}
+
+	status.Status = string(export.Success)
+
+	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
+		s.logger.WithField("action", "export").
+			WithField("export_id", exportID).
+			Error(err)
+		return fmt.Errorf("failed to write export metadata: %w", err)
 	}
 
 	s.logger.WithField("action", "export").
@@ -465,7 +474,11 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 }
 
 // abortAll sends abort to all previously prepared nodes (best-effort).
-func (s *Scheduler) abortAll(ctx context.Context, exportID string, nodes []exportNodeInfo) {
+// It uses a fresh context so abort requests reach participants even when the
+// original request context has been cancelled (e.g. client disconnect).
+func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	for _, ni := range nodes {
 		if ni.host == "" {
 			s.participant.Abort(exportID)
@@ -487,14 +500,14 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
 
-			s.writeMetadata(ctx, backend, exportID, bucket, path, status)
+			s.writeMetadata(backend, exportID, bucket, path, status)
 			return
 		}
 	}
 
 	status.Status = string(export.Success)
 
-	if err := s.writeMetadata(ctx, backend, exportID, bucket, path, status); err != nil {
+	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
 		s.logger.WithField("action", "export").
 			WithField("export_id", exportID).
 			Error(err)
@@ -629,7 +642,7 @@ func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter
 // writeMetadata writes the export metadata file (single-node path).
 // It uses a fresh context with a timeout so the write succeeds even if the
 // original context was cancelled (e.g. during graceful shutdown).
-func (s *Scheduler) writeMetadata(_ context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *models.ExportStatusResponse) error {
+func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *models.ExportStatusResponse) error {
 	ctx := context.Background()
 
 	metadata := &ExportMetadata{

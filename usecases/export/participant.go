@@ -93,6 +93,9 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 			p.mu.Lock()
 			defer p.mu.Unlock()
 
+			if p.preparedReq == nil {
+				return // Already committed or aborted — no-op.
+			}
 			p.logger.WithField("export_id", req.ID).
 				Warn("export reservation timed out, auto-aborting")
 			p.clearAndRelease()
