@@ -23,6 +23,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
+const (
+	postingStoreSchemaVersionV1 = 1
+)
+
 type PostingStore struct {
 	store    *lsmkv.Store
 	bucket   *lsmkv.Bucket
@@ -43,12 +47,12 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 			lsmkv.WithForceCompaction(true),
 			lsmkv.WithShouldSkipKeyFunction(
 				func(key []byte, ctx context.Context) (bool, error) {
-					if len(key) != 9 {
+					if len(key) != 10 {
 						// don't skip on error
 						return false, fmt.Errorf("invalid key length: %d", len(key))
 					}
-					postingID := binary.LittleEndian.Uint64(key[:8])
-					segmentPostingVersion := key[8]
+					postingID := binary.LittleEndian.Uint64(key[1:9])
+					segmentPostingVersion := key[9]
 					currentPostingVersion, err := versions.Get(ctx, postingID)
 					if err != nil {
 						return false, errors.Wrap(err, "get posting version during compaction")
@@ -72,14 +76,19 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 	}, nil
 }
 
+// schema of the key of the posting list:
+// - 1 byte: schema version of the posting store
+// - 8 bytes: posting ID (little endian uint64)
+// - 1 byte: version of the posting list (incremented on each Put operation)
 func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
-	var buf [9]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
+	var buf [10]byte
+	buf[0] = postingStoreSchemaVersionV1
+	binary.LittleEndian.PutUint64(buf[1:], postingID)
 	version, err := p.versions.Get(ctx, postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get posting version for id %d", postingID)
 	}
-	buf[8] = version
+	buf[9] = version
 	return buf[:], nil
 }
 
@@ -144,9 +153,10 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	}
 	newVersion := currentVersion + 1
 
-	var buf [9]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
-	buf[8] = newVersion
+	var buf [10]byte
+	buf[0] = postingStoreSchemaVersionV1
+	binary.LittleEndian.PutUint64(buf[1:], postingID)
+	buf[9] = newVersion
 	err = p.bucket.SetAdd(buf[:], set)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put posting %d", postingID)
@@ -186,7 +196,7 @@ func postingsBucketName(id string) string {
 // cache for fast access.
 type PostingVersionsStore struct {
 	bucket    *lsmkv.Bucket
-	keyPrefix byte
+	keyPrefix []byte
 	cache     *otter.Cache[uint64, uint8]
 }
 
@@ -199,10 +209,10 @@ func NewPostingVersionsStore(bucket *lsmkv.Bucket) *PostingVersionsStore {
 	}
 }
 
-func (p *PostingVersionsStore) key(postingID uint64) [9]byte {
-	var buf [9]byte
-	buf[0] = p.keyPrefix
-	binary.LittleEndian.PutUint64(buf[1:], postingID)
+func (p *PostingVersionsStore) key(postingID uint64) []byte {
+	buf := make([]byte, len(p.keyPrefix)+8)
+	copy(buf, p.keyPrefix)
+	binary.LittleEndian.PutUint64(buf[len(p.keyPrefix):], postingID)
 	return buf
 }
 

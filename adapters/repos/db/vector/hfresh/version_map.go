@@ -214,10 +214,10 @@ func NewVersionStore(bucket *lsmkv.Bucket) *VersionStore {
 	}
 }
 
-func (v *VersionStore) key(vectorID uint64) [9]byte {
-	var buf [9]byte
-	buf[0] = versionMapBucketPrefix
-	binary.LittleEndian.PutUint64(buf[1:], vectorID)
+func (v *VersionStore) key(vectorID uint64) []byte {
+	buf := make([]byte, len(versionMapBucketPrefix)+8)
+	copy(buf, versionMapBucketPrefix)
+	binary.LittleEndian.PutUint64(buf[len(versionMapBucketPrefix):], vectorID)
 	return buf
 }
 

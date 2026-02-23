@@ -226,20 +226,20 @@ func (v *PostingMap) setSizeMetricIfDue(ctx context.Context) {
 // PostingMapStore is a persistent store for vector IDs.
 type PostingMapStore struct {
 	bucket    *lsmkv.Bucket
-	keyPrefix byte
+	keyPrefix []byte
 }
 
-func NewPostingMapStore(bucket *lsmkv.Bucket, keyPrefix byte) *PostingMapStore {
+func NewPostingMapStore(bucket *lsmkv.Bucket, keyPrefix []byte) *PostingMapStore {
 	return &PostingMapStore{
 		bucket:    bucket,
 		keyPrefix: keyPrefix,
 	}
 }
 
-func (p *PostingMapStore) key(postingID uint64) [9]byte {
-	var buf [9]byte
-	buf[0] = p.keyPrefix
-	binary.LittleEndian.PutUint64(buf[1:], postingID)
+func (p *PostingMapStore) key(postingID uint64) []byte {
+	buf := make([]byte, len(p.keyPrefix)+8)
+	copy(buf, p.keyPrefix)
+	binary.LittleEndian.PutUint64(buf[len(p.keyPrefix):], postingID)
 	return buf
 }
 
@@ -488,8 +488,7 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 	defer c.Close()
 
 	var i int
-	prefix := []byte{p.keyPrefix}
-	for k, v := c.Seek(prefix); len(k) > 0 && k[0] == p.keyPrefix; k, v = c.Next() {
+	for k, v := c.Seek(p.keyPrefix); len(k) > 0 && bytes.HasPrefix(k, p.keyPrefix); k, v = c.Next() {
 		i++
 		if len(v) == 0 {
 			continue
@@ -499,7 +498,7 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 			return ctx.Err()
 		}
 
-		postingID := binary.LittleEndian.Uint64(k[1:])
+		postingID := binary.LittleEndian.Uint64(k[len(p.keyPrefix):])
 		metadata := bufferPool.Get(len(v), len(v))
 		copy(metadata, v)
 		err := fn(postingID, metadata)
