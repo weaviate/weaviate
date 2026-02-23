@@ -198,6 +198,25 @@ func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	return nil, lsmkv.NotFound
 }
 
+func (f *fakeSegment) getCollectionBytes(key []byte) ([][]byte, error) {
+	f.getCounter++
+
+	keyStr := string(key)
+	if f.strategy != segmentindex.StrategySetCollection && f.strategy != segmentindex.StrategyMapCollection {
+		return nil, fmt.Errorf("not a collection segment")
+	}
+
+	if val, ok := f.collectionStore[keyStr]; ok {
+		result := make([][]byte, len(val))
+		for _, v := range val {
+			result = append(result, v.value)
+		}
+		return result, nil
+	}
+
+	return nil, lsmkv.NotFound
+}
+
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	return &segmentInvertedData{
 		tombstones: sroar.NewBitmap(),
