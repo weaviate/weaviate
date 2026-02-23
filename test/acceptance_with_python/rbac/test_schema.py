@@ -393,14 +393,6 @@ def test_rbac_collection_update_with_ttl(
         Permissions.collections(collection=name, read_config=True, update_config=True),
         Permissions.data(collection=name, delete=True),
     ]
-    with role_wrapper(admin_client, request, required_permissions):
-        col_custom = custom_client.collections.get(name)
-        col_custom.config.update(
-            object_ttl_config=Reconfigure.ObjectTTL.delete_by_date_property(
-                property_name="custom_date",
-                ttl_offset=datetime.timedelta(minutes=10),
-            ),
-        )
 
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
@@ -414,5 +406,14 @@ def test_rbac_collection_update_with_ttl(
                 )
             assert e.value.status_code == 403
             assert "forbidden" in e.value.args[0]
+
+    with role_wrapper(admin_client, request, required_permissions):
+        col_custom = custom_client.collections.get(name)
+        col_custom.config.update(
+            object_ttl_config=Reconfigure.ObjectTTL.delete_by_date_property(
+                property_name="custom_date",
+                ttl_offset=datetime.timedelta(minutes=10),
+            ),
+        )
 
     admin_client.collections.delete(name)
