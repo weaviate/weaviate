@@ -37,12 +37,13 @@ type VectorUsage struct {
 }
 
 type ShardUsage struct {
-	Name                *string       `json:"name,omitempty"`
-	Status              *string       `json:"status,omitempty"`
-	ObjectsCount        *int          `json:"objects_count,omitempty"`
-	ObjectsStorageBytes *int64        `json:"objects_storage_bytes,omitempty"`
-	VectorStorageBytes  *int64        `json:"vector_storage_bytes,omitempty"`
-	NamedVectors        []VectorUsage `json:"named_vectors,omitempty"`
+	Name                  *string       `json:"name,omitempty"`
+	Status                *string       `json:"status,omitempty"`
+	ObjectsCount          *int          `json:"objects_count,omitempty"`
+	ObjectsStorageBytes   *int64        `json:"objects_storage_bytes,omitempty"`
+	VectorStorageBytes    *int64        `json:"vector_storage_bytes,omitempty"`
+	FullShardStorageBytes *int64        `json:"full_shard_storage_bytes,omitempty"`
+	NamedVectors          []VectorUsage `json:"named_vectors,omitempty"`
 }
 
 type CollectionUsage struct {

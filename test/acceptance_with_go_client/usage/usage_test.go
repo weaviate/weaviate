@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -248,6 +249,113 @@ func TestCollectionDeletion(t *testing.T) {
 		deletedClasses.Add(1)
 	}
 	endUsage.Store(true)
+}
+
+func TestAlterSchemaDropPropertyIndex(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.NoError(t, err)
+
+	className := t.Name() + "Class"
+	textProp := "title"
+	numberProp := "count"
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	ptrBool := func(b bool) *bool { return &b }
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:            textProp,
+				DataType:        []string{schema.DataTypeText.String()},
+				IndexFilterable: ptrBool(true),
+				IndexSearchable: ptrBool(true),
+			},
+			{
+				Name:              numberProp,
+				DataType:          []string{schema.DataTypeNumber.String()},
+				IndexFilterable:   ptrBool(true),
+				IndexRangeFilters: ptrBool(true),
+			},
+		},
+		Vectorizer: "none",
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	// Insert 1000 objects
+	const numObjects = 1000
+	objs := make([]*models.Object, numObjects)
+	for i := range numObjects {
+		objs[i] = &models.Object{
+			Class: className,
+			ID:    strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{
+				textProp:   fmt.Sprintf("title number %d", i),
+				numberProp: float64(i),
+			},
+		}
+	}
+	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+	require.NoError(t, err)
+	for _, r := range batchResp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+
+	// Record initial shard storage
+	colUsageBefore, err := GetDebugUsageForCollection(className)
+	require.NoError(t, err)
+	require.Len(t, colUsageBefore.Shards, 1)
+	initialStorage := colUsageBefore.Shards[0].FullShardStorageBytes
+	require.NotNil(t, initialStorage)
+	require.Greater(t, *initialStorage, int64(0))
+
+	// Concurrently poll shard usage while dropping property indices
+	endUsage := atomic.Bool{}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			if endUsage.Load() {
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+			if endUsage.Load() {
+				return
+			}
+			usage, err := GetDebugUsageForCollection(className)
+			require.NoError(t, err)
+			require.Len(t, usage.Shards, 1)
+			require.NotNil(t, usage.Shards[0].FullShardStorageBytes)
+			require.Greater(t, *usage.Shards[0].FullShardStorageBytes, int64(0))
+			assert.Less(t, *usage.Shards[0].FullShardStorageBytes, *initialStorage)
+		}
+	}()
+
+	// Drop all property indices using the Go client
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(textProp).WithFilterable().Do(ctx))
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(textProp).WithSearchable().Do(ctx))
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(numberProp).WithFilterable().Do(ctx))
+	require.NoError(t, c.Schema().PropertyIndexDeleter().
+		WithClassName(className).WithPropertyName(numberProp).WithRangeFilters().Do(ctx))
+
+	endUsage.Store(true)
+	wg.Wait()
+
+	// Verify that storage dropped after removing all property indices
+	colUsageAfter, err := GetDebugUsageForCollection(className)
+	require.NoError(t, err)
+	require.Len(t, colUsageAfter.Shards, 1)
+	require.NotNil(t, colUsageAfter.Shards[0].FullShardStorageBytes)
+	assert.Less(t, *colUsageAfter.Shards[0].FullShardStorageBytes, *initialStorage)
 }
 
 func TestRestart(t *testing.T) {
