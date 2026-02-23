@@ -164,7 +164,7 @@ func (al *BitmapAllowDenyList) Truncate(upTo uint64) AllowList {
 }
 
 func (al *BitmapAllowDenyList) Iterator() AllowListIterator {
-	return al.LimitedIterator(0)
+	return al.LimitedIterator(int(al.size))
 }
 
 func (al *BitmapAllowDenyList) LimitedIterator(limit int) AllowListIterator {
@@ -187,10 +187,7 @@ func (al *BitmapAllowDenyList) invert() {
 		return
 	}
 	universe, uRelease := al.bitmapFactory.GetBitmap()
-	maxUniverse := universe.Maximum()
-	if maxUniverse > al.size {
-		universe.RemoveRange(al.size, maxUniverse+1)
-	}
+
 	al.inverted = universe.AndNot(al.Bm)
 	oldRelease := al.release
 	al.release = func() {
