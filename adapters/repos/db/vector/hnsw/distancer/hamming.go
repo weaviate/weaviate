@@ -12,7 +12,6 @@
 package distancer
 
 import (
-	"fmt"
 	"math/bits"
 
 	"github.com/pkg/errors"
@@ -63,7 +62,8 @@ func HammingDistanceGo(a, b []float32) float32 {
 
 func HammingBitwise(x []uint64, y []uint64) (float32, error) {
 	if len(x) != len(y) {
-		return 0, fmt.Errorf("both vectors should have the same len: got %d and %d", len(x), len(y))
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
+			len(x), len(y))
 	}
 	return hammingBitwiseImpl(x, y), nil
 }
