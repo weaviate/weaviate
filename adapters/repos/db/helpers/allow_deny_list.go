@@ -23,13 +23,12 @@ import (
 // and add the burden of supporting this method in all (future, if any) implementations of AllowList
 type BitmapAllowDenyList struct {
 	sync.Mutex
-	Bm              *sroar.Bitmap
-	release         func()
-	bitmapFactory   *roaringset.BitmapFactory
-	inverted        *sroar.Bitmap
-	invertedRelease func()
-	isDenyList      bool
-	size            uint64
+	Bm            *sroar.Bitmap
+	release       func()
+	bitmapFactory *roaringset.BitmapFactory
+	inverted      *sroar.Bitmap
+	isDenyList    bool
+	size          uint64
 }
 
 func NewAllowDenyList(allowListIds ...uint64) AllowList {
@@ -188,7 +187,14 @@ func (al *BitmapAllowDenyList) invert() {
 		return
 	}
 	universe, uRelease := al.bitmapFactory.GetBitmap()
-	universe.RemoveRange(al.size-1, universe.Maximum())
+	maxUniverse := universe.Maximum()
+	if maxUniverse > al.size {
+		universe.RemoveRange(al.size, maxUniverse+1)
+	}
 	al.inverted = universe.AndNot(al.Bm)
-	al.invertedRelease = uRelease
+	oldRelease := al.release
+	al.release = func() {
+		uRelease()
+		oldRelease()
+	}
 }
