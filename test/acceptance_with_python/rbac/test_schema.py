@@ -255,7 +255,7 @@ def test_rbac_collection_create_with_ttl(
     admin_client.collections.delete(name)
 
 
-def test_rbac_collection_update_existing_ttl_without_delete_permission(
+def test_rbac_update_existing_ttl_no_delete_perm(
     admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     """A user without data delete permission should be able to update a collection
@@ -286,7 +286,7 @@ def test_rbac_collection_update_existing_ttl_without_delete_permission(
     admin_client.collections.delete(name)
 
 
-def test_rbac_collection_change_ttl_settings_requires_delete_permission(
+def test_rbac_change_ttl_requires_delete_perm(
     admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     """Changing TTL settings (e.g. ttl offset) on a collection requires data delete permission,
