@@ -100,7 +100,10 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
-	postSegmentsChange             func()
+	// to be called when [segments] slice is changed
+	// (like segments replaced/removed due to compaction or cleanup)
+	// currently used to invalidate consistent view cache
+	postSegmentsChange func()
 	// Store the average property length for segments in this sg,
 	// to be used for BM25 scoring.
 	// This avoids recalculating the average property length for each segment during scoring.

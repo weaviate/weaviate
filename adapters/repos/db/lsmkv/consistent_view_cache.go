@@ -132,32 +132,32 @@ func (c *ConsistentViewCacheDefault) Get() BucketConsistentView {
 // Actual cache invalidation is executed by goroutine or Get call, whichever happens first.
 // Underlying consistent view will be released when reference counter drops to 0.
 func (c *ConsistentViewCacheDefault) Invalidate() {
-	c.invalid.Store(true)
-
-	errors.GoWrapper(func() {
-		if !c.invalid.Load() {
-			// nothing to do, already processed
-			return
-		}
-
-		var prevRefsCount int32
-		var prevRefsView *refsView
-
-		c.lock.Lock()
-		// check if invalidation not yet handled. clear cache if so
-		if c.invalid.CompareAndSwap(true, false) {
-			if prevRefsView = c.cached; prevRefsView != nil {
-				prevRefsCount = prevRefsView.refsCounter.Load()
-				c.cached = nil
+	if c.invalid.CompareAndSwap(false, true) {
+		errors.GoWrapper(func() {
+			if !c.invalid.Load() {
+				// nothing to do, already processed
+				return
 			}
-		}
-		c.lock.Unlock()
 
-		// release previous underlying consistent view if no references
-		if prevRefsCount == 0 && prevRefsView != nil {
-			prevRefsView.viewRelease()
-		}
-	}, c.logger)
+			var prevRefsCount int32
+			var prevRefsView *refsView
+
+			c.lock.Lock()
+			// check if invalidation not yet handled. clear cache if so
+			if c.invalid.CompareAndSwap(true, false) {
+				if prevRefsView = c.cached; prevRefsView != nil {
+					prevRefsCount = prevRefsView.refsCounter.Load()
+					c.cached = nil
+				}
+			}
+			c.lock.Unlock()
+
+			// release previous underlying consistent view if no references
+			if prevRefsCount == 0 && prevRefsView != nil {
+				prevRefsView.viewRelease()
+			}
+		}, c.logger)
+	}
 }
 
 func (c *ConsistentViewCacheDefault) newRefsView() *refsView {
