@@ -186,7 +186,7 @@ func postingsBucketName(id string) string {
 // cache for fast access.
 type PostingVersionsStore struct {
 	bucket    *lsmkv.Bucket
-	keyPrefix byte
+	keyPrefix []byte
 	cache     *otter.Cache[uint64, uint8]
 }
 
@@ -199,10 +199,10 @@ func NewPostingVersionsStore(bucket *lsmkv.Bucket) *PostingVersionsStore {
 	}
 }
 
-func (p *PostingVersionsStore) key(postingID uint64) [9]byte {
-	var buf [9]byte
-	buf[0] = p.keyPrefix
-	binary.LittleEndian.PutUint64(buf[1:], postingID)
+func (p *PostingVersionsStore) key(postingID uint64) []byte {
+	buf := make([]byte, len(p.keyPrefix)+8)
+	copy(buf, p.keyPrefix)
+	binary.LittleEndian.PutUint64(buf[len(p.keyPrefix):], postingID)
 	return buf
 }
 

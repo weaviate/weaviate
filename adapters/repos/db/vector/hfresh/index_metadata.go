@@ -80,9 +80,9 @@ func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
 }
 
 func (i *IndexMetadataStore) key(suffix string) []byte {
-	buf := make([]byte, 1+len(suffix))
-	buf[0] = indexMetadataBucketPrefix
-	copy(buf[1:], suffix)
+	buf := make([]byte, len(indexMetadataBucketPrefix)+len(suffix))
+	copy(buf, indexMetadataBucketPrefix)
+	copy(buf[len(indexMetadataBucketPrefix):], suffix)
 	return buf
 }
 
