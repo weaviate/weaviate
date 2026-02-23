@@ -418,7 +418,21 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	err = tel.Stop(context.Background())
 	require.Nil(t, err)
 
-	terminatePayload := <-telemetryChan
+	// The ticker goroutine may have pushed additional UPDATE payloads between
+	// reading the first UPDATE above and Stop() shutting it down (the push
+	// interval is only 100ms). Drain any extra UPDATEs to find TERMINATE.
+	var terminatePayload *Payload
+	timeout := time.After(time.Second)
+	for terminatePayload == nil {
+		select {
+		case p := <-telemetryChan:
+			if p.Type == PayloadType.Terminate {
+				terminatePayload = p
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for TERMINATE payload")
+		}
+	}
 	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
 }
 
