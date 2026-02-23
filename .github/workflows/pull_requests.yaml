@@ -447,7 +447,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
     name: modules light (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -483,7 +483,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
     name: modules api (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
