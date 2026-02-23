@@ -545,7 +545,8 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 // Compacted or cleaned up segments are pushed to the array to be dropped later.
 // Immediate drop may not be possible due to files being in use by ongoing reads.
 func (sg *SegmentGroup) addSegmentsToAwaitingDrop(segments ...Segment) {
-	// as compaction / cleanup can not run in parallel, concurrent access is not possible
+	// as compaction / cleanup can not run in parallel, concurrent access to segmentsAwaitingDrop
+	// is not possible, therefore no synchornization is used
 	now := time.Now()
 	for _, seg := range segments {
 		sg.segmentsAwaitingDrop = append(sg.segmentsAwaitingDrop, struct {
@@ -575,7 +576,7 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 	var maxWaitingSegment Segment
 	var maxWaitingRefs int
 
-	toDrop := make([]Segment, 0, 4)
+	toDrop := []Segment{}
 	func() {
 		sg.segmentRefCounterLock.Lock()
 		defer sg.segmentRefCounterLock.Unlock()
