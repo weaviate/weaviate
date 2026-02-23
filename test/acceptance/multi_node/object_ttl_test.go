@@ -36,7 +36,6 @@ func TestObjectTTLMultiNodeTicker(t *testing.T) {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithWeaviateEnv("OBJECTS_TTL_DELETE_SCHEDULE", "@every 1s").
-		WithWeaviateEnv("OBJECTS_TTL_ALLOW_SECONDS", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -472,7 +471,7 @@ func deleteTTL(t *testing.T, node string, deletionTime time.Time, ownNode bool) 
 	u.RawQuery = q.Encode()
 
 	client := &http.Client{Timeout: time.Minute}
-	resp, err := client.Get(u.String())
+	resp, err := client.Post(u.String(), "", nil)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
