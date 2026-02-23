@@ -88,11 +88,20 @@ func (al *BitmapAllowDenyList) WrapOnWrite() AllowList {
 
 func (al *BitmapAllowDenyList) Slice() []uint64 {
 	if al.isDenyList {
-		result := make([]uint64, 0, al.size)
-		for id := 0; id < int(al.size); id++ {
-			if !al.Bm.Contains(uint64(id)) {
-				result = append(result, uint64(id))
+		denyIds := al.Bm.ToArray()
+		result := make([]uint64, al.size-uint64(len(denyIds)))
+		pos := 0
+		prev := uint64(0)
+		for _, denyId := range denyIds {
+			for id := prev; id < denyId; id++ {
+				result[pos] = id
+				pos++
 			}
+			prev = denyId + 1
+		}
+		for id := prev; id < al.size; id++ {
+			result[pos] = id
+			pos++
 		}
 		return result
 	}
@@ -164,12 +173,10 @@ func (al *BitmapAllowDenyList) Truncate(upTo uint64) AllowList {
 }
 
 func (al *BitmapAllowDenyList) Iterator() AllowListIterator {
-	// if it's a deny list, we need to invert it to get the actual doc ids to iterate over
 	return al.LimitedIterator(0)
 }
 
 func (al *BitmapAllowDenyList) LimitedIterator(limit int) AllowListIterator {
-	// if it's a deny list, we need to invert it to get the actual doc ids to iterate over
 	if al.isDenyList {
 		return newBitmapAllowDenyListIterator(al.Bm, limit, al.size, al.Bm.GetCardinality())
 	}
@@ -181,12 +188,12 @@ func (al *BitmapAllowDenyList) IsDenyList() bool {
 }
 
 type bitmapAllowDenyListIterator struct {
-	universeSize    uint64
-	deny            *sroar.Bitmap
-	denyCardinality int
-	limit           int
-	itCount         int
-	index           uint64
+	universeSize uint64
+	denyIds      []uint64
+	denyIdx      int
+	limit        int
+	itCount      int
+	index        uint64
 }
 
 func newBitmapAllowDenyListIterator(deny *sroar.Bitmap, limit int, universeSize uint64, denyCardinality int) AllowListIterator {
@@ -194,10 +201,9 @@ func newBitmapAllowDenyListIterator(deny *sroar.Bitmap, limit int, universeSize 
 		limit = int(universeSize) - denyCardinality
 	}
 	return &bitmapAllowDenyListIterator{
-		universeSize:    universeSize,
-		deny:            deny,
-		denyCardinality: denyCardinality,
-		limit:           limit,
+		universeSize: universeSize,
+		denyIds:      deny.ToArray(),
+		limit:        limit,
 	}
 }
 
@@ -205,17 +211,20 @@ func (i *bitmapAllowDenyListIterator) Next() (uint64, bool) {
 	if i.limit > 0 && i.itCount >= i.limit {
 		return 0, false
 	}
-	for i.index < i.universeSize {
+	// Skip past consecutive denied IDs
+	for i.denyIdx < len(i.denyIds) && i.index == i.denyIds[i.denyIdx] {
+		i.index++
+		i.denyIdx++
+	}
+	if i.index < i.universeSize {
 		id := i.index
 		i.index++
-		if !i.deny.Contains(id) {
-			i.itCount++
-			return id, true
-		}
+		i.itCount++
+		return id, true
 	}
 	return 0, false
 }
 
 func (i *bitmapAllowDenyListIterator) Len() int {
-	return min(int(i.universeSize)-i.denyCardinality, i.limit)
+	return min(int(i.universeSize)-len(i.denyIds), i.limit)
 }
