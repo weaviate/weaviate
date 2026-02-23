@@ -96,7 +96,17 @@ func (al *BitmapAllowDenyList) Slice() []uint64 {
 		universe, release := al.bitmapFactory.GetBitmap()
 		inverted := universe.AndNot(al.Bm)
 		defer release()
-		return inverted.ToArray()
+		slice := inverted.ToArray()
+		// remove elements greater than size in place
+		i := len(slice) - 1
+		for i >= 0 {
+			if slice[i] >= al.size {
+				i--
+			} else {
+				break
+			}
+		}
+		return slice[:i+1]
 	}
 	return al.Bm.ToArray()
 }
