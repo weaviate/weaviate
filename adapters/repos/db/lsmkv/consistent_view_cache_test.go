@@ -62,7 +62,7 @@ func TestConsistentViewCache(t *testing.T) {
 			}, func() (int, []uint16) {
 				lock.Lock()
 				defer lock.Unlock()
-				return int(createdCounter.Load()), releasedViewIds[:]
+				return int(createdCounter.Load()), append(make([]uint16, 0, len(releasedViewIds)), releasedViewIds...)
 			}
 	}
 
