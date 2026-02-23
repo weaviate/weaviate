@@ -444,7 +444,7 @@ func Test_UploadS3Journey(t *testing.T) {
 
 		// Add many objects so offload takes long enough to observe FREEZING.
 		t.Run("add many objects to tenant to prolong FREEZING", func(t *testing.T) {
-			const extraObjects = 3000
+			const extraObjects = 10000
 			for i := 0; i < extraObjects; i++ {
 				obj := &models.Object{
 					ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", i+1)),
