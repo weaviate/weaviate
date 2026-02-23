@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -38,14 +39,20 @@ import (
 )
 
 type SegmentGroup struct {
-	segments []Segment
-	// Holds map of all segments currently in use (based on consistentView requests).
-	// Segments are added to the map when consistentView is acquired and removed from map
-	// when they are released and number of refs is 0.
-	// It may contains segments that are no longer present in sg.segments, but still being read from
-	// (segments that were cleaned or compacted and replaced by new ones)
-	segmentsWithRefs      map[string]Segment // segment.path => segment
+	segments              []Segment
 	segmentRefCounterLock sync.Mutex
+
+	// Holds compacted / cleaned up segments meant to be closed and removed from disk
+	// after their's refs counter drops to 0.
+	segmentsAwaitingDrop []struct {
+		seg  Segment
+		time time.Time
+	}
+	segmentsAwaitingLastWarn time.Time
+	// Counter for generating unique names of segments marked for deletions.
+	// Segments for deletions are marked with unique stamp and extension eg:
+	// segment-1771258130098421000.db.1771333257123.deleteme
+	deleteMarkerCounter *atomic.Int64
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -120,9 +127,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
 ) (*SegmentGroup, error) {
 	now := time.Now()
+	deleteMarkerCounter := new(atomic.Int64)
+	deleteMarkerCounter.Store(now.UnixMilli())
+
 	sg := &SegmentGroup{
 		segments:                     make([]Segment, len(files)),
-		segmentsWithRefs:             map[string]Segment{},
 		dir:                          cfg.dir,
 		logger:                       logger,
 		metrics:                      metrics,
@@ -145,6 +154,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		writeMetadata:                cfg.writeMetadata,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
+		deleteMarkerCounter:          deleteMarkerCounter,
 	}
 
 	segmentIndex := 0
@@ -220,6 +230,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
+					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -342,6 +353,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
+			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -514,6 +526,7 @@ func (sg *SegmentGroup) add(path string) error {
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
+			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
@@ -534,7 +547,6 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	sg.segmentRefCounterLock.Lock()
 	for _, seg := range segments {
 		seg.incRef()
-		sg.segmentsWithRefs[seg.getPath()] = seg
 	}
 	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
@@ -543,9 +555,6 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
-			if seg.getRefs() == 0 {
-				delete(sg.segmentsWithRefs, seg.getPath())
-			}
 		}
 		sg.segmentRefCounterLock.Unlock()
 	}
@@ -786,15 +795,18 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
-	sg.segmentRefCounterLock.Lock()
-	segmentsWithRefs := make([]Segment, len(sg.segmentsWithRefs))
-	i := 0
-	for _, seg := range sg.segmentsWithRefs {
-		segmentsWithRefs[i] = seg
-		i++
+	sg.maintenanceLock.RLock()
+	ln1 := len(sg.segmentsAwaitingDrop)
+	ln2 := len(sg.segments)
+	segmentsWithRefs := make([]Segment, ln1+ln2)
+	copy(segmentsWithRefs[ln1:], sg.segments)
+	for i := range ln1 {
+		segmentsWithRefs[i] = sg.segmentsAwaitingDrop[i].seg
 	}
-	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
+
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+	sg.dropSegmentsAwaiting()
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
@@ -890,6 +902,15 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 		}
 		return cleaned
 	}
+
+	defer func() {
+		if _, err := sg.dropSegmentsAwaiting(); err != nil {
+			sg.logger.WithField("action", "lsm_drop_segments_awaiting").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("periodical drop failed")
+		}
+	}()
 
 	// alternatively run compaction or cleanup first
 	// if 1st one called succeeds, 2nd one is skipped, otherwise 2nd one is called as well
