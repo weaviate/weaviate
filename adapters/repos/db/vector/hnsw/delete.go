@@ -346,40 +346,40 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	}
 
 	if h.allocChecker != nil {
-		enterrors.GoWrapper(func() {
-			check := func() bool {
-				if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
-					h.logger.WithFields(logrus.Fields{
-						"action": "hnsw_tombstone_cleanup",
-						"class":  h.className,
-						"shard":  h.shardName,
-						"id":     h.id,
-					}).Error(fmt.Errorf("aborting cleanup due to memory pressure: %w", err))
-					memCancel()
-					return true
-				}
-				return false
+		check := func() bool {
+			if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
+				h.logger.WithFields(logrus.Fields{
+					"action": "hnsw_tombstone_cleanup",
+					"event":  "tombstone_cleanup_aborted_memory_pressure",
+					"class":  h.className,
+					"shard":  h.shardName,
+					"id":     h.id,
+				}).Error(err)
+				memCancel()
+				return true
 			}
+			return false
+		}
 
-			// Check immediately on start, then periodically via ticker.
-			if check() {
-				return
-			}
+		// Check synchronously before starting cleanup. Only spawn the
+		// periodic monitor if the initial check passes.
+		if !check() {
+			enterrors.GoWrapper(func() {
+				ticker := time.NewTicker(h.tombstoneMemCheckInterval)
+				defer ticker.Stop()
 
-			ticker := time.NewTicker(h.tombstoneMemCheckInterval)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ticker.C:
-					if check() {
+				for {
+					select {
+					case <-ticker.C:
+						if check() {
+							return
+						}
+					case <-memCtx.Done():
 						return
 					}
-				case <-memCtx.Done():
-					return
 				}
-			}
-		}, h.logger)
+			}, h.logger)
+		}
 	}
 
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())

@@ -271,16 +271,19 @@ func TestTombstoneCleanupAbortsOnMemoryPressure_MidCleanup(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, executed, "cleanup should have started before being aborted")
 
-	// Verify the background monitor logged the abort
+	// Verify the background monitor logged the abort. The goroutine is async,
+	// so poll until the log entry appears.
 	hasAbortLogEntry := func() bool {
 		for _, entry := range logHook.AllEntries() {
-			if action, ok := entry.Data["action"]; ok && action == "hnsw_tombstone_cleanup" {
+			if event, ok := entry.Data["event"]; ok && event == "tombstone_cleanup_aborted_memory_pressure" {
 				return true
 			}
 		}
 		return false
 	}
-	assert.True(t, hasAbortLogEntry(), "expected mid-cleanup OOM abort log entry")
+	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		return hasAbortLogEntry()
+	}, "expected mid-cleanup OOM abort log entry")
 
 	// Tombstones should still be present because cleanup was aborted mid-cycle
 	index.tombstoneLock.RLock()
