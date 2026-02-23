@@ -93,8 +93,10 @@ func (al *BitmapAllowDenyList) WrapOnWrite() AllowList {
 
 func (al *BitmapAllowDenyList) Slice() []uint64 {
 	if al.isDenyList {
-		al.invert()
-		return al.inverted.ToArray()
+		universe, release := al.bitmapFactory.GetBitmap()
+		inverted := universe.AndNot(al.Bm)
+		defer release()
+		return inverted.ToArray()
 	}
 	return al.Bm.ToArray()
 }
