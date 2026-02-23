@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -66,12 +67,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
 
-	if deletionTime.IsZero() {
-		err = bucket.Delete(idBytes)
-	} else {
-		err = bucket.DeleteWith(idBytes, deletionTime)
-	}
-	if err != nil {
+	if err = deleteObjectFromObjectsBucket(bucket, idBytes, docID, deletionTime); err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
@@ -109,6 +105,22 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	}
 
 	return nil
+}
+
+// deleteObjectFromObjectsBucket deletes an object from the objects LSM bucket,
+// writing both the primary tombstone (keyed by UUID) and the secondary tombstone
+// (keyed by doc ID) in a single operation. Always providing the secondary key
+// ensures the secondary index carries its own tombstone so that secondary-key
+// lookups return lsmkv.Deleted directly, without a separate primary-key
+// existence check.
+func deleteObjectFromObjectsBucket(bucket *lsmkv.Bucket, primaryKey []byte, docID uint64, deletionTime time.Time) error {
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	secKey := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
+	if deletionTime.IsZero() {
+		return bucket.Delete(primaryKey, secKey)
+	}
+	return bucket.DeleteWith(primaryKey, deletionTime, secKey)
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {

@@ -720,7 +720,18 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 	segmentsTook := time.Since(beforeSegments)
 
-	// additional validation to ensure the primary key has not been marked as deleted
+	// Validate that the primary key has not been tombstoned in a segment newer
+	// than the one that contained the secondary entry. This guards against a
+	// delete path that only tombstones the primary key without also writing a
+	// secondary tombstone, which would leave a stale secondary entry pointing
+	// at a deleted primary.
+	//
+	// New deletes written via deleteObjectFromObjectsBucket (shard_write_delete.go)
+	// always include the secondary key, so the secondary index carries its own
+	// tombstone and this check is not needed for those. However, on-disk segments
+	// written before that change was deployed do not have secondary tombstones, so
+	// this check must remain until all pre-existing segments have been compacted
+	// away and rewritten with the new tombstone format.
 	beforeReCheck := time.Now()
 	if err := b.existsWithConsistentView(k, view); err != nil {
 		return nil, nil, err
