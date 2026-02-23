@@ -103,7 +103,7 @@ func TestObjects(t *testing.T) {
 
 		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(docIDCounter))
 
 		t.Run("NotEqual", func(t *testing.T) {
 			t.Parallel()
@@ -312,7 +312,7 @@ func TestDocIDs(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(docIDCounter-1))
 
 	type testCase struct {
 		expectedMatches int

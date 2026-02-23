@@ -1153,7 +1153,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(200))
 
 	type test struct {
 		name                     string
