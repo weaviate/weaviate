@@ -177,15 +177,23 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
-	if _, err = h.schemaManager.UpdateTenants(ctx, class, &req); err != nil {
+	version, err := h.schemaManager.UpdateTenants(ctx, class, &req)
+	if err != nil {
 		return nil, err
 	}
 
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
-	uTenants, _, err := h.schemaManager.QueryTenants(class, tNames)
+	tenantsStatus, err := h.schemaReader.TenantsShardsWithVersion(ctx, version, class, tNames...)
 	if err != nil {
 		return nil, err
+	}
+	uTenants := make([]*models.Tenant, len(tenantsStatus))
+	for name, status := range tenantsStatus {
+		uTenants = append(uTenants, &models.Tenant{
+			Name:           name,
+			ActivityStatus: schema.ActivityStatus(status),
+		})
 	}
 	return uTenants, err
 }
