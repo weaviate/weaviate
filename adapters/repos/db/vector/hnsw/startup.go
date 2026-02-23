@@ -440,7 +440,7 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 		// allocChecker is optional, we can only check if it was actually set
 
 		// It's hard to estimate how much memory we'd need to do a successful
-		// hnsw delete cleanup. The value below is probalby vastly overstated.
+		// hnsw delete cleanup. The value below is probably vastly overstated.
 		// However, without a doubt, delete cleanup could lead to temporary
 		// memory increases, either because it loads vectors into cache or
 		// because it rewrites connections in a way that they could need more
@@ -454,15 +454,14 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 				"action": "hnsw_tombstone_cleanup",
 				"event":  "cleanup_skipped_oom",
 				"class":  h.className,
-			}).WithError(err).
-				Warnf("skipping hnsw cleanup due to memory pressure")
+			}).Warnf("skipping hnsw cleanup due to memory pressure: %v", err)
 			return false
 		}
 	}
 	executed, err := h.cleanUpTombstonedNodes(shouldAbort)
 	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
-			WithError(err).Error("tombstone cleanup errord")
+			Error(err)
 	}
 	return executed
 }
