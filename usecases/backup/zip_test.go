@@ -1154,3 +1154,190 @@ func TestMultipleSplitFilesInShard(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fileBData, restoredB, "file_b content mismatch after restore")
 }
+
+// TestBackupRestoreEndToEnd simulates the full backup and restore cycle as
+// backend.go performs it: multiple shards with a mix of small files, files
+// larger than the chunk size, and files larger than the split threshold.
+// Chunks are restored concurrently (as writeTempFiles does) to verify that
+// concurrent split file writes to the same target file are safe.
+func TestBackupRestoreEndToEnd(t *testing.T) {
+	ctx := context.Background()
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	restoreDir := filepath.Join(t.TempDir(), "restore")
+
+	const chunkSize = 300
+	const splitFileSize = 500
+
+	// Shard 1: one small file (100B), one file above chunk but below split (400B),
+	// one file above split threshold (1200B).
+	shard1Dir := filepath.Join(sourceDir, "shard1")
+	require.NoError(t, os.MkdirAll(shard1Dir, os.ModePerm))
+
+	small1 := makeTestData(100, 41)
+	require.NoError(t, os.WriteFile(filepath.Join(shard1Dir, "small.bin"), small1, 0o644))
+	medium1 := makeTestData(400, 67)
+	require.NoError(t, os.WriteFile(filepath.Join(shard1Dir, "medium.bin"), medium1, 0o644))
+	large1 := makeTestData(1200, 89)
+	require.NoError(t, os.WriteFile(filepath.Join(shard1Dir, "large.bin"), large1, 0o644))
+
+	sd1 := backup.ShardDescriptor{
+		Name:                  "shard1",
+		Node:                  "node1",
+		Files:                 []string{"shard1/small.bin", "shard1/medium.bin", "shard1/large.bin"},
+		DocIDCounterPath:      "shard1/indexcount",
+		DocIDCounter:          []byte("42"),
+		PropLengthTrackerPath: "shard1/proplengths",
+		PropLengthTracker:     []byte("7"),
+		ShardVersionPath:      "shard1/version",
+		Version:               []byte("1"),
+	}
+
+	// Shard 2: two files above split threshold (800B and 600B).
+	shard2Dir := filepath.Join(sourceDir, "shard2")
+	require.NoError(t, os.MkdirAll(shard2Dir, os.ModePerm))
+
+	large2a := makeTestData(800, 101)
+	require.NoError(t, os.WriteFile(filepath.Join(shard2Dir, "big_a.bin"), large2a, 0o644))
+	large2b := makeTestData(600, 131)
+	require.NoError(t, os.WriteFile(filepath.Join(shard2Dir, "big_b.bin"), large2b, 0o644))
+
+	sd2 := backup.ShardDescriptor{
+		Name:                  "shard2",
+		Node:                  "node1",
+		Files:                 []string{"shard2/big_a.bin", "shard2/big_b.bin"},
+		DocIDCounterPath:      "shard2/indexcount",
+		DocIDCounter:          []byte("99"),
+		PropLengthTrackerPath: "shard2/proplengths",
+		PropLengthTracker:     []byte("3"),
+		ShardVersionPath:      "shard2/version",
+		Version:               []byte("2"),
+	}
+
+	// --- Backup phase: produce chunks for each shard (like backend.go processor) ---
+	type chunkData struct {
+		data []byte
+	}
+	allChunks := []chunkData{}
+
+	for _, sd := range []*backup.ShardDescriptor{&sd1, &sd2} {
+		filesInShard := sd.CopyFilesInShard()
+		var fileSizeExceeded *SplitFile
+		firstChunk := true
+
+		for {
+			var buf bytes.Buffer
+			z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+			require.NoError(t, err)
+
+			var splitResult *SplitFile
+			var writeErr error
+
+			go func() {
+				preComp := atomic.Int64{}
+				if fileSizeExceeded != nil {
+					splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				} else {
+					_, splitResult, writeErr = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp)
+				}
+				z.Close()
+			}()
+
+			_, err = io.Copy(&buf, rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+			require.NoError(t, writeErr)
+
+			allChunks = append(allChunks, chunkData{data: buf.Bytes()})
+			fileSizeExceeded = splitResult
+			firstChunk = false
+
+			if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+				break
+			}
+		}
+	}
+
+	t.Logf("backup produced %d chunks", len(allChunks))
+	require.Greater(t, len(allChunks), 2, "expected multiple chunks across shards")
+
+	// --- Restore phase: process all chunks concurrently (like writeTempFiles) ---
+	require.NoError(t, os.MkdirAll(restoreDir, os.ModePerm))
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(allChunks))
+	for i, c := range allChunks {
+		wg.Add(1)
+		go func(idx int, chunk []byte) {
+			defer wg.Done()
+			uz, wc := NewUnzip(restoreDir, backup.CompressionNone)
+			go func() {
+				_, _ = io.Copy(wc, bytes.NewReader(chunk))
+				wc.Close()
+			}()
+			_, errs[idx] = uz.ReadChunk()
+			uz.Close()
+		}(i, c.data)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		require.NoError(t, err, "chunk %d restore failed", i)
+	}
+
+	// --- Verify all files match originals ---
+	// Shard 1
+	restored, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "small.bin"))
+	require.NoError(t, err)
+	require.Equal(t, small1, restored, "shard1/small.bin mismatch")
+
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard1", "medium.bin"))
+	require.NoError(t, err)
+	require.Equal(t, medium1, restored, "shard1/medium.bin mismatch")
+
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard1", "large.bin"))
+	require.NoError(t, err)
+	require.Equal(t, large1, restored, "shard1/large.bin mismatch")
+
+	// Shard 1 in-memory files
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard1", "indexcount"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("42"), restored, "shard1 DocIDCounter mismatch")
+
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard1", "proplengths"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("7"), restored, "shard1 PropLengthTracker mismatch")
+
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard1", "version"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("1"), restored, "shard1 Version mismatch")
+
+	// Shard 2
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard2", "big_a.bin"))
+	require.NoError(t, err)
+	require.Equal(t, large2a, restored, "shard2/big_a.bin mismatch")
+
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard2", "big_b.bin"))
+	require.NoError(t, err)
+	require.Equal(t, large2b, restored, "shard2/big_b.bin mismatch")
+
+	// Shard 2 in-memory files
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard2", "indexcount"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("99"), restored, "shard2 DocIDCounter mismatch")
+
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard2", "proplengths"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("3"), restored, "shard2 PropLengthTracker mismatch")
+
+	restored, err = os.ReadFile(filepath.Join(restoreDir, "shard2", "version"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("2"), restored, "shard2 Version mismatch")
+}
+
+// makeTestData creates deterministic test data of the given size.
+func makeTestData(size int, seed byte) []byte {
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = byte((i + int(seed)) % 251)
+	}
+	return data
+}
