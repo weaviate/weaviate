@@ -24,6 +24,12 @@ type pools struct {
 	visitedLists     *visited.Pool
 	visitedListsLock *sync.RWMutex
 
+	// visitedFastSets is used for tombstone cleanup where visits are sparse
+	// relative to total graph size. FastSet uses O(visited) memory vs O(maxNodeID)
+	// for ListSet, using an open-addressed hash table with linear probing.
+	visitedFastSets     *visited.FastPool
+	visitedFastSetsLock *sync.RWMutex
+
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
 	pqResults    *common.PqMaxPool
@@ -37,6 +43,11 @@ func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pool
 	return &pools{
 		visitedLists:     visited.NewPool(1, cache.InitialSize+500, initialVisitedListPoolSize),
 		visitedListsLock: &sync.RWMutex{},
+		// FastPool for tombstone cleanup: capacity of 512 is enough for typical
+		// efConstruction traversals, pool size matches list pool. FastSet uses
+		// open-addressed hashing which is ~2.7x faster than Go's built-in map.
+		visitedFastSets:     visited.NewFastPool(100, 512, initialVisitedListPoolSize),
+		visitedFastSetsLock: &sync.RWMutex{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
