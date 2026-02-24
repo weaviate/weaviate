@@ -678,9 +678,9 @@ func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) er
 
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
-) ([]byte, []byte, []byte, error) {
+) ([]byte, []byte, []byte, bool, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
+		return nil, nil, nil, false, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
@@ -697,16 +697,20 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 				}).Debug("waited over 100ms to get result from individual segment")
 		}
 		if err == nil {
-			return k, v, allocBuf, nil
+			// The d1 boundary only moves left over time, so if the matching
+			// segment is d1 then all newer segments are also d1. That means
+			// every tombstone in those segments carries a secondary key and the
+			// secondary index is self-sufficient — no primary-key recheck needed.
+			return k, v, allocBuf, segments[i].hasSecondaryTombstones(), nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			return nil, nil, nil, err
+			return nil, nil, nil, false, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
+			return nil, nil, nil, false, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
-	return nil, nil, nil, lsmkv.NotFound
+	return nil, nil, nil, false, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {

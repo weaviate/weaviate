@@ -714,7 +714,7 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 
 	beforeSegments := time.Now()
-	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	k, v, allocBuf, foundInD1, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -726,17 +726,23 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	// secondary tombstone, which would leave a stale secondary entry pointing
 	// at a deleted primary.
 	//
-	// New deletes written via deleteObjectFromObjectsBucket (shard_write_delete.go)
-	// always include the secondary key, so the secondary index carries its own
-	// tombstone and this check is not needed for those. However, on-disk segments
-	// written before that change was deployed do not have secondary tombstones, so
-	// this check must remain until all pre-existing segments have been compacted
-	// away and rewritten with the new tombstone format.
-	beforeReCheck := time.Now()
-	if err := b.existsWithConsistentView(k, view); err != nil {
-		return nil, nil, err
+	// When the entry was found in a d1 segment, this check is unnecessary: d1
+	// segments and all segments newer than them carry secondary tombstones for
+	// every delete, so the secondary lookup above would have returned Deleted
+	// if the key were tombstoned. The d1 boundary only moves left over time,
+	// so if the matching segment is d1, all newer segments are d1 too.
+	//
+	// For entries found in d0 (pre-change) segments, the check is still needed
+	// because older segments may contain primary-only tombstones invisible to
+	// the secondary index.
+	var recheckTook time.Duration
+	if !foundInD1 {
+		beforeReCheck := time.Now()
+		if err := b.existsWithConsistentView(k, view); err != nil {
+			return nil, nil, err
+		}
+		recheckTook = time.Since(beforeReCheck)
 	}
-	recheckTook := time.Since(beforeReCheck)
 
 	helpers.AnnotateSlowQueryLogAppend(ctx, logKey, BucketSlowLogEntry{
 		View:             viewTiming,
@@ -824,7 +830,7 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 }
 
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
-) (k, v []byte, buf []byte, err error) {
+) (k, v []byte, buf []byte, foundInD1 bool, err error) {
 	op := "getbysecondary"
 	component := "segment_group"
 
