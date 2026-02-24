@@ -293,6 +293,10 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 }
 
 func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompressionSize *atomic.Int64) (*SplitFile, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, z.splitFileSizeBytes)
 
 	header, err := tar.FileInfoHeader(splitFile.FileInfo, splitFile.FileInfo.Name())
