@@ -1524,7 +1524,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.ObjectByID(ctx, id, props, additional)
@@ -1544,7 +1544,7 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
@@ -1690,7 +1690,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return false, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.Exists(ctx, id)
@@ -1973,7 +1973,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shard.Name()))
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
 		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
@@ -2234,7 +2234,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
@@ -2696,7 +2696,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
@@ -2958,7 +2958,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return 0, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 	var size int64
 	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
@@ -3021,7 +3021,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return "", enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 	return shard.GetStatus().String(), nil
 }
