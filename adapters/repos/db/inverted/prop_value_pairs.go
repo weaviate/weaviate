@@ -82,7 +82,7 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		case 1:
 			return pv.resolveDocIDsNot(ctx, s)
 		default:
-			return nil, fmt.Errorf("too many children for operator %q. Expected 1, given %q", pv.operator.Name(), ln)
+			return nil, fmt.Errorf("too many children for operator %q. Expected 1, given %d", pv.operator.Name(), ln)
 		}
 
 	default:
