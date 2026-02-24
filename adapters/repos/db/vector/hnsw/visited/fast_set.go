@@ -119,6 +119,33 @@ func (f *FastSet) Visited(node uint64) bool {
 	}
 }
 
+// VisitIfNotVisited returns true if node was already visited; otherwise marks it visited and returns false.
+// This fuses Visited()+Visit() into a single probe sequence.
+func (f *FastSet) VisitIfNotVisited(node uint64) bool {
+	idx := f.hash(node)
+
+	for {
+		if f.markers[idx] != f.marker {
+			// Empty slot -> not visited, insert here
+			f.keys[idx] = node
+			f.markers[idx] = f.marker
+			f.size++
+
+			// Check load factor (75%)
+			if f.size*4 > f.capacity*3 {
+				f.grow()
+			}
+			return false
+		}
+		if f.keys[idx] == node {
+			// Found -> already visited
+			return true
+		}
+		// Collision - probe next
+		idx = (idx + 1) & f.mask
+	}
+}
+
 // Reset clears the set for reuse. O(1) in most cases.
 func (f *FastSet) Reset() {
 	f.marker++
