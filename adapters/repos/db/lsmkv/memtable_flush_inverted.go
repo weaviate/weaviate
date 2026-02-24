@@ -40,7 +40,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
-	tombstones := m.tombstones
+	tombstones := m.tombstones.Clone()
 
 	docIdsLengths := make(map[uint64]uint32)
 	propLengthSum := uint64(0)

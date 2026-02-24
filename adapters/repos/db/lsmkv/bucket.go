@@ -2053,22 +2053,20 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
+	var segTombstones *sroar.Bitmap
 	for j := len(view.Disk) - 1; j >= 0; j-- {
 		segment := view.Disk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-
-		allTombstones := memTombstones.Clone()
 		if j != len(view.Disk)-1 {
-			segTombstones, err := view.Disk[j+1].ReadOnlyTombstones()
+			segTombstones, err = view.Disk[j+1].ReadOnlyTombstones()
 			if err != nil {
 				view.ReleaseView()
 				return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", err)
 			}
-			allTombstones.Or(segTombstones)
 		}
 
 		for i, key := range query {
-			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := segment.newSegmentBlockMax([]byte(key), i, idfs[i], propertyBoost, segTombstones, memTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
