@@ -302,6 +302,19 @@ func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
 
+// shardNotReadyErr logs a warning and returns ErrShardNotReady (HTTP 503).
+// Only fires during the shard's StatusLoading window (pod startup), so there
+// is zero overhead in steady state.
+func (i *Index) shardNotReadyErr(shardName, operation string) error {
+	i.logger.WithFields(logrus.Fields{
+		"action":    "shard_not_ready_503",
+		"class":     i.Config.ClassName.String(),
+		"shard":     shardName,
+		"operation": operation,
+	}).Warn("shard is in StatusLoading, returning ErrShardNotReady (HTTP 503) - remote caller will retry with exponential backoff up to 90s")
+	return enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+}
+
 func (i *Index) path() string {
 	return path.Join(i.Config.RootPath, i.ID())
 }
@@ -1524,7 +1537,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, i.shardNotReadyErr(shardName, "IncomingGetObject")
 	}
 
 	return shard.ObjectByID(ctx, id, props, additional)
@@ -1544,7 +1557,7 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, i.shardNotReadyErr(shardName, "IncomingMultiGetObjects")
 	}
 
 	return shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
@@ -1690,7 +1703,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return false, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return false, i.shardNotReadyErr(shardName, "IncomingExists")
 	}
 
 	return shard.Exists(ctx, id)
@@ -1973,7 +1986,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shard.Name()))
+		return nil, nil, i.shardNotReadyErr(shard.Name(), "singleLocalShardObjectVectorSearch")
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
 		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
@@ -2234,7 +2247,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, nil, i.shardNotReadyErr(shardName, "IncomingSearch")
 	}
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
@@ -2696,7 +2709,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, i.shardNotReadyErr(shardName, "IncomingAggregate")
 	}
 
 	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
@@ -2958,7 +2971,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return 0, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return 0, i.shardNotReadyErr(shardName, "IncomingGetShardQueueSize")
 	}
 	var size int64
 	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
@@ -3021,7 +3034,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return "", enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return "", i.shardNotReadyErr(shardName, "IncomingGetShardStatus")
 	}
 	return shard.GetStatus().String(), nil
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -411,7 +412,15 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+			retry := shouldRetry(code)
+			if retry && code == http.StatusServiceUnavailable {
+				logrus.WithFields(logrus.Fields{
+					"action": "replication_retry_503",
+					"host":   req.URL.Host,
+					"path":   req.URL.Path,
+				}).Warn("replication request received 503 (remote shard is in StatusLoading / ErrShardNotReady), will retry with exponential backoff - this confirms the QPS drop root cause during rolling upgrade")
+			}
+			return retry, fmt.Errorf("status code: %v, error: %s", code, b)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)

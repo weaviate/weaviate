@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -586,7 +585,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	}
 
 	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shard))
+		return nil, idx.shardNotReadyErr(shard, "OverwriteObjects")
 	}
 
 	var result []types.RepairResponse
@@ -737,7 +736,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 	}
 
 	if s.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, i.shardNotReadyErr(shardName, "DigestObjects")
 	}
 
 	multiIDs := make([]multi.Identifier, len(ids))
@@ -845,7 +844,7 @@ func (i *Index) FetchObject(ctx context.Context,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return replica.Replica{}, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return replica.Replica{}, i.shardNotReadyErr(shardName, "FetchObject")
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
@@ -891,7 +890,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, i.shardNotReadyErr(shardName, "FetchObjects")
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
