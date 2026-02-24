@@ -677,26 +677,33 @@ func TestSplitFileRoundTrip(t *testing.T) {
 				z, rc, err := NewZip(sourceDir, int(compressionLevel), chunkSize, 0, splitFileSize)
 				require.NoError(t, err)
 
-				var splitResult *SplitFile
-				var writeErr error
+				type writeResult struct {
+					split *SplitFile
+					err   error
+				}
+				resultCh := make(chan writeResult, 1)
 
 				go func() {
 					preComp := atomic.Int64{}
+					var sr *SplitFile
+					var we error
 					if fileSizeExceeded != nil {
-						splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+						sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 					} else {
-						_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
+						_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 					}
 					z.Close()
+					resultCh <- writeResult{split: sr, err: we}
 				}()
 
 				_, err = io.Copy(&buf, rc)
 				require.NoError(t, err)
 				require.NoError(t, rc.Close())
-				require.NoError(t, writeErr)
+				res := <-resultCh
+				require.NoError(t, res.err)
 
 				chunks = append(chunks, buf.Bytes())
-				fileSizeExceeded = splitResult
+				fileSizeExceeded = res.split
 				firstChunk = false
 
 				if filesInShard.Len() == 0 && fileSizeExceeded == nil {
@@ -779,26 +786,33 @@ func TestSplitFileExactBoundary(t *testing.T) {
 		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
-		var splitResult *SplitFile
-		var writeErr error
+		type writeResult struct {
+			split *SplitFile
+			err   error
+		}
+		resultCh := make(chan writeResult, 1)
 
 		go func() {
 			preComp := atomic.Int64{}
+			var sr *SplitFile
+			var we error
 			if fileSizeExceeded != nil {
-				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 			} else {
-				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
+				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
 			z.Close()
+			resultCh <- writeResult{split: sr, err: we}
 		}()
 
 		_, err = io.Copy(&buf, rc)
 		require.NoError(t, err)
 		require.NoError(t, rc.Close())
-		require.NoError(t, writeErr)
+		res := <-resultCh
+		require.NoError(t, res.err)
 
 		chunks = append(chunks, buf.Bytes())
-		fileSizeExceeded = splitResult
+		fileSizeExceeded = res.split
 		firstChunk = false
 
 		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
@@ -874,26 +888,33 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
-		var splitResult *SplitFile
-		var writeErr error
+		type writeResult struct {
+			split *SplitFile
+			err   error
+		}
+		resultCh := make(chan writeResult, 1)
 
 		go func() {
 			preComp := atomic.Int64{}
+			var sr *SplitFile
+			var we error
 			if fileSizeExceeded != nil {
-				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 			} else {
-				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
+				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
 			z.Close()
+			resultCh <- writeResult{split: sr, err: we}
 		}()
 
 		_, err = io.Copy(&buf, rc)
 		require.NoError(t, err)
 		require.NoError(t, rc.Close())
-		require.NoError(t, writeErr)
+		res := <-resultCh
+		require.NoError(t, res.err)
 
 		chunks = append(chunks, buf.Bytes())
-		fileSizeExceeded = splitResult
+		fileSizeExceeded = res.split
 		firstChunk = false
 
 		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
@@ -974,26 +995,33 @@ func TestSplitFirstFileInChunk(t *testing.T) {
 		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
-		var splitResult *SplitFile
-		var writeErr error
+		type writeResult struct {
+			split *SplitFile
+			err   error
+		}
+		resultCh := make(chan writeResult, 1)
 
 		go func() {
 			preComp := atomic.Int64{}
+			var sr *SplitFile
+			var we error
 			if fileSizeExceeded != nil {
-				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 			} else {
-				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
+				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
 			z.Close()
+			resultCh <- writeResult{split: sr, err: we}
 		}()
 
 		_, err = io.Copy(&buf, rc)
 		require.NoError(t, err)
 		require.NoError(t, rc.Close())
-		require.NoError(t, writeErr)
+		res := <-resultCh
+		require.NoError(t, res.err)
 
 		chunks = append(chunks, buf.Bytes())
-		fileSizeExceeded = splitResult
+		fileSizeExceeded = res.split
 		firstChunk = false
 
 		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
@@ -1170,35 +1198,42 @@ func TestFirstFileBelowSplitThresholdWrittenWhole(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := sd.CopyFilesInShard()
+	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
-		var splitResult *SplitFile
-		var writeErr error
+		type writeResult struct {
+			split *SplitFile
+			err   error
+		}
+		resultCh := make(chan writeResult, 1)
 
 		go func() {
 			preComp := atomic.Int64{}
+			var sr *SplitFile
+			var we error
 			if fileSizeExceeded != nil {
-				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 			} else {
-				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
 			z.Close()
+			resultCh <- writeResult{split: sr, err: we}
 		}()
 
 		_, err = io.Copy(&buf, rc)
 		require.NoError(t, err)
 		require.NoError(t, rc.Close())
-		require.NoError(t, writeErr)
+		res := <-resultCh
+		require.NoError(t, res.err)
 
 		chunks = append(chunks, buf.Bytes())
-		fileSizeExceeded = splitResult
+		fileSizeExceeded = res.split
 		firstChunk = false
 
 		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
@@ -1268,35 +1303,42 @@ func TestMultipleSplitFilesInShard(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := sd.CopyFilesInShard()
+	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
-		var splitResult *SplitFile
-		var writeErr error
+		type writeResult struct {
+			split *SplitFile
+			err   error
+		}
+		resultCh := make(chan writeResult, 1)
 
 		go func() {
 			preComp := atomic.Int64{}
+			var sr *SplitFile
+			var we error
 			if fileSizeExceeded != nil {
-				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 			} else {
-				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
 			z.Close()
+			resultCh <- writeResult{split: sr, err: we}
 		}()
 
 		_, err = io.Copy(&buf, rc)
 		require.NoError(t, err)
 		require.NoError(t, rc.Close())
-		require.NoError(t, writeErr)
+		res := <-resultCh
+		require.NoError(t, res.err)
 
 		chunks = append(chunks, buf.Bytes())
-		fileSizeExceeded = splitResult
+		fileSizeExceeded = res.split
 		firstChunk = false
 
 		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
@@ -1394,35 +1436,42 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 	allChunks := []chunkData{}
 
 	for _, sd := range []*backup.ShardDescriptor{&sd1, &sd2} {
-		filesInShard := sd.CopyFilesInShard()
+		filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
 		var fileSizeExceeded *SplitFile
 		firstChunk := true
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+			z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 			require.NoError(t, err)
 
-			var splitResult *SplitFile
-			var writeErr error
+			type writeResult struct {
+				split *SplitFile
+				err   error
+			}
+			resultCh := make(chan writeResult, 1)
 
 			go func() {
 				preComp := atomic.Int64{}
+				var sr *SplitFile
+				var we error
 				if fileSizeExceeded != nil {
-					splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+					sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 				} else {
-					_, splitResult, writeErr = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp)
+					_, sr, we = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp, "chunk")
 				}
 				z.Close()
+				resultCh <- writeResult{split: sr, err: we}
 			}()
 
 			_, err = io.Copy(&buf, rc)
 			require.NoError(t, err)
 			require.NoError(t, rc.Close())
-			require.NoError(t, writeErr)
+			res := <-resultCh
+			require.NoError(t, res.err)
 
 			allChunks = append(allChunks, chunkData{data: buf.Bytes()})
-			fileSizeExceeded = splitResult
+			fileSizeExceeded = res.split
 			firstChunk = false
 
 			if filesInShard.Len() == 0 && fileSizeExceeded == nil {
