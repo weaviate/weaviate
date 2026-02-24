@@ -450,7 +450,9 @@ func Test_UploadS3Journey(t *testing.T) {
 					ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", i+1)),
 					Class: className,
 					Properties: map[string]interface{}{
-						"name": fmt.Sprintf("extra-%d", i),
+						"name":          fmt.Sprintf("extra-%d", i),
+						"someData":      "ref#0",
+						"someOtherData": "ref#1",
 					},
 					Tenant: tenantNames[0],
 				}
