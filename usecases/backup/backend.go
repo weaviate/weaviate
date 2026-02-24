@@ -415,7 +415,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 								return err
 							}
 							fileSizeExceeded = fileSizeExceededTmp
-							recvCh <- chunkShards{chunk, []string{desc.Name}, preCompressionSize}
+							recvCh <- chunkShards{chunk, []string{shard.Name}, preCompressionSize}
 							firstChunk = false
 							if filesInShard.Len() == 0 && fileSizeExceeded == nil {
 								break
