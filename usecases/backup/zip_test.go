@@ -52,7 +52,7 @@ func TestZip(t *testing.T) {
 
 			// compression writer
 			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			z, rc, err := NewZip(pathDest, int(compressionLevel), 0)
+			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0)
 			require.NoError(t, err)
 			var zInputLen int64
 			go func() {
@@ -394,7 +394,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 			sd.PropLengthTracker = []byte("12345")
 
 			// start backup process
-			z, rc, err := NewZip(dir, int(compressionLevel), 0)
+			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0)
 			require.NoError(t, err)
 			go func() {
 				_, _, err := z.WriteShard(ctx, &sd, sd.CopyFilesInShard(), true, &atomic.Int64{})

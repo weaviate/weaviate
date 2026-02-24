@@ -458,7 +458,7 @@ func (u *uploader) compress(ctx context.Context,
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, u.cfg.ChunkTargetSize)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, u.cfg.ChunkTargetSize, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}
