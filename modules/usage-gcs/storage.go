@@ -25,7 +25,7 @@ import (
 	storageapi "google.golang.org/api/storage/v1"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	gcpcommon "github.com/weaviate/weaviate/modules/gcp-common"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
 )
 

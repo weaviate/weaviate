@@ -31,8 +31,8 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/weaviate/weaviate/entities/backup"
-	gcpcommon "github.com/weaviate/weaviate/modules/gcp-common"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
