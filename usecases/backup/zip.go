@@ -472,7 +472,7 @@ func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err err
 
 		// write exactly the number of bytes this tar entry contains
 		n, err := io.CopyN(f, r, h.Size)
-		if err != nil && (!errors.Is(err, io.EOF) || n <= 0) {
+		if err != nil {
 			return n, fmt.Errorf("copy split: %w", err)
 		}
 		return n, nil
