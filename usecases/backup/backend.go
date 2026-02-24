@@ -426,10 +426,10 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	incrementalBackupSize := atomic.Int64{}
 
 	// processor
-	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
+	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chunkShards {
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
-		recvCh := make(chan chuckShards, nWorker)
+		recvCh := make(chan chunkShards, nWorker)
 		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
@@ -453,7 +453,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 								return err
 							}
 							fileSizeExceeded = fileSizeExceededTmp
-							recvCh <- chuckShards{chunk, []string{desc.Name}, preCompressionSize}
+							recvCh <- chunkShards{chunk, []string{desc.Name}, preCompressionSize}
 							firstChunk = false
 							if filesInShard.Len() == 0 && fileSizeExceeded == nil {
 								break
@@ -477,7 +477,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	return desc.PreCompressionSizeBytes, err
 }
 
-type chuckShards struct {
+type chunkShards struct {
 	chunk              int32
 	shards             []string
 	preCompressionSize int64
