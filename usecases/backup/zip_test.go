@@ -848,3 +848,309 @@ func TestSplitFirstFileInChunk(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fileData, restored, "split first file content mismatch after restore")
 }
+
+// TestCopyFileSplitPAXRecords tests the copyFile function directly with split file
+// PAX records, including invalid offset values.
+func TestCopyFileSplitPAXRecords(t *testing.T) {
+	t.Run("valid split parts reassembled", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "out.bin")
+
+		// Write part 1 (offset 0, 10 bytes)
+		data1 := []byte("0123456789")
+		h1 := &tar.Header{
+			Name: "out.bin",
+			Size: int64(len(data1)),
+			Mode: 0o644,
+			PAXRecords: map[string]string{
+				PAXRecordSplitFileOffsetPartName: "0",
+			},
+		}
+		n, err := copyFile(target, h1, bytes.NewReader(data1))
+		require.NoError(t, err)
+		require.Equal(t, int64(10), n)
+
+		// Write part 2 (offset 10, 5 bytes)
+		data2 := []byte("ABCDE")
+		h2 := &tar.Header{
+			Name: "out.bin",
+			Size: int64(len(data2)),
+			Mode: 0o644,
+			PAXRecords: map[string]string{
+				PAXRecordSplitFileOffsetPartName: "10",
+			},
+		}
+		n, err = copyFile(target, h2, bytes.NewReader(data2))
+		require.NoError(t, err)
+		require.Equal(t, int64(5), n)
+
+		got, err := os.ReadFile(target)
+		require.NoError(t, err)
+		require.Equal(t, []byte("0123456789ABCDE"), got)
+	})
+
+	t.Run("out of order parts", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "out.bin")
+
+		// Write part 2 first (offset 10)
+		data2 := []byte("ABCDE")
+		h2 := &tar.Header{
+			Name: "out.bin",
+			Size: int64(len(data2)),
+			Mode: 0o644,
+			PAXRecords: map[string]string{
+				PAXRecordSplitFileOffsetPartName: "10",
+			},
+		}
+		_, err := copyFile(target, h2, bytes.NewReader(data2))
+		require.NoError(t, err)
+
+		// Write part 1 (offset 0)
+		data1 := []byte("0123456789")
+		h1 := &tar.Header{
+			Name: "out.bin",
+			Size: int64(len(data1)),
+			Mode: 0o644,
+			PAXRecords: map[string]string{
+				PAXRecordSplitFileOffsetPartName: "0",
+			},
+		}
+		_, err = copyFile(target, h1, bytes.NewReader(data1))
+		require.NoError(t, err)
+
+		got, err := os.ReadFile(target)
+		require.NoError(t, err)
+		require.Equal(t, []byte("0123456789ABCDE"), got)
+	})
+
+	t.Run("invalid PAX offset", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "out.bin")
+
+		h := &tar.Header{
+			Name: "out.bin",
+			Size: 5,
+			Mode: 0o644,
+			PAXRecords: map[string]string{
+				PAXRecordSplitFileOffsetPartName: "not_a_number",
+			},
+		}
+		_, err := copyFile(target, h, bytes.NewReader([]byte("hello")))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid split file part")
+	})
+
+	t.Run("short reader returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "out.bin")
+
+		// Header claims 10 bytes but reader only has 3
+		h := &tar.Header{
+			Name: "out.bin",
+			Size: 10,
+			Mode: 0o644,
+			PAXRecords: map[string]string{
+				PAXRecordSplitFileOffsetPartName: "0",
+			},
+		}
+		_, err := copyFile(target, h, bytes.NewReader([]byte("abc")))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "copy split")
+	})
+}
+
+// TestFirstFileBelowSplitThresholdWrittenWhole tests that when the first file
+// in a chunk exceeds maxChunkSize but is below splitFileSize, it is written
+// whole to avoid an empty chunk.
+func TestFirstFileBelowSplitThresholdWrittenWhole(t *testing.T) {
+	ctx := context.Background()
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	restoreDir := filepath.Join(t.TempDir(), "restore")
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceDir, "shard1"), os.ModePerm))
+	require.NoError(t, os.MkdirAll(restoreDir, os.ModePerm))
+
+	// Single file of 500 bytes. chunkSize=100 (file exceeds it),
+	// splitFileSize=1000 (file is below it).
+	// The file should be written whole as the first file in the chunk,
+	// NOT deferred or split.
+	const chunkSize = 100
+	const splitFileSize = 1000
+
+	fileData := make([]byte, 500)
+	for i := range fileData {
+		fileData[i] = byte(i % 157)
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "shard1", "medium.bin"), fileData, 0o644))
+
+	sd := backup.ShardDescriptor{
+		Name:                  "shard1",
+		Node:                  "node1",
+		Files:                 []string{"shard1/medium.bin"},
+		DocIDCounterPath:      "shard1/indexcount",
+		DocIDCounter:          []byte("1"),
+		PropLengthTrackerPath: "shard1/proplengths",
+		PropLengthTracker:     []byte("1"),
+		ShardVersionPath:      "shard1/version",
+		Version:               []byte("1"),
+	}
+
+	var chunks [][]byte
+	filesInShard := sd.CopyFilesInShard()
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+
+	for {
+		var buf bytes.Buffer
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		require.NoError(t, err)
+
+		var splitResult *SplitFile
+		var writeErr error
+
+		go func() {
+			preComp := atomic.Int64{}
+			if fileSizeExceeded != nil {
+				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+			} else {
+				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+			}
+			z.Close()
+		}()
+
+		_, err = io.Copy(&buf, rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		require.NoError(t, writeErr)
+
+		chunks = append(chunks, buf.Bytes())
+		fileSizeExceeded = splitResult
+		firstChunk = false
+
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+
+	// The file is below splitFileSize, so it must be written whole in a single chunk
+	// (not split). Since it's the first file, it should NOT be deferred either.
+	require.Equal(t, 1, len(chunks), "file below split threshold should be written whole in one chunk")
+	require.Nil(t, fileSizeExceeded)
+
+	// Restore and verify
+	for _, chunk := range chunks {
+		uz, wc := NewUnzip(restoreDir, backup.CompressionNone)
+		go func() {
+			_, err := io.Copy(wc, bytes.NewReader(chunk))
+			require.NoError(t, err)
+			require.NoError(t, wc.Close())
+		}()
+		_, err := uz.ReadChunk()
+		require.NoError(t, err)
+		require.NoError(t, uz.Close())
+	}
+
+	restored, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "medium.bin"))
+	require.NoError(t, err)
+	require.Equal(t, fileData, restored)
+}
+
+// TestMultipleSplitFilesInShard tests that when a shard has multiple files that
+// each exceed the split file threshold, they are all correctly split and restored.
+func TestMultipleSplitFilesInShard(t *testing.T) {
+	ctx := context.Background()
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	restoreDir := filepath.Join(t.TempDir(), "restore")
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceDir, "shard1"), os.ModePerm))
+	require.NoError(t, os.MkdirAll(restoreDir, os.ModePerm))
+
+	const chunkSize = 200
+	const splitFileSize = 300
+
+	// Two files that both exceed splitFileSize:
+	// file_a: 700 bytes → split into 300+300+100
+	// file_b: 500 bytes → split into 300+200
+	fileAData := make([]byte, 700)
+	for i := range fileAData {
+		fileAData[i] = byte(i % 179)
+	}
+	fileBData := make([]byte, 500)
+	for i := range fileBData {
+		fileBData[i] = byte((i + 50) % 191)
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "shard1", "file_a.bin"), fileAData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "shard1", "file_b.bin"), fileBData, 0o644))
+
+	sd := backup.ShardDescriptor{
+		Name:                  "shard1",
+		Node:                  "node1",
+		Files:                 []string{"shard1/file_a.bin", "shard1/file_b.bin"},
+		DocIDCounterPath:      "shard1/indexcount",
+		DocIDCounter:          []byte("1"),
+		PropLengthTrackerPath: "shard1/proplengths",
+		PropLengthTracker:     []byte("1"),
+		ShardVersionPath:      "shard1/version",
+		Version:               []byte("1"),
+	}
+
+	var chunks [][]byte
+	filesInShard := sd.CopyFilesInShard()
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+
+	for {
+		var buf bytes.Buffer
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		require.NoError(t, err)
+
+		var splitResult *SplitFile
+		var writeErr error
+
+		go func() {
+			preComp := atomic.Int64{}
+			if fileSizeExceeded != nil {
+				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+			} else {
+				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+			}
+			z.Close()
+		}()
+
+		_, err = io.Copy(&buf, rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		require.NoError(t, writeErr)
+
+		chunks = append(chunks, buf.Bytes())
+		fileSizeExceeded = splitResult
+		firstChunk = false
+
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+
+	// file_a: 700/300 = 3 chunks, file_b: 500/300 = 2 chunks → at least 5 chunks
+	require.GreaterOrEqual(t, len(chunks), 5, "expected at least 5 chunks for two large split files")
+
+	// Restore all chunks
+	for _, chunk := range chunks {
+		uz, wc := NewUnzip(restoreDir, backup.CompressionNone)
+		go func() {
+			_, err := io.Copy(wc, bytes.NewReader(chunk))
+			require.NoError(t, err)
+			require.NoError(t, wc.Close())
+		}()
+		_, err := uz.ReadChunk()
+		require.NoError(t, err)
+		require.NoError(t, uz.Close())
+	}
+
+	restoredA, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "file_a.bin"))
+	require.NoError(t, err)
+	require.Equal(t, fileAData, restoredA, "file_a content mismatch after restore")
+
+	restoredB, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "file_b.bin"))
+	require.NoError(t, err)
+	require.Equal(t, fileBData, restoredB, "file_b content mismatch after restore")
+}
