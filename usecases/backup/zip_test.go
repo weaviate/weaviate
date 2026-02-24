@@ -449,3 +449,308 @@ func TestRenamingDuringBackup(t *testing.T) {
 		})
 	}
 }
+
+// TestSplitFileRoundTrip tests that files larger than the split file size threshold
+// are correctly split across multiple chunks and restored with proper offsets.
+func TestSplitFileRoundTrip(t *testing.T) {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
+			ctx := context.Background()
+			sourceDir := filepath.Join(t.TempDir(), "source")
+			restoreDir := filepath.Join(t.TempDir(), "restore")
+			require.NoError(t, os.MkdirAll(sourceDir, os.ModePerm))
+			require.NoError(t, os.MkdirAll(restoreDir, os.ModePerm))
+
+			shardDir := filepath.Join(sourceDir, "shard1")
+			require.NoError(t, os.MkdirAll(shardDir, os.ModePerm))
+
+			// Create a large file (1000 bytes) that will be split with a 300-byte split file size.
+			// This should produce 4 split parts: 300 + 300 + 300 + 100 bytes.
+			largeData := make([]byte, 1000)
+			for i := range largeData {
+				largeData[i] = byte(i % 251) // deterministic pattern using prime to avoid repetition at byte boundary
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "large.bin"), largeData, 0o644))
+
+			// Create a small file that fits in one chunk
+			smallData := []byte("hello world small file")
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "small.txt"), smallData, 0o644))
+
+			sd := backup.ShardDescriptor{
+				Name:                  "shard1",
+				Node:                  "node1",
+				Files:                 []string{"shard1/small.txt", "shard1/large.bin"},
+				DocIDCounterPath:      "shard1/indexcount",
+				DocIDCounter:          []byte("42"),
+				PropLengthTrackerPath: "shard1/proplengths",
+				PropLengthTracker:     []byte("7"),
+				ShardVersionPath:      "shard1/version",
+				Version:               []byte("1"),
+			}
+
+			const chunkSize = 500     // chunk target size in bytes
+			const splitFileSize = 300 // split file threshold
+
+			// Simulate the backup loop from backend.go: write chunks until all files
+			// and split file parts are written.
+			var chunks [][]byte
+			filesInShard := sd.CopyFilesInShard()
+			var fileSizeExceeded *SplitFile
+			firstChunk := true
+
+			for {
+				var buf bytes.Buffer
+				z, rc, err := NewZip(sourceDir, int(compressionLevel), chunkSize, splitFileSize)
+				require.NoError(t, err)
+
+				var splitResult *SplitFile
+				var writeErr error
+
+				go func() {
+					preComp := atomic.Int64{}
+					if fileSizeExceeded != nil {
+						splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+					} else {
+						_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+					}
+					z.Close()
+				}()
+
+				_, err = io.Copy(&buf, rc)
+				require.NoError(t, err)
+				require.NoError(t, rc.Close())
+				require.NoError(t, writeErr)
+
+				chunks = append(chunks, buf.Bytes())
+				fileSizeExceeded = splitResult
+				firstChunk = false
+
+				if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+					break
+				}
+			}
+
+			// We expect multiple chunks due to splitting
+			require.Greater(t, len(chunks), 1, "expected multiple chunks due to file splitting")
+
+			// Restore all chunks
+			var compressionType backup.CompressionType
+			if compressionLevel == NoCompression {
+				compressionType = backup.CompressionNone
+			} else {
+				compressionType = backup.CompressionGZIP
+			}
+
+			for _, chunk := range chunks {
+				uz, wc := NewUnzip(restoreDir, compressionType)
+				go func() {
+					_, err := io.Copy(wc, bytes.NewReader(chunk))
+					require.NoError(t, err)
+					require.NoError(t, wc.Close())
+				}()
+				_, err := uz.ReadChunk()
+				require.NoError(t, err)
+				require.NoError(t, uz.Close())
+			}
+
+			// Verify restored files match originals
+			restoredLarge, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "large.bin"))
+			require.NoError(t, err)
+			require.Equal(t, largeData, restoredLarge, "large split file content mismatch")
+
+			restoredSmall, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "small.txt"))
+			require.NoError(t, err)
+			require.Equal(t, smallData, restoredSmall, "small file content mismatch")
+		})
+	}
+}
+
+// TestSplitFileExactBoundary tests the edge case where a file size is exactly
+// a multiple of the split file size, ensuring no empty trailing chunk is created.
+func TestSplitFileExactBoundary(t *testing.T) {
+	ctx := context.Background()
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	restoreDir := filepath.Join(t.TempDir(), "restore")
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceDir, "shard1"), os.ModePerm))
+	require.NoError(t, os.MkdirAll(restoreDir, os.ModePerm))
+
+	// File is exactly 2x the split size (600 bytes = 2 * 300)
+	const splitFileSize = 300
+	const chunkSize = 100 // small chunk to force splitting
+	fileData := make([]byte, splitFileSize*2)
+	for i := range fileData {
+		fileData[i] = byte(i % 199)
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "shard1", "exact.bin"), fileData, 0o644))
+
+	sd := backup.ShardDescriptor{
+		Name:                  "shard1",
+		Node:                  "node1",
+		Files:                 []string{"shard1/exact.bin"},
+		DocIDCounterPath:      "shard1/indexcount",
+		DocIDCounter:          []byte("1"),
+		PropLengthTrackerPath: "shard1/proplengths",
+		PropLengthTracker:     []byte("1"),
+		ShardVersionPath:      "shard1/version",
+		Version:               []byte("1"),
+	}
+
+	var chunks [][]byte
+	filesInShard := sd.CopyFilesInShard()
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+
+	for {
+		var buf bytes.Buffer
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		require.NoError(t, err)
+
+		var splitResult *SplitFile
+		var writeErr error
+
+		go func() {
+			preComp := atomic.Int64{}
+			if fileSizeExceeded != nil {
+				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+			} else {
+				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+			}
+			z.Close()
+		}()
+
+		_, err = io.Copy(&buf, rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		require.NoError(t, writeErr)
+
+		chunks = append(chunks, buf.Bytes())
+		fileSizeExceeded = splitResult
+		firstChunk = false
+
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+
+	// Restore all chunks
+	for _, chunk := range chunks {
+		uz, wc := NewUnzip(restoreDir, backup.CompressionNone)
+		go func() {
+			_, err := io.Copy(wc, bytes.NewReader(chunk))
+			require.NoError(t, err)
+			require.NoError(t, wc.Close())
+		}()
+		_, err := uz.ReadChunk()
+		require.NoError(t, err)
+		require.NoError(t, uz.Close())
+	}
+
+	restored, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "exact.bin"))
+	require.NoError(t, err)
+	require.Equal(t, fileData, restored, "file at exact boundary should be restored correctly")
+}
+
+// TestSplitFileBelowThreshold tests that files below the split threshold but
+// exceeding the chunk size are NOT split, but deferred whole to the next chunk.
+func TestSplitFileBelowThreshold(t *testing.T) {
+	ctx := context.Background()
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	restoreDir := filepath.Join(t.TempDir(), "restore")
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceDir, "shard1"), os.ModePerm))
+	require.NoError(t, os.MkdirAll(restoreDir, os.ModePerm))
+
+	// Two files: first is 200 bytes, second is 200 bytes.
+	// chunkSize=300, splitFileSize=500 (larger than any file).
+	// The first file fits in chunk 1 (200 < 300). The second file doesn't fit
+	// in the remaining space (200+200=400 > 300) but is below split threshold,
+	// so it should go whole into chunk 2.
+	const chunkSize = 300
+	const splitFileSize = 500
+
+	file1Data := make([]byte, 200)
+	for i := range file1Data {
+		file1Data[i] = byte(i)
+	}
+	file2Data := make([]byte, 200)
+	for i := range file2Data {
+		file2Data[i] = byte(i + 100)
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "shard1", "file1.bin"), file1Data, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "shard1", "file2.bin"), file2Data, 0o644))
+
+	sd := backup.ShardDescriptor{
+		Name:                  "shard1",
+		Node:                  "node1",
+		Files:                 []string{"shard1/file1.bin", "shard1/file2.bin"},
+		DocIDCounterPath:      "shard1/indexcount",
+		DocIDCounter:          []byte("1"),
+		PropLengthTrackerPath: "shard1/proplengths",
+		PropLengthTracker:     []byte("1"),
+		ShardVersionPath:      "shard1/version",
+		Version:               []byte("1"),
+	}
+
+	var chunks [][]byte
+	filesInShard := sd.CopyFilesInShard()
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+
+	for {
+		var buf bytes.Buffer
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		require.NoError(t, err)
+
+		var splitResult *SplitFile
+		var writeErr error
+
+		go func() {
+			preComp := atomic.Int64{}
+			if fileSizeExceeded != nil {
+				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+			} else {
+				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+			}
+			z.Close()
+		}()
+
+		_, err = io.Copy(&buf, rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		require.NoError(t, writeErr)
+
+		chunks = append(chunks, buf.Bytes())
+		fileSizeExceeded = splitResult
+		firstChunk = false
+
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+
+	// Should have 2 chunks: chunk 1 has metadata + file1, chunk 2 has file2
+	require.Equal(t, 2, len(chunks), "expected 2 chunks: file2 should not be split but deferred")
+
+	// fileSizeExceeded should always have been nil (no split files)
+	require.Nil(t, fileSizeExceeded)
+
+	// Restore all chunks
+	for _, chunk := range chunks {
+		uz, wc := NewUnzip(restoreDir, backup.CompressionNone)
+		go func() {
+			_, err := io.Copy(wc, bytes.NewReader(chunk))
+			require.NoError(t, err)
+			require.NoError(t, wc.Close())
+		}()
+		_, err := uz.ReadChunk()
+		require.NoError(t, err)
+		require.NoError(t, uz.Close())
+	}
+
+	restored1, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "file1.bin"))
+	require.NoError(t, err)
+	require.Equal(t, file1Data, restored1)
+
+	restored2, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "file2.bin"))
+	require.NoError(t, err)
+	require.Equal(t, file2Data, restored2)
+}
