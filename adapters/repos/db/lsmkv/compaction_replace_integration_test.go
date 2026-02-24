@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -759,4 +760,125 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 			})
 		})
 	}
+}
+
+func compactionReplaceStrategy_D1MarkerPropagation(ctx context.Context, t *testing.T, opts []BucketOption) {
+	// This test verifies that the .d1 marker in segment filenames is correctly
+	// propagated through flush and compaction. Buckets with secondary indices
+	// should produce .d1 segments (indicating secondary lookups can skip the
+	// primary-key existence check). The marker must survive compaction.
+
+	var bucket *Bucket
+	dirName := t.TempDir()
+
+	t.Run("init bucket", func(t *testing.T) {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.Nil(t, err)
+		b.SetMemtableThreshold(1e9)
+		bucket = b
+	})
+
+	t.Run("flush two segments with secondary keys", func(t *testing.T) {
+		// Segment 1: one live key
+		err := bucket.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.Nil(t, err)
+		require.Nil(t, bucket.FlushAndSwitch())
+
+		// Segment 2: one live key + one delete with secondary key
+		err = bucket.Put([]byte("key-01"), []byte("value-01"),
+			WithSecondaryKey(0, []byte("sec-01")))
+		require.Nil(t, err)
+		err = bucket.Delete([]byte("key-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.Nil(t, err)
+		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("verify both flushed segments have d1 marker", func(t *testing.T) {
+		require.Len(t, bucket.disk.segments, 2)
+		for i, seg := range bucket.disk.segments {
+			path := seg.getPath()
+			assert.True(t, strings.Contains(path, ".d1."),
+				"segment %d should have .d1 marker: %s", i, path)
+		}
+	})
+
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		var compacted bool
+		var err error
+		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		}
+		require.Nil(t, err)
+	})
+
+	t.Run("verify compacted segment has d1 marker", func(t *testing.T) {
+		require.Len(t, bucket.disk.segments, 1)
+		path := bucket.disk.segments[0].getPath()
+		assert.True(t, strings.Contains(path, ".d1."),
+			"compacted segment should have .d1 marker: %s", path)
+	})
+
+	t.Run("verify secondary lookups still work", func(t *testing.T) {
+		// key-00 was deleted with a secondary tombstone — should not be found
+		res, err := bucket.GetBySecondary(ctx, 0, []byte("sec-00"))
+		require.Nil(t, err)
+		assert.Nil(t, res, "deleted key should not be found via secondary lookup")
+
+		// key-01 is live
+		res, err = bucket.GetBySecondary(ctx, 0, []byte("sec-01"))
+		require.Nil(t, err)
+		assert.Equal(t, []byte("value-01"), res)
+	})
+}
+
+func compactionReplaceStrategy_D1MarkerNotSetWithoutSecondaryIndices(ctx context.Context, t *testing.T, opts []BucketOption) {
+	// This test verifies that the .d1 marker is NOT set for buckets without
+	// secondary indices, even when writeSegmentInfoIntoFileName is enabled.
+
+	var bucket *Bucket
+	dirName := t.TempDir()
+
+	t.Run("init bucket", func(t *testing.T) {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.Nil(t, err)
+		b.SetMemtableThreshold(1e9)
+		bucket = b
+	})
+
+	t.Run("flush two segments", func(t *testing.T) {
+		err := bucket.Put([]byte("key-00"), []byte("value-00"))
+		require.Nil(t, err)
+		require.Nil(t, bucket.FlushAndSwitch())
+
+		err = bucket.Put([]byte("key-01"), []byte("value-01"))
+		require.Nil(t, err)
+		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("verify flushed segments do NOT have d1 marker", func(t *testing.T) {
+		require.Len(t, bucket.disk.segments, 2)
+		for i, seg := range bucket.disk.segments {
+			path := seg.getPath()
+			assert.False(t, strings.Contains(path, ".d1"),
+				"segment %d should not have .d1 marker: %s", i, path)
+		}
+	})
+
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		var compacted bool
+		var err error
+		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		}
+		require.Nil(t, err)
+	})
+
+	t.Run("verify compacted segment does NOT have d1 marker", func(t *testing.T) {
+		require.Len(t, bucket.disk.segments, 1)
+		path := bucket.disk.segments[0].getPath()
+		assert.False(t, strings.Contains(path, ".d1"),
+			"compacted segment should not have .d1 marker: %s", path)
+	})
 }

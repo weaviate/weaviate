@@ -470,7 +470,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		segmentId := segmentID(oldSegment.getPath())
 		var filename string
 		if c.sg.writeSegmentInfoIntoFileName {
-			filename = "segment-" + segmentId + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy(), oldSegment.hasSecondaryTombstones()) + ".db.tmp"
+			filename = "segment-" + segmentId + segmentExtraInfo(oldSegment.getLevel(), oldSegment.getStrategy(), oldSegment.getSecondaryIndexCount(), oldSegment.hasSecondaryTombstones()) + ".db.tmp"
 		} else {
 			filename = "segment-" + segmentId + ".db.tmp"
 		}

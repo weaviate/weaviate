@@ -265,11 +265,13 @@ func segmentID(path string) string {
 
 // segmentExtraInfo returns the extra filename components for a segment,
 // encoding the level, strategy, and optionally the secondary-tombstone format.
-// When hasSecondaryTombstones is true, ".d1" is appended, indicating that
-// every tombstone in the segment also carries a secondary-key tombstone, so
-// callers can skip the extra primary-key existence check on secondary lookups.
-func segmentExtraInfo(level uint16, strategy segmentindex.Strategy, hasSecondaryTombstones bool) string {
-	if hasSecondaryTombstones {
+// When hasSecondaryTombstones is true and the segment has secondary indices,
+// ".d1" is appended, indicating that every tombstone in the segment also
+// carries a secondary-key tombstone, so callers can skip the extra primary-key
+// existence check on secondary lookups. The marker is only written for buckets
+// with secondary indices (e.g. the objects bucket).
+func segmentExtraInfo(level uint16, strategy segmentindex.Strategy, secondaryIndexCount uint16, hasSecondaryTombstones bool) string {
+	if hasSecondaryTombstones && secondaryIndexCount > 0 {
 		return fmt.Sprintf(".l%d.s%d.d1", level, strategy)
 	}
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
@@ -342,10 +344,37 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	leftPath := left.getPath()
 	rightPath := right.getPath()
 
+	secondaryIndices := left.getSecondaryIndexCount()
+
 	var filename string
 	if sg.writeSegmentInfoIntoFileName {
-		secTombstones := left.hasSecondaryTombstones() && right.hasSecondaryTombstones()
-		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + segmentExtraInfo(level, strategy, secTombstones) + ".db.tmp"
+		// The .d1 marker on a segment means secondary lookups can skip
+		// the existsWithConsistentView fallback. It only applies to
+		// buckets with secondary indices (e.g. the objects bucket).
+		// The output carries .d1 when either input already has it.
+		//
+		// d0+d0 → d0: both inputs are pre-.d1 segments. Their tombstones
+		//   may use the old-style empty secondary key. The output stays d0,
+		//   so secondary lookups on it will use existsWithConsistentView.
+		//
+		// d0+d1 → d1: the compactor is a pure merge sort — it passes
+		//   through data verbatim. Old-style tombstones from the d0 input
+		//   can end up in the d1 output. This is safe because any stale
+		//   live entry shadowed by such a tombstone is in an even older
+		//   segment, which is always d0 (the .d1 boundary only moves left
+		//   over time, so segments older than this output are d0). Secondary
+		//   lookups on d0 segments use existsWithConsistentView, which
+		//   finds the tombstone via primary-key lookup regardless of
+		//   secondary key style.
+		//
+		// d1+d1 → d1: both inputs have new-style tombstones. Trivially
+		//   correct.
+		//
+		// Note: the objects bucket has keepTombstones=true, so old-style
+		// tombstones are never cleaned up and will persist through
+		// compaction into d1 segments. This is safe for the reason above.
+		secTombstones := left.hasSecondaryTombstones() || right.hasSecondaryTombstones()
+		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + segmentExtraInfo(level, strategy, secondaryIndices, secTombstones) + ".db.tmp"
 	} else {
 		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + ".db.tmp"
 	}
@@ -357,7 +386,6 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	}
 
 	scratchSpacePath := rightPath + "compaction.scratch.d"
-	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 

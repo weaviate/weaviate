@@ -221,8 +221,9 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 
 		var rightSegmentMetadata *struct {
-			Level    uint16
-			Strategy segmentindex.Strategy
+			Level               uint16
+			Strategy            segmentindex.Strategy
+			SecondaryIndexCount uint16
 		}
 		if !leftSegmentFound && rightSegmentFound {
 			// segment is initialized just to be erased
@@ -246,11 +247,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			}
 
 			rightSegmentMetadata = &struct {
-				Level    uint16
-				Strategy segmentindex.Strategy
+				Level               uint16
+				Strategy            segmentindex.Strategy
+				SecondaryIndexCount uint16
 			}{
-				Level:    rightSegment.getLevel(),
-				Strategy: rightSegment.getStrategy(),
+				Level:               rightSegment.getLevel(),
+				Strategy:            rightSegment.getStrategy(),
+				SecondaryIndexCount: rightSegment.getSecondaryIndexCount(),
 			}
 
 			err = rightSegment.close()
@@ -291,7 +294,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			// (the output of the interrupted compaction), not from the original
 			// right segment, so the final filename reflects what the file contains.
 			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1],
-				segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy, strings.Contains(entry, ".d1.")))
+				segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy, rightSegmentMetadata.SecondaryIndexCount, strings.Contains(entry, ".d1.")))
 		} else {
 			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
 		}

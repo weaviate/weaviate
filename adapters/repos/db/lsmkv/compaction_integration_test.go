@@ -164,6 +164,24 @@ func TestCompaction(t *testing.T) {
 				WithKeepTombstones(true),
 			},
 		},
+		{
+			name: "compactionReplaceStrategy_D1MarkerPropagation",
+			f:    compactionReplaceStrategy_D1MarkerPropagation,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+				WithKeepTombstones(true),
+				WithWriteSegmentInfoIntoFileName(true),
+			},
+		},
+		{
+			name: "compactionReplaceStrategy_D1MarkerNotSetWithoutSecondaryIndices",
+			f:    compactionReplaceStrategy_D1MarkerNotSetWithoutSecondaryIndices,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithWriteSegmentInfoIntoFileName(true),
+			},
+		},
 
 		{
 			name: "compactionSetStrategy",
