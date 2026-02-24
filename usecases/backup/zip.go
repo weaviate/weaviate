@@ -189,11 +189,11 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			return 0, nil, err
+			return written, nil, err
 		}
 		n, sizeExceededInfo, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
 		if err != nil {
-			return 0, nil, err
+			return written, nil, err
 		}
 		if sizeExceededInfo != nil {
 			// The file was not written because the current chunk is full.
@@ -314,7 +314,7 @@ func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompr
 	}
 
 	if _, err := io.CopyN(z.w, f, amountToWrite); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("copy %d bytes from file %s: %w", amountToWrite, splitFile.RelPath, err)
 	}
 	splitFile.AlreadyWritten += amountToWrite
 	preCompressionSize.Add(amountToWrite)
