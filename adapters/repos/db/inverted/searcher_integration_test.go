@@ -158,7 +158,7 @@ func TestObjects(t *testing.T) {
 
 		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocIDWithNonExistentIds))
 
 		t.Run("sanity check", func(t *testing.T) {
 			bm, release := bitmapFactory.GetBitmap()
