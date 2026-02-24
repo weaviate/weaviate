@@ -67,9 +67,10 @@ type zip struct {
 	compressorWriter    compressor
 	pipeWriter          *io.PipeWriter
 	maxChunkSizeInBytes int64
+	splitFileSizeBytes  int64
 }
 
-func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup.ReadCloserWithError, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -104,6 +105,9 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup
 	if chunkTargetSizeInBytes == 0 {
 		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
 	}
+	if splitFileSize == 0 {
+		splitFileSize = int64(1<<63 - 1) // effectively no limit
+	}
 
 	return zip{
 		sourcePath:          sourcePath,
@@ -111,6 +115,7 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup
 		w:                   tarW,
 		pipeWriter:          pw,
 		maxChunkSizeInBytes: chunkTargetSizeInBytes,
+		splitFileSizeBytes:  splitFileSize,
 	}, reader, nil
 }
 
@@ -192,7 +197,11 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 		}
 		if sizeExceededInfo != nil {
 			// The file was not written because the current chunk is full.
-			// It will be processed on the next chunk.
+			if sizeExceededInfo.FileInfo == nil {
+				// File is below split threshold, it will be written whole on the next chunk.
+				return written, nil, nil
+			}
+			// File exceeds split threshold, it will be split across chunks.
 			return written, sizeExceededInfo, nil
 		}
 		// remove processed element from slice
@@ -227,7 +236,12 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	}
 	// always write at least one file per chunk
 	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
-		return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
+		if info.Size() > z.splitFileSizeBytes {
+			// file is larger than the split threshold, split it across chunks
+			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
+		}
+		// file doesn't need splitting, but chunk is full - use empty sentinel
+		return 0, &SplitFile{}, nil
 	}
 
 	f, err := os.Open(absPath)
@@ -273,7 +287,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 }
 
 func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompressionSize *atomic.Int64) (*SplitFile, error) {
-	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, z.maxChunkSizeInBytes)
+	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, z.splitFileSizeBytes)
 
 	header, err := tar.FileInfoHeader(splitFile.FileInfo, splitFile.FileInfo.Name())
 	if err != nil {

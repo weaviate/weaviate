@@ -620,6 +620,17 @@ func FromEnv(config *Config) error {
 		config.Backup.ChunkTargetSize = DefaultBackupChunkTargetSize
 	}
 
+	if v := os.Getenv("BACKUP_SPLIT_FILE_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_SPLIT_FILE_SIZE: %w", err)
+		}
+
+		config.Backup.SplitFileSize = parsed
+	} else {
+		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
+	}
+
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
