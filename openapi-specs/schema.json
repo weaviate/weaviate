@@ -676,7 +676,7 @@
         "status": {
           "type": "string",
           "description": "Current status of the export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED"]
+          "enum": ["STARTED"]
         },
         "startedAt": {
           "type": "string",
@@ -689,17 +689,6 @@
             "type": "string"
           },
           "description": "List of collections being exported"
-        },
-        "progress": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
-          },
-          "description": "Per-collection progress information"
-        },
-        "error": {
-          "type": "string",
-          "description": "Error message if export failed"
         }
       }
     },
@@ -729,6 +718,11 @@
           "format": "date-time",
           "description": "When the export started"
         },
+        "tookInMs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Duration of the export in milliseconds"
+        },
         "classes": {
           "type": "array",
           "items": {
@@ -736,12 +730,15 @@
           },
           "description": "List of collections in this export"
         },
-        "progress": {
+        "shardStatus": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardProgress"
+            }
           },
-          "description": "Per-collection progress information"
+          "description": "Per-shard progress: className -> shardName -> status"
         },
         "error": {
           "type": "string",
@@ -749,28 +746,23 @@
         }
       }
     },
-    "ClassProgress": {
-      "description": "Progress information for exporting a single collection",
+    "ShardProgress": {
+      "description": "Progress information for exporting a single shard",
       "type": "object",
       "properties": {
         "status": {
           "type": "string",
-          "description": "Status of this collection's export",
+          "description": "Status of this shard's export",
           "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED"]
         },
         "objectsExported": {
           "type": "integer",
           "format": "int64",
-          "description": "Number of objects exported from this collection"
-        },
-        "fileSizeBytes": {
-          "type": "integer",
-          "format": "int64",
-          "description": "Size of the exported Parquet file in bytes"
+          "description": "Number of objects exported from this shard"
         },
         "error": {
           "type": "string",
-          "description": "Error message if this collection's export failed"
+          "description": "Error message if this shard's export failed"
         }
       }
     },

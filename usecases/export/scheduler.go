@@ -12,51 +12,44 @@
 package export
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+var regExpID = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
 const (
 	exportMetadataFile = "export_metadata.json"
+	exportPlanFile     = "export_plan.json"
 )
 
-// BackendProvider provides access to export backends
+// BackendProvider provides access to storage backends for export.
 type BackendProvider interface {
-	// BackupBackend returns a backup backend by name
-	BackupBackend(backend string) (BackendStore, error)
-}
-
-// BackendStore provides storage backend operations
-type BackendStore interface {
-	// HomeDir returns the base path for exports
-	HomeDir(exportID, bucket, path string) string
-	// Initialize initializes the backend storage
-	Initialize(ctx context.Context, exportID, bucket, path string) error
-	// PutObject uploads data to the backend
-	PutObject(ctx context.Context, exportID, key, bucket, path string, data io.ReadCloser) (int64, error)
-	// GetObject retrieves data from the backend
-	GetObject(ctx context.Context, exportID, key, bucket, path string) ([]byte, error)
+	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
 }
 
 // Selector selects shards and classes for export
 type Selector interface {
-	// GetShardsForClass gets all shards for a specific class
 	GetShardsForClass(ctx context.Context, className string) ([]ShardLike, error)
-	// ListClasses returns all available classes
 	ListClasses(ctx context.Context) []string
+	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
 }
 
 // ShardLike is an alias for db.ShardLike
@@ -65,56 +58,78 @@ type ShardLike = interface {
 	Name() string
 }
 
-// Scheduler manages export operations
+// Scheduler manages export operations.
+// In multi-node mode the RAFT leader acts as the single coordinator and uses
+// a two-phase commit protocol (prepare/commit/abort) across participant nodes.
 type Scheduler struct {
-	logger     logrus.FieldLogger
-	authorizer authorization.Authorizer
-	selector   Selector
-	backends   BackendProvider
+	shutdownCtx  context.Context
+	logger       logrus.FieldLogger
+	authorizer   authorization.Authorizer
+	selector     Selector
+	backends     BackendProvider
+	client       ExportClient // nil for single-node
+	nodeResolver NodeResolver // nil for single-node
+	localNode    string       // from appState.Cluster.LocalName()
+	participant  *Participant // local participant — always present
 }
 
-// NewScheduler creates a new export scheduler
+// NewScheduler creates a new export scheduler.
+// When client and nodeResolver are nil, operates in single-node mode.
+// The shutdownCtx is cancelled on graceful server shutdown.
 func NewScheduler(
+	shutdownCtx context.Context,
 	authorizer authorization.Authorizer,
 	selector Selector,
 	backends BackendProvider,
 	logger logrus.FieldLogger,
+	client ExportClient,
+	nodeResolver NodeResolver,
+	localNode string,
+	participant *Participant,
 ) *Scheduler {
+	if client != nil && nodeResolver != nil && participant == nil {
+		panic("export: multi-node scheduler requires a non-nil participant")
+	}
 	return &Scheduler{
-		logger:     logger,
-		authorizer: authorizer,
-		selector:   selector,
-		backends:   backends,
+		shutdownCtx:  shutdownCtx,
+		logger:       logger,
+		authorizer:   authorizer,
+		selector:     selector,
+		backends:     backends,
+		client:       client,
+		nodeResolver: nodeResolver,
+		localNode:    localNode,
+		participant:  participant,
 	}
 }
 
-// Export starts a new export operation
-func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*ExportStatus, error) {
-	// Validate request
-	if id == "" {
-		return nil, fmt.Errorf("export ID is required")
+// isMultiNode returns true if the scheduler is configured for multi-node operation
+func (s *Scheduler) isMultiNode() bool {
+	return s.client != nil && s.nodeResolver != nil
+}
+
+// Export starts a new export operation.
+func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
+	if !regExpID.MatchString(id) {
+		return nil, fmt.Errorf("invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", id)
 	}
 	if backend == "" {
 		return nil, fmt.Errorf("backend is required")
 	}
 
-	// Get backend
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, fmt.Errorf("backend %s not available: %w", backend, err)
 	}
 
-	// Initialize backend
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
 		return nil, fmt.Errorf("initialize backend: %w", err)
 	}
 
-	// Check if export already exists
 	if err := s.checkIfExportExists(ctx, backendStore, id, bucket, path); err != nil {
 		return nil, err
 	}
 
-	// Resolve classes to export
 	classes, err := s.resolveClasses(ctx, include, exclude)
 	if err != nil {
 		return nil, fmt.Errorf("resolve classes: %w", err)
@@ -124,234 +139,453 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("no classes selected for export")
 	}
 
-	// Authorize - require READ permission on classes
 	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
 		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
-	// Initialize status
-	status := &ExportStatus{
+	now := strfmt.DateTime(time.Now().UTC())
+	homePath := backendStore.HomeDir(id, bucket, path)
+
+	s.logger.WithField("action", "export").
+		WithField("export_id", id).
+		WithField("classes", classes).
+		WithField("class_count", len(classes)).
+		WithField("multi_node", s.isMultiNode()).
+		Info("starting export")
+
+	status := &models.ExportStatusResponse{
 		ID:        id,
 		Backend:   backend,
-		Path:      backendStore.HomeDir(id, bucket, path),
-		Status:    export.Started,
-		StartedAt: time.Now().UTC(),
+		Status:    string(export.Transferring),
+		StartedAt: now,
 		Classes:   classes,
-		Progress:  make(map[string]*ClassProgress),
 	}
 
-	for _, class := range classes {
-		status.Progress[class] = &ClassProgress{
-			Status: export.Started,
+	if s.isMultiNode() {
+		if err := s.performMultiNodeExport(ctx, backendStore, id, status, classes, bucket, path); err != nil {
+			return nil, err
 		}
+	} else {
+		enterrors.GoWrapper(func() {
+			s.performSingleNodeExport(s.shutdownCtx, backendStore, id, status, classes, bucket, path)
+		}, s.logger)
 	}
 
-	// Start export asynchronously
-	enterrors.GoWrapper(func() {
-		s.performExport(context.Background(), backendStore, id, status, classes, bucket, path)
-	}, s.logger)
-
-	return status, nil
+	return &models.ExportCreateResponse{
+		ID:        id,
+		Backend:   backend,
+		Path:      homePath,
+		Status:    string(export.Started),
+		StartedAt: now,
+		Classes:   classes,
+	}, nil
 }
 
-// Status retrieves the status of an export by reading from S3
-func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) (*ExportStatus, error) {
-	// Get backend
+// Status retrieves the status of an export.
+// In multi-node mode, assembles status from S3 export plan + per-node status files.
+// In single-node mode, reads the metadata file directly.
+func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) (*models.ExportStatusResponse, error) {
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, fmt.Errorf("backend %s not available: %w", backend, err)
 	}
 
-	// Initialize backend
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
 		return nil, fmt.Errorf("initialize backend: %w", err)
 	}
 
-	// Read metadata from S3
+	if s.isMultiNode() {
+		plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
+		if err != nil {
+			// Plan may not exist if the export failed before/during plan writing.
+			// Fall back to reading the metadata file which may contain the FAILED state.
+			meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+			if metaErr != nil {
+				return nil, fmt.Errorf("export %s not found: %w", id, err)
+			}
+			// Missing plan is always a failure — override the status and preserve
+			// any error already recorded in the metadata.
+			meta.Status = export.Failed
+			if meta.Error == "" {
+				meta.Error = fmt.Sprintf("export plan not found: %v", err)
+			}
+			return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+		}
+		return s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
+	}
+
 	meta, err := s.getExportMetadata(ctx, backendStore, id, bucket, path)
 	if err != nil {
 		return nil, fmt.Errorf("export %s not found: %w", id, err)
 	}
 
-	// Authorize - require READ permission on exported classes
 	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(meta.Classes...)...); err != nil {
 		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
-	// Convert metadata to status
-	status := &ExportStatus{
+	return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+}
+
+// statusFromMetadata builds an ExportStatusResponse from an ExportMetadata record.
+// Used for single-node exports and as a fallback when the multi-node plan is missing.
+func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend, id, bucket, path string, meta *ExportMetadata) (*models.ExportStatusResponse, error) {
+	es := &models.ExportStatusResponse{
 		ID:        meta.ID,
 		Backend:   meta.Backend,
-		Path:      backendStore.HomeDir(id, bucket, path),
-		Status:    meta.Status,
-		StartedAt: meta.StartedAt,
+		Path:      backend.HomeDir(id, bucket, path),
+		Status:    string(meta.Status),
+		StartedAt: strfmt.DateTime(meta.StartedAt),
 		Classes:   meta.Classes,
-		Progress:  meta.Progress,
 		Error:     meta.Error,
+	}
+
+	if !meta.CompletedAt.IsZero() {
+		es.TookInMs = meta.CompletedAt.Sub(meta.StartedAt).Milliseconds()
+	}
+
+	return es, nil
+}
+
+// assembleStatusFromPlan reads per-node status files from S3 and assembles overall status.
+func (s *Scheduler) assembleStatusFromPlan(
+	ctx context.Context,
+	backend modulecapabilities.BackupBackend,
+	principal *models.Principal,
+	id, bucket, path string,
+	plan *ExportPlan,
+) (*models.ExportStatusResponse, error) {
+	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
+		return nil, fmt.Errorf("authorization failed: %w", err)
+	}
+
+	status := &models.ExportStatusResponse{
+		ID:          plan.ID,
+		Backend:     plan.Backend,
+		Path:        backend.HomeDir(id, bucket, path),
+		Status:      string(export.Transferring),
+		StartedAt:   strfmt.DateTime(plan.StartedAt),
+		Classes:     plan.Classes,
+		ShardStatus: make(map[string]map[string]models.ShardProgress),
+	}
+
+	allSuccess := true
+	anyFailed := false
+	var lastCompleted time.Time
+
+	for nodeName := range plan.NodeAssignments {
+		nodeStatus, err := s.getNodeStatus(ctx, backend, id, bucket, path, nodeName)
+		if err != nil {
+			// No status file yet — treat as non-terminal and check liveness below
+			nodeStatus = &NodeStatus{
+				NodeName:      nodeName,
+				Status:        export.Transferring,
+				ShardProgress: make(map[string]map[string]*ShardProgress),
+			}
+		}
+
+		if nodeStatus.CompletedAt.After(lastCompleted) {
+			lastCompleted = nodeStatus.CompletedAt
+		}
+
+		effectiveStatus := nodeStatus.Status
+		switch nodeStatus.Status {
+		case export.Success:
+		case export.Failed:
+			anyFailed = true
+			allSuccess = false
+			if status.Error == "" {
+				status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
+			}
+		default:
+			// Non-terminal (Transferring/Started): verify the node is still running
+			allSuccess = false
+			host, alive := s.nodeResolver.NodeHostname(nodeName)
+			if !alive {
+				anyFailed = true
+				effectiveStatus = export.Failed
+				if status.Error == "" {
+					status.Error = fmt.Sprintf("node %s is no longer part of the cluster", nodeName)
+				}
+			} else if s.client != nil {
+				running, runErr := s.client.IsRunning(ctx, host, id)
+				if runErr != nil || !running {
+					anyFailed = true
+					effectiveStatus = export.Failed
+					if status.Error == "" {
+						status.Error = fmt.Sprintf("node %s is no longer running export %s", nodeName, id)
+					}
+				}
+			}
+		}
+		// Record per-shard status: use node's ShardProgress when available,
+		// but override non-terminal shards if the node is effectively failed.
+		for className, shards := range plan.NodeAssignments[nodeName] {
+			if status.ShardStatus[className] == nil {
+				status.ShardStatus[className] = make(map[string]models.ShardProgress)
+			}
+			for _, shardName := range shards {
+				// Node may not have reported progress for this shard yet
+				// (e.g. no status file written, or shard not started).
+				sp := nodeStatus.ShardProgress[className][shardName]
+				if sp == nil {
+					sp = &ShardProgress{Status: effectiveStatus}
+				} else if sp.Status != export.Success && sp.Status != export.Failed {
+					sp.Status = effectiveStatus
+				}
+				status.ShardStatus[className][shardName] = models.ShardProgress{
+					Status:          string(sp.Status),
+					ObjectsExported: sp.ObjectsExported,
+					Error:           sp.Error,
+				}
+			}
+		}
+	}
+
+	if anyFailed {
+		status.Status = string(export.Failed)
+	} else if allSuccess {
+		status.Status = string(export.Success)
+	}
+
+	if !lastCompleted.IsZero() && (allSuccess || anyFailed) {
+		status.TookInMs = lastCompleted.Sub(plan.StartedAt).Milliseconds()
 	}
 
 	return status, nil
 }
 
-// checkIfExportExists checks if an export already exists in the backend
-func (s *Scheduler) checkIfExportExists(ctx context.Context, backend BackendStore, exportID, bucket, path string) error {
-	meta, err := s.getExportMetadata(ctx, backend, exportID, bucket, path)
-	if err != nil {
-		// Export doesn't exist, which is what we want
-		return nil
+// performMultiNodeExport orchestrates export across multiple nodes using
+// a two-phase commit protocol:
+//  1. Prepare all nodes (reserve the export slot).
+//  2. If all prepared successfully, commit all (start the export).
+//  3. If any prepare fails, abort all previously prepared nodes.
+func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
+	// Build node assignments: node → className → []shardName
+	nodeAssignments := make(map[string]map[string][]string)
+
+	for _, className := range classes {
+		ownership, err := s.selector.ShardOwnership(ctx, className)
+		if err != nil {
+			s.logger.WithField("action", "export").WithField("class", className).Errorf("shard ownership: %v", err)
+			status.Status = string(export.Failed)
+			status.Error = fmt.Sprintf("failed to get shard ownership for class %s: %v", className, err)
+			s.writeMetadata(backend, exportID, bucket, path, status)
+			return fmt.Errorf("failed to get shard ownership for class %s: %w", className, err)
+		}
+
+		for node, shards := range ownership {
+			if nodeAssignments[node] == nil {
+				nodeAssignments[node] = make(map[string][]string)
+			}
+			nodeAssignments[node][className] = shards
+		}
 	}
 
-	// Export exists - check if it's in a final state
-	if meta.Status == export.Success || meta.Status == export.Transferring || meta.Status == export.Started {
-		return fmt.Errorf("export %q already exists at %q", exportID, backend.HomeDir(exportID, bucket, path))
+	// Build per-node requests and resolve hostnames.
+	nodes := make([]exportNodeInfo, 0, len(nodeAssignments))
+	for node, classShards := range nodeAssignments {
+		ni := exportNodeInfo{
+			req: &ExportRequest{
+				ID:       exportID,
+				Backend:  status.Backend,
+				Classes:  classes,
+				Shards:   classShards,
+				Bucket:   bucket,
+				Path:     path,
+				NodeName: node,
+			},
+		}
+		if node != s.localNode {
+			host, ok := s.nodeResolver.NodeHostname(node)
+			if !ok {
+				return fmt.Errorf("failed to resolve hostname for node %s", node)
+			}
+			ni.host = host
+		}
+		nodes = append(nodes, ni)
 	}
 
-	// If export failed, allow retry
+	// Phase 1: Prepare all nodes.
+	var prepared []exportNodeInfo
+	for _, ni := range nodes {
+		var err error
+		if ni.host == "" {
+			err = s.participant.Prepare(ctx, ni.req)
+		} else {
+			err = s.client.Prepare(ctx, ni.host, ni.req)
+		}
+		if err != nil {
+			// Abort all previously prepared nodes.
+			s.abortAll(exportID, prepared)
+			return fmt.Errorf("prepare node %s: %w", ni.req.NodeName, err)
+		}
+		prepared = append(prepared, ni)
+	}
+
+	// Write export plan to S3 after all nodes are prepared.
+	plan := &ExportPlan{
+		ID:              exportID,
+		Backend:         status.Backend,
+		Classes:         classes,
+		NodeAssignments: nodeAssignments,
+		StartedAt:       time.Time(status.StartedAt),
+	}
+
+	if err := s.writeExportPlan(ctx, backend, exportID, bucket, path, plan); err != nil {
+		s.abortAll(exportID, prepared)
+		status.Status = string(export.Failed)
+		status.Error = fmt.Sprintf("failed to write export plan: %v", err)
+		s.writeMetadata(backend, exportID, bucket, path, status)
+		return fmt.Errorf("failed to write export plan: %w", err)
+	}
+
+	// Phase 2: Commit all nodes.
+	for _, ni := range prepared {
+		var err error
+		if ni.host == "" {
+			err = s.participant.Commit(ctx, exportID)
+		} else {
+			err = s.client.Commit(ctx, ni.host, exportID)
+		}
+		if err != nil {
+			s.abortAll(exportID, prepared)
+			status.Status = string(export.Failed)
+			status.Error = fmt.Sprintf("commit node %s failed: %v", ni.req.NodeName, err)
+			s.writeMetadata(backend, exportID, bucket, path, status)
+			return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
+		}
+	}
+
+	status.Status = string(export.Success)
+
+	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
+		s.logger.WithField("action", "export").
+			WithField("export_id", exportID).
+			Errorf("failed to write metadata: %v", err)
+		return fmt.Errorf("failed to write export metadata: %w", err)
+	}
+
+	s.logger.WithField("action", "export").
+		WithField("export_id", exportID).
+		WithField("nodes", len(prepared)).
+		Info("multi-node export committed on all nodes")
+
 	return nil
 }
 
-// getExportMetadata retrieves export metadata from the backend
-func (s *Scheduler) getExportMetadata(ctx context.Context, backend BackendStore, exportID, bucket, path string) (*ExportMetadata, error) {
-	data, err := backend.GetObject(ctx, exportID, exportMetadataFile, bucket, path)
-	if err != nil {
-		return nil, fmt.Errorf("get metadata: %w", err)
+// abortAll sends abort to all previously prepared nodes (best-effort).
+// It uses a fresh context so abort requests reach participants even when the
+// original request context has been cancelled (e.g. client disconnect).
+func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, ni := range nodes {
+		if ni.host == "" {
+			s.participant.Abort(exportID)
+		} else {
+			s.client.Abort(ctx, ni.host, exportID)
+		}
 	}
-
-	var meta ExportMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("unmarshal metadata: %w", err)
-	}
-
-	return &meta, nil
 }
 
-// performExport executes the actual export work
-func (s *Scheduler) performExport(ctx context.Context, backend BackendStore, exportID string, status *ExportStatus, classes []string, bucket, path string) {
-	s.logger.WithFields(logrus.Fields{
-		"action":      "export",
-		"export_id":   exportID,
-		"classes":     classes,
-		"class_count": len(classes),
-	}).Info("starting export")
-
-	status.Status = export.Transferring
-
-	// Export each class
+// performSingleNodeExport runs the original single-node export path.
+func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) {
 	for _, className := range classes {
-		if err := s.exportClass(ctx, backend, exportID, bucket, path, status, className); err != nil {
-			s.logger.WithFields(logrus.Fields{
-				"action":    "export_class",
-				"export_id": exportID,
-				"class":     className,
-			}).WithError(err).Error("failed to export class")
+		if err := s.exportClass(ctx, backend, exportID, bucket, path, className); err != nil {
+			s.logger.WithField("action", "export").
+				WithField("export_id", exportID).
+				WithField("class", className).
+				Error(err)
 
-			status.Progress[className].Status = export.Failed
-			status.Progress[className].Error = err.Error()
-			status.Status = export.Failed
+			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
 
-			// Write metadata with error
-			s.writeMetadata(ctx, backend, exportID, bucket, path, status)
+			s.writeMetadata(backend, exportID, bucket, path, status)
 			return
 		}
 	}
 
-	// Write metadata file
-	if err := s.writeMetadata(ctx, backend, exportID, bucket, path, status); err != nil {
-		s.logger.WithFields(logrus.Fields{
-			"action":    "write_metadata",
-			"export_id": exportID,
-		}).WithError(err).Error("failed to write metadata")
+	status.Status = string(export.Success)
 
-		status.Status = export.Failed
+	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
+		s.logger.WithField("action", "export").
+			WithField("export_id", exportID).
+			Error(err)
+
+		status.Status = string(export.Failed)
 		status.Error = fmt.Sprintf("failed to write metadata: %v", err)
 		return
 	}
 
-	status.Status = export.Success
-	s.logger.WithFields(logrus.Fields{
-		"action":    "export",
-		"export_id": exportID,
-	}).Info("export completed successfully")
+	s.logger.WithField("action", "export").
+		WithField("export_id", exportID).
+		Info("export completed successfully")
 }
 
-// exportClass exports a single class to a Parquet file
-func (s *Scheduler) exportClass(ctx context.Context, backend BackendStore, exportID, bucket, path string, status *ExportStatus, className string) error {
-	progress := status.Progress[className]
-	progress.Status = export.Transferring
-
-	// Get shards for this class
+// exportClass exports a single class to a Parquet file (single-node path)
+func (s *Scheduler) exportClass(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, className string) error {
 	shards, err := s.selector.GetShardsForClass(ctx, className)
 	if err != nil {
 		return fmt.Errorf("get shards for class %s: %w", className, err)
 	}
 
-	s.logger.WithFields(logrus.Fields{
-		"class":       className,
-		"shard_count": len(shards),
-	}).Info("found shards for class")
+	s.logger.WithField("class", className).
+		WithField("shard_count", len(shards)).
+		Info("found shards for class")
 
 	if len(shards) == 0 {
-		s.logger.WithFields(logrus.Fields{
-			"class": className,
-		}).Warn("no shards found for class")
-		progress.Status = export.Success
+		s.logger.WithField("class", className).Warn("no shards found for class")
 		return nil
 	}
 
-	// Create a pipe for streaming data to S3
 	pr, pw := io.Pipe()
 	errChan := make(chan error, 1)
 
-	// Upload to S3 in background
 	enterrors.GoWrapper(func() {
-		_, err := backend.PutObject(ctx, exportID, fmt.Sprintf("%s.parquet", className), bucket, path, pr)
+		_, err := backend.Write(ctx, exportID, fmt.Sprintf("%s.parquet", className), bucket, path, pr)
 		errChan <- err
 	}, s.logger)
 
-	// Create Parquet writer
 	writer, err := NewParquetWriter(pw)
 	if err != nil {
-		pw.Close()
+		pw.CloseWithError(err)
+		<-errChan
 		return fmt.Errorf("create parquet writer: %w", err)
 	}
 
-	// Write all objects from all shards
 	for _, shard := range shards {
-		if err := s.exportShard(ctx, shard, writer, className); err != nil {
-			writer.Close()
-			pw.Close()
+		if err := exportShardData(ctx, shard, writer, className, s.logger); err != nil {
+			_ = writer.Close()
+			pw.CloseWithError(err)
+			<-errChan
 			return fmt.Errorf("export shard %s: %w", shard.Name(), err)
 		}
 	}
 
-	// Close writer (flushes to pipe)
 	if err := writer.Close(); err != nil {
-		pw.Close()
+		pw.CloseWithError(err)
+		<-errChan
 		return fmt.Errorf("close parquet writer: %w", err)
 	}
 
-	// Close pipe writer (signals upload completion)
-	pw.Close()
+	if err := pw.Close(); err != nil {
+		return err
+	}
 
-	// Wait for upload to complete
 	if err := <-errChan; err != nil {
 		return fmt.Errorf("upload parquet file: %w", err)
 	}
 
-	progress.ObjectsExported = writer.ObjectsWritten()
-	progress.Status = export.Success
-
-	s.logger.WithFields(logrus.Fields{
-		"class":   className,
-		"objects": progress.ObjectsExported,
-	}).Info("class export completed")
+	s.logger.WithField("class", className).
+		WithField("objects", writer.ObjectsWritten()).
+		Info("class export completed")
 
 	return nil
 }
 
-// exportShard exports all objects from a single shard
-func (s *Scheduler) exportShard(ctx context.Context, shard ShardLike, writer *ParquetWriter, className string) error {
+// exportShardData exports all objects from a single shard to a ParquetWriter.
+// This is a standalone function shared by both the scheduler and the participant.
+func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter, className string, logger logrus.FieldLogger) error {
 	store := shard.Store()
 	if store == nil {
 		return fmt.Errorf("store not found for shard %s", shard.Name())
@@ -365,63 +599,59 @@ func (s *Scheduler) exportShard(ctx context.Context, shard ShardLike, writer *Pa
 	cursor := bucket.Cursor()
 	defer cursor.Close()
 
-	// Start from beginning
 	key, val := cursor.First()
 
 	objectCount := 0
-	s.logger.WithFields(logrus.Fields{
-		"shard": shard.Name(),
-		"class": className,
-	}).Debug("starting to iterate objects")
+	logger.WithField("shard", shard.Name()).
+		WithField("class", className).
+		Debug("starting to iterate objects")
 
 	for key != nil {
 		objectCount++
-		// Check context cancellation
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		// Deserialize object
 		obj, err := storobj.FromBinary(val)
 		if err != nil {
-			s.logger.WithFields(logrus.Fields{
-				"shard": shard.Name(),
-				"class": className,
-			}).WithError(err).Warn("failed to deserialize object, skipping")
+			logger.WithField("action", "export").
+				WithField("shard", shard.Name()).
+				WithField("class", className).
+				Warnf("failed to deserialize object, skipping: %v", err)
 			key, val = cursor.Next()
 			continue
 		}
 
-		// Write to Parquet
 		if err := writer.WriteObject(obj); err != nil {
 			return fmt.Errorf("write object to parquet: %w", err)
 		}
 
-		// Move to next
 		key, val = cursor.Next()
 	}
 
-	s.logger.WithFields(logrus.Fields{
-		"shard":        shard.Name(),
-		"class":        className,
-		"object_count": objectCount,
-	}).Info("completed shard iteration")
+	logger.WithField("shard", shard.Name()).
+		WithField("class", className).
+		WithField("object_count", objectCount).
+		Info("completed shard iteration")
 
 	return nil
 }
 
-// writeMetadata writes the export metadata file
-func (s *Scheduler) writeMetadata(ctx context.Context, backend BackendStore, exportID, bucket, path string, status *ExportStatus) error {
+// writeMetadata writes the export metadata file (single-node path).
+// It uses a fresh context with a timeout so the write succeeds even if the
+// original context was cancelled (e.g. during graceful shutdown).
+func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *models.ExportStatusResponse) error {
+	ctx := context.Background()
+
 	metadata := &ExportMetadata{
 		ID:          status.ID,
 		Backend:     status.Backend,
-		StartedAt:   status.StartedAt,
+		StartedAt:   time.Time(status.StartedAt),
 		CompletedAt: time.Now().UTC(),
-		Status:      status.Status,
+		Status:      export.Status(status.Status),
 		Classes:     status.Classes,
-		Progress:    status.Progress,
 		Error:       status.Error,
 		Version:     config.ServerVersion,
 	}
@@ -431,9 +661,95 @@ func (s *Scheduler) writeMetadata(ctx context.Context, backend BackendStore, exp
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
 
-	reader := io.NopCloser(bytes.NewReader(data))
-	_, err = backend.PutObject(ctx, exportID, exportMetadataFile, bucket, path, reader)
+	_, err = backend.Write(ctx, exportID, exportMetadataFile, bucket, path, newBytesReadCloser(data))
 	return err
+}
+
+// writeExportPlan writes the export plan to S3 (multi-node path)
+func (s *Scheduler) writeExportPlan(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, plan *ExportPlan) error {
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal export plan: %w", err)
+	}
+
+	_, err = backend.Write(ctx, exportID, exportPlanFile, bucket, path, newBytesReadCloser(data))
+	return err
+}
+
+// getExportPlan reads the export plan from S3
+func (s *Scheduler) getExportPlan(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) (*ExportPlan, error) {
+	data, err := backend.GetObject(ctx, exportID, exportPlanFile, bucket, path)
+	if err != nil {
+		return nil, fmt.Errorf("get export plan: %w", err)
+	}
+
+	var plan ExportPlan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		return nil, fmt.Errorf("unmarshal export plan: %w", err)
+	}
+
+	return &plan, nil
+}
+
+// getNodeStatus reads a node's status file from S3
+func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path, nodeName string) (*NodeStatus, error) {
+	key := fmt.Sprintf("node_%s_status.json", nodeName)
+	data, err := backend.GetObject(ctx, exportID, key, bucket, path)
+	if err != nil {
+		return nil, fmt.Errorf("get node status: %w", err)
+	}
+
+	var status NodeStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("unmarshal node status: %w", err)
+	}
+
+	return &status, nil
+}
+
+// checkIfExportExists checks if an export already exists in the backend by
+// looking for any known artifact (metadata or plan). If either file exists the
+// export folder is considered occupied regardless of its status.
+func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) error {
+	home := backend.HomeDir(exportID, bucket, path)
+
+	// Check metadata file — written in both single-node and multi-node paths.
+	_, err := s.getExportMetadata(ctx, backend, exportID, bucket, path)
+	if err == nil {
+		return fmt.Errorf("export %q already exists at %q", exportID, home)
+	}
+	if !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("check existing export: %w", err)
+	}
+
+	// In multi-node mode also check the plan file, which is written before
+	// metadata in the happy path.
+	if s.isMultiNode() {
+		_, err := s.getExportPlan(ctx, backend, exportID, bucket, path)
+		if err == nil {
+			return fmt.Errorf("export %q already exists at %q", exportID, home)
+		}
+		if !errors.As(err, &backup.ErrNotFound{}) {
+			return fmt.Errorf("check existing export: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// getExportMetadata retrieves export metadata from the backend
+func (s *Scheduler) getExportMetadata(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) (*ExportMetadata, error) {
+	data, err := backend.GetObject(ctx, exportID, exportMetadataFile, bucket, path)
+	if err != nil {
+		return nil, fmt.Errorf("get metadata: %w", err)
+	}
+
+	var meta ExportMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, fmt.Errorf("unmarshal metadata: %w", err)
+	}
+
+	return &meta, nil
 }
 
 // resolveClasses determines which classes to export
@@ -445,7 +761,6 @@ func (s *Scheduler) resolveClasses(ctx context.Context, include, exclude []strin
 	}
 
 	if len(include) > 0 {
-		// Validate all included classes exist
 		classMap := make(map[string]bool)
 		for _, class := range allClasses {
 			classMap[class] = true
@@ -460,9 +775,16 @@ func (s *Scheduler) resolveClasses(ctx context.Context, include, exclude []strin
 	}
 
 	if len(exclude) > 0 {
-		// Remove excluded classes
-		excludeMap := make(map[string]bool)
+		classMap := make(map[string]bool, len(allClasses))
+		for _, class := range allClasses {
+			classMap[class] = true
+		}
+
+		excludeMap := make(map[string]bool, len(exclude))
 		for _, class := range exclude {
+			if !classMap[class] {
+				return nil, fmt.Errorf("class %s does not exist", class)
+			}
 			excludeMap[class] = true
 		}
 
@@ -475,6 +797,5 @@ func (s *Scheduler) resolveClasses(ctx context.Context, include, exclude []strin
 		return result, nil
 	}
 
-	// No filter - export all classes
 	return allClasses, nil
 }

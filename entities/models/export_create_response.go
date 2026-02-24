@@ -37,34 +37,24 @@ type ExportCreateResponse struct {
 	// List of collections being exported
 	Classes []string `json:"classes"`
 
-	// Error message if export failed
-	Error string `json:"error,omitempty"`
-
 	// Unique identifier for this export
 	ID string `json:"id,omitempty"`
 
 	// Full path where the export is being written
 	Path string `json:"path,omitempty"`
 
-	// Per-collection progress information
-	Progress map[string]ClassProgress `json:"progress,omitempty"`
-
 	// When the export started
 	// Format: date-time
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// Current status of the export
-	// Enum: [STARTED TRANSFERRING SUCCESS FAILED]
+	// Enum: [STARTED]
 	Status string `json:"status,omitempty"`
 }
 
 // Validate validates this export create response
 func (m *ExportCreateResponse) Validate(formats strfmt.Registry) error {
 	var res []error
-
-	if err := m.validateProgress(formats); err != nil {
-		res = append(res, err)
-	}
 
 	if err := m.validateStartedAt(formats); err != nil {
 		res = append(res, err)
@@ -77,32 +67,6 @@ func (m *ExportCreateResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ExportCreateResponse) validateProgress(formats strfmt.Registry) error {
-	if swag.IsZero(m.Progress) { // not required
-		return nil
-	}
-
-	for k := range m.Progress {
-
-		if err := validate.Required("progress"+"."+k, "body", m.Progress[k]); err != nil {
-			return err
-		}
-		if val, ok := m.Progress[k]; ok {
-			if err := val.Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("progress" + "." + k)
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("progress" + "." + k)
-				}
-				return err
-			}
-		}
-
-	}
-
 	return nil
 }
 
@@ -122,7 +86,7 @@ var exportCreateResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -134,15 +98,6 @@ const (
 
 	// ExportCreateResponseStatusSTARTED captures enum value "STARTED"
 	ExportCreateResponseStatusSTARTED string = "STARTED"
-
-	// ExportCreateResponseStatusTRANSFERRING captures enum value "TRANSFERRING"
-	ExportCreateResponseStatusTRANSFERRING string = "TRANSFERRING"
-
-	// ExportCreateResponseStatusSUCCESS captures enum value "SUCCESS"
-	ExportCreateResponseStatusSUCCESS string = "SUCCESS"
-
-	// ExportCreateResponseStatusFAILED captures enum value "FAILED"
-	ExportCreateResponseStatusFAILED string = "FAILED"
 )
 
 // prop value enum
@@ -166,32 +121,8 @@ func (m *ExportCreateResponse) validateStatus(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this export create response based on the context it is used
+// ContextValidate validates this export create response based on context it is used
 func (m *ExportCreateResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidateProgress(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *ExportCreateResponse) contextValidateProgress(ctx context.Context, formats strfmt.Registry) error {
-
-	for k := range m.Progress {
-
-		if val, ok := m.Progress[k]; ok {
-			if err := val.ContextValidate(ctx, formats); err != nil {
-				return err
-			}
-		}
-
-	}
-
 	return nil
 }
 

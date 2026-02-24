@@ -12,40 +12,77 @@
 package export
 
 import (
+	"bytes"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 )
 
-// ExportStatus represents the current status of an export
-type ExportStatus struct {
-	ID        string                    `json:"id"`
-	Backend   string                    `json:"backend"`
-	Path      string                    `json:"path"`
-	Status    export.Status             `json:"status"`
-	StartedAt time.Time                 `json:"startedAt"`
-	Error     string                    `json:"error,omitempty"`
-	Classes   []string                  `json:"classes,omitempty"`
-	Progress  map[string]*ClassProgress `json:"progress,omitempty"`
+// newBytesReadCloser wraps data in a backup.ReadCloserWithError suitable for
+// BackupBackend.Write calls that write small blobs (metadata, status JSON).
+func newBytesReadCloser(data []byte) backup.ReadCloserWithError {
+	return &bytesReadCloser{Reader: bytes.NewReader(data)}
 }
 
-// ClassProgress tracks the progress of exporting a single class
-type ClassProgress struct {
+type bytesReadCloser struct {
+	*bytes.Reader
+}
+
+func (*bytesReadCloser) Close() error               { return nil }
+func (*bytesReadCloser) CloseWithError(error) error { return nil }
+
+// ShardProgress tracks the progress of exporting a single shard.
+// Used internally and in the S3 NodeStatus format.
+type ShardProgress struct {
 	Status          export.Status `json:"status"`
 	ObjectsExported int64         `json:"objectsExported"`
-	FileSizeBytes   int64         `json:"fileSizeBytes,omitempty"`
 	Error           string        `json:"error,omitempty"`
 }
 
 // ExportMetadata is written to S3 alongside the parquet files
 type ExportMetadata struct {
-	ID          string                    `json:"id"`
-	Backend     string                    `json:"backend"`
-	StartedAt   time.Time                 `json:"startedAt"`
-	CompletedAt time.Time                 `json:"completedAt"`
-	Status      export.Status             `json:"status"`
-	Classes     []string                  `json:"classes"`
-	Progress    map[string]*ClassProgress `json:"progress"`
-	Error       string                    `json:"error,omitempty"`
-	Version     string                    `json:"version"`
+	ID          string        `json:"id"`
+	Backend     string        `json:"backend"`
+	StartedAt   time.Time     `json:"startedAt"`
+	CompletedAt time.Time     `json:"completedAt"`
+	Status      export.Status `json:"status"`
+	Classes     []string      `json:"classes"`
+	Error       string        `json:"error,omitempty"`
+	Version     string        `json:"version"`
+}
+
+// exportNodeInfo holds per-node information during 2PC coordination.
+type exportNodeInfo struct {
+	req  *ExportRequest
+	host string // empty for local node
+}
+
+// ExportRequest is sent from coordinator to participant nodes
+type ExportRequest struct {
+	ID       string              `json:"id"`
+	Backend  string              `json:"backend"`
+	Classes  []string            `json:"classes"`
+	Shards   map[string][]string `json:"shards"` // className → []shardName
+	Bucket   string              `json:"bucket"`
+	Path     string              `json:"path"`
+	NodeName string              `json:"nodeName"`
+}
+
+// NodeStatus is written to S3 by each participant node
+type NodeStatus struct {
+	NodeName      string                               `json:"nodeName"`
+	Status        export.Status                        `json:"status"`
+	ShardProgress map[string]map[string]*ShardProgress `json:"shardProgress,omitempty"` // className → shardName → progress
+	Error         string                               `json:"error,omitempty"`
+	CompletedAt   time.Time                            `json:"completedAt,omitempty"`
+}
+
+// ExportPlan is written to S3 by the coordinator
+type ExportPlan struct {
+	ID              string                         `json:"id"`
+	Backend         string                         `json:"backend"`
+	Classes         []string                       `json:"classes"`
+	NodeAssignments map[string]map[string][]string `json:"nodeAssignments"` // node → className → []shardName
+	StartedAt       time.Time                      `json:"startedAt"`
 }

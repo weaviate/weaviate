@@ -7002,36 +7002,6 @@ func init() {
         }
       }
     },
-    "ClassProgress": {
-      "description": "Progress information for exporting a single collection",
-      "type": "object",
-      "properties": {
-        "error": {
-          "description": "Error message if this collection's export failed",
-          "type": "string"
-        },
-        "fileSizeBytes": {
-          "description": "Size of the exported Parquet file in bytes",
-          "type": "integer",
-          "format": "int64"
-        },
-        "objectsExported": {
-          "description": "Number of objects exported from this collection",
-          "type": "integer",
-          "format": "int64"
-        },
-        "status": {
-          "description": "Status of this collection's export",
-          "type": "string",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "SUCCESS",
-            "FAILED"
-          ]
-        }
-      }
-    },
     "Classification": {
       "description": "Manage classifications, trigger them and view status of past classifications.",
       "type": "object",
@@ -7408,10 +7378,6 @@ func init() {
             "type": "string"
           }
         },
-        "error": {
-          "description": "Error message if export failed",
-          "type": "string"
-        },
         "id": {
           "description": "Unique identifier for this export",
           "type": "string"
@@ -7419,13 +7385,6 @@ func init() {
         "path": {
           "description": "Full path where the export is being written",
           "type": "string"
-        },
-        "progress": {
-          "description": "Per-collection progress information",
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
-          }
         },
         "startedAt": {
           "description": "When the export started",
@@ -7436,10 +7395,7 @@ func init() {
           "description": "Current status of the export",
           "type": "string",
           "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "SUCCESS",
-            "FAILED"
+            "STARTED"
           ]
         }
       }
@@ -7471,11 +7427,14 @@ func init() {
           "description": "Full path where the export is stored",
           "type": "string"
         },
-        "progress": {
-          "description": "Per-collection progress information",
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardProgress"
+            }
           }
         },
         "startedAt": {
@@ -7492,6 +7451,11 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
+        },
+        "tookInMs": {
+          "description": "Duration of the export in milliseconds",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -9247,6 +9211,31 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
+    },
+    "ShardProgress": {
+      "description": "Progress information for exporting a single shard",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Error message if this shard's export failed",
+          "type": "string"
+        },
+        "objectsExported": {
+          "description": "Number of objects exported from this shard",
+          "type": "integer",
+          "format": "int64"
+        },
+        "status": {
+          "description": "Status of this shard's export",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
     },
     "ShardStatus": {
       "description": "The status of a single shard",
@@ -17053,36 +17042,6 @@ func init() {
         }
       }
     },
-    "ClassProgress": {
-      "description": "Progress information for exporting a single collection",
-      "type": "object",
-      "properties": {
-        "error": {
-          "description": "Error message if this collection's export failed",
-          "type": "string"
-        },
-        "fileSizeBytes": {
-          "description": "Size of the exported Parquet file in bytes",
-          "type": "integer",
-          "format": "int64"
-        },
-        "objectsExported": {
-          "description": "Number of objects exported from this collection",
-          "type": "integer",
-          "format": "int64"
-        },
-        "status": {
-          "description": "Status of this collection's export",
-          "type": "string",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "SUCCESS",
-            "FAILED"
-          ]
-        }
-      }
-    },
     "Classification": {
       "description": "Manage classifications, trigger them and view status of past classifications.",
       "type": "object",
@@ -17496,10 +17455,6 @@ func init() {
             "type": "string"
           }
         },
-        "error": {
-          "description": "Error message if export failed",
-          "type": "string"
-        },
         "id": {
           "description": "Unique identifier for this export",
           "type": "string"
@@ -17507,13 +17462,6 @@ func init() {
         "path": {
           "description": "Full path where the export is being written",
           "type": "string"
-        },
-        "progress": {
-          "description": "Per-collection progress information",
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
-          }
         },
         "startedAt": {
           "description": "When the export started",
@@ -17524,10 +17472,7 @@ func init() {
           "description": "Current status of the export",
           "type": "string",
           "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "SUCCESS",
-            "FAILED"
+            "STARTED"
           ]
         }
       }
@@ -17559,11 +17504,14 @@ func init() {
           "description": "Full path where the export is stored",
           "type": "string"
         },
-        "progress": {
-          "description": "Per-collection progress information",
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/ClassProgress"
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardProgress"
+            }
           }
         },
         "startedAt": {
@@ -17580,6 +17528,11 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
+        },
+        "tookInMs": {
+          "description": "Duration of the export in milliseconds",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -19544,6 +19497,31 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
+    },
+    "ShardProgress": {
+      "description": "Progress information for exporting a single shard",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Error message if this shard's export failed",
+          "type": "string"
+        },
+        "objectsExported": {
+          "description": "Number of objects exported from this shard",
+          "type": "integer",
+          "format": "int64"
+        },
+        "status": {
+          "description": "Status of this shard's export",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
     },
     "ShardStatus": {
       "description": "The status of a single shard",
