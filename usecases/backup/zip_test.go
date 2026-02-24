@@ -52,7 +52,7 @@ func TestZip(t *testing.T) {
 
 			// compression writer
 			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0)
+			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0, 0)
 			require.NoError(t, err)
 			var zInputLen int64
 			go func() {
@@ -359,7 +359,7 @@ func TestWriteRegularsFillsChunkWithSmallFiles(t *testing.T) {
 
 	// Chunk size = 1000 bytes. small1 fits (100), big doesn't (5000).
 	// Scan ahead should pick up small2 and small3.
-	z, rc, err := NewZip(dir, int(NoCompression), 1000, 0)
+	z, rc, err := NewZip(dir, int(NoCompression), 1000, 0, 0)
 	require.NoError(t, err)
 
 	fileList := &backup.FileList{
@@ -429,7 +429,7 @@ func TestBigFileGetsOwnChunk(t *testing.T) {
 
 	// Chunk 1: small1 is written, then big.db is at front but firstFile=false,
 	// so fillChunkWithSmallFiles runs and picks up small2. big.db remains.
-	z, rc, err := NewZip(dir, int(NoCompression), 10000, 500)
+	z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
 	require.NoError(t, err)
 
 	preCompSize := &atomic.Int64{}
@@ -463,7 +463,7 @@ func TestBigFileGetsOwnChunk(t *testing.T) {
 	require.ElementsMatch(t, []string{"shard/small1.db", "shard/small2.db"}, tarFiles)
 
 	// Chunk 2: big.db is first file and big — gets its own chunk
-	z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500)
+	z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
 	require.NoError(t, err)
 	preCompSize2 := &atomic.Int64{}
 	go func() {
@@ -567,7 +567,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 			sd.PropLengthTracker = []byte("12345")
 
 			// start backup process
-			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0)
+			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0)
 			require.NoError(t, err)
 			go func() {
 				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
@@ -668,13 +668,13 @@ func TestSplitFileRoundTrip(t *testing.T) {
 			// Simulate the backup loop from backend.go: write chunks until all files
 			// and split file parts are written.
 			var chunks [][]byte
-			filesInShard := sd.CopyFilesInShard()
+			filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
 			var fileSizeExceeded *SplitFile
 			firstChunk := true
 
 			for {
 				var buf bytes.Buffer
-				z, rc, err := NewZip(sourceDir, int(compressionLevel), chunkSize, splitFileSize)
+				z, rc, err := NewZip(sourceDir, int(compressionLevel), chunkSize, 0, splitFileSize)
 				require.NoError(t, err)
 
 				var splitResult *SplitFile
@@ -685,7 +685,7 @@ func TestSplitFileRoundTrip(t *testing.T) {
 					if fileSizeExceeded != nil {
 						splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 					} else {
-						_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+						_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 					}
 					z.Close()
 				}()
@@ -770,13 +770,13 @@ func TestSplitFileExactBoundary(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := sd.CopyFilesInShard()
+	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
 		var splitResult *SplitFile
@@ -787,7 +787,7 @@ func TestSplitFileExactBoundary(t *testing.T) {
 			if fileSizeExceeded != nil {
 				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 			} else {
-				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
 			z.Close()
 		}()
@@ -865,13 +865,13 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := sd.CopyFilesInShard()
+	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, splitFileSize)
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
 		var splitResult *SplitFile
@@ -882,7 +882,7 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 			if fileSizeExceeded != nil {
 				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 			} else {
-				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp)
+				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
 			z.Close()
 		}()
@@ -927,4 +927,98 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 	restored2, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "file2.bin"))
 	require.NoError(t, err)
 	require.Equal(t, file2Data, restored2)
+}
+
+// TestSplitFirstFileInChunk tests that the very first file in a chunk is split
+// if it exceeds the split file threshold, even though it's the first file.
+// This ensures chunks always contain at least one file (or file part), but
+// never write a file whole that should be split.
+func TestSplitFirstFileInChunk(t *testing.T) {
+	ctx := context.Background()
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	restoreDir := filepath.Join(t.TempDir(), "restore")
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceDir, "shard1"), os.ModePerm))
+	require.NoError(t, os.MkdirAll(restoreDir, os.ModePerm))
+
+	// Single file of 1000 bytes. chunkSize=200 (smaller than file),
+	// splitFileSize=400 (smaller than file). The file exceeds both thresholds,
+	// so even as the first (and only) file in the chunk it must be split.
+	const chunkSize = 200
+	const splitFileSize = 400
+
+	fileData := make([]byte, 1000)
+	for i := range fileData {
+		fileData[i] = byte(i % 173)
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "shard1", "big.bin"), fileData, 0o644))
+
+	sd := backup.ShardDescriptor{
+		Name:                  "shard1",
+		Node:                  "node1",
+		Files:                 []string{"shard1/big.bin"},
+		DocIDCounterPath:      "shard1/indexcount",
+		DocIDCounter:          []byte("1"),
+		PropLengthTrackerPath: "shard1/proplengths",
+		PropLengthTracker:     []byte("1"),
+		ShardVersionPath:      "shard1/version",
+		Version:               []byte("1"),
+	}
+
+	var chunks [][]byte
+	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+
+	for {
+		var buf bytes.Buffer
+		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		require.NoError(t, err)
+
+		var splitResult *SplitFile
+		var writeErr error
+
+		go func() {
+			preComp := atomic.Int64{}
+			if fileSizeExceeded != nil {
+				splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+			} else {
+				_, splitResult, writeErr = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
+			}
+			z.Close()
+		}()
+
+		_, err = io.Copy(&buf, rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		require.NoError(t, writeErr)
+
+		chunks = append(chunks, buf.Bytes())
+		fileSizeExceeded = splitResult
+		firstChunk = false
+
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+
+	// The file is 1000 bytes with splitFileSize=400, so we expect 3 chunks
+	// (400 + 400 + 200). The file must NOT be written whole in a single chunk.
+	require.Greater(t, len(chunks), 1, "first file exceeding split threshold must be split, not written whole")
+
+	// Restore all chunks
+	for _, chunk := range chunks {
+		uz, wc := NewUnzip(restoreDir, backup.CompressionNone)
+		go func() {
+			_, err := io.Copy(wc, bytes.NewReader(chunk))
+			require.NoError(t, err)
+			require.NoError(t, wc.Close())
+		}()
+		_, err := uz.ReadChunk()
+		require.NoError(t, err)
+		require.NoError(t, uz.Close())
+	}
+
+	restored, err := os.ReadFile(filepath.Join(restoreDir, "shard1", "big.bin"))
+	require.NoError(t, err)
+	require.Equal(t, fileData, restored, "split first file content mismatch after restore")
 }

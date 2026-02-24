@@ -62,36 +62,16 @@ type compressor interface {
 }
 
 type zip struct {
-<<<<<<< HEAD
 	sourcePath            string
 	w                     *tar.Writer
 	compressorWriter      compressor
 	pipeWriter            *io.PipeWriter
 	maxChunkSizeInBytes   int64
 	minIndividualFileSize int64
-||||||| parent of 208205d43d (Add split size for large chunks with a default of 50GB)
-	sourcePath          string
-	w                   *tar.Writer
-	compressorWriter    compressor
-	pipeWriter          *io.PipeWriter
-	maxChunkSizeInBytes int64
-=======
-	sourcePath          string
-	w                   *tar.Writer
-	compressorWriter    compressor
-	pipeWriter          *io.PipeWriter
-	maxChunkSizeInBytes int64
-	splitFileSizeBytes  int64
->>>>>>> 208205d43d (Add split size for large chunks with a default of 50GB)
+	splitFileSizeBytes    int64
 }
 
-<<<<<<< HEAD
-func NewZip(sourcePath string, level int, chunkTargetSize int64, minIndividualFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
-||||||| parent of 208205d43d (Add split size for large chunks with a default of 50GB)
-func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup.ReadCloserWithError, error) {
-=======
-func NewZip(sourcePath string, level int, chunkTargetSize, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
->>>>>>> 208205d43d (Add split size for large chunks with a default of 50GB)
+func NewZip(sourcePath string, level int, chunkTargetSize int64, minIndividualFileSize int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -131,27 +111,13 @@ func NewZip(sourcePath string, level int, chunkTargetSize, splitFileSize int64) 
 	}
 
 	return zip{
-<<<<<<< HEAD
 		sourcePath:            sourcePath,
 		compressorWriter:      gzw,
 		w:                     tarW,
 		pipeWriter:            pw,
 		maxChunkSizeInBytes:   chunkTargetSizeInBytes,
 		minIndividualFileSize: minIndividualFileSize,
-||||||| parent of 208205d43d (Add split size for large chunks with a default of 50GB)
-		sourcePath:          sourcePath,
-		compressorWriter:    gzw,
-		w:                   tarW,
-		pipeWriter:          pw,
-		maxChunkSizeInBytes: chunkTargetSizeInBytes,
-=======
-		sourcePath:          sourcePath,
-		compressorWriter:    gzw,
-		w:                   tarW,
-		pipeWriter:          pw,
-		maxChunkSizeInBytes: chunkTargetSizeInBytes,
-		splitFileSizeBytes:  splitFileSize,
->>>>>>> 208205d43d (Add split size for large chunks with a default of 50GB)
+		splitFileSizeBytes:    splitFileSize,
 	}, reader, nil
 }
 
@@ -254,25 +220,17 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 			return written, nil, err
 		}
 		if sizeExceededInfo != nil {
-<<<<<<< HEAD
+			if sizeExceededInfo.FileInfo != nil {
+				// File exceeds split threshold, it will be split across chunks.
+				// Pop it from the list since the split mechanism now owns it.
+				filesInShard.PopFront()
+				return written, sizeExceededInfo, nil
+			}
 			// The file at the front doesn't fit. Scan ahead for smaller files
 			// that still fit in the remaining chunk space.
 			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
 			written += n
 			return written, nil, err
-||||||| parent of 208205d43d (Add split size for large chunks with a default of 50GB)
-			// The file was not written because the current chunk is full.
-			// It will be processed on the next chunk.
-			return written, sizeExceededInfo, nil
-=======
-			// The file was not written because the current chunk is full.
-			if sizeExceededInfo.FileInfo == nil {
-				// File is below split threshold, it will be written whole on the next chunk.
-				return written, nil, nil
-			}
-			// File exceeds split threshold, it will be split across chunks.
-			return written, sizeExceededInfo, nil
->>>>>>> 208205d43d (Add split size for large chunks with a default of 50GB)
 		}
 		// remove processed element from slice
 		filesInShard.PopFront()
@@ -363,16 +321,25 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	if !info.Mode().IsRegular() {
 		return 0, nil, nil // ignore directories
 	}
-<<<<<<< HEAD
 
 	// Use pre-collected size if available, otherwise fall back to stat
 	actualSize := fileSize
 	if actualSize < 0 {
 		actualSize = info.Size()
-		// Fallback: check chunk size if we didn't have pre-collected size
-		if !firstFile && preCompressionSize.Load()+actualSize > z.maxChunkSizeInBytes {
+	}
+
+	// Check if the file exceeds the chunk size
+	if preCompressionSize.Load()+actualSize > z.maxChunkSizeInBytes {
+		if actualSize > z.splitFileSizeBytes {
+			// file is larger than the split threshold, split it across chunks
+			// (a split part counts as "at least one file" in the chunk)
 			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
 		}
+		if !firstFile {
+			// file doesn't need splitting, but chunk is full - defer to next chunk
+			return 0, &SplitFile{}, nil
+		}
+		// firstFile and below split threshold: write it whole so the chunk is not empty
 	}
 
 	if z.minIndividualFileSize > 0 && actualSize >= z.minIndividualFileSize {
@@ -382,20 +349,6 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		// ChunkKeys already supports that single files might need to be split across multiple chunks. However currently
 		// we only support one chunk per big file.
 		sd.BigFilesChunk[relPath] = entBackup.BigFileInfo{ChunkKeys: []string{chunkKey}, Size: actualSize, ModifiedAt: info.ModTime()}
-||||||| parent of 208205d43d (Add split size for large chunks with a default of 50GB)
-	// always write at least one file per chunk
-	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
-		return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
-=======
-	// always write at least one file per chunk
-	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
-		if info.Size() > z.splitFileSizeBytes {
-			// file is larger than the split threshold, split it across chunks
-			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
-		}
-		// file doesn't need splitting, but chunk is full - use empty sentinel
-		return 0, &SplitFile{}, nil
->>>>>>> 208205d43d (Add split size for large chunks with a default of 50GB)
 	}
 
 	f, err := os.Open(absPath)
