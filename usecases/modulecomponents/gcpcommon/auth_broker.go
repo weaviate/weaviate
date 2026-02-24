@@ -94,14 +94,14 @@ func (b *AuthBrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identit
 func (b *AuthBrokerTokenSource) fetchToken(ctx context.Context, identityToken string) (*oauth2.Token, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to created request to auth broker: %s", ErrRetryableAuthBroker, err)
+		return nil, fmt.Errorf("%w: failed to created request to auth broker: %w", ErrRetryableAuthBroker, err)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", identityToken))
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRetryableAuthBroker, err)
+		return nil, fmt.Errorf("%w: %w", ErrRetryableAuthBroker, err)
 	}
 	defer resp.Body.Close()
 
