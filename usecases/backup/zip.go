@@ -310,7 +310,7 @@ func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompr
 	defer f.Close()
 
 	if _, err := f.Seek(splitFile.AlreadyWritten, io.SeekStart); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("seek to offset %d in file %s: %w", splitFile.AlreadyWritten, splitFile.RelPath, err)
 	}
 
 	if _, err := io.CopyN(z.w, f, amountToWrite); err != nil {
