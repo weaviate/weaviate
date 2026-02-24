@@ -771,6 +771,9 @@ func TestDistributedVectorDistance(t *testing.T) {
 					if !assert.Nil(collect, err) {
 						return
 					}
+					if !assert.Len(collect, res, 1) {
+						return
+					}
 					if !assert.Equal(collect, res[0].ID, obj.ID) {
 						return
 					}
