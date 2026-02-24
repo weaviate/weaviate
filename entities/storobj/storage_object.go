@@ -116,6 +116,16 @@ func FromBinary(data []byte) (*Object, error) {
 	return ko, nil
 }
 
+func FromBinaryDocIDOnly(data []byte) (uint64, error) {
+	rw := byteops.NewReadWriter(data)
+	version := rw.ReadUint8()
+	if version != 1 {
+		return 0, errors.Errorf("unsupported binary marshaller version %d", version)
+	}
+
+	return rw.ReadUint64(), nil
+}
+
 func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	ko := &Object{}
 

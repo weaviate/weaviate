@@ -297,7 +297,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	search := func(t *testing.T, shard ShardLike, filter *filters.LocalFilter) []*storobj.Object {
 		searchLimit := 10
 		found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-			nil, nil, nil, additional.Properties{}, props)
+			nil, nil, nil, additional.Properties{}, props, nil)
 		require.NoError(t, err)
 		return found
 	}

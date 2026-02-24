@@ -1131,6 +1131,51 @@ func (_c *MockShardLike_GetStatus_Call) RunAndReturn(run func() storagestate.Sta
 	return _c
 }
 
+// GetStatusReason provides a mock function with no fields
+func (_m *MockShardLike) GetStatusReason() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetStatusReason")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockShardLike_GetStatusReason_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatusReason'
+type MockShardLike_GetStatusReason_Call struct {
+	*mock.Call
+}
+
+// GetStatusReason is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) GetStatusReason() *MockShardLike_GetStatusReason_Call {
+	return &MockShardLike_GetStatusReason_Call{Call: _e.mock.On("GetStatusReason")}
+}
+
+func (_c *MockShardLike_GetStatusReason_Call) Run(run func()) *MockShardLike_GetStatusReason_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_GetStatusReason_Call) Return(_a0 string) *MockShardLike_GetStatusReason_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_GetStatusReason_Call) RunAndReturn(run func() string) *MockShardLike_GetStatusReason_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetVectorIndex provides a mock function with given fields: targetVector
 func (_m *MockShardLike) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	ret := _m.Called(targetVector)
@@ -2019,9 +2064,9 @@ func (_c *MockShardLike_ObjectDigestsInRange_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// ObjectList provides a mock function with given fields: ctx, limit, sort, cursor, _a4, className, allowlist
-func (_m *MockShardLike) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName, allowlist helpers.AllowList) ([]*storobj.Object, error) {
-	ret := _m.Called(ctx, limit, sort, cursor, _a4, className, allowlist)
+// ObjectList provides a mock function with given fields: ctx, limit, sort, cursor, _a4, className, allowlist, nextIteratorUuid
+func (_m *MockShardLike) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName, allowlist helpers.AllowList, nextIteratorUuid *string) ([]*storobj.Object, error) {
+	ret := _m.Called(ctx, limit, sort, cursor, _a4, className, allowlist, nextIteratorUuid)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectList")
@@ -2029,19 +2074,19 @@ func (_m *MockShardLike) ObjectList(ctx context.Context, limit int, sort []filte
 
 	var r0 []*storobj.Object
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) ([]*storobj.Object, error)); ok {
-		return rf(ctx, limit, sort, cursor, _a4, className, allowlist)
+	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList, *string) ([]*storobj.Object, error)); ok {
+		return rf(ctx, limit, sort, cursor, _a4, className, allowlist, nextIteratorUuid)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) []*storobj.Object); ok {
-		r0 = rf(ctx, limit, sort, cursor, _a4, className, allowlist)
+	if rf, ok := ret.Get(0).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList, *string) []*storobj.Object); ok {
+		r0 = rf(ctx, limit, sort, cursor, _a4, className, allowlist, nextIteratorUuid)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*storobj.Object)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) error); ok {
-		r1 = rf(ctx, limit, sort, cursor, _a4, className, allowlist)
+	if rf, ok := ret.Get(1).(func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList, *string) error); ok {
+		r1 = rf(ctx, limit, sort, cursor, _a4, className, allowlist, nextIteratorUuid)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -2062,13 +2107,14 @@ type MockShardLike_ObjectList_Call struct {
 //   - _a4 additional.Properties
 //   - className schema.ClassName
 //   - allowlist helpers.AllowList
-func (_e *MockShardLike_Expecter) ObjectList(ctx interface{}, limit interface{}, sort interface{}, cursor interface{}, _a4 interface{}, className interface{}, allowlist interface{}) *MockShardLike_ObjectList_Call {
-	return &MockShardLike_ObjectList_Call{Call: _e.mock.On("ObjectList", ctx, limit, sort, cursor, _a4, className, allowlist)}
+//   - nextIteratorUuid *string
+func (_e *MockShardLike_Expecter) ObjectList(ctx interface{}, limit interface{}, sort interface{}, cursor interface{}, _a4 interface{}, className interface{}, allowlist interface{}, nextIteratorUuid interface{}) *MockShardLike_ObjectList_Call {
+	return &MockShardLike_ObjectList_Call{Call: _e.mock.On("ObjectList", ctx, limit, sort, cursor, _a4, className, allowlist, nextIteratorUuid)}
 }
 
-func (_c *MockShardLike_ObjectList_Call) Run(run func(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName, allowlist helpers.AllowList)) *MockShardLike_ObjectList_Call {
+func (_c *MockShardLike_ObjectList_Call) Run(run func(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName, allowlist helpers.AllowList, nextIteratorUuid *string)) *MockShardLike_ObjectList_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int), args[2].([]filters.Sort), args[3].(*filters.Cursor), args[4].(additional.Properties), args[5].(schema.ClassName), args[6].(helpers.AllowList))
+		run(args[0].(context.Context), args[1].(int), args[2].([]filters.Sort), args[3].(*filters.Cursor), args[4].(additional.Properties), args[5].(schema.ClassName), args[6].(helpers.AllowList), args[7].(*string))
 	})
 	return _c
 }
@@ -2078,14 +2124,14 @@ func (_c *MockShardLike_ObjectList_Call) Return(_a0 []*storobj.Object, _a1 error
 	return _c
 }
 
-func (_c *MockShardLike_ObjectList_Call) RunAndReturn(run func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList) ([]*storobj.Object, error)) *MockShardLike_ObjectList_Call {
+func (_c *MockShardLike_ObjectList_Call) RunAndReturn(run func(context.Context, int, []filters.Sort, *filters.Cursor, additional.Properties, schema.ClassName, helpers.AllowList, *string) ([]*storobj.Object, error)) *MockShardLike_ObjectList_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ObjectSearch provides a mock function with given fields: ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties
-func (_m *MockShardLike) ObjectSearch(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string) ([]*storobj.Object, []float32, error) {
-	ret := _m.Called(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+// ObjectSearch provides a mock function with given fields: ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState
+func (_m *MockShardLike) ObjectSearch(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string, iteratorState *dto.IteratorState) ([]*storobj.Object, []float32, error) {
+	ret := _m.Called(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectSearch")
@@ -2094,27 +2140,27 @@ func (_m *MockShardLike) ObjectSearch(ctx context.Context, limit int, _a2 *filte
 	var r0 []*storobj.Object
 	var r1 []float32
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) ([]*storobj.Object, []float32, error)); ok {
-		return rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) ([]*storobj.Object, []float32, error)); ok {
+		return rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) []*storobj.Object); ok {
-		r0 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(0).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) []*storobj.Object); ok {
+		r0 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*storobj.Object)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) []float32); ok {
-		r1 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(1).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) []float32); ok {
+		r1 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).([]float32)
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) error); ok {
-		r2 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)
+	if rf, ok := ret.Get(2).(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) error); ok {
+		r2 = rf(ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -2136,13 +2182,14 @@ type MockShardLike_ObjectSearch_Call struct {
 //   - cursor *filters.Cursor
 //   - _a6 additional.Properties
 //   - properties []string
-func (_e *MockShardLike_Expecter) ObjectSearch(ctx interface{}, limit interface{}, _a2 interface{}, keywordRanking interface{}, sort interface{}, cursor interface{}, _a6 interface{}, properties interface{}) *MockShardLike_ObjectSearch_Call {
-	return &MockShardLike_ObjectSearch_Call{Call: _e.mock.On("ObjectSearch", ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties)}
+//   - iteratorState *dto.IteratorState
+func (_e *MockShardLike_Expecter) ObjectSearch(ctx interface{}, limit interface{}, _a2 interface{}, keywordRanking interface{}, sort interface{}, cursor interface{}, _a6 interface{}, properties interface{}, iteratorState interface{}) *MockShardLike_ObjectSearch_Call {
+	return &MockShardLike_ObjectSearch_Call{Call: _e.mock.On("ObjectSearch", ctx, limit, _a2, keywordRanking, sort, cursor, _a6, properties, iteratorState)}
 }
 
-func (_c *MockShardLike_ObjectSearch_Call) Run(run func(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string)) *MockShardLike_ObjectSearch_Call {
+func (_c *MockShardLike_ObjectSearch_Call) Run(run func(ctx context.Context, limit int, _a2 *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, _a6 additional.Properties, properties []string, iteratorState *dto.IteratorState)) *MockShardLike_ObjectSearch_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int), args[2].(*filters.LocalFilter), args[3].(*searchparams.KeywordRanking), args[4].([]filters.Sort), args[5].(*filters.Cursor), args[6].(additional.Properties), args[7].([]string))
+		run(args[0].(context.Context), args[1].(int), args[2].(*filters.LocalFilter), args[3].(*searchparams.KeywordRanking), args[4].([]filters.Sort), args[5].(*filters.Cursor), args[6].(additional.Properties), args[7].([]string), args[8].(*dto.IteratorState))
 	})
 	return _c
 }
@@ -2152,7 +2199,7 @@ func (_c *MockShardLike_ObjectSearch_Call) Return(_a0 []*storobj.Object, _a1 []f
 	return _c
 }
 
-func (_c *MockShardLike_ObjectSearch_Call) RunAndReturn(run func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) ([]*storobj.Object, []float32, error)) *MockShardLike_ObjectSearch_Call {
+func (_c *MockShardLike_ObjectSearch_Call) RunAndReturn(run func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string, *dto.IteratorState) ([]*storobj.Object, []float32, error)) *MockShardLike_ObjectSearch_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2618,51 +2665,6 @@ func (_c *MockShardLike_SetStatusReadonly_Call) Return(_a0 error) *MockShardLike
 }
 
 func (_c *MockShardLike_SetStatusReadonly_Call) RunAndReturn(run func(string) error) *MockShardLike_SetStatusReadonly_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetStatusReason provides a mock function with no fields
-func (_m *MockShardLike) GetStatusReason() string {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetStatusReason")
-	}
-
-	var r0 string
-	if rf, ok := ret.Get(0).(func() string); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	return r0
-}
-
-// MockShardLike_GetStatusReason_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatusReason'
-type MockShardLike_GetStatusReason_Call struct {
-	*mock.Call
-}
-
-// GetStatusReason is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) GetStatusReason() *MockShardLike_GetStatusReason_Call {
-	return &MockShardLike_GetStatusReason_Call{Call: _e.mock.On("GetStatusReason")}
-}
-
-func (_c *MockShardLike_GetStatusReason_Call) Run(run func()) *MockShardLike_GetStatusReason_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusReason_Call) Return(_a0 string) *MockShardLike_GetStatusReason_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusReason_Call) RunAndReturn(run func() string) *MockShardLike_GetStatusReason_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5036,8 +5038,7 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockShardLike {
+}) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 
