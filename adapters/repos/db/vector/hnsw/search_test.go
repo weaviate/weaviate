@@ -351,6 +351,98 @@ func TestRescore(t *testing.T) {
 	}
 }
 
+func TestDeepPaginationRecall(t *testing.T) {
+	// Generate Training and Query Vectors
+	// use a decent size (1000) to ensure deep pagination logic is actually exercised.
+	size := 1000
+	dim := 32
+	vectors, queries := testinghelpers.RandomVecs(size, 1, dim)
+	query := queries[0]
+
+	// 2. Define the index variable
+	var index *hnsw
+
+	t.Run("Initialize and Insert", func(t *testing.T) {
+		store := testinghelpers.NewDummyStore(t)
+
+		// Create the index
+		var err error
+		index, err = New(Config{
+			RootPath:              "test-data-deep-pagination",
+			ID:                    "deep-pagination-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewL2SquaredProvider(),
+			AllocChecker:          memwatch.NewDummyMonitor(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				if int(id) >= len(vectors) {
+					return nil, fmt.Errorf("id out of bounds")
+				}
+				return vectors[int(id)], nil
+			},
+			GetViewThunk: func() common.BucketView { return &noopBucketView{} },
+		}, ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 64,
+			// Important: Ensure cache size is > 0 to prevent immediate deletion logic
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), store)
+
+		require.Nil(t, err, "Index initialization failed")
+		require.NotNil(t, index, "Index instance is nil")
+
+		// Cleanup after test
+		defer func() {
+			if index != nil {
+				index.Shutdown(context.Background())
+			}
+		}()
+
+		// Add vectors to the index
+		for i, vec := range vectors {
+			err := index.Add(context.TODO(), uint64(i), vec)
+			require.Nil(t, err, "Failed to add vector %d", i)
+		}
+	})
+
+	t.Run("Verify Recall at Deep Pagination", func(t *testing.T) {
+		k := 100
+
+		// Calculate Ground Truth (Brute Force)
+		// use the same distance provider as the index
+		distProvider := distancer.NewL2SquaredProvider()
+		distFn := func(a, b []float32) float32 {
+			d, _ := distProvider.SingleDist(a, b)
+			return d
+		}
+
+		expectedIDs, _ := testinghelpers.BruteForce(logrus.New(), vectors, query, k, distFn)
+
+		// Perform HNSW Search
+		// set ef slightly higher than k to ensure good recall
+		res, _, err := index.SearchByVector(context.Background(), query, k, nil)
+		require.Nil(t, err)
+
+		// Compare Results (Recall Calculation)
+		require.Equal(t, len(expectedIDs), len(res), "Result length mismatch")
+
+		matches := 0
+		for _, id := range res {
+			for _, expectedID := range expectedIDs {
+				if id == expectedID {
+					matches++
+					break
+				}
+			}
+		}
+
+		recall := float64(matches) / float64(k)
+		fmt.Printf("Recall @ %d: %.2f%%\n", k, recall*100)
+
+		// Typically HNSW should yield very high recall for this size/config
+		assert.GreaterOrEqual(t, recall, 0.95, "Recall was too low for deep pagination")
+	})
+}
+
 type fakeCompressionDistancer struct {
 	queryVec []float32
 	distFn   func(a, b []float32) float32
