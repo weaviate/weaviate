@@ -24,7 +24,7 @@ import (
 )
 
 func TestFetchToken_Success(t *testing.T) {
-	expected := BrokerToken{
+	expected := AuthBrokerToken{
 		AccessToken: "test-access-token",
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(time.Hour).Truncate(time.Second),
@@ -37,7 +37,7 @@ func TestFetchToken_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b := &BrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
 	tok, err := b.fetchToken(t.Context(), "identity-token")
 	require.NoError(t, err)
@@ -54,11 +54,11 @@ func TestFetchToken_5xx_ReturnsRetryable(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			b := &BrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+			b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
 			_, err := b.fetchToken(t.Context(), "identity-token")
 			require.Error(t, err)
-			assert.ErrorIs(t, err, ErrRetryable)
+			assert.ErrorIs(t, err, ErrRetryableAuthBroker)
 		})
 	}
 }
@@ -71,11 +71,11 @@ func TestFetchToken_4xx_NotRetryable(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			b := &BrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+			b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
 			_, err := b.fetchToken(t.Context(), "identity-token")
 			require.Error(t, err)
-			assert.NotErrorIs(t, err, ErrRetryable)
+			assert.NotErrorIs(t, err, ErrRetryableAuthBroker)
 		})
 	}
 }
@@ -84,16 +84,16 @@ func TestFetchToken_NetworkError_ReturnsRetryable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	srv.Close() // close immediately so all connections fail
 
-	b := &BrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
 	_, err := b.fetchToken(t.Context(), "identity-token")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrRetryable)
+	assert.ErrorIs(t, err, ErrRetryableAuthBroker)
 }
 
 func TestFetchTokenWithRetry_RetriesOnRetryableError(t *testing.T) {
 	attempt := 0
-	expected := BrokerToken{
+	expected := AuthBrokerToken{
 		AccessToken: "test-access-token",
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(time.Hour).Truncate(time.Second),
@@ -110,7 +110,7 @@ func TestFetchTokenWithRetry_RetriesOnRetryableError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b := &BrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
 	tok, err := b.fetchTokenWithRetry(t.Context(), "identity-token")
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestFetchTokenWithRetry_NoRetryOnNonRetryableError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b := &BrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
 	_, err := b.fetchTokenWithRetry(t.Context(), "identity-token")
 	require.Error(t, err)
