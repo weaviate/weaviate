@@ -14,25 +14,32 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	entBackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	backupUC "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -543,6 +550,160 @@ func TestDB_Shards(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to read sharding state")
 		assert.Contains(t, err.Error(), "schema read failed")
 	})
+}
+
+// TestBackup_CompressRestoreWithSplitting is an end-to-end integration test that
+// creates a real database with objects, obtains backup descriptors, compresses
+// shards into chunks (with file splitting), restores from those chunks, and
+// verifies every file matches the original.
+func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
+	ctx := testCtx()
+	dirName := t.TempDir()
+	className := "SplitFileBackupClass"
+	backupID := "backup-split"
+	now := time.Now()
+
+	db := setupTestDB(t, dirName, makeTestClass(className))
+	defer func() {
+		require.Nil(t, db.Shutdown(context.Background()))
+	}()
+
+	// Insert several objects to produce shard files on disk.
+	for i := 0; i < 20; i++ {
+		vec := []float32{float32(i), float32(i + 1), float32(i + 2)}
+		require.Nil(t, db.PutObject(ctx, &models.Object{
+			Class:              className,
+			CreationTimeUnix:   now.UnixNano(),
+			ID:                 strfmt.UUID(fmt.Sprintf("ff9fcae5-57b8-431c-b8e2-%012d", i)),
+			LastUpdateTimeUnix: now.UnixNano(),
+			Vector:             vec,
+			VectorWeights:      nil,
+		}, vec, nil, nil, nil, 0))
+	}
+
+	classes := []string{className}
+	require.Nil(t, db.Backupable(ctx, classes))
+
+	// Get real backup descriptors from the database.
+	var classDescs []entBackup.ClassDescriptor
+	ch := db.BackupDescriptors(ctx, backupID, classes)
+	for d := range ch {
+		require.Nil(t, d.Error)
+		classDescs = append(classDescs, d)
+	}
+	require.Len(t, classDescs, 1)
+	require.NotEmpty(t, classDescs[0].Shards)
+
+	sourceDataPath := db.config.RootPath
+
+	// Use very small chunk/split sizes to force file splitting even on small test data.
+	// This ensures the splitting logic is exercised.
+	const chunkSize = 512     // 512 bytes
+	const splitFileSize = 256 // 256 bytes
+
+	// --- Backup phase: compress each shard into chunks, mimicking backend.go ---
+	type chunkBytes struct {
+		data []byte
+	}
+	var allChunks []chunkBytes
+
+	for _, sd := range classDescs[0].Shards {
+		filesInShard := sd.CopyFilesInShard()
+		var fileSizeExceeded *backupUC.SplitFile
+		firstChunk := true
+
+		for {
+			var buf bytes.Buffer
+			z, rc, err := backupUC.NewZip(sourceDataPath, int(backupUC.NoCompression), chunkSize, splitFileSize)
+			require.NoError(t, err)
+
+			var splitResult *backupUC.SplitFile
+			var writeErr error
+
+			go func() {
+				preComp := atomic.Int64{}
+				if fileSizeExceeded != nil {
+					splitResult, writeErr = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				} else {
+					_, splitResult, writeErr = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp)
+				}
+				z.Close()
+			}()
+
+			_, err = io.Copy(&buf, rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+			require.NoError(t, writeErr)
+
+			allChunks = append(allChunks, chunkBytes{data: buf.Bytes()})
+			fileSizeExceeded = splitResult
+			firstChunk = false
+
+			if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+				break
+			}
+		}
+	}
+
+	t.Logf("backup produced %d chunks from %d shards", len(allChunks), len(classDescs[0].Shards))
+	require.Greater(t, len(allChunks), 1, "expected multiple chunks due to small chunk/split sizes")
+
+	// --- Restore phase: decompress all chunks concurrently ---
+	restoreDir := t.TempDir()
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(allChunks))
+	for i, c := range allChunks {
+		wg.Add(1)
+		go func(idx int, chunk []byte) {
+			defer wg.Done()
+			uz, wc := backupUC.NewUnzip(restoreDir, entBackup.CompressionNone)
+			go func() {
+				_, _ = io.Copy(wc, bytes.NewReader(chunk))
+				wc.Close()
+			}()
+			_, errs[idx] = uz.ReadChunk()
+			uz.Close()
+		}(i, c.data)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		require.NoError(t, err, "chunk %d restore failed", i)
+	}
+
+	// --- Verify every shard file was restored correctly ---
+	for _, sd := range classDescs[0].Shards {
+		for _, relPath := range sd.Files {
+			originalPath := filepath.Join(sourceDataPath, relPath)
+			restoredPath := filepath.Join(restoreDir, relPath)
+
+			original, err := os.ReadFile(originalPath)
+			require.NoError(t, err, "read original %s", relPath)
+
+			restored, err := os.ReadFile(restoredPath)
+			require.NoError(t, err, "read restored %s", relPath)
+
+			require.Equal(t, original, restored, "file content mismatch for %s", relPath)
+		}
+
+		// Verify in-memory metadata files.
+		restoredCounter, err := os.ReadFile(filepath.Join(restoreDir, sd.DocIDCounterPath))
+		require.NoError(t, err)
+		require.Equal(t, sd.DocIDCounter, restoredCounter, "DocIDCounter mismatch")
+
+		restoredPropLength, err := os.ReadFile(filepath.Join(restoreDir, sd.PropLengthTrackerPath))
+		require.NoError(t, err)
+		require.Equal(t, sd.PropLengthTracker, restoredPropLength, "PropLengthTracker mismatch")
+
+		restoredVersion, err := os.ReadFile(filepath.Join(restoreDir, sd.ShardVersionPath))
+		require.NoError(t, err)
+		require.Equal(t, sd.Version, restoredVersion, "Version mismatch")
+	}
+
+	// Release backup hold.
+	for _, class := range classes {
+		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
+	}
 }
 
 func makeTestClass(className string) *models.Class {
