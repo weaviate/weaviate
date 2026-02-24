@@ -202,6 +202,8 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 				return written, nil, nil
 			}
 			// File exceeds split threshold, it will be split across chunks.
+			// Pop it from the list since the split mechanism now owns it.
+			filesInShard.PopFront()
 			return written, sizeExceededInfo, nil
 		}
 		// remove processed element from slice
@@ -234,14 +236,18 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	if !info.Mode().IsRegular() {
 		return 0, nil, nil // ignore directories
 	}
-	// always write at least one file per chunk
-	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
+	// Check if the file exceeds the chunk size
+	if preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
 		if info.Size() > z.splitFileSizeBytes {
 			// file is larger than the split threshold, split it across chunks
+			// (a split part counts as "at least one file" in the chunk)
 			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
 		}
-		// file doesn't need splitting, but chunk is full - use empty sentinel
-		return 0, &SplitFile{}, nil
+		if !firstFile {
+			// file doesn't need splitting, but chunk is full - defer to next chunk
+			return 0, &SplitFile{}, nil
+		}
+		// firstFile and below split threshold: write it whole so the chunk is not empty
 	}
 
 	f, err := os.Open(absPath)
