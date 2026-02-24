@@ -46,7 +46,7 @@ func TestShard_IllegalStateForTransfer(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
+		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName, nil)
 		require.Nil(t, err)
 		require.Equal(t, amount, len(objs))
 	})
@@ -143,7 +143,7 @@ func TestShard_HaltingBeforeTransfer(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
+		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName, nil)
 		require.Nil(t, err)
 		require.Equal(t, amount, len(objs))
 	})
@@ -203,7 +203,7 @@ func TestShard_ConcurrentTransfers(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
+		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName, nil)
 		require.Nil(t, err)
 		require.Equal(t, amount, len(objs))
 	})
