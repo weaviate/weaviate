@@ -24,7 +24,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type BrokerTokenSource struct {
+type AuthBrokerTokenSource struct {
 	endpoint string
 	client   *http.Client
 }
@@ -32,19 +32,19 @@ type BrokerTokenSource struct {
 const maxRetries = 3
 
 var (
-	_                 oauth2.TokenSource = (*BrokerTokenSource)(nil)
-	httpClientTimeout                    = 5 * time.Second
-	ErrRetryable                         = errors.New("retryable error from auth broker")
+	_                      oauth2.TokenSource = (*AuthBrokerTokenSource)(nil)
+	httpClientTimeout                         = 5 * time.Second
+	ErrRetryableAuthBroker                    = errors.New("retryable error from auth broker")
 )
 
-type BrokerToken struct {
+type AuthBrokerToken struct {
 	AccessToken string    `json:"access_token"`
 	Expiry      time.Time `json:"expiry"`
 	TokenType   string    `json:"token_type"`
 }
 
-func NewAuthBrokerTokenSource(endpoint string) *BrokerTokenSource {
-	return &BrokerTokenSource{
+func NewAuthBrokerTokenSource(endpoint string) *AuthBrokerTokenSource {
+	return &AuthBrokerTokenSource{
 		endpoint: endpoint,
 		client: &http.Client{
 			Timeout: httpClientTimeout,
@@ -52,7 +52,7 @@ func NewAuthBrokerTokenSource(endpoint string) *BrokerTokenSource {
 	}
 }
 
-func (b *BrokerTokenSource) Token() (*oauth2.Token, error) {
+func (b *AuthBrokerTokenSource) Token() (*oauth2.Token, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -64,7 +64,7 @@ func (b *BrokerTokenSource) Token() (*oauth2.Token, error) {
 	return b.fetchTokenWithRetry(ctx, identityToken)
 }
 
-func (b *BrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identityToken string) (*oauth2.Token, error) {
+func (b *AuthBrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identityToken string) (*oauth2.Token, error) {
 	backoff := gax.Backoff{
 		Initial:    200 * time.Millisecond,
 		Max:        2 * time.Second,
@@ -72,14 +72,14 @@ func (b *BrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identityTok
 	}
 
 	var err error
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for range maxRetries {
 		var tok *oauth2.Token
 		tok, err = b.fetchToken(ctx, identityToken)
 		if err == nil {
 			return tok, nil
 		}
 
-		if !errors.Is(err, ErrRetryable) {
+		if !errors.Is(err, ErrRetryableAuthBroker) {
 			return nil, err
 		}
 
@@ -91,29 +91,29 @@ func (b *BrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identityTok
 	return nil, err
 }
 
-func (b *BrokerTokenSource) fetchToken(ctx context.Context, identityToken string) (*oauth2.Token, error) {
+func (b *AuthBrokerTokenSource) fetchToken(ctx context.Context, identityToken string) (*oauth2.Token, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to created request to auth broker: %s", ErrRetryable, err)
+		return nil, fmt.Errorf("%w: failed to created request to auth broker: %s", ErrRetryableAuthBroker, err)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", identityToken))
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrRetryable, err)
+		return nil, fmt.Errorf("%w: %s", ErrRetryableAuthBroker, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("%w: auth broker returned status %d", ErrRetryable, resp.StatusCode)
+		return nil, fmt.Errorf("%w: auth broker returned status %d", ErrRetryableAuthBroker, resp.StatusCode)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("auth broker returned non-200 status: %d", resp.StatusCode)
 	}
 
-	var bt BrokerToken
+	var bt AuthBrokerToken
 	if err := json.NewDecoder(resp.Body).Decode(&bt); err != nil {
 		return nil, fmt.Errorf("failed to decode auth broker response: %w", err)
 	}
@@ -125,7 +125,7 @@ func (b *BrokerTokenSource) fetchToken(ctx context.Context, identityToken string
 	}, nil
 }
 
-func (b *BrokerTokenSource) getIdentityToken(ctx context.Context) (string, error) {
+func (b *AuthBrokerTokenSource) getIdentityToken(ctx context.Context) (string, error) {
 	if !metadata.OnGCE() {
 		return "", errors.New("cluster is not running on GCE/GKE")
 	}
