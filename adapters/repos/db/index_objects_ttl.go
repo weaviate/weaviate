@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/filters"
+	entfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
@@ -46,13 +46,13 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		return
 	}
 
-	filter := &filters.LocalFilter{Root: &filters.Clause{
-		Operator: filters.OperatorLessThanEqual,
-		Value: &filters.Value{
+	filter := &entfilters.LocalFilter{Root: &entfilters.Clause{
+		Operator: entfilters.OperatorLessThanEqual,
+		Value: &entfilters.Value{
 			Value: ttlThreshold,
 			Type:  schema.DataTypeDate,
 		},
-		On: &filters.Path{
+		On: &entfilters.Path{
 			Class:    schema.ClassName(class.Class),
 			Property: schema.PropertyName(deleteOnPropName),
 		},
@@ -290,7 +290,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
 }
 
 func (i *Index) findUUIDsForExpiredObjects(ctx context.Context,
-	filters *filters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
+	filters *entfilters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
 	perShardLimit int,
 ) (shards2uuids map[string][]strfmt.UUID, err error) {
 	i.metrics.IncObjectsTtlFindUuidsCount()
