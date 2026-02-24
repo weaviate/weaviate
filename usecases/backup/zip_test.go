@@ -57,7 +57,7 @@ func TestZip(t *testing.T) {
 			var zInputLen int64
 			go func() {
 				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
-				zInputLen, err = z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
+				zInputLen, _, err = z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				if err != nil {
 					t.Errorf("compress: %v", err)
 				}
@@ -371,7 +371,7 @@ func TestWriteRegularsFillsChunkWithSmallFiles(t *testing.T) {
 	var writeErr error
 	var written int64
 	go func() {
-		written, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
+		written, _, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
 		z.Close()
 	}()
 
@@ -435,7 +435,7 @@ func TestBigFileGetsOwnChunk(t *testing.T) {
 	preCompSize := &atomic.Int64{}
 	var writeErr error
 	go func() {
-		_, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
+		_, _, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
 		z.Close()
 	}()
 
@@ -467,7 +467,7 @@ func TestBigFileGetsOwnChunk(t *testing.T) {
 	require.NoError(t, err)
 	preCompSize2 := &atomic.Int64{}
 	go func() {
-		_, writeErr = z2.WriteRegulars(context.Background(), &sd, fileList, preCompSize2, "chunk2")
+		_, _, writeErr = z2.WriteRegulars(context.Background(), &sd, fileList, preCompSize2, "chunk2")
 		z2.Close()
 	}()
 
@@ -571,7 +571,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 			require.NoError(t, err)
 			go func() {
 				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
-				_, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
+				_, _, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				require.NoError(t, err)
 				require.NoError(t, z.Close())
 			}()
