@@ -1812,8 +1812,8 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		// as it is not currently tracking deletions
 		avg, count := seg.getInvertedData().avgPropertyLengthsAvg, seg.getInvertedData().avgPropertyLengthsCount
 		if count > 0 {
-			b.disk.averagePropSum = uint64(avg * float64(count))
-			b.disk.averagePropCount = count
+			b.disk.averagePropSum += uint64(avg * float64(count))
+			b.disk.averagePropCount += count
 		}
 	}
 
