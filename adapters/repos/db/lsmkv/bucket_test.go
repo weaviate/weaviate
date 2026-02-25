@@ -1989,11 +1989,12 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 	}
 
 	m := &Memtable{
-		strategy:   StrategyInverted,
-		keyMap:     &binarySearchTreeMap{},
-		commitlog:  newDummyCommitLogger(),
-		metrics:    metrics,
-		tombstones: sroar.NewBitmap(),
+		strategy:         StrategyInverted,
+		keyMap:           &binarySearchTreeMap{},
+		commitlog:        newDummyCommitLogger(),
+		metrics:          metrics,
+		tombstones:       sroar.NewBitmap(),
+		propLengthExists: sroar.NewBitmap(),
 	}
 
 	for k, v := range initialData {
@@ -2229,7 +2230,7 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 		duplicateTextBoosts[0] = 1
 		diskTerms := make([][]*SegmentBlockMax, 0, len(segments))
 		for _, segment := range segments {
-			bmws := segment.newSegmentBlockMax(mapKey, 0, 1, 1, nil, nil, 3, bm25config)
+			bmws := segment.newSegmentBlockMax(mapKey, 0, 1, 1, nil, nil, nil, 3, bm25config)
 			diskTerms = append(diskTerms, []*SegmentBlockMax{bmws})
 		}
 

@@ -102,6 +102,11 @@ type SegmentGroup struct {
 	writeMetadata                  bool
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
+	// Store the average property length for segments in this sg,
+	// to be used for BM25 scoring.
+	// This avoids recalculating the average property length for each segment during scoring.
+	averagePropSum   uint64
+	averagePropCount uint64
 }
 
 type sgConfig struct {
@@ -454,6 +459,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 	switch sg.strategy {
 	case StrategyInverted:
+		if len(sg.segments) == 0 {
+			break
+		}
+		avg, count := sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsAvg, sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsCount
+
+		if count > 0 {
+			sg.averagePropSum = uint64(avg * float64(count))
+			sg.averagePropCount = count
+		}
 		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
@@ -463,6 +477,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			}
 			if _, err := sg.segments[i].MergeTombstones(tombstonesNext); err != nil {
 				return nil, fmt.Errorf("init segment %s: merge tombstones %w", sg.segments[i].getPath(), err)
+			}
+
+			avg, count := sg.segments[i].getInvertedData().avgPropertyLengthsAvg, sg.segments[i].getInvertedData().avgPropertyLengthsCount
+
+			if count > 0 {
+				sg.averagePropSum += uint64(avg * float64(count))
+				sg.averagePropCount += count
 			}
 		}
 
@@ -939,28 +960,8 @@ func (sg *SegmentGroup) Len() int {
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
-	segments, release := sg.getConsistentViewOfSegments()
-	defer release()
-
-	if len(segments) == 0 {
+	if sg.averagePropCount == 0 {
 		return 0, 0
 	}
-
-	totalDocCount := uint64(0)
-	for _, segment := range segments {
-		invertedData := segment.getInvertedData()
-		totalDocCount += invertedData.avgPropertyLengthsCount
-	}
-
-	if totalDocCount == 0 {
-		return defaultAveragePropLength, 0
-	}
-
-	weightedAverage := 0.0
-	for _, segment := range segments {
-		invertedData := segment.getInvertedData()
-		weightedAverage += float64(invertedData.avgPropertyLengthsCount) / float64(totalDocCount) * invertedData.avgPropertyLengthsAvg
-	}
-
-	return weightedAverage, totalDocCount
+	return float64(sg.averagePropSum) / float64(sg.averagePropCount), sg.averagePropCount
 }

@@ -66,7 +66,7 @@ type memtable interface {
 
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	SetTombstone(docId uint64) error
-	GetPropLengths() (uint64, uint64, error)
+	GetPropLengths() (uint64, uint64)
 
 	newCursor() innerCursorReplace
 	newBlockingCursor() (innerCursorReplace, func())
@@ -147,6 +147,10 @@ type Memtable struct {
 	// function to decide whether a key should be skipped
 	// during flush for the SetCollection strategy
 	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)
+	// Keep track of the current prop length count and sum in the memtable,
+	// so that we don't have to compute it from scratch for search, flush and compaction.
+	currPropLengthCount, currPropLengthSum uint64
+	propLengthExists                       *sroar.Bitmap
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
@@ -190,6 +194,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 
 	if m.strategy == StrategyInverted {
 		m.tombstones = sroar.NewBitmap()
+		m.propLengthExists = sroar.NewBitmap()
 	}
 
 	return m, nil
@@ -506,6 +511,15 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
+	if m.strategy == StrategyInverted && !pair.Tombstone {
+		docID := binary.LittleEndian.Uint64(pair.Key)
+		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
+		if m.propLengthExists.Set(docID) {
+			m.currPropLengthSum += uint64(fieldLength)
+			m.currPropLengthCount++
+		}
+	}
+
 	return nil
 }
 
@@ -591,34 +605,13 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
+	m.propLengthExists.Remove(docId)
 
 	return nil
 }
 
-func (m *Memtable) GetPropLengths() (uint64, uint64, error) {
-	m.RLock()
-	flatA := m.keyMap.flattenInOrder()
-	m.RUnlock()
-
-	docIdsLengths := make(map[uint64]uint32)
-	propLengthSum := uint64(0)
-	propLengthCount := uint64(0)
-
-	for _, mapNode := range flatA {
-		for j := range mapNode.values {
-			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
-			if !mapNode.values[j].Tombstone {
-				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
-				if _, ok := docIdsLengths[docId]; !ok {
-					propLengthSum += uint64(fieldLength)
-					propLengthCount++
-				}
-				docIdsLengths[docId] = uint32(fieldLength)
-			}
-		}
-	}
-
-	return propLengthSum, propLengthCount, nil
+func (m *Memtable) GetPropLengths() (uint64, uint64) {
+	return m.currPropLengthSum, m.currPropLengthCount
 }
 
 func (m *Memtable) incWriterCount() {
