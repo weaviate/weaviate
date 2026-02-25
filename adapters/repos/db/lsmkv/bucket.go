@@ -2154,7 +2154,7 @@ func (b *Bucket) GetAveragePropertyLength() (float64, uint64) {
 	propLengthSum := uint64(0)
 
 	// fix potential race with buckets flushing
-	func() error {
+	func() {
 		b.flushLock.RLock()
 		defer b.flushLock.RUnlock()
 		if b.flushing != nil {
@@ -2167,7 +2167,6 @@ func (b *Bucket) GetAveragePropertyLength() (float64, uint64) {
 			propLengthCount += propLengthCount2
 			propLengthSum += propLengthSum2
 		}
-		return nil
 	}()
 
 	// weighted average of m.averagePropLength and the average of the current flush
