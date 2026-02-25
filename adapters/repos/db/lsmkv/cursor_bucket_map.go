@@ -23,11 +23,12 @@ import (
 )
 
 type CursorMap struct {
-	innerCursors []innerCursorMap
-	state        []cursorStateMap
-	unlock       func()
-	listCfg      MapListOptionConfig
-	keyOnly      bool
+	innerCursors      []innerCursorMap
+	state             []cursorStateMap
+	unlock            func()
+	listCfg           MapListOptionConfig
+	keyOnly           bool
+	pendingAdvanceIDs []int // cursor IDs whose advance was deferred from the previous return
 }
 
 type cursorStateMap struct {
@@ -94,6 +95,7 @@ func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
+	c.pendingAdvanceIDs = c.pendingAdvanceIDs[:0]
 	c.seekAll(key)
 	return c.serveCurrentStateAndAdvance(ctx)
 }
@@ -103,6 +105,7 @@ func (c *CursorMap) Next(ctx context.Context) ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) First(ctx context.Context) ([]byte, []MapPair) {
+	c.pendingAdvanceIDs = c.pendingAdvanceIDs[:0]
 	c.firstAll()
 	return c.serveCurrentStateAndAdvance(ctx)
 }
@@ -156,6 +159,15 @@ func (c *CursorMap) firstAll() {
 }
 
 func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []MapPair) {
+	// Apply deferred cursor advances from the previous return. Inner cursors
+	// that reuse buffers (e.g. segmentCursorInvertedReusable) overwrite their
+	// Key/Value data on next(), so the advance must be deferred until the
+	// caller has consumed the previously returned data.
+	for _, id := range c.pendingAdvanceIDs {
+		c.advanceInner(id)
+	}
+	c.pendingAdvanceIDs = c.pendingAdvanceIDs[:0]
+
 	for {
 		id, err := c.cursorWithLowestKey()
 		if err != nil {
@@ -175,8 +187,6 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 		for _, id := range ids {
 			candidates := c.state[id].value
 			perSegmentResults = append(perSegmentResults, candidates)
-
-			c.advanceInner(id)
 		}
 
 		if c.listCfg.legacyRequireManualSorting {
@@ -192,10 +202,19 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 		if err != nil {
 			panic(fmt.Errorf("unexpected error decoding map values: %w", err))
 		}
+
 		if len(merged) == 0 {
-			// all values deleted, proceed
+			// All values deleted. Safe to advance now since the data is discarded.
+			for _, id := range ids {
+				c.advanceInner(id)
+			}
 			continue
 		}
+
+		// Defer cursor advancement until the next call so the caller can
+		// consume the returned Key/Value data before reusable buffers are
+		// overwritten.
+		c.pendingAdvanceIDs = append(c.pendingAdvanceIDs, ids...)
 
 		// TODO remove keyOnly option, not used anyway
 		if !c.keyOnly {
