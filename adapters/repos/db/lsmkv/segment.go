@@ -137,6 +137,8 @@ type segment struct {
 	refCount         int
 
 	deleteMarkerSuffix string
+
+	secTombstones bool // cached result of segmentHasSecondaryTombstones(path)
 }
 
 type diskIndex interface {
@@ -357,6 +359,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		unMapContents:      unMapContents,
 		observeMetaWrite:   func(n int64) { observeWrite.Observe(float64(n)) },
 		deleteMarkerSuffix: fmt.Sprintf(".%013d%s", cfg.deleteMarkerCounter, DeleteMarkerSuffix),
+		secTombstones:      segmentHasSecondaryTombstones(path),
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -607,6 +610,7 @@ func (s *segment) getPath() string {
 
 func (s *segment) setPath(path string) {
 	s.path = path
+	s.secTombstones = segmentHasSecondaryTombstones(path)
 }
 
 func (s *segment) getStrategy() segmentindex.Strategy {
@@ -621,7 +625,7 @@ func segmentHasSecondaryTombstones(path string) bool {
 }
 
 func (s *segment) hasSecondaryTombstones() bool {
-	return segmentHasSecondaryTombstones(s.path)
+	return s.secTombstones
 }
 
 func (s *segment) getSecondaryIndexCount() uint16 {
