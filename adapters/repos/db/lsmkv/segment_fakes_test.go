@@ -424,7 +424,7 @@ func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) e
 	return nil
 }
 
-func (s *fakeSegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+func (s *fakeSegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	// we're taking a bit of a creative route to make this work with a fake
 	// segment. We have existing functions to create a SegmentBlockMax from a
 	// memtable which are used with real memtables. So if we convert the fake
