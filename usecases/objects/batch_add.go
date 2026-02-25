@@ -90,6 +90,10 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	var maxSchemaVersion uint64
+	for _, vc := range fetchedClasses {
+		maxSchemaVersion = max(maxSchemaVersion, vc.Version)
+	}
+
 	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
 	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 
