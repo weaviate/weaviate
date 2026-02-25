@@ -508,10 +508,9 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	if m.strategy == StrategyInverted && !pair.Tombstone {
 		docID := binary.LittleEndian.Uint64(pair.Key)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
-		if !m.propLengthExists.Contains(docID) {
+		if m.propLengthExists.Set(docID) {
 			m.currPropLengthSum += uint64(fieldLength)
 			m.currPropLengthCount++
-			m.propLengthExists.Set(docID)
 		}
 	}
 
