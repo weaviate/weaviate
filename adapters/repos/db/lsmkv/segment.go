@@ -93,11 +93,16 @@ type Segment interface {
 	getCountNetAdditions() int
 	existsKey(key []byte) (bool, error)
 
-	// hasSecondaryTombstones reports whether this segment was written after the
-	// change that ensures every tombstone also carries a secondary-key tombstone
-	// (indicated by the ".d1" marker in the segment filename).  When true, a
-	// secondary-key lookup into this segment can skip the extra primary-key
-	// existence check because the secondary index itself will carry a tombstone.
+	// hasSecondaryTombstones reports whether this segment carries the ".d1"
+	// marker in its filename. The "d" stands for "delete format", following
+	// the same single-letter-plus-number convention used for level ("l0")
+	// and strategy ("s0"), so a filename reads e.g. ".l0.s0.d1".
+	//
+	//   d0 (implicit, no marker): original format — a delete may only write
+	//       a primary-key tombstone. Secondary lookups need the
+	//       existsWithConsistentView recheck to catch these.
+	//   d1: every tombstone also carries a secondary-key tombstone, so
+	//       secondary lookups can skip the primary-key recheck.
 	hasSecondaryTombstones() bool
 }
 
