@@ -1538,7 +1538,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -1558,7 +1558,7 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -1704,7 +1704,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return false, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -2248,7 +2248,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard not found", shardName))
+		return nil, nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -2620,7 +2620,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -2882,7 +2882,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	defer release()
 
 	if shard == nil {
-		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return 0, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -2945,7 +2945,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	defer release()
 
 	if shard == nil {
-		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return "", fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -3049,7 +3049,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {

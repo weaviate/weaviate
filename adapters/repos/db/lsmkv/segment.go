@@ -87,7 +87,7 @@ type Segment interface {
 	getDocCount(key []byte) uint64
 	getPropertyLengths() (map[uint64]uint32, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
-	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
 	// replace specific
 	getCountNetAdditions() int

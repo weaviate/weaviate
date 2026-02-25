@@ -954,7 +954,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
+	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
