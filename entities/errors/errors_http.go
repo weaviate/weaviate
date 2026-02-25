@@ -15,24 +15,12 @@ type ErrUnprocessable struct {
 	err error
 }
 
-type ErrShardNotReady struct {
-	err error
-}
-
 func (e ErrUnprocessable) Error() string {
 	return e.err.Error()
 }
 
 func NewErrUnprocessable(err error) ErrUnprocessable {
 	return ErrUnprocessable{err}
-}
-
-func (e ErrShardNotReady) Error() string {
-	return e.err.Error()
-}
-
-func NewErrShardNotReady(err error) ErrShardNotReady {
-	return ErrShardNotReady{err}
 }
 
 type ErrNotFound struct {
