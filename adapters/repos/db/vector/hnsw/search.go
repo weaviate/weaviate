@@ -235,10 +235,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		took := time.Since(start)
 		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("knn_search_layer_%d_took", level), took)
 	}()
-	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	visitedExp := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
+	h.pools.visitedSetsLock.RLock()
+	visited := h.pools.visitedSets.Borrow()
+	visitedExp := h.pools.visitedSets.Borrow()
+	h.pools.visitedSetsLock.RUnlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -254,7 +254,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	}
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
-		results, level, visited, allowList)
+		results, level, &visited, allowList)
 
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	var worstResultDistance float32
@@ -285,9 +285,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
-			h.pools.visitedListsLock.RLock()
-			h.pools.visitedLists.Return(visited)
-			h.pools.visitedListsLock.RUnlock()
+			h.pools.visitedSetsLock.RLock()
+			h.pools.visitedSets.Return(visited)
+			h.pools.visitedSetsLock.RUnlock()
 
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
 			return nil, err
@@ -498,10 +498,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				} else {
-					h.pools.visitedListsLock.RLock()
-					h.pools.visitedLists.Return(visited)
-					h.pools.visitedLists.Return(visitedExp)
-					h.pools.visitedListsLock.RUnlock()
+					h.pools.visitedSetsLock.RLock()
+					h.pools.visitedSets.Return(visited)
+					h.pools.visitedSets.Return(visitedExp)
+					h.pools.visitedSetsLock.RUnlock()
 					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
 			}
@@ -560,22 +560,22 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedLists.Return(visitedExp)
-	h.pools.visitedListsLock.RUnlock()
+	h.pools.visitedSetsLock.RLock()
+	h.pools.visitedSets.Return(visited)
+	h.pools.visitedSets.Return(visitedExp)
+	h.pools.visitedSetsLock.RUnlock()
 
 	return results, nil
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedSet *visited.FastSet, allowList helpers.AllowList,
 ) {
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
-		visitedList.Visit(ep.ID)
+		visitedSet.Visit(ep.ID)
 		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
 			// we are on the lowest level containing the actual candidates and we
