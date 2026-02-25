@@ -104,8 +104,8 @@ type SegmentGroup struct {
 	// Store the average property length for segments in this sg,
 	// to be used for BM25 scoring.
 	// This avoids recalculating the average property length for each segment during scoring.
-	averagePropSum   uint64
-	averagePropCount uint64
+	averagePropSum   atomic.Uint64
+	averagePropCount atomic.Uint64
 }
 
 type sgConfig struct {
@@ -462,8 +462,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		avg, count := sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsAvg, sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsCount
 
 		if count > 0 {
-			sg.averagePropSum = uint64(avg * float64(count))
-			sg.averagePropCount = count
+			sg.averagePropSum.Store(uint64(avg * float64(count)))
+			sg.averagePropCount.Store(count)
 		}
 		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
@@ -479,8 +479,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			avg, count := sg.segments[i].getInvertedData().avgPropertyLengthsAvg, sg.segments[i].getInvertedData().avgPropertyLengthsCount
 
 			if count > 0 {
-				sg.averagePropSum += uint64(avg * float64(count))
-				sg.averagePropCount += count
+				sg.averagePropSum.Add(uint64(avg * float64(count)))
+				sg.averagePropCount.Add(count)
 			}
 		}
 
@@ -957,8 +957,10 @@ func (sg *SegmentGroup) Len() int {
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
-	if sg.averagePropCount == 0 {
+	count := sg.averagePropCount.Load()
+	if count == 0 {
 		return 0, 0
 	}
-	return float64(sg.averagePropSum) / float64(sg.averagePropCount), sg.averagePropCount
+	sum := sg.averagePropSum.Load()
+	return float64(sum) / float64(count), count
 }
