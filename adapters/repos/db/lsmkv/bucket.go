@@ -1439,12 +1439,28 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
+	b.flushLock.Lock()
 	if b.active.getStrategy() == StrategyInverted {
-		avgPropLength, propLengthCount := b.GetAveragePropertyLength()
+
+		// we need to calculate it outside of b.GetAveragePropertyLength()
+		// to avoid locking flushLock twice
+		propLengthSum, propLengthCount := b.getMemtablePropertyLengths()
+
+		// weighted average of m.averagePropLength and the average of the current flush
+		// averaged by propLengthCount and m.propLengthCount
+		segmentAveragePropLength, segmentPropCount := b.disk.GetAveragePropertyLength()
+
+		if segmentPropCount != 0 {
+			propLengthSum += uint64(segmentAveragePropLength * float64(segmentPropCount))
+			propLengthCount += segmentPropCount
+		}
+		avgPropLength := float64(0)
+		if propLengthCount != 0 {
+			avgPropLength = float64(propLengthSum) / float64(propLengthCount)
+		}
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
 
-	b.flushLock.Lock()
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
 			b.flushLock.Unlock()
@@ -2145,30 +2161,35 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	return n, nil
 }
 
+func (b *Bucket) getMemtablePropertyLengths() (uint64, uint64) {
+	// fix potential race with buckets flushing
+	propLengthCount := uint64(0)
+	propLengthSum := uint64(0)
+
+	if b.flushing != nil {
+		propLengthSum, propLengthCount = b.flushing.GetPropLengths()
+	}
+
+	// if the active memtable is inverted, we need to get the average property
+	if b.active != nil {
+		propLengthSum2, propLengthCount2 := b.active.GetPropLengths()
+		propLengthCount += propLengthCount2
+		propLengthSum += propLengthSum2
+	}
+	if propLengthCount == 0 {
+		return 0, 0
+	}
+	return propLengthSum, propLengthCount
+}
+
 func (b *Bucket) GetAveragePropertyLength() (float64, uint64) {
 	if b.strategy != StrategyInverted {
 		return 0, 0
 	}
 
-	propLengthCount := uint64(0)
-	propLengthSum := uint64(0)
-
-	// fix potential race with buckets flushing
-	func() {
-		b.flushLock.RLock()
-		defer b.flushLock.RUnlock()
-		if b.flushing != nil {
-			propLengthSum, propLengthCount = b.flushing.GetPropLengths()
-		}
-
-		// if the active memtable is inverted, we need to get the average property
-		if b.active != nil {
-			propLengthSum2, propLengthCount2 := b.active.GetPropLengths()
-			propLengthCount += propLengthCount2
-			propLengthSum += propLengthSum2
-		}
-	}()
-
+	b.flushLock.RLock()
+	propLengthSum, propLengthCount := b.getMemtablePropertyLengths()
+	b.flushLock.RUnlock()
 	// weighted average of m.averagePropLength and the average of the current flush
 	// averaged by propLengthCount and m.propLengthCount
 	segmentAveragePropLength, segmentPropCount := b.disk.GetAveragePropertyLength()
