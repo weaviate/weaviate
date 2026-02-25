@@ -32,6 +32,7 @@ type reqState struct {
 	Starttime      time.Time
 	ID             string
 	Status         backup.Status
+	Err            string
 	Path           string
 	OverrideBucket string
 	OverridePath   string
@@ -70,6 +71,7 @@ func (s *backupStat) reset() {
 	s.reqState.ID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
+	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
 	s.Unlock()
@@ -78,6 +80,18 @@ func (s *backupStat) reset() {
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
 	s.reqState.Status = st
+	s.Unlock()
+}
+
+// setErr sets both the status and error message atomically.
+// This is used when a backup fails to ensure the error is captured
+// before lastOp.reset() is called.
+func (s *backupStat) setErr(st backup.Status, err error) {
+	s.Lock()
+	s.reqState.Status = st
+	if err != nil {
+		s.reqState.Err = err.Error()
+	}
 	s.Unlock()
 }
 

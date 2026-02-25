@@ -81,6 +81,50 @@ func TestBackupOnStatus(t *testing.T) {
 		assert.Equal(t, want, st)
 	})
 
+	t.Run("ActiveStateWithError", func(t *testing.T) {
+		// This tests the scenario where a backup has failed but lastOp.reset()
+		// hasn't been called yet. The error should still be propagated.
+		errMsg := "copy: segment.db io: read/write on closed pipe"
+		m := createManager(nil, nil, nil, nil)
+		m.backupper.lastOp.reqState = reqState{
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Failed,
+			Err:       errMsg,
+			Path:      path,
+		}
+		want := &StatusResponse{
+			Method: OpCreate,
+			ID:     id,
+			Status: backup.Failed,
+			Err:    errMsg,
+		}
+		st := m.OnStatus(ctx, &req)
+		assert.Equal(t, want, st)
+	})
+
+	t.Run("ActiveStateWithCancelled", func(t *testing.T) {
+		// This tests the scenario where a backup has been cancelled but lastOp.reset()
+		// hasn't been called yet. The error and cancelled status should be propagated.
+		errMsg := "context canceled"
+		m := createManager(nil, nil, nil, nil)
+		m.backupper.lastOp.reqState = reqState{
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Cancelled,
+			Err:       errMsg,
+			Path:      path,
+		}
+		want := &StatusResponse{
+			Method: OpCreate,
+			ID:     id,
+			Status: backup.Cancelled,
+			Err:    errMsg,
+		}
+		st := m.OnStatus(ctx, &req)
+		assert.Equal(t, want, st)
+	})
+
 	t.Run("GetBackupProvider", func(t *testing.T) {
 		want := &StatusResponse{
 			Method: OpCreate,
