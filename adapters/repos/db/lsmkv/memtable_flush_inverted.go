@@ -81,6 +81,10 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		m.propLengthCount += propLengthCount
 	}
 
+	if math.IsNaN(m.averagePropLength) {
+		m.averagePropLength = 0
+	}
+
 	tombstoneBuffer := make([]byte, 0)
 	if !tombstones.IsEmpty() {
 		tombstoneBuffer = tombstones.ToBuffer()

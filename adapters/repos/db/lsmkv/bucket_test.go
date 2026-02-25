@@ -1989,11 +1989,12 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 	}
 
 	m := &Memtable{
-		strategy:   StrategyInverted,
-		keyMap:     &binarySearchTreeMap{},
-		commitlog:  newDummyCommitLogger(),
-		metrics:    metrics,
-		tombstones: sroar.NewBitmap(),
+		strategy:         StrategyInverted,
+		keyMap:           &binarySearchTreeMap{},
+		commitlog:        newDummyCommitLogger(),
+		metrics:          metrics,
+		tombstones:       sroar.NewBitmap(),
+		propLengthExists: sroar.NewBitmap(),
 	}
 
 	for k, v := range initialData {

@@ -1441,9 +1441,26 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 
 	b.flushLock.Lock()
 	if b.active.getStrategy() == StrategyInverted {
-		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
+
+		// we need to calculate it outside of b.GetAveragePropertyLength()
+		// to avoid locking flushLock twice
+		propLengthSum, propLengthCount := b.getMemtablePropertyLengths()
+
+		// weighted average of m.averagePropLength and the average of the current flush
+		// averaged by propLengthCount and m.propLengthCount
+		segmentAveragePropLength, segmentPropCount := b.disk.GetAveragePropertyLength()
+
+		if segmentPropCount != 0 {
+			propLengthSum += uint64(segmentAveragePropLength * float64(segmentPropCount))
+			propLengthCount += segmentPropCount
+		}
+		avgPropLength := float64(0)
+		if propLengthCount != 0 {
+			avgPropLength = float64(propLengthSum) / float64(propLengthCount)
+		}
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
+
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
 			b.flushLock.Unlock()
@@ -1805,6 +1822,15 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		if b.keepSegmentsInMemory {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
+	case StrategyInverted:
+		// update property length only on flush
+		// we don't need to do it on compactions,
+		// as it is not currently tracking deletions
+		avg, count := seg.getInvertedData().avgPropertyLengthsAvg, seg.getInvertedData().avgPropertyLengthsCount
+		if count > 0 {
+			b.disk.averagePropSum += uint64(avg * float64(count))
+			b.disk.averagePropCount += count
+		}
 	}
 
 	return nil
@@ -1949,12 +1975,9 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 		}
 	}()
+	var err error
 
-	averagePropLength, err := b.GetAveragePropertyLength()
-	if err != nil {
-		view.ReleaseView()
-		return nil, nil, func() {}, err
-	}
+	averagePropLength, _ := b.GetAveragePropertyLength()
 
 	// Synchronization was reworked as part of
 	// https://github.com/weaviate/weaviate/pull/9104.
@@ -1996,7 +2019,6 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 			n += n2
 
-			var err error
 			activeTombstones, err = view.Active.ReadOnlyTombstones()
 			if err != nil {
 				view.ReleaseView()
@@ -2137,30 +2159,35 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	return n, nil
 }
 
-func (b *Bucket) GetAveragePropertyLength() (float64, error) {
-	if b.strategy != StrategyInverted {
-		return 0, fmt.Errorf("active memtable is not inverted")
-	}
-
-	var err error
+func (b *Bucket) getMemtablePropertyLengths() (uint64, uint64) {
+	// fix potential race with buckets flushing
 	propLengthCount := uint64(0)
 	propLengthSum := uint64(0)
+
 	if b.flushing != nil {
-		propLengthSum, propLengthCount, err = b.flushing.GetPropLengths()
-		if err != nil {
-			return 0, err
-		}
+		propLengthSum, propLengthCount = b.flushing.GetPropLengths()
 	}
+
 	// if the active memtable is inverted, we need to get the average property
 	if b.active != nil {
-		propLengthSum2, propLengthCount2, err := b.active.GetPropLengths()
-		if err != nil {
-			return 0, err
-		}
+		propLengthSum2, propLengthCount2 := b.active.GetPropLengths()
 		propLengthCount += propLengthCount2
 		propLengthSum += propLengthSum2
 	}
+	if propLengthCount == 0 {
+		return 0, 0
+	}
+	return propLengthSum, propLengthCount
+}
 
+func (b *Bucket) GetAveragePropertyLength() (float64, uint64) {
+	if b.strategy != StrategyInverted {
+		return 0, 0
+	}
+
+	b.flushLock.RLock()
+	propLengthSum, propLengthCount := b.getMemtablePropertyLengths()
+	b.flushLock.RUnlock()
 	// weighted average of m.averagePropLength and the average of the current flush
 	// averaged by propLengthCount and m.propLengthCount
 	segmentAveragePropLength, segmentPropCount := b.disk.GetAveragePropertyLength()
@@ -2170,9 +2197,9 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		propLengthCount += segmentPropCount
 	}
 	if propLengthCount == 0 {
-		return 0, nil
+		return 0, 0
 	}
-	return float64(propLengthSum) / float64(propLengthCount), nil
+	return float64(propLengthSum) / float64(propLengthCount), propLengthCount
 }
 
 func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
