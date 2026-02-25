@@ -365,11 +365,11 @@ func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable
 }
 
 func (s *lazySegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64,
-	propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
+	propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
 	averagePropLength float64, config schema.BM25Config,
 ) *SegmentBlockMax {
 	s.mustLoad()
-	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
 }
 
 func (s *lazySegment) getDocCount(key []byte) uint64 {
