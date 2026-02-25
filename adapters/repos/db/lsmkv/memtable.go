@@ -311,6 +311,18 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 				return err
 			}
 		}
+		// When writeSegmentInfoIntoFileName is set, flushed segments get the
+		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
+		// That optimisation is only safe if every delete carries secondary
+		// tombstones, so enforce it here.
+		if m.writeSegmentInfoIntoFileName {
+			for i, sk := range secondaryKeys {
+				if sk == nil {
+					return fmt.Errorf("tombstone missing secondary key at index %d; "+
+						"buckets with secondary indices require all secondary keys on delete", i)
+				}
+			}
+		}
 	}
 	node := segmentReplaceNode{
 		primaryKey:          key,
@@ -356,6 +368,18 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		for _, opt := range opts {
 			if err := opt(secondaryKeys); err != nil {
 				return err
+			}
+		}
+		// When writeSegmentInfoIntoFileName is set, flushed segments get the
+		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
+		// That optimisation is only safe if every delete carries secondary
+		// tombstones, so enforce it here.
+		if m.writeSegmentInfoIntoFileName {
+			for i, sk := range secondaryKeys {
+				if sk == nil {
+					return fmt.Errorf("tombstone missing secondary key at index %d; "+
+						"buckets with secondary indices require all secondary keys on delete", i)
+				}
 			}
 		}
 	}

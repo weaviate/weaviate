@@ -2574,3 +2574,96 @@ func TestGetBySecondary_D1SkipsRecheck(t *testing.T) {
 		assert.Equal(t, []byte("value-01"), res)
 	})
 }
+
+// TestDeleteRequiresSecondaryKeysOnD1Buckets verifies that the runtime guard
+// in setTombstone / setTombstoneWith rejects deletes that omit secondary keys
+// when the bucket is configured with writeSegmentInfoIntoFileName (d1 segments).
+func TestDeleteRequiresSecondaryKeysOnD1Buckets(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Delete without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "tombstone missing secondary key at index 0")
+	})
+
+	t.Run("DeleteWith without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithKeepTombstones(true),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.DeleteWith([]byte("key-00"), time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "tombstone missing secondary key at index 0")
+	})
+
+	t.Run("Delete with secondary key succeeds", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"), WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		v, err := b.Get([]byte("key-00"))
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("Delete without secondary key is allowed on non-d1 bucket", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.NoError(t, err)
+	})
+}
