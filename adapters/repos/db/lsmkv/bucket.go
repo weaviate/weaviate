@@ -1959,6 +1959,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 		}
 	}()
+	var err error
 
 	averagePropLength, _ := b.GetAveragePropertyLength()
 
@@ -2002,7 +2003,6 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 			n += n2
 
-			var err error
 			activeTombstones, err = view.Active.ReadOnlyTombstones()
 			if err != nil {
 				view.ReleaseView()
