@@ -71,14 +71,15 @@ func totalSegmentFileCount(ctx context.Context, c testcontainers.Container, col,
 	return count
 }
 
-// reExplicitLevel matches e.g. ".l3.s2.db" or ".l3.s2.db.TIMESTAMP.deleteme"
-var reExplicitLevel = regexp.MustCompile(`\.l(\d+)\.s\d+\.db(\..*\.deleteme)?$`)
+// reExplicitLevel matches e.g. ".l3.s2.db", ".l3.s2.d1.db", or ".l3.s2.d1.db.TIMESTAMP.deleteme"
+var reExplicitLevel = regexp.MustCompile(`\.l(\d+)\.s\d+(\.d1)?\.db(\..*\.deleteme)?$`)
 
 // segmentLevel parses the compaction level from a segment filename.
 //
-//	segment-{nanos}.db                → 0
-//	segment-{id1}_{id2}.db            → 1
-//	segment-{id1}_{id2}.l{N}.s{M}.db  → N
+//	segment-{nanos}.db                    → 0
+//	segment-{id1}_{id2}.db                → 1
+//	segment-{id1}_{id2}.l{N}.s{M}.db      → N
+//	segment-{id1}_{id2}.l{N}.s{M}.d1.db   → N
 func segmentLevel(name string) int {
 	if m := reExplicitLevel.FindStringSubmatch(name); m != nil {
 		level := 0
