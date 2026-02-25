@@ -535,25 +535,6 @@ func newCompactorInvertedBuffers() compactorInvertedBuffers {
 	}
 }
 
-// extractTombstonesInPlace is like extractTombstones but compacts in-place
-// instead of allocating a new slice. The input slice is modified.
-func extractTombstonesInPlace(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
-	out := sroar.NewBitmap()
-	writeIdx := 0
-	for readIdx := 0; readIdx < len(nodes); readIdx++ {
-		if nodes[readIdx].Tombstone {
-			id := binary.BigEndian.Uint64(nodes[readIdx].Key)
-			out.Set(id)
-		} else {
-			if writeIdx != readIdx {
-				nodes[writeIdx] = nodes[readIdx]
-			}
-			writeIdx++
-		}
-	}
-	return out, nodes[:writeIdx]
-}
-
 // filterTombstonesInPlace removes tombstoned entries in-place without creating
 // a bitmap. Used in the compaction encode path where the bitmap is not needed
 // (tombstones are tracked separately by the compactor).
