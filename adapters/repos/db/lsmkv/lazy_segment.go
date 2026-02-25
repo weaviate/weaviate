@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -154,7 +155,7 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 // hasSecondaryTombstones is resolved directly from the path without loading
 // the segment, matching the same fast-path pattern as getLevel/getStrategy.
 func (s *lazySegment) hasSecondaryTombstones() bool {
-	return strings.Contains(s.path, ".d1.")
+	return strings.Contains(filepath.Base(s.path), ".d1.")
 }
 
 func (s *lazySegment) getLevel() uint16 {

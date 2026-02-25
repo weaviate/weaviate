@@ -614,7 +614,7 @@ func (s *segment) getStrategy() segmentindex.Strategy {
 }
 
 func (s *segment) hasSecondaryTombstones() bool {
-	return strings.Contains(s.path, ".d1.")
+	return strings.Contains(filepath.Base(s.path), ".d1.")
 }
 
 func (s *segment) getSecondaryIndexCount() uint16 {
