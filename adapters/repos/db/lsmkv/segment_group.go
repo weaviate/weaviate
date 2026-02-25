@@ -294,7 +294,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			// (the output of the interrupted compaction), not from the original
 			// right segment, so the final filename reflects what the file contains.
 			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1],
-				segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy, rightSegmentMetadata.SecondaryIndexCount, strings.Contains(entry, ".d1.")))
+				segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy, segmentHasSecondaryTombstones(entry)))
 		} else {
 			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
 		}

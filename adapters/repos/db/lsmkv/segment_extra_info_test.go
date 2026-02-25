@@ -21,34 +21,20 @@ import (
 func TestSegmentExtraInfo(t *testing.T) {
 	strategy := segmentindex.StrategyReplace
 
-	t.Run("no secondary indices, no tombstones", func(t *testing.T) {
-		result := segmentExtraInfo(0, strategy, 0, false)
+	t.Run("no secondary tombstones", func(t *testing.T) {
+		result := segmentExtraInfo(0, strategy, false)
 		assert.Equal(t, ".l0.s0", result)
 		assert.NotContains(t, result, ".d1")
 	})
 
-	t.Run("no secondary indices, has tombstones", func(t *testing.T) {
-		// Even with hasSecondaryTombstones=true, the marker is not written
-		// when the bucket has no secondary indices.
-		result := segmentExtraInfo(0, strategy, 0, true)
-		assert.Equal(t, ".l0.s0", result)
-		assert.NotContains(t, result, ".d1")
-	})
-
-	t.Run("has secondary indices, no tombstones", func(t *testing.T) {
-		result := segmentExtraInfo(0, strategy, 1, false)
-		assert.Equal(t, ".l0.s0", result)
-		assert.NotContains(t, result, ".d1")
-	})
-
-	t.Run("has secondary indices, has tombstones", func(t *testing.T) {
-		result := segmentExtraInfo(0, strategy, 1, true)
+	t.Run("has secondary tombstones", func(t *testing.T) {
+		result := segmentExtraInfo(0, strategy, true)
 		assert.Equal(t, ".l0.s0.d1", result)
 		assert.Contains(t, result, ".d1")
 	})
 
 	t.Run("level and strategy are encoded", func(t *testing.T) {
-		result := segmentExtraInfo(3, segmentindex.StrategyReplace, 2, true)
+		result := segmentExtraInfo(3, segmentindex.StrategyReplace, true)
 		assert.Equal(t, ".l3.s0.d1", result)
 	})
 }

@@ -613,8 +613,15 @@ func (s *segment) getStrategy() segmentindex.Strategy {
 	return s.strategy
 }
 
+// segmentHasSecondaryTombstones checks whether a segment path carries the
+// ".d1" (delete format version 1) marker, indicating that every tombstone in
+// the segment also has a secondary-key tombstone.
+func segmentHasSecondaryTombstones(path string) bool {
+	return strings.Contains(filepath.Base(path), ".d1.")
+}
+
 func (s *segment) hasSecondaryTombstones() bool {
-	return strings.Contains(filepath.Base(s.path), ".d1.")
+	return segmentHasSecondaryTombstones(s.path)
 }
 
 func (s *segment) getSecondaryIndexCount() uint16 {

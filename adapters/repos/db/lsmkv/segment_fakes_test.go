@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -406,7 +405,7 @@ func (s *fakeSegment) existsKey(key []byte) (bool, error) {
 }
 
 func (s *fakeSegment) hasSecondaryTombstones() bool {
-	return strings.Contains(s.path, ".d1.")
+	return segmentHasSecondaryTombstones(s.path)
 }
 
 func (s *fakeSegment) exists(key []byte) error {

@@ -264,14 +264,16 @@ func segmentID(path string) string {
 }
 
 // segmentExtraInfo returns the extra filename components for a segment,
-// encoding the level, strategy, and optionally the secondary-tombstone format.
-// When hasSecondaryTombstones is true and the segment has secondary indices,
-// ".d1" is appended, indicating that every tombstone in the segment also
-// carries a secondary-key tombstone, so callers can skip the extra primary-key
-// existence check on secondary lookups. The marker is only written for buckets
-// with secondary indices (e.g. the objects bucket).
-func segmentExtraInfo(level uint16, strategy segmentindex.Strategy, secondaryIndexCount uint16, hasSecondaryTombstones bool) string {
-	if hasSecondaryTombstones && secondaryIndexCount > 0 {
+// encoding the level, strategy, and optionally the secondary-tombstone marker.
+//
+// The ".d1" suffix stands for "delete format version 1": it indicates that
+// every tombstone in the segment also carries a secondary-key tombstone, so
+// GetBySecondary can skip the expensive primary-key existence recheck. The
+// marker is only meaningful for buckets with secondary indices (e.g. the
+// objects bucket). Segments without the marker (implicitly "d0") rely on the
+// existsWithConsistentView fallback to detect primary-only tombstones.
+func segmentExtraInfo(level uint16, strategy segmentindex.Strategy, hasSecondaryTombstones bool) string {
+	if hasSecondaryTombstones {
 		return fmt.Sprintf(".l%d.s%d.d1", level, strategy)
 	}
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
@@ -374,7 +376,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		// tombstones are never cleaned up and will persist through
 		// compaction into d1 segments. This is safe for the reason above.
 		secTombstones := left.hasSecondaryTombstones() || right.hasSecondaryTombstones()
-		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + segmentExtraInfo(level, strategy, secondaryIndices, secTombstones) + ".db.tmp"
+		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + segmentExtraInfo(level, strategy, secTombstones) + ".db.tmp"
 	} else {
 		filename = "segment-" + segmentID(leftPath) + "_" + segmentID(rightPath) + ".db.tmp"
 	}
