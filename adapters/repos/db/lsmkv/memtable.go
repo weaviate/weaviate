@@ -151,12 +151,20 @@ type Memtable struct {
 	skipSecondaryKeyCheck bool
 }
 
-func newMemtable(path string, strategy string, secondaryIndices uint16,
-	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool,
-	allocChecker memwatch.AllocChecker, skipSecondaryKeyCheck bool,
+type memtableConfig struct {
+	path                         string
+	strategy                     string
+	secondaryIndices             uint16
+	enableChecksumValidation     bool
+	writeSegmentInfoIntoFileName bool
+	skipSecondaryKeyCheck        bool
+	bm25config                   *models.BM25Config
+}
+
+func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
+	allocChecker memwatch.AllocChecker, config memtableConfig,
 ) (*Memtable, error) {
-	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(path), strategy)
+	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(config.path), config.strategy)
 	if err != nil {
 		return nil, fmt.Errorf("init memtable metrics: %w", err)
 	}
@@ -169,16 +177,16 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
 		commitlog:                    cl,
-		path:                         path,
-		strategy:                     strategy,
-		secondaryIndices:             secondaryIndices,
+		path:                         config.path,
+		strategy:                     config.strategy,
+		secondaryIndices:             config.secondaryIndices,
 		dirtyAt:                      time.Time{},
 		createdAt:                    time.Now(),
 		metrics:                      memtableMetrics,
-		enableChecksumValidation:     enableChecksumValidation,
-		bm25config:                   bm25config,
-		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
-		skipSecondaryKeyCheck:        skipSecondaryKeyCheck,
+		enableChecksumValidation:     config.enableChecksumValidation,
+		bm25config:                   config.bm25config,
+		writeSegmentInfoIntoFileName: config.writeSegmentInfoIntoFileName,
+		skipSecondaryKeyCheck:        config.skipSecondaryKeyCheck,
 	}
 
 	if m.secondaryIndices > 0 {
