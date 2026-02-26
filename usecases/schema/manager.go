@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -69,6 +70,12 @@ type SchemaGetter interface {
 	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
+}
+
+type TenantsActivityManager interface {
+	ActivateTenants(ctx context.Context, class string, tenants ...string) error
+	DeactivateTenants(ctx context.Context, class string, tenants ...string) error
+	TenantsStatus(class string, tenants ...string) (map[string]string, error)
 }
 
 type VectorizerValidator interface {
@@ -229,80 +236,6 @@ func NewManager(validator validator,
 	return m, nil
 }
 
-// func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
-// 	// introduced when Weaviate started supporting multi-shards per class in v1.8
-// 	if err := m.checkSingleShardMigration(ctx, localSchema); err != nil {
-// 		return errors.Wrap(err, "migrating sharding state from previous version")
-// 	}
-
-// 	// introduced when Weaviate started supporting replication in v1.17
-// 	if err := m.checkShardingStateForReplication(ctx, localSchema); err != nil {
-// 		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
-// 	}
-
-// 	// if other migrations become necessary in the future, you can add them here.
-// 	return nil
-// }
-
-// func (m *Manager) checkSingleShardMigration(ctx context.Context, localSchema *State) error {
-// 	for _, c := range localSchema.ObjectSchema.Classes {
-// 		if _, ok := localSchema.ShardingState[c.Class]; ok { // there is sharding state for this class. Nothing to do
-// 			continue
-// 		}
-
-// 		m.logger.WithField("className", c.Class).WithField("action", "initialize_schema").
-// 			Warningf("No sharding state found for class %q, initializing new state. "+
-// 				"This is expected behavior if the schema was created with an older Weaviate "+
-// 				"version, prior to supporting multi-shard indices.", c.Class)
-
-// 		// there is no sharding state for this class, let's create the correct
-// 		// config. This class must have been created prior to the sharding feature,
-// 		// so we now that the shardCount==1 - we do not care about any of the other
-// 		// parameters and simply use the defaults for those
-// 		c.ShardingConfig = map[string]interface{}{
-// 			"desiredCount": 1,
-// 		}
-// 		if err := m.praser.parseShardingConfig(c); err != nil {
-// 			return err
-// 		}
-
-// 		if err := replica.ValidateConfig(c, m.config.Replication); err != nil {
-// 			return fmt.Errorf("validate replication config: %w", err)
-// 		}
-// 		shardState, err := sharding.InitState(c.Class,
-// 			c.ShardingConfig.(sharding.Config),
-// 			m.clusterState, c.ReplicationConfig.Factor,
-// 			schema.MultiTenancyEnabled(c))
-// 		if err != nil {
-// 			return errors.Wrap(err, "init sharding state")
-// 		}
-
-// 		if localSchema.ShardingState == nil {
-// 			localSchema.ShardingState = map[string]*sharding.State{}
-// 		}
-// 		localSchema.ShardingState[c.Class] = shardState
-
-// 	}
-
-// 	return nil
-// }
-
-// func (m *Manager) checkShardingStateForReplication(ctx context.Context, localSchema *State) error {
-// 	for _, classState := range localSchema.ShardingState {
-// 		classState.MigrateFromOldFormat()
-// 	}
-// 	return nil
-// }
-
-// func newSchema() *State {
-// 	return &State{
-// 		ObjectSchema: &models.Schema{
-// 			Classes: []*models.Class{},
-// 		},
-// 		ShardingState: map[string]*sharding.State{},
-// 	}
-// }
-
 func (m *Manager) ClusterHealthScore() int {
 	return m.clusterState.ClusterHealthScore()
 }
@@ -331,11 +264,18 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 }
 
 func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
+	status, _, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+	return status, err
+}
+
+// TenantsShardsWithVersion returns tenant status and the schema version from any implicit activation.
+// Callers performing writes should use the returned schemaVersion in WaitForUpdate before proceeding.
+func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	status, version, err := m.schemaManager.QueryTenantsShards(class, tenants...)
 	if !m.AllowImplicitTenantActivation(class) || err != nil {
-		return status, err
+		return status, version, err
 	}
 
 	return m.activateTenantIfInactive(ctx, class, status)
@@ -395,7 +335,7 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
-) (map[string]string, error) {
+) (map[string]string, uint64, error) {
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, 0, len(status)),
 		ClusterNodes:          m.schemaManager.StorageCandidates(),
@@ -410,24 +350,24 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 
 	if len(req.Tenants) == 0 {
 		// nothing to do, all tenants are already HOT
-		return status, nil
+		return status, 0, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
+	schemaVersion, err := m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {
 			names[i] = t.Name
 		}
 
-		return nil, fmt.Errorf("implicit activation of tenants %s: %w", strings.Join(names, ", "), err)
+		return nil, 0, fmt.Errorf("implicit activation of tenants %s: %w", strings.Join(names, ", "), err)
 	}
 
 	for _, t := range req.Tenants {
 		status[t.Name] = models.TenantActivityStatusHOT
 	}
 
-	return status, nil
+	return status, schemaVersion, nil
 }
 
 func (m *Manager) AllowImplicitTenantActivation(class string) bool {
@@ -438,6 +378,52 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 	})
 
 	return allow
+}
+
+func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
+	tenantsMap, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	return tenantsMap, err
+}
+
+func (m *Manager) ActivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusHOT)
+}
+
+func (m *Manager) DeactivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusCOLD)
+}
+
+func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string, tenants []string, status string) error {
+	switch ln := len(tenants); ln {
+	case 0:
+		return nil
+	case 1:
+		// proceed
+	default:
+		slices.Sort(tenants)
+		tenants = slices.Compact(tenants)
+	}
+
+	req := &api.UpdateTenantsRequest{
+		Tenants:               make([]*api.Tenant, len(tenants)),
+		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ImplicitUpdateRequest: true,
+	}
+	for i := range tenants {
+		req.Tenants[i] = &api.Tenant{Name: tenants[i], Status: status}
+	}
+
+	if _, err := m.schemaManager.UpdateTenants(ctx, class, req); err != nil {
+		return fmt.Errorf("change tenants %s status to %s: %w", tenants, status, err)
+	}
+	return nil
+}
+
+// EnsureTenantActiveForWrite activates COLD tenants when AutoTenantActivation is enabled.
+// Returns the schema version from activation. callers must pass this to WaitForUpdate
+func (m *Manager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
+	_, schemaVersion, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+	return schemaVersion, err
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {

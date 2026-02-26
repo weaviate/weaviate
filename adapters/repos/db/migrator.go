@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -109,6 +109,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
+	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig)
+	if err != nil {
+		return fmt.Errorf("async replication config: %w", err)
+	}
+
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
@@ -119,7 +124,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.replicationFSM,
 	).Build()
 	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
-	idx, err := NewIndex(ctx,
+	idx, err = NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
 			RootPath:                                     m.db.config.RootPath,
@@ -141,19 +146,25 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:                   m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
+			ObjectsTTLBatchSize:                          m.db.config.ObjectsTTLBatchSize,
+			ObjectsTTLPauseEveryNoBatches:                m.db.config.ObjectsTTLPauseEveryNoBatches,
+			ObjectsTTLPauseDuration:                      m.db.config.ObjectsTTLPauseDuration,
 			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
 			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
 			UsageEnabled:                                 m.db.config.UsageEnabled,
 			AvoidMMap:                                    m.db.config.AvoidMMap,
-			DisableLazyLoadShards:                        m.db.config.DisableLazyLoadShards,
+			EnableLazyLoadShards:                         m.db.config.EnableLazyLoadShards,
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+			AsyncReplicationConfig:                       asyncConfig,
+			AsyncReplicationWorkersLimiter:               m.db.asyncReplicationWorkersLimiter,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
+			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
 			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
 			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
 			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,
@@ -169,6 +180,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
 			HFreshEnabled:                                m.db.config.HFreshEnabled,
+			AutoTenantActivation:                         schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -177,7 +189,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		convertToVectorIndexConfigs(class.VectorConfig),
 		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled)
+		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled, m.db.tenantsManager)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -434,18 +446,18 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*m
 	return idx.addProperty(ctx, prop...)
 }
 
-// DropProperty is ignored, API compliant change
-func (m *Migrator) DropProperty(ctx context.Context, className string, propertyName string) error {
-	// ignore but don't error
-	return nil
-}
+func (m *Migrator) UpdateProperty(ctx context.Context, className string, property *models.Property) error {
+	indexID := indexID(schema.ClassName(className))
 
-func (m *Migrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
-	if newName != nil {
-		return errors.New("weaviate does not support renaming of properties")
+	m.classLocks.Lock(indexID)
+	defer m.classLocks.Unlock(indexID)
+
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update property for a non-existing index for %s", className)
 	}
 
-	return nil
+	return idx.updateProperty(ctx, property)
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
@@ -909,7 +921,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 }
 
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
-	var errs errorcompounder.ErrorCompounder
+	errs := errorcompounder.New()
 	errs.Add(m.doInvertedReindex(ctx, taskNamesWithArgs))
 	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNamesWithArgs))
 	return errs.ToError()

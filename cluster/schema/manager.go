@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -176,6 +177,26 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	if req.State == nil {
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
+	// validate xrefs within the class for existence
+	for _, prop := range req.Class.Properties {
+		if !entSchema.IsRefDataType(prop.DataType) {
+			// don't need to validate non-xref data types
+			continue
+		}
+		for _, dt := range prop.DataType {
+			if dt == req.Class.Class {
+				// self-references are always allowed
+				continue
+			}
+			if s.schema.classExists(dt) {
+				// class exists, all good
+				continue
+			}
+			// class does not exist, error out
+			return fmt.Errorf("%w: %w", ErrBadRequest, entSchema.ErrRefToNonexistentClass)
+		}
+
+	}
 	if err := s.parser.ParseClass(req.Class); err != nil {
 		return fmt.Errorf("%w: parsing class: %w", ErrBadRequest, err)
 	}
@@ -248,10 +269,38 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// Ensure that if non-default values for properties is stored in raft we fix them before processing an update to
 		// avoid triggering diff on properties and therefore discarding a legitimate update.
 		migratePropertiesIfNecessary(&meta.Class)
+
 		u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
 		}
+
+		// Capture previous and updated replication factors
+		var initialRF int64
+		if meta.Class.ReplicationConfig != nil {
+			initialRF = meta.Class.ReplicationConfig.Factor
+		}
+
+		var updatedRF int64
+		if u.ReplicationConfig != nil {
+			updatedRF = u.ReplicationConfig.Factor
+		}
+
+		// validate replication factor increase
+		if initialRF < updatedRF {
+			for _, physical := range meta.Sharding.Physical {
+				if int64(len(physical.BelongsToNodes)) < updatedRF {
+					return fmt.Errorf(
+						"not enough replicas in shard %q to increase replication factor to %d for class %q",
+						physical.Name,
+						updatedRF,
+						meta.Class.Class,
+					)
+				}
+			}
+		}
+
+		// Apply updates
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
@@ -261,25 +310,14 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.Description = u.Description
 		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
+
 		if req.State != nil {
 			meta.Sharding = *req.State
 		}
 
-		// validate replication factor change
-		if meta.Class.ReplicationConfig != nil && u.ReplicationConfig != nil {
-			initialRF := meta.Class.ReplicationConfig.Factor
-			updatedRF := u.ReplicationConfig.Factor
-
-			if initialRF < updatedRF {
-				for _, physical := range meta.Sharding.Physical {
-					if int64(len(physical.BelongsToNodes)) < updatedRF {
-						return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, meta.Class.Class)
-					}
-				}
-			}
-
-			// set the updated replication factor
-			meta.Sharding.ReplicationFactor = u.ReplicationConfig.Factor
+		// update sharding replication factor
+		if u.ReplicationConfig != nil {
+			meta.Sharding.ReplicationFactor = updatedRF
 		}
 
 		return nil
@@ -344,6 +382,26 @@ func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, 
 			op:                   cmd.GetType().String(),
 			updateSchema:         func() error { return s.schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
 			updateStore:          func() error { return s.db.AddProperty(cmd.Class, req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
+		},
+	)
+}
+
+func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
+	req := command.UpdatePropertyRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if req.Property == nil {
+		return fmt.Errorf("%w: empty property", ErrBadRequest)
+	}
+
+	return s.apply(
+		applyOp{
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.updateProperty(cmd.Class, cmd.Version, req.Property) },
+			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},

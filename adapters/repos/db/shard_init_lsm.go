@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -92,16 +92,16 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 
 	// Object bucket must be available, initAsyncReplication depends on it
-	if s.index.asyncReplicationEnabled() {
+	if s.index.AsyncReplicationEnabled() {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
 
-		err = s.initAsyncReplication()
+		err = s.initAsyncReplication(s.index.AsyncReplicationConfig())
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
 	} else if s.index.replicationEnabled() {
-		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+		s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
@@ -132,7 +132,7 @@ func (s *Shard) initLSMStore() error {
 		}
 	}
 
-	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
+	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics, s.index.bucketLoadLimiter,
 		s.cycleCallbacks.compactionCallbacks,
 		s.cycleCallbacks.compactionAuxCallbacks,
 		s.cycleCallbacks.flushCallbacks)

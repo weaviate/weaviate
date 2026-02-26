@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,33 +28,44 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// NodeSelector is an interface to select a portion of the available nodes in memberlist
-type NodeSelector interface {
+// NodeResolver provides read-only access to cluster nodes and their addresses.
+type NodeResolver interface {
+	// NodeCount returns the current number of nodes in the cluster.
+	NodeCount() int
+	// AllHostnames returns the hostnames of all known cluster nodes.
+	AllHostnames() []string
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeHostname resolves a node id into an ip address with internal cluster api port.
+	NodeHostname(nodeName string) (string, bool)
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses.
+	// This is useful for bootstrap when the join config is incomplete.
+	AllOtherClusterMembers(port int) map[string]string
+}
+
+// NodeSelector builds on NodeResolver and adds selection, health and lifecycle operations.
+// It is used to select a portion of the available nodes in memberlist.
+type NodeSelector interface {
+	NodeResolver
+
 	// NodeGRPCPort returns the gRPC port for a specific node id.
 	NodeGRPCPort(id string) (int, error)
 	// StorageCandidates returns list of storage nodes (names)
-	// sorted by the free amount of disk space in descending orders
+	// sorted by the free amount of disk space in descending order.
 	StorageCandidates() []string
 	// NonStorageNodes return nodes from member list which
-	// they are configured not to be voter only
+	// they are configured not to be voter only.
 	NonStorageNodes() []string
-	// SortCandidates Sort passed nodes names by the
-	// free amount of disk space in descending order
+	// SortCandidates sorts passed node names by the
+	// free amount of disk space in descending order.
 	SortCandidates(nodes []string) []string
-	// LocalName() return local node name
+	// ClusterHealthScore returns an aggregate health score for the cluster.
+	ClusterHealthScore() int
+	// LocalName returns the local node name.
 	LocalName() string
-	// NodeHostname return hosts address for a specific node name
-	NodeHostname(name string) (string, bool)
-	AllHostnames() []string
-	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
-	// This is useful for bootstrap when the join config is incomplete
-	// TODO-RAFT: shall be removed once unifying with raft package
-	AllOtherClusterMembers(port int) map[string]string
-	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	// Leave marks the node as leaving the cluster (still visible but shutting down).
 	Leave() error
-	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+	// Shutdown is called when leaving the cluster gracefully and shutting down the memberlist instance.
 	Shutdown() error
 }
 
@@ -610,7 +621,7 @@ func configureMemberlistSettings(cfg *memberlist.Config, userConfig Config, raft
 	// Configure timeouts and failure detection
 	if userConfig.MemberlistFastFailureDetection {
 		cfg.SuspicionMult = 1
-		cfg.DeadNodeReclaimTime = 5 * time.Second
+		cfg.DeadNodeReclaimTime = 1 * time.Second
 	}
 
 	// Set TCP timeout based on configuration type

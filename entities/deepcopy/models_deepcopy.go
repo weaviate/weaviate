@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,9 +36,18 @@ func Class(c *models.Class) *models.Class {
 	}
 	var replicationConf *models.ReplicationConfig = nil
 	if c.ReplicationConfig != nil {
+		var asyncConfig *models.ReplicationAsyncConfig
+
+		if c.ReplicationConfig.AsyncConfig != nil {
+			ac := *c.ReplicationConfig.AsyncConfig
+			asyncConfig = &ac
+		}
+
 		replicationConf = &models.ReplicationConfig{
 			Factor:           c.ReplicationConfig.Factor,
 			DeletionStrategy: c.ReplicationConfig.DeletionStrategy,
+			AsyncEnabled:     c.ReplicationConfig.AsyncEnabled,
+			AsyncConfig:      asyncConfig,
 		}
 	}
 

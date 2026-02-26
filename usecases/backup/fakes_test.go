@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,11 +72,6 @@ func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, class
 	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 
-func (s *fakeSourcer) ClassExists(name string) bool {
-	args := s.Called(name)
-	return args.Bool(0)
-}
-
 type fakeBackend struct {
 	mock.Mock
 	sync.RWMutex
@@ -140,6 +135,20 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, overrideBuc
 func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	fb.RLock()
 	defer fb.RUnlock()
+
+	// For GlobalRestoreFile, dynamically return current glMeta state if it has been set
+	// by PutObject during an active restore. This allows coordinator code to read the
+	// current status (e.g., to check for cancellation) without requiring explicit mock
+	// expectations for each read. Falls back to mock expectations for tests that
+	// explicitly set them (like status check tests).
+	if key == GlobalRestoreFile && fb.glMeta.ID != "" {
+		bytes, err := json.Marshal(fb.glMeta)
+		if err != nil {
+			return nil, err
+		}
+		return bytes, nil
+	}
+
 	args := fb.Called(ctx, backupID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)
@@ -192,7 +201,7 @@ func (fb *fakeBackend) Read(ctx context.Context, backupID, key, overrideBucket, 
 	return 0, args.Error(1)
 }
 
-func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
 	defer r.Close()

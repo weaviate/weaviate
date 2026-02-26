@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -70,7 +70,10 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -94,6 +97,79 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	uc.PQ = cfg
 	err := index.compress(uc)
 	assert.NotNil(t, err)
+}
+
+func Test_CompressAndInsertDoNotRace(t *testing.T) {
+	efConstruction := 64
+	ef := 32
+	maxNeighbors := 32
+	dimensions := 200
+	vectors_size := 100
+	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, dimensions)
+	distancer := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	uc := ent.UserConfig{}
+	uc.MaxConnections = maxNeighbors
+	uc.EFConstruction = efConstruction
+	uc.EF = ef
+	uc.VectorCacheMaxObjects = 10e12
+	uc.RQ = ent.RQConfig{
+		Enabled: false,
+		Bits:    8,
+	}
+
+	index, _ := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "recallbenchmark",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+			copy(container.Slice, vectors[int(id)])
+			return container.Slice, nil
+		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	t.Cleanup(func() {
+		_ = index.Shutdown(context.Background())
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(len(vectors))
+
+	cfg := ent.RQConfig{
+		Enabled: true,
+		Bits:    8,
+	}
+	uc.RQ = cfg
+	start := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		<-start
+		index.UpdateUserConfig(uc, func() { close(done) })
+	}()
+
+	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
+		defer wg.Done()
+		if id == 0 {
+			close(start)
+		}
+		return index.Add(ctx, uint64(id), vectors[id])
+	}))
+
+	wg.Wait()
+	<-done
 }
 
 func userConfig(segments, centroids, maxConn, efC, ef, trainingLimit int) ent.UserConfig {
@@ -130,7 +206,10 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},

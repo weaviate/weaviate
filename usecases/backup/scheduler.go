@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -208,6 +209,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	rReq := Request{
 		Method:                OpRestore,
+		NodeMapping:           req.NodeMapping,
 		ID:                    req.ID,
 		Backend:               req.Backend,
 		Compression:           req.Compression,
@@ -319,6 +321,103 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
+func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
+) (err error) {
+	defer func(begin time.Time) {
+		logOperation(s.logger, "cancel_restore", backupID, backend, begin, err)
+	}(time.Now())
+
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return backup.NewErrUnprocessable(err)
+	}
+
+	if err := validateID(backupID); err != nil {
+		return err
+	}
+
+	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+	}
+
+	meta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+	if meta != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
+			return err
+		}
+		switch meta.Status {
+		case backup.Cancelled, backup.Cancelling:
+			// Cancellation already in progress or complete
+			return nil
+		case backup.Success:
+			return backup.NewErrUnprocessable(fmt.Errorf("restore %q already succeeded", backupID))
+		case backup.Finalizing:
+			return backup.NewErrUnprocessable(fmt.Errorf("restore %q is applying schema changes and cannot be cancelled", backupID))
+		default:
+			// Transferring, Started - attempt to claim cancellation
+		}
+
+		// Attempt to claim cancellation by writing CANCELLING status first.
+		// This acts as a distributed lock - the first coordinator to write CANCELLING wins.
+		meta.Status = backup.Cancelling
+		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
+			s.logger.WithField("action", "cancel_restore").
+				WithField("backup_id", backupID).
+				Warnf("failed to write cancelling status, another coordinator may be handling: %v", err)
+			// Another coordinator may have won, let them handle it
+			return nil
+		}
+
+		// Re-read to verify we won the race (another coordinator may have written simultaneously)
+		verifyMeta, _ := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+		if verifyMeta != nil && verifyMeta.Status == backup.Cancelled {
+			// Another coordinator already completed cancellation
+			return nil
+		}
+		s.restorer.lastOp.set(backup.Cancelling)
+	} else {
+		// If restore_config.json doesn't exist, try reading from backup_config.json to get classes for authorization
+		backupMeta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
+		if backupMeta != nil {
+			if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(backupMeta.Classes()...)...); err != nil {
+				return err
+			}
+		}
+	}
+
+	// We've claimed cancellation (or meta was nil) - proceed with abort
+	nodes, err := s.restorer.Nodes(ctx, &Request{
+		Method:  OpRestore,
+		Backend: backend,
+		ID:      backupID,
+		Classes: s.restorer.selector.ListClasses(ctx),
+	})
+	if err != nil {
+		return err
+	}
+	s.restorer.abortAll(ctx,
+		&AbortRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
+
+	// Update coordinator's lastOp status to prevent stale reads from OnStatus()
+	s.restorer.lastOp.set(backup.Cancelled)
+
+	// Write final CANCELED status to restore_config.json
+	if meta != nil {
+		meta.Status = backup.Cancelled
+		meta.Error = "restore canceled by user"
+		meta.CompletedAt = time.Now().UTC()
+		if err := store.PutMeta(ctx, GlobalRestoreFile, meta, overrideBucket, overridePath); err != nil {
+			s.logger.WithField("action", "cancel_restore").
+				WithField("backup_id", backupID).
+				Errorf("failed to write canceled status to restore_config.json: %v", err)
+			// Don't return error - cancellation signal has been sent to nodes
+		}
+	}
+
+	return nil
+}
+
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {
@@ -390,19 +489,29 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
 	}
+
 	if dup := findDuplicate(req.Include); dup != "" {
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
-	classes := req.Include
-	if len(classes) == 0 {
-		classes = s.backupper.selector.ListClasses(ctx)
-		// no classes exist in the DB
-		if len(classes) == 0 {
-			return nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
-		}
+
+	// Get all available classes first for wildcard expansion
+	allClasses := s.backupper.selector.ListClasses(ctx)
+	if len(allClasses) == 0 {
+		return nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
 	}
-	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
-		return nil, fmt.Errorf("empty class list: please choose from : %v", classes)
+
+	// Expand wildcards in Include list
+	include := expandWildcards(req.Include, allClasses)
+
+	// Expand wildcards in Exclude list
+	exclude := expandWildcards(req.Exclude, allClasses)
+
+	classes := include
+	if len(classes) == 0 {
+		classes = allClasses
+	}
+	if classes = filterClasses(classes, exclude); len(classes) == 0 {
+		return nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
 	}
 
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
@@ -435,6 +544,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
 	}
+	// Check for duplicates in raw patterns early (before backend operations)
 	if dup := findDuplicate(req.Include); dup != "" {
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
@@ -460,14 +570,21 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.Classes()
-	if len(req.Include) > 0 {
-		if first := meta.AllExist(req.Include); first != "" {
+
+	// Expand wildcards in Include list against backup's classes
+	include := expandWildcards(req.Include, cs)
+
+	// Expand wildcards in Exclude list against backup's classes
+	exclude := expandWildcards(req.Exclude, cs)
+
+	if len(include) > 0 {
+		if first := meta.AllExist(include); first != "" {
 			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
 			return nil, err
 		}
-		meta.Include(req.Include)
+		meta.Include(include)
 	} else {
-		meta.Exclude(req.Exclude)
+		meta.Exclude(exclude)
 	}
 	if meta.RemoveEmpty().Count() == 0 {
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
@@ -550,4 +667,48 @@ func findDuplicate(xs []string) string {
 		m[x] = struct{}{}
 	}
 	return ""
+}
+
+// matchesWildcard checks if a class name matches a wildcard pattern.
+// Patterns support '*' (matches any sequence) and '?' (matches any single character).
+func matchesWildcard(pattern, className string) bool {
+	matched, err := path.Match(pattern, className)
+	if err != nil {
+		return false
+	}
+	return matched
+}
+
+// expandWildcards expands patterns (which may contain wildcards) against a list of candidate classes.
+// Non-wildcard patterns are passed through as-is. Wildcard patterns are expanded to matching classes.
+func expandWildcards(patterns, candidates []string) []string {
+	if len(patterns) == 0 {
+		return patterns
+	}
+
+	result := make([]string, 0, len(patterns))
+	seen := make(map[string]struct{}, len(patterns))
+
+	for _, pattern := range patterns {
+		// Check if pattern contains wildcard characters
+		if strings.ContainsAny(pattern, "*?") {
+			// Expand wildcard pattern against candidates
+			for _, candidate := range candidates {
+				if matchesWildcard(pattern, candidate) {
+					if _, exists := seen[candidate]; !exists {
+						seen[candidate] = struct{}{}
+						result = append(result, candidate)
+					}
+				}
+			}
+		} else {
+			// Non-wildcard pattern - add as-is
+			if _, exists := seen[pattern]; !exists {
+				seen[pattern] = struct{}{}
+				result = append(result, pattern)
+			}
+		}
+	}
+
+	return result
 }

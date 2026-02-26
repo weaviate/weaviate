@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,9 +19,10 @@ import (
 type EndpointName string
 
 var (
-	HTTP  EndpointName = "http"
-	GRPC  EndpointName = "grpc"
-	DEBUG EndpointName = "debug"
+	HTTP    EndpointName = "http"
+	GRPC    EndpointName = "grpc"
+	DEBUG   EndpointName = "debug"
+	CLUSTER EndpointName = "cluster"
 )
 
 type endpoint struct {
@@ -50,6 +51,10 @@ func (d *DockerContainer) GrpcURI() string {
 
 func (d *DockerContainer) DebugURI() string {
 	return d.GetEndpoint(DEBUG)
+}
+
+func (d *DockerContainer) ClusterURI() string {
+	return d.GetEndpoint(CLUSTER)
 }
 
 func (d *DockerContainer) GetEndpoint(name EndpointName) string {

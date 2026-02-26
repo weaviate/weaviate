@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,7 @@ type Indexer interface {
 	UpdateClass(api.UpdateClassRequest) error
 	DeleteClass(className string, hasFrozen bool) error
 	AddProperty(class string, req api.AddPropertyRequest) error
+	UpdateProperty(class string, req api.UpdatePropertyRequest) error
 	AddTenants(class string, req *api.AddTenantsRequest) error
 	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
 	DeleteTenants(class string, tenants []*models.Tenant) error
@@ -41,7 +42,6 @@ type Indexer interface {
 	LoadShard(class, shard string)     // is a no-op
 	ShutdownShard(class, shard string) // is a no-op
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
-	UpdateIndex(api.UpdateClassRequest) error
 
 	TriggerSchemaUpdateCallbacks()
 

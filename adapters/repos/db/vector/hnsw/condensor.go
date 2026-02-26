@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,9 +23,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 type MemoryCondensor struct {
@@ -339,7 +339,7 @@ func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
 	return ec.ToError()
 }
 
-func (c *MemoryCondensor) AddPQCompression(data compressionhelpers.PQData) error {
+func (c *MemoryCondensor) AddPQCompression(data compression.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
@@ -360,7 +360,7 @@ func (c *MemoryCondensor) AddPQCompression(data compressionhelpers.PQData) error
 	return err
 }
 
-func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error {
+func (c *MemoryCondensor) AddSQCompression(data compression.SQData) error {
 	toWrite := make([]byte, 11)
 	toWrite[0] = byte(AddSQ)
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
@@ -370,7 +370,7 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	return err
 }
 
-func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error {
+func (c *MemoryCondensor) AddRQCompression(data compression.RQData) error {
 	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
 	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
 	var buf bytes.Buffer
@@ -436,7 +436,7 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 	return err
 }
 
-func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (c *MemoryCondensor) AddBRQCompression(data compression.BRQData) error {
 	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
 	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
 	roundingSize := 4 * data.Rotation.OutputDim

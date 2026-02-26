@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -198,6 +198,25 @@ func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	return nil, lsmkv.NotFound
 }
 
+func (f *fakeSegment) getCollectionBytes(key []byte) ([][]byte, error) {
+	f.getCounter++
+
+	keyStr := string(key)
+	if f.strategy != segmentindex.StrategySetCollection && f.strategy != segmentindex.StrategyMapCollection {
+		return nil, fmt.Errorf("not a collection segment")
+	}
+
+	if val, ok := f.collectionStore[keyStr]; ok {
+		result := make([][]byte, len(val))
+		for _, v := range val {
+			result = append(result, v.value)
+		}
+		return result, nil
+	}
+
+	return nil, lsmkv.NotFound
+}
+
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	return &segmentInvertedData{
 		tombstones: sroar.NewBitmap(),
@@ -385,6 +404,19 @@ func (s *fakeSegment) existsKey(key []byte) (bool, error) {
 	panic("not implemented")
 }
 
+func (s *fakeSegment) exists(key []byte) error {
+	keyStr := string(key)
+	if s.strategy != segmentindex.StrategyReplace {
+		return fmt.Errorf("not a replace segment")
+	}
+
+	if _, ok := s.replaceStore[keyStr]; ok {
+		return nil
+	}
+
+	return lsmkv.NotFound
+}
+
 func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
 	s.isStrippedExtensions = true
 	s.strippedLeftSegID = leftSegmentID
@@ -392,7 +424,7 @@ func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) e
 	return nil
 }
 
-func (s *fakeSegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+func (s *fakeSegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	// we're taking a bit of a creative route to make this work with a fake
 	// segment. We have existing functions to create a SegmentBlockMax from a
 	// memtable which are used with real memtables. So if we convert the fake

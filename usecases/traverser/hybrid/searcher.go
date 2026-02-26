@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -149,7 +149,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	if params.Autocut > 0 {
 		fused = performAutocut(fused, params.Autocut)
 	}
-	return extendHybridResults(ctx, fused, params.ModuleParams, params.AdditionalProperties, modules)
+	return fused, nil
 }
 
 // Search combines the result sets using Reciprocal Rank Fusion or Relative Score Fusion
@@ -190,7 +190,7 @@ func HybridCombiner(ctx context.Context,
 	if params.Autocut > 0 {
 		fused = performAutocut(fused, params.Autocut)
 	}
-	return extendHybridResults(ctx, fused, params.ModuleParams, params.AdditionalProperties, modulesProvider)
+	return fused, nil
 }
 
 func processSparseSearch(results []*storobj.Object, scores []float32, err error) ([]*search.Result, error) {
@@ -317,23 +317,6 @@ func performAutocut(res []search.Result, autocutVal int) []search.Result {
 	}
 	cutOff := autocut.Autocut(scores, autocutVal)
 	return res[:cutOff]
-}
-
-func extendHybridResults(ctx context.Context,
-	res []search.Result,
-	moduleParams map[string]interface{},
-	additionalProperties additional.Properties,
-	modulesProvider modulesProvider,
-) ([]search.Result, error) {
-	var err error
-	if modulesProvider != nil {
-		res, err = modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			additionalProperties.ModuleParams, nil, moduleParams)
-		if err != nil {
-			return nil, fmt.Errorf("searcher: hybrid: extend: %w", err)
-		}
-	}
-	return res, nil
 }
 
 func toSearchResults(in []*search.Result) []search.Result {

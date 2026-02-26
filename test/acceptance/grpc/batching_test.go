@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -88,7 +88,7 @@ func TestGRPC_Batching(t *testing.T) {
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid1},
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid2},
 		}
-		err := send(stream, objects, references)
+		err := send(stream, objects, references, nil)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
@@ -119,7 +119,7 @@ func TestGRPC_Batching(t *testing.T) {
 			{Collection: clsA.Class, Tenant: "tenant", Uuid: uuid.NewString()},
 			{Collection: clsA.Class, Uuid: uuid.NewString()},
 		}
-		err := send(stream, objects, nil)
+		err := send(stream, objects, nil, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
@@ -165,7 +165,7 @@ func TestGRPC_Batching(t *testing.T) {
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid0},
 			{Name: "hasParagraphss", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid1},
 		}
-		err := send(stream, objects, references)
+		err := send(stream, objects, references, nil)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
@@ -194,14 +194,16 @@ func TestGRPC_Batching(t *testing.T) {
 		require.Equal(t, 1, len(obj.Properties.(map[string]any)["hasParagraphs"].([]any)), "Article should have 1 paragraph")
 	})
 
-	t.Run("send 50000 objects as fast as possible", func(t *testing.T) {
+	t.Run("send objects and references as fast as possible", func(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient, "")
 
+		acked := make(chan struct{})
 		// Start a goroutine to read messages from the stream
 		go func() {
+			defer close(acked)
 			// Verify no errors returned from the stream
 			for {
 				resp, err := stream.Recv()
@@ -220,19 +222,36 @@ func TestGRPC_Batching(t *testing.T) {
 						t.Errorf("Error: %s", e.GetError())
 					}
 				}
+				if resp.GetAcks() != nil {
+					acked <- struct{}{}
+				}
 			}
 		}()
 
-		// Send 50000 articles
-		objects := make([]*pb.BatchObject, 0, 1000)
-		for i := 0; i < 50000; i++ {
-			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
-			if len(objects) == 1000 {
-				err := send(stream, objects, nil)
-				require.NoError(t, err, "sending Objects over the stream should not return an error")
-				objects = objects[:0] // reset slice but keep capacity
-				t.Logf("Sent %d objects", i+1)
+		// Send 5000 articles with 10 paragraphs per article
+		objects := make([]*pb.BatchObject, 0, 1100)
+		references := make([]*pb.BatchReference, 0, 1000)
+		numArticles := 5000
+		numParasPerArticle := 10
+		for i := 0; i < numArticles; i++ {
+			aUuid := uuid.NewString()
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: aUuid})
+			for j := 0; j < numParasPerArticle; j++ {
+				pUuid := uuid.NewString()
+				objects = append(objects, &pb.BatchObject{Collection: clsP.Class, Uuid: pUuid})
+				references = append(references, &pb.BatchReference{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: aUuid, ToUuid: pUuid})
 			}
+			if (i+1)%100 == 0 {
+				err := send(stream, objects, references, acked)
+				require.NoError(t, err, "sending data over the stream should not return an error")
+				objects = objects[:0] // reset slice but keep capacity
+				references = references[:0]
+				t.Logf("Sent %d articles", i+1)
+			}
+		}
+		if len(objects) > 0 || len(references) > 0 {
+			err := send(stream, objects, references, acked)
+			require.NoError(t, err, "sending data over the stream should not return an error")
 		}
 		t.Log("Done adding objects to stream")
 		stop(stream)
@@ -240,13 +259,37 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Verify that all objects are present after shutdown and restart
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			res, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+			resA, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
 			require.NoError(t, err, "Aggregate should not return an error")
-			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
-		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+			require.Equal(ct, int64(numArticles), *resA.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+
+			resA, err = grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+				Collection:   clsP.Class,
+				ObjectsCount: true,
+			})
+			require.NoError(t, err, "Aggregate should not return an error")
+			require.Equal(ct, int64(numArticles*numParasPerArticle), *resA.GetSingleResult().ObjectsCount, "Number of paragraphs created should match the number sent")
+
+			resS, err := grpcClient.Search(ctx, &pb.SearchRequest{
+				Collection:  clsA.Class,
+				Limit:       uint32(numArticles),
+				Uses_127Api: true,
+				Properties: &pb.PropertiesRequest{
+					RefProperties: []*pb.RefPropertiesRequest{{
+						ReferenceProperty: "hasParagraphs",
+					}},
+				},
+			})
+			require.NoError(t, err, "Search should not return an error")
+			require.Equal(ct, numArticles, len(resS.GetResults()), "Number of articles returned by search should match the number sent")
+			for _, res := range resS.GetResults() {
+				require.Len(t, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
+				require.Len(t, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
+			}
+		}, 240*time.Second, 5*time.Second, "Objects not created within time")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
@@ -255,10 +298,13 @@ func TestGRPC_Batching(t *testing.T) {
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient, "")
 
+		acked := make(chan struct{})
+
 		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer close(acked)
 			// Verify no errors returned from the stream
 			for {
 				resp, err := stream.Recv()
@@ -277,6 +323,9 @@ func TestGRPC_Batching(t *testing.T) {
 						t.Errorf("Error: %s", e.GetError())
 					}
 				}
+				if resp.GetAcks() != nil {
+					acked <- struct{}{}
+				}
 			}
 		}()
 
@@ -285,7 +334,7 @@ func TestGRPC_Batching(t *testing.T) {
 		for i := 0; i < 50000; i++ {
 			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
 			if len(objects) == 1000 {
-				err := send(stream, objects, nil)
+				err := send(stream, objects, nil, acked)
 				require.NoError(t, err, "sending Objects over the stream should not return an error")
 				objects = objects[:0] // reset slice but keep capacity
 				t.Logf("Sent %d objects", i+1)
@@ -316,6 +365,71 @@ func TestGRPC_Batching(t *testing.T) {
 			require.NoError(t, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+	})
+}
+
+func TestGRPC_OutOfMemoryBatching(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("GOMEMLIMIT", "268435456").
+		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
+
+	clsA := articles.ArticlesClass()
+	clsP := articles.ParagraphsClass()
+
+	setupClasses := func() func() {
+		helper.DeleteClass(t, clsA.Class)
+		helper.DeleteClass(t, clsP.Class)
+		// Create the schema
+		helper.CreateClass(t, clsP)
+		helper.CreateClass(t, clsA)
+		return func() {
+			helper.DeleteClass(t, clsA.Class)
+			helper.DeleteClass(t, clsP.Class)
+		}
+	}
+
+	t.Run("send more than GOMEMLIMIT allows and verify that correct error is sent back", func(t *testing.T) {
+		defer setupClasses()()
+
+		stream := start(ctx, t, grpcClient, "")
+
+		// Send some articles and paragraphs in send message
+		var objects []*pb.BatchObject
+		var uuids []string
+		for i := 0; i < 1000; i++ {
+			// very large vectors to quickly exceed GOMEMLIMIT
+			uuid := uuid.NewString()
+			uuids = append(uuids, uuid)
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid, Vectors: []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(20480)}}})
+		}
+		err := send(stream, objects, nil, nil)
+		require.NoError(t, err, "sending Objects over the stream should not return an error")
+
+		// no Acks message when an OOM occurred
+
+		// Read the out of memory message
+		msg, err := stream.Recv()
+		for {
+			if msg.GetBackoff() != nil {
+				msg, err = stream.Recv()
+			} else {
+				break
+			}
+		}
+		require.NoError(t, err, "BatchStream should return a response")
+		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
+		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
 	})
 }
 
@@ -374,7 +488,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID1},
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID2},
 		}
-		err := send(stream, objects, references)
+		err := send(stream, objects, references, nil)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
@@ -406,6 +520,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		var sendWg sync.WaitGroup
 		var recvWg sync.WaitGroup
 		var streamRestartLock sync.RWMutex
+		acked := make(chan struct{})
 
 		numObjs := 20000
 		batchSize := numObjs / 100
@@ -416,7 +531,9 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			batch := make([]*pb.BatchObject, 0, batchSize)
 			for i := 0; i < numObjs; i++ {
 				for shuttingDown.Load() {
+					streamRestartLock.RLock()
 					stream.CloseSend()
+					streamRestartLock.RUnlock()
 					t.Logf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
 					time.Sleep(5 * time.Second)
 					continue
@@ -429,7 +546,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				if len(batch) == batchSize {
 					t.Logf("%s Sending %vth batch of %v objects\n", time.Now().Format("15:04:05"), i/batchSize, batchSize)
 					streamRestartLock.RLock()
-					err := send(stream, batch, nil)
+					err := send(stream, batch, nil, acked)
 					streamRestartLock.RUnlock()
 					if errors.Is(err, io.EOF) {
 						// Server has closed due to shutdown, continue and loop back to either shuttingDown or shutdown
@@ -448,9 +565,20 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		recvWg.Add(1)
 		go func() {
 			defer recvWg.Done()
+			defer close(acked)
 			for {
 				resp, err := stream.Recv()
 				if errors.Is(err, io.EOF) {
+					if shuttingDown.Load() {
+						stream.CloseSend()
+						t.Logf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
+						grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
+						streamRestartLock.Lock()
+						stream = start(ctx, t, grpcClient, "")
+						streamRestartLock.Unlock()
+						shuttingDown.Store(false)
+						continue
+					}
 					t.Logf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
 					return // server closed the stream
 				}
@@ -468,14 +596,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 					t.Logf("%s Shutdown triggered\n", time.Now().Format("15:04:05"))
 					shuttingDown.Store(true)
 				}
-				if resp.GetShutdown() != nil {
-					stream.CloseSend()
-					t.Logf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
-					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
-					streamRestartLock.Lock()
-					stream = start(ctx, t, grpcClient, "")
-					streamRestartLock.Unlock()
-					shuttingDown.Store(false)
+				if resp.GetAcks() != nil {
+					acked <- struct{}{}
 				}
 			}
 		}()
@@ -523,7 +645,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				Uuid:       helper.IntToUUID(uint64(i)).String(),
 			})
 		}
-		err := send(stream, batch, nil)
+		err := send(stream, batch, nil, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
 
 		// Restart node
@@ -597,7 +719,7 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid1},
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: uuid0, ToUuid: uuid2},
 		}
-		err := send(stream, objects, references)
+		err := send(stream, objects, references, nil)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
@@ -672,7 +794,7 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 			{Collection: clsA.Class, Uuid: uuid1},
 			{Collection: clsP.Class, Uuid: uuid2},
 		}
-		err := send(stream, objects, nil)
+		err := send(stream, objects, nil, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
 		stop(stream)
 		stream.CloseSend()
@@ -722,7 +844,7 @@ func client(t *testing.T, host string) (pb.WeaviateClient, *grpc.ClientConn) {
 	return grpcClient, conn
 }
 
-func send(stream pb.Weaviate_BatchStreamClient, objs []*pb.BatchObject, refs []*pb.BatchReference) error {
+func send(stream pb.Weaviate_BatchStreamClient, objs []*pb.BatchObject, refs []*pb.BatchReference, acked chan struct{}) error {
 	// Send objects over
 	data := &pb.BatchStreamRequest_Data{}
 	if len(objs) > 0 {
@@ -731,9 +853,15 @@ func send(stream pb.Weaviate_BatchStreamClient, objs []*pb.BatchObject, refs []*
 	if len(refs) > 0 {
 		data.References = &pb.BatchStreamRequest_Data_References{Values: refs}
 	}
-	return stream.Send(&pb.BatchStreamRequest{
+	if err := stream.Send(&pb.BatchStreamRequest{
 		Message: &pb.BatchStreamRequest_Data_{Data: data},
-	})
+	}); err != nil {
+		return err
+	}
+	if acked != nil {
+		<-acked
+	}
+	return nil
 }
 
 func stop(stream pb.Weaviate_BatchStreamClient) {

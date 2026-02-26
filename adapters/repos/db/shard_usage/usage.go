@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -245,7 +245,7 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 		}
 
 		fullPath := filepath.Join(shardPath, dir)
-		filesSubFolder, _, err := diskio.GetFileWithSizes(fullPath)
+		filesSubFolder, subDirs, err := diskio.GetFileWithSizes(fullPath)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -254,7 +254,30 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 		for _, size := range filesSubFolder {
 			totalSize += uint64(size)
 		}
-		if strings.HasSuffix(dir, "commitlog.d") || strings.HasSuffix(dir, "snapshot.d") {
+
+		if strings.HasSuffix(dir, ".hfresh.d") {
+			for _, subDir := range subDirs {
+				subDirPath := filepath.Join(fullPath, subDir)
+				subFiles, _, err := diskio.GetFileWithSizes(subDirPath)
+				if err != nil {
+					return 0, 0, err
+				}
+
+				subDirSize := uint64(0)
+				for _, size := range subFiles {
+					subDirSize += uint64(size)
+				}
+
+				if strings.HasSuffix(subDir, "commitlog.d") ||
+					strings.HasSuffix(subDir, "snapshot.d") ||
+					strings.HasSuffix(subDir, "queue.d") {
+					vectorCommitLogsStorageSize += subDirSize
+				} else {
+					otherNonLSMFoldersStorageSize += subDirSize
+				}
+			}
+			otherNonLSMFoldersStorageSize += totalSize
+		} else if strings.HasSuffix(dir, "commitlog.d") || strings.HasSuffix(dir, "snapshot.d") {
 			vectorCommitLogsStorageSize += totalSize
 		} else {
 			otherNonLSMFoldersStorageSize += totalSize

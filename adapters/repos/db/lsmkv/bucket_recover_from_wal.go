@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -127,7 +127,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			}
 
 			if mt.strategy == StrategyInverted {
-				mt.averagePropLength, _ = sg.GetAveragePropertyLength()
+				mt.averagePropLength, mt.propLengthCount = sg.GetAveragePropertyLength()
 			}
 
 			// immediately flush the .wal file if there have been any damages during recovery. This means that the file is

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,11 +38,13 @@ import (
 type memtable interface {
 	get(key []byte) ([]byte, error)
 	getBySecondary(pos int, key []byte) ([]byte, error)
+	exists(key []byte) error
 	put(key, value []byte, opts ...SecondaryKeyOption) error
 	setTombstone(key []byte, opts ...SecondaryKeyOption) error
 	setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error
 
 	getCollection(key []byte) ([]value, error)
+	getCollectionBytes(key []byte) ([][]byte, error)
 	getMap(key []byte) ([]MapPair, error)
 	append(key []byte, values []value) error
 	appendMapSorted(key []byte, pair MapPair) error
@@ -65,7 +67,7 @@ type memtable interface {
 
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	SetTombstone(docId uint64) error
-	GetPropLengths() (uint64, uint64, error)
+	GetPropLengths() (uint64, uint64)
 
 	newCursor() innerCursorReplace
 	newBlockingCursor() (innerCursorReplace, func())
@@ -84,7 +86,7 @@ type memtable interface {
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
 	roaringSetAdjustMeta(entriesChanged int)
-	roaringSetAddCommitLog(key []byte, additions []uint64, deletions []uint64) error
+	roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error
 
 	roaringSetRangeAdd(key uint64, values ...uint64) error
 	roaringSetRangeRemove(key uint64, values ...uint64) error
@@ -146,6 +148,10 @@ type Memtable struct {
 	// function to decide whether a key should be skipped
 	// during flush for the SetCollection strategy
 	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)
+	// Keep track of the current prop length count and sum in the memtable,
+	// so that we don't have to compute it from scratch for search, flush and compaction.
+	currPropLengthCount, currPropLengthSum uint64
+	propLengthExists                       *sroar.Bitmap
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
@@ -189,6 +195,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 
 	if m.strategy == StrategyInverted {
 		m.tombstones = sroar.NewBitmap()
+		m.propLengthExists = sroar.NewBitmap()
 	}
 
 	return m, nil
@@ -206,6 +213,19 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	defer m.RUnlock()
 
 	return m.key.get(key)
+}
+
+// exists checks if a key exists and is not deleted, without returning the value.
+// This is more efficient than get() when only existence check is needed.
+func (m *Memtable) exists(key []byte) error {
+	if m.strategy != StrategyReplace {
+		return errors.Errorf("exists only possible with strategy 'replace'")
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.key.exists(key)
 }
 
 func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
@@ -235,10 +255,6 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -248,23 +264,25 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 			}
 		}
 	}
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               value,
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           false,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
 	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
-
 	for i, sec := range previousKeys {
 		m.secondaryToPrimary[i][string(sec)] = nil
 	}
-
 	for i, sec := range secondaryKeys {
 		m.secondaryToPrimary[i][string(sec)] = key
 	}
@@ -272,6 +290,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
@@ -284,10 +303,6 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -297,14 +312,18 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 			}
 		}
 	}
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               nil,
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -312,6 +331,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
@@ -324,10 +344,6 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
-	defer m.Unlock()
-	m.writesSinceLastSync = true
-
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, m.secondaryIndices)
@@ -337,16 +353,19 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 			}
 		}
 	}
-
 	tombstonedVal := tombstonedValue(deletionTime)
-
-	if err := m.commitlog.put(segmentReplaceNode{
+	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               tombstonedVal[:],
 		secondaryIndexCount: m.secondaryIndices,
 		secondaryKeys:       secondaryKeys,
 		tombstone:           true,
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -354,6 +373,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
+	m.writesSinceLastSync = true
 
 	return nil
 }
@@ -402,6 +422,31 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	}
 
 	return v, nil
+}
+
+func (m *Memtable) getCollectionBytes(key []byte) ([][]byte, error) {
+	start := time.Now()
+	defer m.metrics.observeGetCollection(start.UnixNano())
+
+	// TODO amourao: check if this is needed for StrategyInverted
+	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return nil, errors.Errorf("getCollection only possible with strategies %q, %q, %q",
+			StrategySetCollection, StrategyMapCollection, StrategyInverted)
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	v, err := m.keyMulti.get(key)
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]byte, len(v))
+	for i := range v {
+		out[i] = v[i].value
+	}
+
+	return out, nil
 }
 
 func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
@@ -492,6 +537,15 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
+	if m.strategy == StrategyInverted && !pair.Tombstone {
+		docID := binary.LittleEndian.Uint64(pair.Key)
+		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
+		if m.propLengthExists.Set(docID) {
+			m.currPropLengthSum += uint64(fieldLength)
+			m.currPropLengthCount++
+		}
+	}
+
 	return nil
 }
 
@@ -577,34 +631,13 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
+	m.propLengthExists.Remove(docId)
 
 	return nil
 }
 
-func (m *Memtable) GetPropLengths() (uint64, uint64, error) {
-	m.RLock()
-	flatA := m.keyMap.flattenInOrder()
-	m.RUnlock()
-
-	docIdsLengths := make(map[uint64]uint32)
-	propLengthSum := uint64(0)
-	propLengthCount := uint64(0)
-
-	for _, mapNode := range flatA {
-		for j := range mapNode.values {
-			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
-			if !mapNode.values[j].Tombstone {
-				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
-				if _, ok := docIdsLengths[docId]; !ok {
-					propLengthSum += uint64(fieldLength)
-					propLengthCount++
-				}
-				docIdsLengths[docId] = uint32(fieldLength)
-			}
-		}
-	}
-
-	return propLengthSum, propLengthCount, nil
+func (m *Memtable) GetPropLengths() (uint64, uint64) {
+	return m.currPropLengthSum, m.currPropLengthCount
 }
 
 func (m *Memtable) incWriterCount() {

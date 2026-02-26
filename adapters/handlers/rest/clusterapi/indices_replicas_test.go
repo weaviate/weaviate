@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,17 +23,19 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
 
 func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
-	fakeReplicator := newFakeReplicator(false)
+	fakeReplicator := replicaTypes.NewMockReplicator(t)
 	logger, _ := test.NewNullLogger()
 	indices := clusterapi.NewReplicatedIndices(fakeReplicator, noopAuth, func() bool { return true }, cluster.RequestQueueConfig{}, logger, func() bool { return true })
 	mux := http.NewServeMux()
@@ -185,7 +187,14 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
-			fakeReplicator := newFakeReplicator(true)
+			fakeReplicator := replicaTypes.NewMockReplicator(t)
+			commitBlock := make(chan struct{})
+
+			//  Configure CommitReplication to block until signaled
+			fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, _ string, _ string, _ string) {
+				<-commitBlock
+			}).Return(replica.SimpleResponse{})
+
 			logger, _ := test.NewNullLogger()
 			indices := clusterapi.NewReplicatedIndices(fakeReplicator, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger, func() bool { return true })
 			mux := http.NewServeMux()
@@ -220,7 +229,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 			}
 			wgRejected.Wait()
 			for i := 0; i < tc.expectedAccepted; i++ {
-				fakeReplicator.commitBlock <- struct{}{}
+				commitBlock <- struct{}{}
 			}
 			wgAccepted.Wait()
 			close(httpStatuses)
@@ -284,7 +293,7 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
-			fakeReplicator := newFakeReplicator(false)
+			fakeReplicator := replicaTypes.NewMockReplicator(t)
 			logger, _ := test.NewNullLogger()
 
 			indices := clusterapi.NewReplicatedIndices(
@@ -356,7 +365,19 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 // during shutdown receive HTTP 503 responses instead of being enqueued or causing errors.
 func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
-	fakeReplicator := newFakeReplicator(true)
+	fakeReplicator := replicaTypes.NewMockReplicator(t)
+	startSignal := make(chan struct{})
+	doneSignal := make(chan struct{})
+
+	// Configure CommitReplication to signal start and block until done
+	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, _ string, _ string, _ string) {
+		select {
+		case startSignal <- struct{}{}:
+		default:
+		}
+		<-doneSignal
+	}).Return(replica.SimpleResponse{})
+
 	logger, _ := test.NewNullLogger()
 
 	cfg := cluster.RequestQueueConfig{
@@ -396,7 +417,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 
 	// Wait for the first request to start processing
 	select {
-	case <-fakeReplicator.WaitForStart():
+	case <-startSignal:
 	case <-t.Context().Done():
 		t.Fatalf("timed out waiting for first request to start")
 	}
@@ -420,22 +441,22 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 			if err != nil {
 				return
 			}
-
 			res, err := http.DefaultClient.Do(req)
 			if err != nil {
 				return
 			}
 			defer func() { _ = res.Body.Close() }()
-
 			if res.StatusCode == http.StatusServiceUnavailable {
 				got503.Store(true)
 			}
 		}()
 	}
 
-	// Unblock the first request so shutdown can complete
+	// Unblock all workers blocked on the mock. close() unblocks every
+	// receiver, not just one, so even if multiple workers picked up
+	// requests before isShutdown was set, they all get released.
 	time.Sleep(10 * time.Millisecond)
-	fakeReplicator.Done()
+	close(doneSignal)
 
 	// Wait for all requests to finish
 	wg.Wait()
@@ -449,7 +470,7 @@ func TestReplicatedIndicesRejectsRequestsDuringShutdown(t *testing.T) {
 
 func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
-	fakeReplicator := newFakeReplicator(false)
+	fakeReplicator := replicaTypes.NewMockReplicator(t)
 	logger, _ := test.NewNullLogger()
 
 	indices := clusterapi.NewReplicatedIndices(
@@ -484,7 +505,19 @@ func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
 func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	// Create a fake replicator that blocks on commit operations
-	fakeReplicator := newFakeReplicator(true) // This will block on commit
+	fakeReplicator := replicaTypes.NewMockReplicator(t)
+	startSignal := make(chan struct{})
+	doneSignal := make(chan struct{})
+
+	// Configure CommitReplication to signal start and block until done
+	fakeReplicator.EXPECT().CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, _ string, _ string, _ string) {
+		select {
+		case startSignal <- struct{}{}:
+		default:
+		}
+		<-doneSignal
+	}).Return(replica.SimpleResponse{})
+
 	logger, _ := test.NewNullLogger()
 
 	indices := clusterapi.NewReplicatedIndices(
@@ -526,7 +559,7 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 
 	// Wait for the operation to actually start (using this to avoid sleep)
 	select {
-	case <-fakeReplicator.WaitForStart():
+	case <-startSignal:
 		// Operation has started, we can proceed with shutdown test
 	case <-time.After(1 * time.Second):
 		t.Fatal("operation did not start within timeout")
@@ -547,7 +580,7 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 	// Shutdown should have taken at least the configured timeout
 	assert.True(t, shutdownDuration >= 500*time.Millisecond)
 
-	fakeReplicator.Done()
+	doneSignal <- struct{}{}
 
 	// Wait for the stuck request to complete (it should eventually timeout)
 	wg.Wait()

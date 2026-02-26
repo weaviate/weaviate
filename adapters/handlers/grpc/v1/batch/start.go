@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package batch
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -36,6 +35,7 @@ func Start(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
 	batchHandler batcher,
+	schemaManager schemaManager,
 	reg prometheus.Registerer,
 	numWorkers int,
 	logger logrus.FieldLogger,
@@ -46,11 +46,10 @@ func Start(
 
 	shuttingDownCtx, triggerShuttingDown := context.WithCancel(context.Background())
 	reportingQueues := NewReportingQueues()
-	processingQueue := NewProcessingQueue(numWorkers)
+	processingQueue := NewProcessingQueue()
 
-	enqueuedObjectsCounter := atomic.Int32{}
 	metrics := NewBatchStreamingMetrics(reg)
-	StartBatchWorkers(&workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, &enqueuedObjectsCounter, metrics, logger)
+	StartBatchWorkers(&workersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
 	handler := NewStreamHandler(
 		authenticator,
 		authorizer,
@@ -59,9 +58,9 @@ func Start(
 		&sendWg,
 		reportingQueues,
 		processingQueue,
-		&enqueuedObjectsCounter,
 		metrics,
 		logger,
+		schemaManager,
 	)
 
 	drain := func() {

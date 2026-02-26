@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,41 +60,33 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) (err erro
 	h.initDimensionsOnce.Do(func() {
 		size := uint32(len(vector))
 		atomic.StoreUint32(&h.dims, size)
-		h.setMaxPostingSize()
-		err = h.Metadata.SetDimensions(size)
+		err = h.setMaxPostingSize()
+		if err != nil {
+			return
+		}
+		err = h.IndexMetadata.SetDimensions(size)
 		if err != nil {
 			err = errors.Wrap(err, "could not persist dimensions")
 			return // Fail the entire initialization
 		}
-
-		h.quantizer = compressionhelpers.NewRotationalQuantizer(int(h.dims), 42, 8, h.config.DistanceProvider)
+		h.quantizer = compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
 		h.Centroids.SetQuantizer(h.quantizer)
+
 		if err = h.persistQuantizationData(); err != nil {
 			err = errors.Wrap(err, "could not persist RQ data")
 			return // Fail the entire initialization
 		}
 
-		h.distancer = &Distancer{
-			quantizer: h.quantizer,
-			distancer: h.config.DistanceProvider,
-		}
+		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
 	})
 	if err != nil {
 		return err
 	}
 
-	// add the vector to the version map.
-	// TODO: if the vector already exists, invalidate all previous instances
-	// by incrementing the version
-	version, err := h.VersionMap.Increment(h.ctx, id, VectorVersion(0))
-	if err != nil {
-		return errors.Wrapf(err, "failed to increment version map for vector %d", id)
-	}
-
 	var v Vector
 
-	compressed := h.quantizer.Encode(vector)
-	v = NewVector(id, version, compressed)
+	compressed := h.quantizer.CompressedBytes(h.quantizer.Encode(vector))
+	v = NewVector(id, VectorVersion(1), compressed)
 
 	targets, _, err := h.RNGSelect(vector, 0)
 	if err != nil {
@@ -196,7 +188,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// increment the size of the posting
-	count, err := h.PostingSizes.Inc(ctx, centroidID, 1)
+	count, err := h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID(), vector.Version())
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err
@@ -204,35 +196,49 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 	h.postingLocks.Unlock(centroidID)
 
-	// If the posting is too big, we need to split it.
-	// During an insert, we want to split asynchronously
-	// however during a reassign, we want to split immediately.
-	// Also, reassign operations may cause the posting to grow beyond the max size
-	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := h.maxPostingSize
-	if reassigned {
-		max += reassignThreshold
-	}
-	if count > max {
-		if reassigned {
-			err = h.doSplit(ctx, centroidID, false)
-		} else {
-			err = h.taskQueue.EnqueueSplit(centroidID)
+	if !reassigned {
+		// If the posting is way too big, we need to split it immediately.
+		if count > h.maxPostingSize*5 {
+			err = h.doSplit(ctx, centroidID, true)
+			if err != nil {
+				return false, err
+			}
+
+			return true, nil
 		}
+
+		// enqueue an analyze operation to persist the changes and update the posting map on disk
+		err = h.taskQueue.EnqueueAnalyze(centroidID)
 		if err != nil {
 			return false, err
 		}
+		return true, nil
+	}
+
+	// If the posting is too big, we need to split it.
+	// During an insert, we want to split asynchronously
+	// however during a reassign, we want to split immediately.
+	max := h.maxPostingSize
+	if count > max {
+		err = h.doSplit(ctx, centroidID, false)
+	} else {
+		// enqueue an analyze operation to persist the changes and update the posting map on disk
+		err = h.taskQueue.EnqueueAnalyze(centroidID)
+	}
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
 }
 
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
-	if h.dims == 0 {
+	dims := atomic.LoadUint32(&h.dims)
+	if dims == 0 {
 		return nil
 	}
 
-	if dims := int(h.dims); len(vector) != dims {
+	if len(vector) != int(dims) {
 		return fmt.Errorf("new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}

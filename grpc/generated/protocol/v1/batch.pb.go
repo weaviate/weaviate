@@ -227,10 +227,10 @@ type BatchStreamReply struct {
 	//
 	//	*BatchStreamReply_Results_
 	//	*BatchStreamReply_ShuttingDown_
-	//	*BatchStreamReply_Shutdown_
 	//	*BatchStreamReply_Started_
 	//	*BatchStreamReply_Backoff_
 	//	*BatchStreamReply_Acks_
+	//	*BatchStreamReply_OutOfMemory_
 	Message       isBatchStreamReply_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -291,15 +291,6 @@ func (x *BatchStreamReply) GetShuttingDown() *BatchStreamReply_ShuttingDown {
 	return nil
 }
 
-func (x *BatchStreamReply) GetShutdown() *BatchStreamReply_Shutdown {
-	if x != nil {
-		if x, ok := x.Message.(*BatchStreamReply_Shutdown_); ok {
-			return x.Shutdown
-		}
-	}
-	return nil
-}
-
 func (x *BatchStreamReply) GetStarted() *BatchStreamReply_Started {
 	if x != nil {
 		if x, ok := x.Message.(*BatchStreamReply_Started_); ok {
@@ -327,6 +318,15 @@ func (x *BatchStreamReply) GetAcks() *BatchStreamReply_Acks {
 	return nil
 }
 
+func (x *BatchStreamReply) GetOutOfMemory() *BatchStreamReply_OutOfMemory {
+	if x != nil {
+		if x, ok := x.Message.(*BatchStreamReply_OutOfMemory_); ok {
+			return x.OutOfMemory
+		}
+	}
+	return nil
+}
+
 type isBatchStreamReply_Message interface {
 	isBatchStreamReply_Message()
 }
@@ -337,10 +337,6 @@ type BatchStreamReply_Results_ struct {
 
 type BatchStreamReply_ShuttingDown_ struct {
 	ShuttingDown *BatchStreamReply_ShuttingDown `protobuf:"bytes,2,opt,name=shutting_down,json=shuttingDown,proto3,oneof"`
-}
-
-type BatchStreamReply_Shutdown_ struct {
-	Shutdown *BatchStreamReply_Shutdown `protobuf:"bytes,3,opt,name=shutdown,proto3,oneof"`
 }
 
 type BatchStreamReply_Started_ struct {
@@ -355,17 +351,21 @@ type BatchStreamReply_Acks_ struct {
 	Acks *BatchStreamReply_Acks `protobuf:"bytes,6,opt,name=acks,proto3,oneof"`
 }
 
+type BatchStreamReply_OutOfMemory_ struct {
+	OutOfMemory *BatchStreamReply_OutOfMemory `protobuf:"bytes,7,opt,name=out_of_memory,json=outOfMemory,proto3,oneof"`
+}
+
 func (*BatchStreamReply_Results_) isBatchStreamReply_Message() {}
 
 func (*BatchStreamReply_ShuttingDown_) isBatchStreamReply_Message() {}
-
-func (*BatchStreamReply_Shutdown_) isBatchStreamReply_Message() {}
 
 func (*BatchStreamReply_Started_) isBatchStreamReply_Message() {}
 
 func (*BatchStreamReply_Backoff_) isBatchStreamReply_Message() {}
 
 func (*BatchStreamReply_Acks_) isBatchStreamReply_Message() {}
+
+func (*BatchStreamReply_OutOfMemory_) isBatchStreamReply_Message() {}
 
 type BatchObject struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -944,26 +944,31 @@ func (*BatchStreamReply_ShuttingDown) Descriptor() ([]byte, []int) {
 	return file_v1_batch_proto_rawDescGZIP(), []int{3, 1}
 }
 
-type BatchStreamReply_Shutdown struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+type BatchStreamReply_OutOfMemory struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Uuids   []string               `protobuf:"bytes,1,rep,name=uuids,proto3" json:"uuids,omitempty"`
+	Beacons []string               `protobuf:"bytes,2,rep,name=beacons,proto3" json:"beacons,omitempty"`
+	// How long to wait until ShuttingDown is sent, in seconds
+	// If ShuttingDown is not set by this time, the client should exit the stream
+	WaitTime      int32 `protobuf:"varint,3,opt,name=wait_time,json=waitTime,proto3" json:"wait_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BatchStreamReply_Shutdown) Reset() {
-	*x = BatchStreamReply_Shutdown{}
+func (x *BatchStreamReply_OutOfMemory) Reset() {
+	*x = BatchStreamReply_OutOfMemory{}
 	mi := &file_v1_batch_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BatchStreamReply_Shutdown) String() string {
+func (x *BatchStreamReply_OutOfMemory) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BatchStreamReply_Shutdown) ProtoMessage() {}
+func (*BatchStreamReply_OutOfMemory) ProtoMessage() {}
 
-func (x *BatchStreamReply_Shutdown) ProtoReflect() protoreflect.Message {
+func (x *BatchStreamReply_OutOfMemory) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_batch_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -975,9 +980,30 @@ func (x *BatchStreamReply_Shutdown) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BatchStreamReply_Shutdown.ProtoReflect.Descriptor instead.
-func (*BatchStreamReply_Shutdown) Descriptor() ([]byte, []int) {
+// Deprecated: Use BatchStreamReply_OutOfMemory.ProtoReflect.Descriptor instead.
+func (*BatchStreamReply_OutOfMemory) Descriptor() ([]byte, []int) {
 	return file_v1_batch_proto_rawDescGZIP(), []int{3, 2}
+}
+
+func (x *BatchStreamReply_OutOfMemory) GetUuids() []string {
+	if x != nil {
+		return x.Uuids
+	}
+	return nil
+}
+
+func (x *BatchStreamReply_OutOfMemory) GetBeacons() []string {
+	if x != nil {
+		return x.Beacons
+	}
+	return nil
+}
+
+func (x *BatchStreamReply_OutOfMemory) GetWaitTime() int32 {
+	if x != nil {
+		return x.WaitTime
+	}
+	return 0
 }
 
 type BatchStreamReply_Backoff struct {
@@ -1667,18 +1693,20 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\n" +
 	"References\x123\n" +
 	"\x06values\x18\x01 \x03(\v2\x1b.weaviate.v1.BatchReferenceR\x06valuesB\t\n" +
-	"\amessage\"\xfe\x06\n" +
+	"\amessage\"\xe9\a\n" +
 	"\x10BatchStreamReply\x12A\n" +
 	"\aresults\x18\x01 \x01(\v2%.weaviate.v1.BatchStreamReply.ResultsH\x00R\aresults\x12Q\n" +
-	"\rshutting_down\x18\x02 \x01(\v2*.weaviate.v1.BatchStreamReply.ShuttingDownH\x00R\fshuttingDown\x12D\n" +
-	"\bshutdown\x18\x03 \x01(\v2&.weaviate.v1.BatchStreamReply.ShutdownH\x00R\bshutdown\x12A\n" +
+	"\rshutting_down\x18\x02 \x01(\v2*.weaviate.v1.BatchStreamReply.ShuttingDownH\x00R\fshuttingDown\x12A\n" +
 	"\astarted\x18\x04 \x01(\v2%.weaviate.v1.BatchStreamReply.StartedH\x00R\astarted\x12A\n" +
 	"\abackoff\x18\x05 \x01(\v2%.weaviate.v1.BatchStreamReply.BackoffH\x00R\abackoff\x128\n" +
-	"\x04acks\x18\x06 \x01(\v2\".weaviate.v1.BatchStreamReply.AcksH\x00R\x04acks\x1a\t\n" +
+	"\x04acks\x18\x06 \x01(\v2\".weaviate.v1.BatchStreamReply.AcksH\x00R\x04acks\x12O\n" +
+	"\rout_of_memory\x18\a \x01(\v2).weaviate.v1.BatchStreamReply.OutOfMemoryH\x00R\voutOfMemory\x1a\t\n" +
 	"\aStarted\x1a\x0e\n" +
-	"\fShuttingDown\x1a\n" +
-	"\n" +
-	"\bShutdown\x1a(\n" +
+	"\fShuttingDown\x1aZ\n" +
+	"\vOutOfMemory\x12\x14\n" +
+	"\x05uuids\x18\x01 \x03(\tR\x05uuids\x12\x18\n" +
+	"\abeacons\x18\x02 \x03(\tR\abeacons\x12\x1b\n" +
+	"\twait_time\x18\x03 \x01(\x05R\bwaitTime\x1a(\n" +
 	"\aBackoff\x12\x1d\n" +
 	"\n" +
 	"batch_size\x18\x01 \x01(\x05R\tbatchSize\x1a6\n" +
@@ -1697,7 +1725,7 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x04uuid\x18\x02 \x01(\tH\x00R\x04uuid\x12\x18\n" +
 	"\x06beacon\x18\x03 \x01(\tH\x00R\x06beaconB\b\n" +
 	"\x06detailB\t\n" +
-	"\amessage\"\xa4\n" +
+	"\amessageJ\x04\b\x03\x10\x04R\bshutdown\"\xa4\n" +
 	"\n" +
 	"\vBatchObject\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1a\n" +
@@ -1784,7 +1812,7 @@ var file_v1_batch_proto_goTypes = []any{
 	(*BatchStreamRequest_Data_References)(nil), // 12: weaviate.v1.BatchStreamRequest.Data.References
 	(*BatchStreamReply_Started)(nil),           // 13: weaviate.v1.BatchStreamReply.Started
 	(*BatchStreamReply_ShuttingDown)(nil),      // 14: weaviate.v1.BatchStreamReply.ShuttingDown
-	(*BatchStreamReply_Shutdown)(nil),          // 15: weaviate.v1.BatchStreamReply.Shutdown
+	(*BatchStreamReply_OutOfMemory)(nil),       // 15: weaviate.v1.BatchStreamReply.OutOfMemory
 	(*BatchStreamReply_Backoff)(nil),           // 16: weaviate.v1.BatchStreamReply.Backoff
 	(*BatchStreamReply_Acks)(nil),              // 17: weaviate.v1.BatchStreamReply.Acks
 	(*BatchStreamReply_Results)(nil),           // 18: weaviate.v1.BatchStreamReply.Results
@@ -1815,10 +1843,10 @@ var file_v1_batch_proto_depIdxs = []int32{
 	9,  // 6: weaviate.v1.BatchStreamRequest.stop:type_name -> weaviate.v1.BatchStreamRequest.Stop
 	18, // 7: weaviate.v1.BatchStreamReply.results:type_name -> weaviate.v1.BatchStreamReply.Results
 	14, // 8: weaviate.v1.BatchStreamReply.shutting_down:type_name -> weaviate.v1.BatchStreamReply.ShuttingDown
-	15, // 9: weaviate.v1.BatchStreamReply.shutdown:type_name -> weaviate.v1.BatchStreamReply.Shutdown
-	13, // 10: weaviate.v1.BatchStreamReply.started:type_name -> weaviate.v1.BatchStreamReply.Started
-	16, // 11: weaviate.v1.BatchStreamReply.backoff:type_name -> weaviate.v1.BatchStreamReply.Backoff
-	17, // 12: weaviate.v1.BatchStreamReply.acks:type_name -> weaviate.v1.BatchStreamReply.Acks
+	13, // 9: weaviate.v1.BatchStreamReply.started:type_name -> weaviate.v1.BatchStreamReply.Started
+	16, // 10: weaviate.v1.BatchStreamReply.backoff:type_name -> weaviate.v1.BatchStreamReply.Backoff
+	17, // 11: weaviate.v1.BatchStreamReply.acks:type_name -> weaviate.v1.BatchStreamReply.Acks
+	15, // 12: weaviate.v1.BatchStreamReply.out_of_memory:type_name -> weaviate.v1.BatchStreamReply.OutOfMemory
 	21, // 13: weaviate.v1.BatchObject.properties:type_name -> weaviate.v1.BatchObject.Properties
 	27, // 14: weaviate.v1.BatchObject.vectors:type_name -> weaviate.v1.Vectors
 	24, // 15: weaviate.v1.BatchObjectsReply.errors:type_name -> weaviate.v1.BatchObjectsReply.BatchError
@@ -1862,10 +1890,10 @@ func file_v1_batch_proto_init() {
 	file_v1_batch_proto_msgTypes[3].OneofWrappers = []any{
 		(*BatchStreamReply_Results_)(nil),
 		(*BatchStreamReply_ShuttingDown_)(nil),
-		(*BatchStreamReply_Shutdown_)(nil),
 		(*BatchStreamReply_Started_)(nil),
 		(*BatchStreamReply_Backoff_)(nil),
 		(*BatchStreamReply_Acks_)(nil),
+		(*BatchStreamReply_OutOfMemory_)(nil),
 	}
 	file_v1_batch_proto_msgTypes[5].OneofWrappers = []any{}
 	file_v1_batch_proto_msgTypes[8].OneofWrappers = []any{}

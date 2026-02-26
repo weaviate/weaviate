@@ -9,6 +9,13 @@ packages:
     interfaces:
       Parser:
       replicationFSM:
+  github.com/weaviate/weaviate/usecases/replica:
+   interfaces:
+      RClient:
+      WClient:
+  github.com/weaviate/weaviate/usecases/replica/types:
+    interfaces:
+      Replicator:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
@@ -23,6 +30,7 @@ packages:
   github.com/weaviate/weaviate/usecases/cluster:
     interfaces:
       NodeSelector:
+      NodeResolver:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
@@ -93,6 +101,11 @@ packages:
           outpkg: "mocks"
           inpackage: false
       authenticator:
+        config:
+          dir: "adapters/handlers/grpc/v1/batch/mocks"
+          outpkg: "mocks"
+          inpackage: false
+      schemaManager:
         config:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"

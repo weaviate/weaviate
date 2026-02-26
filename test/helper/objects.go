@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -305,6 +305,19 @@ func PatchObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsPatchParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsPatch(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func PatchObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLevel) error {
+	t.Helper()
+	cls := string(cl)
+	params := objects.NewObjectsClassPatchParams().
+		WithClassName(object.Class).
+		WithID(object.ID).
+		WithBody(object).
+		WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassPatch(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return err
 }

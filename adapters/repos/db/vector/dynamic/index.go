@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -66,7 +66,8 @@ type VectorIndex interface {
 	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	SwitchCommitLogs(ctx context.Context) error
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
@@ -91,33 +92,34 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                      string
-	targetVector            string
-	store                   *lsmkv.Store
-	logger                  logrus.FieldLogger
-	rootPath                string
-	shardName               string
-	className               string
-	prometheusMetrics       *monitoring.PrometheusMetrics
-	vectorForIDThunk        common.VectorForID[float32]
-	tempVectorForIDThunk    common.TempVectorForID[float32]
-	distanceProvider        distancer.Provider
-	makeCommitLoggerThunk   hnsw.MakeCommitLogger
-	threshold               uint64
-	index                   VectorIndex
-	upgraded                atomic.Bool
-	upgradeOnce             sync.Once
-	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
-	uc                      ent.UserConfig
-	db                      *bbolt.DB
-	ctx                     context.Context
-	cancel                  context.CancelFunc
-	hnswDisableSnapshots    bool
-	hnswSnapshotOnStartup   bool
-	hnswWaitForCachePrefill bool
-	AllocChecker            memwatch.AllocChecker
-	MakeBucketOptions       lsmkv.MakeBucketOptions
-	AsyncIndexingEnabled    bool
+	id                           string
+	targetVector                 string
+	store                        *lsmkv.Store
+	logger                       logrus.FieldLogger
+	rootPath                     string
+	shardName                    string
+	className                    string
+	prometheusMetrics            *monitoring.PrometheusMetrics
+	vectorForIDThunk             common.VectorForID[float32]
+	getViewThunk                 common.GetViewThunk
+	tempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
+	distanceProvider             distancer.Provider
+	makeCommitLoggerThunk        hnsw.MakeCommitLogger
+	threshold                    uint64
+	index                        VectorIndex
+	upgraded                     atomic.Bool
+	upgradeOnce                  sync.Once
+	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
+	uc                           ent.UserConfig
+	db                           *bbolt.DB
+	ctx                          context.Context
+	cancel                       context.CancelFunc
+	hnswDisableSnapshots         bool
+	hnswSnapshotOnStartup        bool
+	hnswWaitForCachePrefill      bool
+	AllocChecker                 memwatch.AllocChecker
+	MakeBucketOptions            lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled         bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -145,30 +147,31 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
-		id:                      cfg.ID,
-		targetVector:            cfg.TargetVector,
-		logger:                  logger,
-		rootPath:                cfg.RootPath,
-		shardName:               cfg.ShardName,
-		className:               cfg.ClassName,
-		prometheusMetrics:       cfg.PrometheusMetrics,
-		vectorForIDThunk:        cfg.VectorForIDThunk,
-		tempVectorForIDThunk:    cfg.TempVectorForIDThunk,
-		distanceProvider:        cfg.DistanceProvider,
-		makeCommitLoggerThunk:   cfg.MakeCommitLoggerThunk,
-		store:                   store,
-		threshold:               uc.Threshold,
-		tombstoneCallbacks:      cfg.TombstoneCallbacks,
-		uc:                      uc,
-		db:                      cfg.SharedDB,
-		ctx:                     ctx,
-		cancel:                  cancel,
-		hnswDisableSnapshots:    cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup:   cfg.HNSWSnapshotOnStartup,
-		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
-		AllocChecker:            cfg.AllocChecker,
-		MakeBucketOptions:       cfg.MakeBucketOptions,
-		AsyncIndexingEnabled:    cfg.AsyncIndexingEnabled,
+		id:                           cfg.ID,
+		targetVector:                 cfg.TargetVector,
+		logger:                       logger,
+		rootPath:                     cfg.RootPath,
+		shardName:                    cfg.ShardName,
+		className:                    cfg.ClassName,
+		prometheusMetrics:            cfg.PrometheusMetrics,
+		vectorForIDThunk:             cfg.VectorForIDThunk,
+		getViewThunk:                 cfg.GetViewThunk,
+		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
+		distanceProvider:             cfg.DistanceProvider,
+		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
+		store:                        store,
+		threshold:                    uc.Threshold,
+		tombstoneCallbacks:           cfg.TombstoneCallbacks,
+		uc:                           uc,
+		db:                           cfg.SharedDB,
+		ctx:                          ctx,
+		cancel:                       cancel,
+		hnswDisableSnapshots:         cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
+		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
+		AllocChecker:                 cfg.AllocChecker,
+		MakeBucketOptions:            cfg.MakeBucketOptions,
+		AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
 	}
 
 	upgraded, err := index.init(&cfg)
@@ -180,22 +183,23 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		index.upgraded.Store(true)
 		hnsw, err := hnsw.New(
 			hnsw.Config{
-				Logger:                index.logger,
-				RootPath:              index.rootPath,
-				ID:                    index.id,
-				ShardName:             index.shardName,
-				ClassName:             index.className,
-				PrometheusMetrics:     index.prometheusMetrics,
-				VectorForIDThunk:      index.vectorForIDThunk,
-				TempVectorForIDThunk:  index.tempVectorForIDThunk,
-				DistanceProvider:      index.distanceProvider,
-				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
-				DisableSnapshots:      index.hnswDisableSnapshots,
-				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
-				WaitForCachePrefill:   index.hnswWaitForCachePrefill,
-				AllocChecker:          index.AllocChecker,
-				MakeBucketOptions:     index.MakeBucketOptions,
-				AsyncIndexingEnabled:  index.AsyncIndexingEnabled,
+				Logger:                       index.logger,
+				RootPath:                     index.rootPath,
+				ID:                           index.id,
+				ShardName:                    index.shardName,
+				ClassName:                    index.className,
+				PrometheusMetrics:            index.prometheusMetrics,
+				VectorForIDThunk:             index.vectorForIDThunk,
+				GetViewThunk:                 index.getViewThunk,
+				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
+				DistanceProvider:             index.distanceProvider,
+				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
+				DisableSnapshots:             index.hnswDisableSnapshots,
+				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
+				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
+				AllocChecker:                 index.AllocChecker,
+				MakeBucketOptions:            index.MakeBucketOptions,
+				AsyncIndexingEnabled:         index.AsyncIndexingEnabled,
 			},
 			index.uc.HnswUC,
 			index.tombstoneCallbacks,
@@ -411,10 +415,16 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	return dynamic.index.Shutdown(ctx)
 }
 
-func (dynamic *dynamic) SwitchCommitLogs(ctx context.Context) error {
+func (dynamic *dynamic) PrepareForBackup(ctx context.Context) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SwitchCommitLogs(ctx)
+	return dynamic.index.PrepareForBackup(ctx)
+}
+
+func (dynamic *dynamic) ResumeAfterBackup(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ResumeAfterBackup(ctx)
 }
 
 func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {
@@ -517,22 +527,23 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	index, err := hnsw.New(
 		hnsw.Config{
-			Logger:                dynamic.logger,
-			RootPath:              dynamic.rootPath,
-			ID:                    dynamic.id,
-			ShardName:             dynamic.shardName,
-			ClassName:             dynamic.className,
-			PrometheusMetrics:     dynamic.prometheusMetrics,
-			VectorForIDThunk:      dynamic.vectorForIDThunk,
-			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
-			DistanceProvider:      dynamic.distanceProvider,
-			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
-			DisableSnapshots:      dynamic.hnswDisableSnapshots,
-			SnapshotOnStartup:     dynamic.hnswSnapshotOnStartup,
-			WaitForCachePrefill:   dynamic.hnswWaitForCachePrefill,
-			AllocChecker:          dynamic.AllocChecker,
-			MakeBucketOptions:     dynamic.MakeBucketOptions,
-			AsyncIndexingEnabled:  dynamic.AsyncIndexingEnabled,
+			Logger:                       dynamic.logger,
+			RootPath:                     dynamic.rootPath,
+			ID:                           dynamic.id,
+			ShardName:                    dynamic.shardName,
+			ClassName:                    dynamic.className,
+			PrometheusMetrics:            dynamic.prometheusMetrics,
+			VectorForIDThunk:             dynamic.vectorForIDThunk,
+			GetViewThunk:                 dynamic.getViewThunk,
+			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
+			DistanceProvider:             dynamic.distanceProvider,
+			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
+			DisableSnapshots:             dynamic.hnswDisableSnapshots,
+			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
+			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
+			AllocChecker:                 dynamic.AllocChecker,
+			MakeBucketOptions:            dynamic.MakeBucketOptions,
+			AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
 		},
 		dynamic.uc.HnswUC,
 		dynamic.tombstoneCallbacks,

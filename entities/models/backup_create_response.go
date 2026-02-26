@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,7 +50,7 @@ type BackupCreateResponse struct {
 	Path string `json:"path,omitempty"`
 
 	// phase of backup creation process
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
+	// Enum: [STARTED TRANSFERRING TRANSFERRED FINALIZING SUCCESS FAILED CANCELLING CANCELED]
 	Status *string `json:"status,omitempty"`
 }
 
@@ -72,7 +72,7 @@ var backupCreateResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","FINALIZING","SUCCESS","FAILED","CANCELLING","CANCELED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -91,11 +91,17 @@ const (
 	// BackupCreateResponseStatusTRANSFERRED captures enum value "TRANSFERRED"
 	BackupCreateResponseStatusTRANSFERRED string = "TRANSFERRED"
 
+	// BackupCreateResponseStatusFINALIZING captures enum value "FINALIZING"
+	BackupCreateResponseStatusFINALIZING string = "FINALIZING"
+
 	// BackupCreateResponseStatusSUCCESS captures enum value "SUCCESS"
 	BackupCreateResponseStatusSUCCESS string = "SUCCESS"
 
 	// BackupCreateResponseStatusFAILED captures enum value "FAILED"
 	BackupCreateResponseStatusFAILED string = "FAILED"
+
+	// BackupCreateResponseStatusCANCELLING captures enum value "CANCELLING"
+	BackupCreateResponseStatusCANCELLING string = "CANCELLING"
 
 	// BackupCreateResponseStatusCANCELED captures enum value "CANCELED"
 	BackupCreateResponseStatusCANCELED string = "CANCELED"

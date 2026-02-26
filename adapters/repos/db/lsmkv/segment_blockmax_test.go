@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,7 +34,7 @@ func TestSerializeAndParseInvertedNodeTest(t *testing.T) {
 		t.Fatalf("error creating segment: %v", err)
 	}
 
-	sbm := NewSegmentBlockMax(seg, []byte("and"), 0, 1, 1, nil, nil, 10, schema.BM25Config{K1: 1.2, B: 0.75})
+	sbm := NewSegmentBlockMax(seg, []byte("and"), 0, 1, 1, nil, nil, nil, 10, schema.BM25Config{K1: 1.2, B: 0.75})
 
 	sbm.AdvanceAtLeast(100)
 	id, score, pair := sbm.Score(1, false)

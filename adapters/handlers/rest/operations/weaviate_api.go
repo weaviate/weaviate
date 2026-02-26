@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -118,6 +118,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		BackupsBackupsRestoreHandler: backups.BackupsRestoreHandlerFunc(func(params backups.BackupsRestoreParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsRestore has not yet been implemented")
+		}),
+		BackupsBackupsRestoreCancelHandler: backups.BackupsRestoreCancelHandlerFunc(func(params backups.BackupsRestoreCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsRestoreCancel has not yet been implemented")
 		}),
 		BackupsBackupsRestoreStatusHandler: backups.BackupsRestoreStatusHandlerFunc(func(params backups.BackupsRestoreStatusParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsRestoreStatus has not yet been implemented")
@@ -323,6 +326,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsPropertiesAddHandler: schema.SchemaObjectsPropertiesAddHandlerFunc(func(params schema.SchemaObjectsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesAdd has not yet been implemented")
 		}),
+		SchemaSchemaObjectsPropertiesDeleteHandler: schema.SchemaObjectsPropertiesDeleteHandlerFunc(func(params schema.SchemaObjectsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesDelete has not yet been implemented")
+		}),
 		SchemaSchemaObjectsShardsGetHandler: schema.SchemaObjectsShardsGetHandlerFunc(func(params schema.SchemaObjectsShardsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsGet has not yet been implemented")
 		}),
@@ -443,6 +449,8 @@ type WeaviateAPI struct {
 	BackupsBackupsListHandler backups.BackupsListHandler
 	// BackupsBackupsRestoreHandler sets the operation handler for the backups restore operation
 	BackupsBackupsRestoreHandler backups.BackupsRestoreHandler
+	// BackupsBackupsRestoreCancelHandler sets the operation handler for the backups restore cancel operation
+	BackupsBackupsRestoreCancelHandler backups.BackupsRestoreCancelHandler
 	// BackupsBackupsRestoreStatusHandler sets the operation handler for the backups restore status operation
 	BackupsBackupsRestoreStatusHandler backups.BackupsRestoreStatusHandler
 	// BatchBatchObjectsCreateHandler sets the operation handler for the batch objects create operation
@@ -579,6 +587,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsGetHandler schema.SchemaObjectsGetHandler
 	// SchemaSchemaObjectsPropertiesAddHandler sets the operation handler for the schema objects properties add operation
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
+	// SchemaSchemaObjectsPropertiesDeleteHandler sets the operation handler for the schema objects properties delete operation
+	SchemaSchemaObjectsPropertiesDeleteHandler schema.SchemaObjectsPropertiesDeleteHandler
 	// SchemaSchemaObjectsShardsGetHandler sets the operation handler for the schema objects shards get operation
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
@@ -734,6 +744,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.BackupsBackupsRestoreHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsRestoreHandler")
+	}
+	if o.BackupsBackupsRestoreCancelHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsRestoreCancelHandler")
 	}
 	if o.BackupsBackupsRestoreStatusHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsRestoreStatusHandler")
@@ -939,6 +952,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesAddHandler")
 	}
+	if o.SchemaSchemaObjectsPropertiesDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesDeleteHandler")
+	}
 	if o.SchemaSchemaObjectsShardsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsGetHandler")
 	}
@@ -1139,6 +1155,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestoreCancel(o.context, o.BackupsBackupsRestoreCancelHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1411,6 +1431,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/{className}/properties/{propertyName}/index/{indexName}"] = schema.NewSchemaObjectsPropertiesDelete(o.context, o.SchemaSchemaObjectsPropertiesDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

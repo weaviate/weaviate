@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,9 +19,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/loadlimiter"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -59,14 +62,14 @@ type LazyLoadShard struct {
 	loaded           bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
-	shardLoadLimiter ShardLoadLimiter
+	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
+	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer ShardReindexerV3,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
@@ -174,6 +177,16 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	return storagestate.StatusLazyLoading
 }
 
+func (l *LazyLoadShard) GetStatusReason() string {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded {
+		return l.shard.GetStatusReason()
+	}
+	return storagestate.StatusLazyLoading.String()
+}
+
 func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	l.mustLoad()
 	return l.shard.UpdateStatus(status, reason)
@@ -184,11 +197,11 @@ func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
 	return l.shard.SetStatusReadonly(reason)
 }
 
-func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
+func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
 	if err := l.Load(ctx); err != nil {
 		return []strfmt.UUID{}, err
 	}
-	return l.shard.FindUUIDs(ctx, filters)
+	return l.shard.FindUUIDs(ctx, filters, limit)
 }
 
 func (l *LazyLoadShard) Counter() *indexcounter.Counter {
@@ -284,11 +297,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.SetAsyncReplicationEnabled(ctx, enabled)
+	return l.shard.SetAsyncReplicationState(ctx, config, enabled)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
@@ -417,6 +430,43 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 ) {
 	l.mustLoad()
 	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
+}
+
+func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	property *models.Property,
+) {
+	if l.isLoaded() {
+		l.shard.updatePropertyBuckets(ctx, eg, property)
+	} else {
+		l.updateUnloadedPropertyBuckets(ctx, eg, property)
+	}
+}
+
+func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
+	eg *enterrors.ErrorGroupWrapper,
+	prop *models.Property,
+) {
+	eg.Go(func() error {
+		if !inverted.HasFilterableIndex(prop) {
+			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasSearchableIndex(prop) {
+			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
+			}
+		}
+		if !inverted.HasRangeableIndex(prop) {
+			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
@@ -695,9 +745,9 @@ func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, d
 	return l.shard.batchDeleteObject(ctx, id, deletionTime)
 }
 
-func (l *LazyLoadShard) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
+func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
 	l.mustLoad()
-	return l.shard.putObjectLSM(object, idBytes)
+	return l.shard.putObjectLSM(ctx, object, idBytes)
 }
 
 func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error {
@@ -705,9 +755,9 @@ func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes 
 	return l.shard.mayUpsertObjectHashTree(object, idBytes, status)
 }
 
-func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
+func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
 	l.mustLoad()
-	return l.shard.mutableMergeObjectLSM(merge, idBytes)
+	return l.shard.mutableMergeObjectLSM(ctx, merge, idBytes)
 }
 
 func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

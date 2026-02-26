@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -169,6 +169,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		Error:       status.Err,
 		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
 		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
+		Size:        status.Size,
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
@@ -302,6 +303,37 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	return backups.NewBackupsCancelNoContent()
 }
 
+func (s *backupHandlers) cancelRestore(params backups.BackupsRestoreCancelParams,
+	principal *models.Principal,
+) middleware.Responder {
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	err := s.manager.CancelRestore(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+	if err != nil {
+		s.metricRequestsTotal.logError("", err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return backups.NewBackupsRestoreCancelForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &backup.ErrUnprocessable{}):
+			return backups.NewBackupsRestoreCancelUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return backups.NewBackupsRestoreCancelInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk("")
+	return backups.NewBackupsRestoreCancelNoContent()
+}
+
 func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -341,6 +373,7 @@ func setupBackupHandlers(api *operations.WeaviateAPI,
 	api.BackupsBackupsRestoreStatusHandler = backups.
 		BackupsRestoreStatusHandlerFunc(h.restoreBackupStatus)
 	api.BackupsBackupsCancelHandler = backups.BackupsCancelHandlerFunc(h.cancel)
+	api.BackupsBackupsRestoreCancelHandler = backups.BackupsRestoreCancelHandlerFunc(h.cancelRestore)
 	api.BackupsBackupsListHandler = backups.BackupsListHandlerFunc(h.list)
 }
 

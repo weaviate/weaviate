@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -376,6 +376,14 @@ func (s *schema) deleteClass(name string) bool {
 	return true
 }
 
+func (s *schema) classExists(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, exists := s.classes[name]
+	return exists
+}
+
 // replaceClasses replaces the existing `schema.Classes` with given `classes`
 // mainly used in cases like restoring the whole schema from backup or something.
 func (s *schema) replaceClasses(classes map[string]*metaClass) {
@@ -433,6 +441,17 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 		return ErrClassNotFound
 	}
 	return meta.AddProperty(v, props...)
+}
+
+func (s *schema) updateProperty(class string, v uint64, property *models.Property) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	meta := s.unsafeResolveClass(class)
+	if meta == nil {
+		return ErrClassNotFound
+	}
+	return meta.UpdateProperty(v, property)
 }
 
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {

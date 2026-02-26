@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,21 +49,6 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	return nil
 }
 
-// ListBackupable returns a list of all classes which can be backed up.
-func (db *DB) ListBackupable() []string {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-
-	cs := make([]string, 0, len(db.indices))
-
-	for _, idx := range db.indices {
-		cls := string(idx.Config.ClassName)
-		cs = append(cs, cls)
-	}
-
-	return cs
-}
-
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
@@ -101,66 +86,6 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	return ds
 }
 
-func (db *DB) ShardsBackup(
-	ctx context.Context, bakID, class string, shards []string,
-) (_ backup.ClassDescriptor, err error) {
-	cd := backup.ClassDescriptor{Name: class}
-	idx := db.GetIndex(schema.ClassName(class))
-	if idx == nil {
-		return cd, fmt.Errorf("no index for class %q", class)
-	}
-
-	idx.closeLock.RLock()
-	defer idx.closeLock.RUnlock()
-	if idx.closed {
-		return cd, fmt.Errorf("index for class %q is closed", class)
-	}
-
-	if err := idx.initBackup(bakID); err != nil {
-		return cd, fmt.Errorf("init backup state for class %q: %w", class, err)
-	}
-
-	defer func() {
-		if err != nil {
-			enterrors.GoWrapper(func() {
-				idx.ReleaseBackup(ctx, bakID) // closelock is still hold from above
-			}, db.logger)
-		}
-	}()
-
-	sm := make(map[string]ShardLike, len(shards))
-	for _, shardName := range shards {
-		shard := idx.shards.Load(shardName)
-		if shard == nil {
-			return cd, fmt.Errorf("no shard %q for class %q", shardName, class)
-		}
-		sm[shardName] = shard
-	}
-
-	// prevent writing into the index during collection of metadata
-	for shardName, shard := range sm {
-		if err := func() error {
-			if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
-				return fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
-			}
-			idx.backupLock.Lock(shardName)
-			defer idx.backupLock.Unlock(shardName)
-
-			sd := backup.ShardDescriptor{Name: shardName}
-			if err := shard.ListBackupFiles(ctx, &sd); err != nil {
-				return fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
-			}
-
-			cd.Shards = append(cd.Shards, &sd)
-			return nil
-		}(); err != nil {
-			return cd, err
-		}
-	}
-
-	return cd, nil
-}
-
 // ReleaseBackup release resources acquired by the index during backup
 func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error) {
 	fields := logrus.Fields{
@@ -196,10 +121,6 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 		}
 	}
 	return nil
-}
-
-func (db *DB) ClassExists(name string) bool {
-	return db.IndexExists(schema.ClassName(name))
 }
 
 // Shards returns the list of nodes where shards of class are contained.

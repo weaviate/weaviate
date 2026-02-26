@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -460,7 +460,12 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	// Ensure quantizer is initialized
 	if index.quantizer == nil {
-		return nil, nil, fmt.Errorf("quantizer not initialized")
+		dims := atomic.LoadInt32(&index.dims)
+		if dims == 0 {
+			return []uint64{}, []float32{}, nil
+		} else {
+			return nil, nil, fmt.Errorf("quantizer not initialized")
+		}
 	}
 
 	// TODO: pass context into inner methods, so it can be checked more granuarly
@@ -794,7 +799,11 @@ func (index *flat) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (index *flat) SwitchCommitLogs(context.Context) error {
+func (index *flat) PrepareForBackup(context.Context) error {
+	return nil
+}
+
+func (index *flat) ResumeAfterBackup(context.Context) error {
 	return nil
 }
 

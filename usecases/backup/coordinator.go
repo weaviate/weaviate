@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Op is the kind of a backup operation
@@ -41,6 +42,7 @@ var (
 	errCannotCommit = errors.New("cannot commit")
 	errMetaNotFound = errors.New("metadata not found")
 	errUnknownOp    = errors.New("unknown backup operation")
+	errCancelled    = errors.New("operation cancelled by user")
 )
 
 const (
@@ -240,6 +242,16 @@ func (c *coordinator) Restore(
 	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
+
+	// Check if a cancellation is already in progress before asking nodes to commit.
+	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
+		if existingMeta.Status == backup.Cancelling {
+			c.lastOp.reset()
+			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
+			return nil
+		}
+	}
+
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
@@ -250,11 +262,18 @@ func (c *coordinator) Restore(
 	}
 	c.descriptor = desc.ResetStatus()
 
+	// Time canCommit phase (initiates file staging on all nodes)
+	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req)
+	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
 		c.lastOp.reset()
 		return err
 	}
+
+	// Set status to Transferring now that staging has begun
+	c.descriptor.Status = backup.Transferring
+	c.lastOp.set(backup.Transferring)
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
@@ -271,8 +290,78 @@ func (c *coordinator) Restore(
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
+
+		// checkStorageCancelled reads from storage to check if restore was cancelled.
+		// Storage is the authoritative source since it works across all nodes in the cluster.
+		// Returns true if the restore should stop due to cancellation.
+		// Treats both CANCELLING and CANCELLED as cancellation signals - CANCELLING means
+		// another coordinator has claimed and is processing the cancellation.
+		checkStorageCancelled := func() bool {
+			storedMeta, err := store.Meta(ctx, GlobalRestoreFile, overrideBucket, overridePath)
+			if err != nil {
+				return false // Can't read storage, continue with operation
+			}
+			if storedMeta.Status == backup.Cancelled || storedMeta.Status == backup.Cancelling {
+				c.descriptor.Status = backup.Cancelled
+				c.descriptor.Error = storedMeta.Error
+				if c.descriptor.Error == "" {
+					c.descriptor.Error = errCancelled.Error()
+				}
+				c.lastOp.set(backup.Cancelled)
+				return true
+			}
+			return false
+		}
+
+		// Time commit polling phase (waits for all nodes to finish staging)
+		commitStart := time.Now()
 		c.commit(ctx, &statusReq, nodes, true)
-		c.restoreClasses(ctx, schema, req)
+		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
+
+		// Check storage for cancellation before transitioning to Finalizing.
+		// This handles the case where CancelRestore was called (possibly on a different node)
+		// and wrote CANCELLED status to storage while we were in commit phase.
+		if checkStorageCancelled() {
+			c.log.WithField("backup_id", desc.ID).Info("restore cancelled (detected from storage after commit)")
+			// Don't write to storage - CancelRestore already wrote the CANCELLED status
+			return
+		}
+
+		// Block cancellation by setting status to Finalizing before schema apply
+		// Only proceed if staging was successful (Transferred = staging complete)
+		if c.descriptor.Status == backup.Transferred {
+			// Check for external cancellation via lastOp (same-node cancellation)
+			if c.lastOp.get().Status == backup.Cancelled {
+				c.descriptor.Status = backup.Cancelled
+				c.descriptor.Error = errCancelled.Error()
+			} else {
+				c.descriptor.Status = backup.Finalizing
+				c.lastOp.set(backup.Finalizing)
+				if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+					c.log.WithField("backup_id", desc.ID).Errorf("failed to persist finalizing status: %v", err)
+				}
+			}
+		}
+
+		// Only proceed with schema apply if we successfully transitioned to Finalizing
+		// Skip if status is Cancelled, Failed, or any other non-Finalizing state
+		if c.descriptor.Status == backup.Finalizing {
+			// Time schema apply phase (Raft commits for each class)
+			schemaApplyStart := time.Now()
+			c.restoreClasses(ctx, schema, req)
+			c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
+
+			// Set final status - restoreClasses may have set Failed, otherwise set Success
+			if c.descriptor.Status == backup.Finalizing {
+				c.descriptor.Status = backup.Success
+			}
+		}
+		c.lastOp.set(c.descriptor.Status)
+
+		// Note: No need to check for cancellation after schema apply.
+		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
+		// so CANCELLED cannot be written to storage during schema apply.
+
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -288,6 +377,14 @@ func (c *coordinator) Restore(
 	return nil
 }
 
+// observeRestorePhase records the duration of a restore phase to Prometheus
+func (c *coordinator) observeRestorePhase(phase string, duration time.Duration) {
+	metric, err := monitoring.GetMetrics().RestorePhaseDurations.GetMetricWithLabelValues(phase)
+	if err == nil {
+		metric.Observe(duration.Seconds())
+	}
+}
+
 // restoreClasses attempts to restore all classes.
 // It continues attempting to restore other classes even if some restoration attempts fail.
 // The failure of one class restoration does not necessarily indicate failure for all classes;
@@ -298,23 +395,46 @@ func (c *coordinator) restoreClasses(
 	schema []backup.ClassDescriptor,
 	req *Request,
 ) {
-	if c.descriptor.Status != backup.Success {
+	// Only proceed if status is Finalizing (set by caller before schema apply)
+	if c.descriptor.Status != backup.Finalizing {
+		c.log.WithFields(logrus.Fields{
+			"action":          "restore_classes",
+			"backup_id":       c.descriptor.ID,
+			"expected_status": backup.Finalizing,
+			"actual_status":   c.descriptor.Status,
+		}).Error("unexpected status before schema apply")
+		c.descriptor.Error = fmt.Sprintf("unexpected status %q before schema apply, expected %q", c.descriptor.Status, backup.Finalizing)
+		c.descriptor.Status = backup.Failed
 		return
 	}
-	errors := make([]string, 0, 5)
+	restoreErrors := make([]string, 0, 5)
 	hasReqClasses := len(req.Classes) > 0
 	for _, cls := range schema {
+		// Check for context cancellation between class restores
+		// Note: Once in Finalizing state, external cancellation via CancelRestore() is blocked,
+		// but we still respect context cancellation for internal consistency
+		if err := ctx.Err(); err != nil {
+			c.log.WithFields(logrus.Fields{
+				"action":    "restore_classes",
+				"backup_id": c.descriptor.ID,
+				"class":     cls.Name,
+			}).Warn("schema apply interrupted by context cancellation")
+			c.descriptor.Error = fmt.Sprintf("schema apply interrupted: %v", err)
+			c.descriptor.Status = backup.Failed
+			return
+		}
+
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
 		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
-			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
+			restoreErrors = append(restoreErrors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
 	}
-	if len(errors) > 0 {
+	if len(restoreErrors) > 0 {
 		c.descriptor.Status = backup.Failed
-		c.descriptor.Error = fmt.Sprintf("could not restore classes: %v", errors)
+		c.descriptor.Error = fmt.Sprintf("could not restore classes: %v", restoreErrors)
 	}
 }
 
@@ -342,6 +462,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,
 		Err:         meta.Error,
+		Size:        float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 	}
 	return status, nil
 }
@@ -352,33 +473,19 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_can_commit",
-		"duration": c.timeoutCanCommit,
-		"level":    req.Level,
-		"method":   req.Method,
-		"backend":  req.Backend,
-	}).Debug("context.WithTimeout")
+	// Apply node mapping to the descriptor shall happen before
+	// asking candidates if they agree to participate in DBRO and before creating the request channel.
+	// This ensures that the request channel contains the correct node names and RESOLVES
+	// correctly the NEW node names and hosts if mapping exists.
+	// NOTE: This could be leveraged for adjusting number of nodes in the schema (as future implementation).
+	c.descriptor.ApplyNodeMapping()
 
-	type nodeHost struct {
-		node, host string
-	}
-
-	type pair struct {
-		n nodeHost
-		r *Request
-	}
-
-	id := c.descriptor.ID
-	nodeMapping := c.descriptor.NodeMapping
-	groups := c.descriptor.Nodes
-
+	reqChan := make(chan *Request)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
-	reqChan := make(chan pair)
 	g.Go(func() error {
 		defer close(reqChan)
-		for node, gr := range groups {
+		for nodeName, gr := range c.descriptor.Nodes {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -386,52 +493,50 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 
 			// If we have a nodeMapping with the node name from the backup, replace the node with the new one
-			node = c.descriptor.ToMappedNodeName(node)
+			nodeName = c.descriptor.ToMappedNodeName(nodeName)
 
-			host, found := c.nodeResolver.NodeHostname(node)
+			host, found := c.nodeResolver.NodeHostname(nodeName)
 			if !found {
-				return fmt.Errorf("cannot resolve hostname for %q", node)
+				return fmt.Errorf("cannot resolve hostname for %q, nodes=%v, nodeMapping=%v", nodeName, c.descriptor.Nodes, c.descriptor.NodeMapping)
 			}
 
-			reqChan <- pair{
-				nodeHost{node, host},
-				&Request{
-					Method:            req.Method,
-					ID:                id,
-					Backend:           req.Backend,
-					Classes:           gr.Classes,
-					Duration:          _BookingPeriod,
-					NodeMapping:       nodeMapping,
-					Compression:       req.Compression,
-					Bucket:            req.Bucket,
-					Path:              req.Path,
-					UserRestoreOption: req.UserRestoreOption,
-					RbacRestoreOption: req.RbacRestoreOption,
-				},
+			reqChan <- &Request{
+				NodeName:          nodeName,
+				NodeHost:          host,
+				Method:            req.Method,
+				ID:                c.descriptor.ID,
+				Backend:           req.Backend,
+				Classes:           gr.Classes,
+				Duration:          _BookingPeriod,
+				NodeMapping:       c.descriptor.NodeMapping,
+				Compression:       req.Compression,
+				Bucket:            req.Bucket,
+				Path:              req.Path,
+				UserRestoreOption: req.UserRestoreOption,
+				RbacRestoreOption: req.RbacRestoreOption,
 			}
 		}
 		return nil
 	})
 
 	mutex := sync.RWMutex{}
-	nodes := make(map[string]string, len(groups))
-	for pair := range reqChan {
-		pair := pair
+	nodes := make(map[string]string, len(c.descriptor.Nodes))
+	for req := range reqChan {
 		g.Go(func() error {
-			resp, err := c.client.CanCommit(ctx, pair.n.host, pair.r)
+			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
 				err = fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 			}
 			if err != nil {
-				return fmt.Errorf("node %q: %w", pair.n, err)
+				return fmt.Errorf("node %q: %w", req.NodeName, err)
 			}
 			mutex.Lock()
-			nodes[pair.n.node] = pair.n.host
+			nodes[req.NodeName] = req.NodeHost
 			mutex.Unlock()
 			return nil
 		})
 	}
-	abortReq := &AbortRequest{Method: req.Method, ID: id, Backend: req.Backend}
+	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend}
 	if err := g.Wait(); err != nil {
 		c.abortAll(ctx, abortReq, nodes)
 		return nil, err
@@ -451,11 +556,43 @@ func (c *coordinator) commit(ctx context.Context,
 	for k, v := range node2Addr {
 		node2Host[k] = v
 	}
+
+	// Check for external cancellation before starting
+	if c.lastOp.get().Status == backup.Cancelled {
+		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
+		c.descriptor.Status = backup.Cancelled
+		c.descriptor.Error = errCancelled.Error()
+		return
+	}
+
 	nFailures := c.commitAll(ctx, req, node2Host)
 	retryAfter := c.timeoutNextRound / 5 // 2s for first time
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
-		<-time.After(retryAfter)
+		// Check for external cancellation in polling loop
+		if c.lastOp.get().Status == backup.Cancelled {
+			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: operation was cancelled externally")
+			// Mark remaining nodes as cancelled
+			for node := range node2Host {
+				st := c.Participants[node]
+				st.Status = backup.Cancelled
+				st.Reason = errCancelled.Error()
+				c.Participants[node] = st
+			}
+			c.descriptor.Status = backup.Cancelled
+			c.descriptor.Error = errCancelled.Error()
+			return
+		}
+
+		select {
+		case <-time.After(retryAfter):
+			// continue with polling
+		case <-ctx.Done():
+			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: context cancelled")
+			c.descriptor.Status = backup.Cancelled
+			c.descriptor.Error = "restore cancelled: context cancelled"
+			return
+		}
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
@@ -465,7 +602,12 @@ func (c *coordinator) commit(ctx context.Context,
 		c.abortAll(context.Background(), req, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
+	// For restore operations, successful staging means "Transferred" (ready for schema apply)
+	// For backup operations, successful staging means "Success" (operation complete)
 	status := backup.Success
+	if req.Method == OpRestore {
+		status = backup.Transferred
+	}
 	reason := ""
 	groups := c.descriptor.Nodes
 	var totalPreCompressionSize int64
@@ -475,12 +617,20 @@ func (c *coordinator) commit(ctx context.Context,
 		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
 		if p.Status != backup.Success {
-			status = backup.Failed
-			reason = p.Reason
-
-			if strings.Contains(p.Reason, context.Canceled.Error()) {
+			if p.Status == backup.Cancelled {
 				status = backup.Cancelled
 				st.Status = backup.Cancelled
+				if reason == "" {
+					reason = p.Reason
+				}
+			} else {
+				status = backup.Failed
+				reason = p.Reason
+
+				if p.Reason == errCancelled.Error() || strings.Contains(p.Reason, context.Canceled.Error()) {
+					status = backup.Cancelled
+					st.Status = backup.Cancelled
+				}
 			}
 		} else {
 			// Try to read the node's backup descriptor to get pre-compression size
@@ -519,6 +669,15 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	c.descriptor.Status = status
+	// Respect external cancellation from CancelRestore() - if lastOp was already
+	// set to Cancelled, propagate that to descriptor so storage writes are consistent
+	if c.lastOp.get().Status == backup.Cancelled {
+		c.descriptor.Status = backup.Cancelled
+		if reason == "" {
+			reason = "restore canceled by user"
+		}
+	}
+	c.lastOp.set(c.descriptor.Status)
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 }
@@ -561,7 +720,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 			if r.Status == backup.Success {
 				delete(nodes, r.node)
 			}
-			if r.Status == backup.Failed {
+			if r.Status == backup.Failed || r.Status == backup.Cancelled {
 				delete(nodes, r.node)
 				n++
 			}
@@ -608,11 +767,12 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	nFailures := 0
 	for x := range errChan {
 		st := c.Participants[x.node]
-		st.Status = backup.Failed
-		if strings.Contains(st.Reason, context.Canceled.Error()) {
-			st.Status = backup.Cancelled
-		}
 		st.Reason = "might be down:" + x.err.Error()
+		if strings.Contains(x.err.Error(), context.Canceled.Error()) {
+			st.Status = backup.Cancelled
+		} else {
+			st.Status = backup.Failed
+		}
 		c.Participants[x.node] = st
 		c.log.WithField("action", req.Method).
 			WithField("backup_id", req.ID).

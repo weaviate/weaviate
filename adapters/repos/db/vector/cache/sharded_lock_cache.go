@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -196,7 +196,7 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 
 func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
 	out := make([][]T, len(ids))
-	errs := make([]error, len(ids))
+	var errs []error // Only allocate if we encounter an error
 
 	for i, id := range ids {
 		s.shardedLocks.RLock(id)
@@ -205,7 +205,13 @@ func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 
 		if vec == nil {
 			vecFromDisk, err := s.handleCacheMiss(ctx, id)
-			errs[i] = err
+			if err != nil {
+				// Allocate errors slice only on first error
+				if errs == nil {
+					errs = make([]error, len(ids))
+				}
+				errs[i] = err
+			}
 			vec = vecFromDisk
 		}
 

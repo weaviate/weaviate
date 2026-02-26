@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,9 +17,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+)
+
+const (
+	postingStoreSchemaVersionV1 = 1
 )
 
 type PostingStore struct {
@@ -27,31 +32,28 @@ type PostingStore struct {
 	bucket   *lsmkv.Bucket
 	locks    *common.ShardedRWLocks
 	metrics  *Metrics
-	versions *PostingVersions
+	versions *PostingVersionsStore
 }
 
-func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
 	bName := postingsBucketName(id)
 
-	versions, err := NewPostingVersions(metadataBucket, metrics)
-	if err != nil {
-		return nil, errors.Wrap(err, "create posting versions store")
-	}
+	versions := NewPostingVersionsStore(sharedBucket)
 
-	err = store.CreateOrLoadBucket(context.Background(),
+	err := store.CreateOrLoadBucket(context.Background(),
 		bName,
 		cfg.MakeBucketOptions(
 			lsmkv.StrategySetCollection,
 			lsmkv.WithForceCompaction(true),
 			lsmkv.WithShouldSkipKeyFunction(
 				func(key []byte, ctx context.Context) (bool, error) {
-					if len(key) != 12 {
+					if len(key) != 10 {
 						// don't skip on error
 						return false, fmt.Errorf("invalid key length: %d", len(key))
 					}
-					postingId := binary.LittleEndian.Uint64(key[:8])
-					segmentPostingVersion := binary.LittleEndian.Uint32(key[8:])
-					currentPostingVersion, err := versions.Get(ctx, postingId)
+					postingID := binary.LittleEndian.Uint64(key[1:9])
+					segmentPostingVersion := key[9]
+					currentPostingVersion, err := versions.Get(ctx, postingID)
 					if err != nil {
 						return false, errors.Wrap(err, "get posting version during compaction")
 					}
@@ -74,23 +76,19 @@ func NewPostingStore(store *lsmkv.Store, metadataBucket *lsmkv.Bucket, metrics *
 	}, nil
 }
 
-func NewPostingStoreTest(store *lsmkv.Store, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
-	bucket, err := NewSharedBucket(store, id, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewPostingStore(store, bucket, metrics, id, cfg)
-}
-
+// schema of the key of the posting list:
+// - 1 byte: schema version of the posting store
+// - 8 bytes: posting ID (little endian uint64)
+// - 1 byte: version of the posting list (incremented on each Put operation)
 func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
-	var buf [12]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
+	var buf [10]byte
+	buf[0] = postingStoreSchemaVersionV1
+	binary.LittleEndian.PutUint64(buf[1:], postingID)
 	version, err := p.versions.Get(ctx, postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get posting version for id %d", postingID)
 	}
-	binary.LittleEndian.PutUint32(buf[8:], version)
+	buf[9] = version
 	return buf[:], nil
 }
 
@@ -104,7 +102,7 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		p.locks.RUnlock(postingID)
 		return nil, err
 	}
-	list, err := p.bucket.SetList(key)
+	list, err := p.bucket.SetRawList(key)
 	p.locks.RUnlock(postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
@@ -144,16 +142,6 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
-	_, err := p.getKeyBytes(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return err
-	} else if err != nil && errors.Is(err, ErrPostingNotFound) {
-		err := p.versions.Set(ctx, postingID, 0)
-		if err != nil {
-			return err
-		}
-	}
-
 	set := make([][]byte, len(posting))
 	for i, v := range posting {
 		set[i] = v
@@ -165,13 +153,10 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	}
 	newVersion := currentVersion + 1
 
-	if err != nil {
-		return errors.Wrapf(err, "increment posting version for id %d", postingID)
-	}
-
-	var buf [12]byte
-	binary.LittleEndian.PutUint64(buf[:], postingID)
-	binary.LittleEndian.PutUint32(buf[8:], newVersion)
+	var buf [10]byte
+	buf[0] = postingStoreSchemaVersionV1
+	binary.LittleEndian.PutUint64(buf[1:], postingID)
+	buf[9] = newVersion
 	err = p.bucket.SetAdd(buf[:], set)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put posting %d", postingID)
@@ -202,4 +187,62 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 
 func postingsBucketName(id string) string {
 	return fmt.Sprintf("hfresh_postings_%s", id)
+}
+
+// PostingVersions keeps track of the version of the posting list.
+// Versions are incremented on each Put operation to the posting list,
+// and allow for simpler cleanup of stale data during LSMKV compactions.
+// It uses a combination of an LSMKV store for persistence and an in-memory
+// cache for fast access.
+type PostingVersionsStore struct {
+	bucket    *lsmkv.Bucket
+	keyPrefix []byte
+	cache     *otter.Cache[uint64, uint8]
+}
+
+func NewPostingVersionsStore(bucket *lsmkv.Bucket) *PostingVersionsStore {
+	cache, _ := otter.New[uint64, uint8](nil)
+	return &PostingVersionsStore{
+		bucket:    bucket,
+		keyPrefix: postingVersionBucketPrefix,
+		cache:     cache,
+	}
+}
+
+func (p *PostingVersionsStore) key(postingID uint64) []byte {
+	buf := make([]byte, len(p.keyPrefix)+8)
+	copy(buf, p.keyPrefix)
+	binary.LittleEndian.PutUint64(buf[len(p.keyPrefix):], postingID)
+	return buf
+}
+
+func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8, error) {
+	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint8](func(ctx context.Context, key uint64) (uint8, error) {
+		k := p.key(postingID)
+		v, err := p.bucket.Get(k[:])
+		if err != nil {
+			return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+		}
+		if len(v) == 0 {
+			return 0, otter.ErrNotFound
+		}
+
+		return v[0], nil
+	}))
+	if errors.Is(err, otter.ErrNotFound) {
+		return 0, nil
+	}
+
+	return version, err
+}
+
+func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, version uint8) error {
+	key := p.key(postingID)
+	err := p.bucket.Put(key[:], []byte{version})
+	if err != nil {
+		return err
+	}
+
+	p.cache.Set(postingID, version)
+	return nil
 }

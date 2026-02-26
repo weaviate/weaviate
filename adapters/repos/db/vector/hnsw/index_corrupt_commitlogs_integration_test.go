@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,10 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type corruptCommitlogsNoopBucketView struct{}
+
+func (n *corruptCommitlogsNoopBucketView) ReleaseView() {}
 
 func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	ctx := context.Background()
@@ -67,6 +71,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &corruptCommitlogsNoopBucketView{} },
 		}, hnswent.UserConfig{
 			MaxConnections:         100,
 			EFConstruction:         100,
@@ -118,6 +123,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &corruptCommitlogsNoopBucketView{} },
 		}, hnswent.UserConfig{
 			MaxConnections:         100,
 			EFConstruction:         100,

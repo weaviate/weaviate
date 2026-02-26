@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,6 +52,7 @@ type Metrics struct {
 	asyncReplicationHashTreeInitDuration     prometheus.Histogram
 
 	asyncReplicationIterationCount        prometheus.Counter
+	asyncReplicationIterationRunning      prometheus.Gauge
 	asyncReplicationIterationFailureCount prometheus.Counter
 	asyncReplicationIterationDuration     prometheus.Histogram
 
@@ -62,6 +63,17 @@ type Metrics struct {
 	asyncReplicationPropagationFailureCount prometheus.Counter
 	asyncReplicationPropagationObjectCount  prometheus.Counter
 	asyncReplicationPropagationDuration     prometheus.Histogram
+
+	objttlFindUuidsCount             prometheus.Counter
+	objttlFindUuidsFailureCount      prometheus.Counter
+	objttlFindUuidsRunning           prometheus.Gauge
+	objttlFindUuidsDuration          prometheus.Histogram
+	objttlFindUuidsObjectsFound      prometheus.Counter
+	objttlBatchDeletesCount          prometheus.Counter
+	objttlBatchDeletesFailureCount   prometheus.Counter
+	objttlBatchDeletesRunning        prometheus.Gauge
+	objttlBatchDeletesDuration       prometheus.Histogram
+	objttlBatchDeletesObjectsDeleted prometheus.Counter
 }
 
 func NewMetrics(
@@ -260,6 +272,21 @@ func NewMetrics(
 		m.asyncReplicationIterationCount.Add(0)
 	}
 
+	m.asyncReplicationIterationRunning, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_iteration_running",
+			Help:      "Number of currently running async replication iterations",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_iteration_running: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncReplicationIterationRunning.Set(0)
+	}
+
 	m.asyncReplicationIterationFailureCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
 		prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
@@ -364,6 +391,112 @@ func NewMetrics(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_propagation_duration_seconds: %w", err)
+	}
+
+	// objects ttl - find uuids
+
+	m.objttlFindUuidsCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_finduuids_count",
+			Help: "Count of object ttl find uuids executions",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_finduuids_count: %w", err)
+	}
+
+	m.objttlFindUuidsFailureCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_finduuids_failure_count",
+			Help: "Count of object ttl find uuids failures",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_finduuids_failure_count: %w", err)
+	}
+
+	m.objttlFindUuidsRunning, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_objects_ttl_deletion_finduuids_running",
+			Help: "Number of object ttl find uuids running currently",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_finduuids_running: %w", err)
+	}
+
+	m.objttlFindUuidsDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "weaviate_objects_ttl_deletion_finduuids_duration_seconds",
+			Help:    "Duration of object ttl find uuids in seconds",
+			Buckets: monitoring.LatencyBuckets,
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_finduuids_duration: %w", err)
+	}
+
+	m.objttlFindUuidsObjectsFound, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_finduuids_objects_found",
+			Help: "Count of expired objects found per shard/tenant",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_finduuids_objects_found: %w", err)
+	}
+
+	// objects ttl - batch deletes
+
+	m.objttlBatchDeletesCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_count",
+			Help: "Count of object ttl batch deletes executions",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_batchdeletes_count: %w", err)
+	}
+
+	m.objttlBatchDeletesFailureCount, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_failure_count",
+			Help: "Count of object ttl batch deletes failures",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_batchdeletes_failure_count: %w", err)
+	}
+
+	m.objttlBatchDeletesRunning, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_running",
+			Help: "Number of object ttl batch deletes running currently",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_batchdeletes_running: %w", err)
+	}
+
+	m.objttlBatchDeletesDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "weaviate_objects_ttl_deletion_batchdeletes_duration_seconds",
+			Help:    "Duration of object ttl batch deletes in seconds",
+			Buckets: monitoring.LatencyBuckets,
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_batchdeletes_duration: %w", err)
+	}
+
+	m.objttlBatchDeletesObjectsDeleted, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_batchdeletes_objects_deleted",
+			Help: "Count of expired objects deleted per shard/tenant",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering objects_ttl_deletion_batchdeletes_objects_deleted: %w", err)
 	}
 
 	return m, nil
@@ -673,6 +806,18 @@ func (m *Metrics) IncAsyncReplicationIterationCount() {
 	}
 }
 
+func (m *Metrics) IncAsyncReplicationIterationRunning() {
+	if m.monitoring {
+		m.asyncReplicationIterationRunning.Inc()
+	}
+}
+
+func (m *Metrics) DecAsyncReplicationIterationRunning() {
+	if m.monitoring {
+		m.asyncReplicationIterationRunning.Dec()
+	}
+}
+
 func (m *Metrics) IncAsyncReplicationIterationFailureCount() {
 	if m.monitoring {
 		m.asyncReplicationIterationFailureCount.Inc()
@@ -720,5 +865,81 @@ func (m *Metrics) AddAsyncReplicationPropagationObjectCount(n int) {
 func (m *Metrics) ObserveAsyncReplicationPropagationDuration(d time.Duration) {
 	if m.monitoring {
 		m.asyncReplicationPropagationDuration.Observe(d.Seconds())
+	}
+}
+
+// --- Objects TTL: find uuids ---
+
+func (m *Metrics) IncObjectsTtlFindUuidsCount() {
+	if m.monitoring {
+		m.objttlFindUuidsCount.Inc()
+	}
+}
+
+func (m *Metrics) IncObjectsTtlFindUuidsFailureCount() {
+	if m.monitoring {
+		m.objttlFindUuidsFailureCount.Inc()
+	}
+}
+
+func (m *Metrics) IncObjectsTtlFindUuidsRunning() {
+	if m.monitoring {
+		m.objttlFindUuidsRunning.Inc()
+	}
+}
+
+func (m *Metrics) DecObjectsTtlFindUuidsRunning() {
+	if m.monitoring {
+		m.objttlFindUuidsRunning.Dec()
+	}
+}
+
+func (m *Metrics) AddObjectsTtlFindUuidsObjectsFound(count float64) {
+	if m.monitoring {
+		m.objttlFindUuidsObjectsFound.Add(count)
+	}
+}
+
+func (m *Metrics) ObserveObjectsTtlFindUuidsDuration(d time.Duration) {
+	if m.monitoring {
+		m.objttlFindUuidsDuration.Observe(d.Seconds())
+	}
+}
+
+// --- Objects TTL: batch deletes ---
+
+func (m *Metrics) IncObjectsTtlBatchDeletesCount() {
+	if m.monitoring {
+		m.objttlBatchDeletesCount.Inc()
+	}
+}
+
+func (m *Metrics) IncObjectsTtlBatchDeletesFailureCount() {
+	if m.monitoring {
+		m.objttlBatchDeletesFailureCount.Inc()
+	}
+}
+
+func (m *Metrics) IncObjectsTtlBatchDeletesRunning() {
+	if m.monitoring {
+		m.objttlBatchDeletesRunning.Inc()
+	}
+}
+
+func (m *Metrics) DecObjectsTtlBatchDeletesRunning() {
+	if m.monitoring {
+		m.objttlBatchDeletesRunning.Dec()
+	}
+}
+
+func (m *Metrics) AddObjectsTtlBatchDeletesObjectsDeleted(count float64) {
+	if m.monitoring {
+		m.objttlBatchDeletesObjectsDeleted.Add(count)
+	}
+}
+
+func (m *Metrics) ObserveObjectsTtlBatchDeletesDuration(d time.Duration) {
+	if m.monitoring {
+		m.objttlBatchDeletesDuration.Observe(d.Seconds())
 	}
 }

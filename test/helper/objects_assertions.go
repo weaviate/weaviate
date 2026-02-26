@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -229,6 +229,23 @@ func GetTenantObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, noden
 		WithClassName(class).
 		WithNodeName(&nodename).
 		WithTenant(&tenant)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
+func GetObjectFromNodeWithVector(t *testing.T, class string, uuid strfmt.UUID, nodename string) (*models.Object, error) {
+	include := "vector"
+	req := objects.NewObjectsClassGetParams().WithID(uuid)
+	if class != "" {
+		req.WithClassName(class)
+	}
+	if nodename != "" {
+		req.WithNodeName(&nodename)
+	}
+	req.WithInclude(&include)
 	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
 	if err != nil {
 		return nil, err

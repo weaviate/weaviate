@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,39 +37,44 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	var pivotPoint int
 	upperBound := float32(0)
 
+	done := ctx.Done()
 	for {
 		iterations++
 
-		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
-			segmentPath := ""
-			terms := ""
-			filterCardinality := -1
-			for _, r := range results {
-				if r == nil {
-					continue
-				}
-				if r.segment != nil {
-					segmentPath = r.segment.path
-					if r.filterDocIds != nil {
-						filterCardinality = r.filterDocIds.GetCardinality()
+		if iterations%100000 == 0 {
+			select {
+			case <-done:
+				segmentPath := ""
+				terms := ""
+				filterCardinality := -1
+				for _, r := range results {
+					if r == nil {
+						continue
 					}
+					if r.segment != nil {
+						segmentPath = r.segment.path
+						if r.filterDocIds != nil {
+							filterCardinality = r.filterDocIds.GetCardinality()
+						}
+					}
+					terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
 				}
-				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
+				logger.WithFields(logrus.Fields{
+					"segment":           segmentPath,
+					"iterations":        iterations,
+					"pivotID":           pivotID,
+					"firstNonExhausted": firstNonExhausted,
+					"lenResults":        len(results),
+					"pivotPoint":        pivotPoint,
+					"upperBound":        upperBound,
+					"terms":             terms,
+					"filterCardinality": filterCardinality,
+					"limit":             limit,
+				}).Warnf("doBlockMaxWand: search timed out, returning partial results")
+				helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
+				return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
+			default:
 			}
-			logger.WithFields(logrus.Fields{
-				"segment":           segmentPath,
-				"iterations":        iterations,
-				"pivotID":           pivotID,
-				"firstNonExhausted": firstNonExhausted,
-				"lenResults":        len(results),
-				"pivotPoint":        pivotPoint,
-				"upperBound":        upperBound,
-				"terms":             terms,
-				"filterCardinality": filterCardinality,
-				"limit":             limit,
-			}).Warnf("doBlockMaxWand: search timed out, returning partial results")
-			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
-			return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
 		}
 
 		cumScore := float64(0)

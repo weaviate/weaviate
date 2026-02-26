@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,10 +13,12 @@ package hfresh
 
 import (
 	"context"
+	"math"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -37,7 +39,7 @@ type HNSWIndex struct {
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
 	counter   atomic.Int32
-	quantizer *compressionhelpers.RotationalQuantizer
+	quantizer *compressionhelpers.BinaryRotationalQuantizer
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
@@ -56,7 +58,9 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.RQ.Enabled = true
 	userConfig.RQ.Bits = 8
 	userConfig.RQ.RescoreLimit = 0
+	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
+	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
 
 	h, err := hnsw.New(*cfg.Centroids.HNSWConfig, userConfig, cfg.TombstoneCallbacks, store)
 	if err != nil {
@@ -69,20 +73,25 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	return &index, nil
 }
 
-func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.RotationalQuantizer) {
+func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQuantizer) {
 	i.quantizer = quantizer
 }
 
-func (i *HNSWIndex) Get(id uint64) *Centroid {
+func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
 	vec, err := i.hnsw.Get(id)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	cmp, err := hnsw.GetCompressedVector[byte](i.hnsw, id)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   i.quantizer.Encode(vec),
+		Compressed:   cmp,
 		Deleted:      false,
-	}
+	}, nil
 }
 
 func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
@@ -94,14 +103,16 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 	if err != nil {
 		return errors.Wrap(err, "add to hnsw")
 	}
-	i.metrics.SetPostings(int(i.counter.Add(1)))
+	i.counter.Add(1)
+	i.metrics.AddPostings(1)
 
 	return nil
 }
 
 func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 	if i.Exists(id) {
-		i.metrics.SetPostings(int(i.counter.Add(-1)))
+		i.counter.Add(-1)
+		i.metrics.AddPostings(-1)
 		return i.hnsw.Delete(id)
 	}
 	return nil
@@ -111,11 +122,11 @@ func (i *HNSWIndex) Exists(id uint64) bool {
 	return i.hnsw.ContainsDoc(id)
 }
 
-func (i *HNSWIndex) Search(query []float32, k int) (*ResultSet, error) {
+func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
 	start := time.Now()
 	defer i.metrics.CentroidSearchDuration(start)
 
-	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, nil)
+	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, allowList)
 	if err != nil {
 		return nil, err
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,7 +40,7 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 
 	streamTotalErrors := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 		Namespace: "weaviate",
-		Name:      "batch_streaming_total_errors_per_stream",
+		Name:      "batch_streaming_total_errors",
 		Help:      "Total number of errors reported across all streams",
 	}, []string{})
 

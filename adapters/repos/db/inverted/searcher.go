@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -108,6 +108,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
 		it = allowList.Iterator()
+		defer it.Stop()
 	}
 
 	beforeObjects := time.Now()
@@ -227,8 +228,15 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
+}
+
+func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
+	additional additional.Properties, className schema.ClassName, limit int,
+) (helpers.AllowList, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
@@ -950,6 +958,7 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 type docIDsIterator interface {
 	Next() (uint64, bool)
 	Len() int
+	Stop()
 }
 
 type sliceDocIDsIterator struct {
@@ -968,6 +977,10 @@ func (it *sliceDocIDsIterator) Next() (uint64, bool) {
 	pos := it.pos
 	it.pos++
 	return it.docIDs[pos], true
+}
+
+func (it *sliceDocIDsIterator) Stop() {
+	// No-op for slice iterator as there's no cleanup needed
 }
 
 func (it *sliceDocIDsIterator) Len() int {

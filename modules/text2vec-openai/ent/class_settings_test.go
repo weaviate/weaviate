@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -102,14 +102,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
-			name: "text-embedding-ada-002 - dimensions error",
+			name: "text-embedding-ada-002 - with dimensions set should pass",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "ada",
 					"dimensions": 512,
 				},
 			},
-			wantErr: errors.New("dimensions setting can only be used with V3 embedding models: [text-embedding-3-small text-embedding-3-large]"),
 		},
 		{
 			name: "custom endpoint - no dimension validation",

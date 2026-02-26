@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -115,6 +115,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	if cls.ObjectTTLConfig != nil && cls.ObjectTTLConfig.Enabled {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(cls.Class)...); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
@@ -126,7 +132,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, false); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, true); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
@@ -171,6 +177,11 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
 	compression := defaultQuantization.Get()
+
+	if compression == "" {
+		return
+	}
+
 	var err error
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
 		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
@@ -311,6 +322,20 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// Require DELETE permission on data when any TTL setting is being changed,
+	// but not when the user is updating other collection settings without
+	// touching TTL configuration.
+	initial := h.schemaReader.ReadOnlyClass(className)
+	var initialTTLConfig *models.ObjectTTLConfig
+	if initial != nil {
+		initialTTLConfig = initial.ObjectTTLConfig
+	}
+	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
+			return err
+		}
+	}
+
 	return UpdateClassInternal(h, ctx, className, updated)
 }
 
@@ -323,7 +348,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true); err != nil {
+	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		updated.ObjectTTLConfig = ttlConfig
@@ -383,7 +408,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated); err != nil {
+		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
 			return err
 		}
 	}
@@ -409,14 +434,16 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(m.config.Replication.MinimumFactor),
-			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+			AsyncEnabled:     false,
 		}
 		return nil
 	}
 
 	if class.ReplicationConfig.DeletionStrategy == "" {
-		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyTimeBasedResolution
 	}
+
 	return nil
 }
 
@@ -771,7 +798,7 @@ func (h *Handler) validateClassInvariants(
 		return err
 	}
 
-	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false); err != nil {
+	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		class.ObjectTTLConfig = ttlConfig
@@ -988,7 +1015,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1005,8 +1032,18 @@ func validateImmutableFields(initial, updated *models.Class) error {
 			continue
 		}
 
-		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
-			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
+		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// There might be module settings that need to be migrated to new names, for example
+			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
+			// and migrate baseUrl to baseURL
+			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				// Module settings have been migrated, let's recheck vectorizer settings
+				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+					continue
+				}
+			}
+
+			return fmt.Errorf("vectorizer config of vector %q is immutable for class %s", k, updated.Class)
 		}
 	}
 
@@ -1030,6 +1067,19 @@ func validateImmutableFields(initial, updated *models.Class) error {
 	}
 
 	return nil
+}
+
+func deepEqualVectorizerSettings(initial, updated any) bool {
+	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+func structToMap(obj any) (objMap map[string]any) {
+	if obj == nil {
+		return nil
+	}
+	data, _ := json.Marshal(obj)  // Convert to a json string
+	json.Unmarshal(data, &objMap) // Convert to a map
+	return objMap
 }
 
 type immutableText struct {

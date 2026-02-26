@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -111,6 +111,19 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	err := e.Decode(&propLengths)
 	if err != nil {
 		return s.invertedData.propertyLengths, fmt.Errorf("decode property lengths: %w", err)
+	}
+
+	if math.IsNaN(s.invertedData.avgPropertyLengthsAvg) || math.IsInf(s.invertedData.avgPropertyLengthsAvg, 0) {
+		// recompute property lengths average
+		var totalLength uint64
+		for _, length := range propLengths {
+			totalLength += uint64(length)
+		}
+		if s.invertedData.avgPropertyLengthsCount > 0 && len(propLengths) > 0 {
+			s.invertedData.avgPropertyLengthsAvg = float64(totalLength) / float64(len(propLengths))
+		} else {
+			s.invertedData.avgPropertyLengthsAvg = 0
+		}
 	}
 
 	s.invertedData.propertyLengthsLoaded = true

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -78,21 +79,34 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	eg := enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
 	eg.SetLimit(_NUMCPU) // prevent unbounded concurrency
 
-	for j, docID := range batch {
-		index := j
-		docID := docID
+	lastDeleted := -1
+outer:
+	for i, uuid := range batch {
+		select {
+		case <-ctx.Done():
+			break outer
+		default:
+		}
+
 		f := func() error {
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, docID, deletionTime, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, uuid, deletionTime, dryRun)
 			objLock.Lock()
-			result[index] = obj
+			result[i] = obj
 			objLock.Unlock()
 			return nil
 		}
-		eg.Go(f, index, docID)
+		eg.Go(f, i, uuid)
+		lastDeleted = i
+
 	}
 	// safe to ignore error, as the internal routines never return an error
 	eg.Wait()
+
+	ctxErr := ctx.Err()
+	for i, count := lastDeleted+1, len(batch); i < count; i++ {
+		result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: ctxErr}
+	}
 
 	return result
 }
@@ -142,36 +156,54 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
-func (s *Shard) findDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
+func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) (uuids []strfmt.UUID, err error) {
+	logger := s.index.logger.WithField("shard", s.name)
+	logger.Debug("Shard::FindUUIDs started")
+
+	start := time.Now()
+
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
+		DocIDsLimited(ctx, filters, additional.Properties{}, s.index.Config.ClassName, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("docIds: %w", err)
 	}
 	defer allowList.Close()
-	return allowList.Slice(), nil
-}
 
-func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
-	docs, err := s.findDocIDs(ctx, filters)
-	if err != nil {
-		return nil, err
-	}
+	fetchStart := time.Now()
+	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
+	uuids = make([]strfmt.UUID, it.Len())
+	currIdx := 0
 
-	var (
-		uuids   = make([]strfmt.UUID, len(docs))
-		currIdx = 0
-	)
+	defer func() {
+		logger := logger.WithFields(logrus.Fields{
+			"took":           time.Since(start).String(),
+			"filter_took":    fetchStart.Sub(start).String(),
+			"docids_found":   it.Len(),
+			"uuids_resolved": currIdx,
+		})
+		if err != nil {
+			// log as debug
+			logger.WithError(err).Debug("Shard::FindUUIDs failed")
+			return
+		}
+		logger.Debug("Shard::FindUUIDs finished")
+	}()
 
-	for _, doc := range docs {
-		uuid, err := s.uuidFromDocID(doc)
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("uuids loop: %w", ctx.Err())
+		default:
+		}
+
+		uuid, err := s.uuidFromDocID(docID)
 		if err != nil {
 			// TODO: More than likely this will occur due to an object which has already been deleted.
 			//       However, this is not a guarantee. This can be improved by logging, or handling
 			//       errors other than `id not found` rather than skipping them entirely.
-			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", doc).WithError(err).Debug("failed to find UUID for docID")
+			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", docID).WithError(err).Debug("failed to find UUID for docID")
 			continue
 		}
 		uuids[currIdx] = uuid

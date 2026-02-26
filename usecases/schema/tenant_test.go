@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -215,11 +215,9 @@ func TestUpdateTenants(t *testing.T) {
 			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
-					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
-				}, 0, nil)
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
 		},
 		{
@@ -229,11 +227,9 @@ func TestUpdateTenants(t *testing.T) {
 			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
-					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
-				}, 0, nil)
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
 		},
 		{
@@ -243,11 +239,9 @@ func TestUpdateTenants(t *testing.T) {
 			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
-					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
-				}, 0, nil)
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
 		},
 		{
@@ -299,11 +293,9 @@ func TestUpdateTenants(t *testing.T) {
 				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 			},
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
-				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
-					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
-				}, 0, nil)
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusHOT}, nil)
 			},
 		},
 	}

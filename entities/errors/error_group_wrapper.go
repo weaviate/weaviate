@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"runtime/debug"
 
 	"github.com/sirupsen/logrus"
 
@@ -85,7 +84,7 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 			if r := recover(); r != nil {
 				entsentry.Recover(r)
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
-				debug.PrintStack()
+				PrintStack(egw.logger)
 				egw.returnError = fmt.Errorf("panic occurred: %v", r)
 				egw.cancelCtx()
 			}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,7 +95,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	ec := errorcompounder.New()
 
 	err = s.GetPropertyLengthTracker().Close()
-	ec.AddWrap(err, "close prop length tracker")
+	ec.AddWrapf(err, "close prop length tracker")
 
 	// unregister all callbacks at once, in parallel
 	err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
@@ -121,6 +121,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return nil
 	})
 
+	s.propertyIndicesLock.RLock()
+	err = s.propertyIndices.ShutdownGeoIndices(ctx)
+	s.propertyIndicesLock.RUnlock()
+	ec.AddWrapf(err, "shutdown geo property indices")
+
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// to ensure that all commitlog entries are written to disk.
 		// otherwise in some cases the tombstone cleanup process'
@@ -139,17 +144,17 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
-		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
+		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
-		ec.AddWrap(err, "stop lsmkv store")
+		ec.AddWrapf(err, "stop lsmkv store")
 	}
 
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()
-		ec.AddWrap(err, "stop dynamic vector index db")
+		ec.AddWrapf(err, "stop dynamic vector index db")
 	}
 
 	return ec.ToError()

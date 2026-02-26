@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,14 +27,14 @@ const (
 
 type Validator struct {
 	authorizedGetClass func(string) (*models.Class, error)
-	errors             *errorcompounder.SafeErrorCompounder
+	errors             errorcompounder.ErrorCompounder
 	subject            models.Classification
 }
 
 func NewValidator(authorizedGetClass func(string) (*models.Class, error), subject models.Classification) *Validator {
 	return &Validator{
 		authorizedGetClass: authorizedGetClass,
-		errors:             &errorcompounder.SafeErrorCompounder{},
+		errors:             errorcompounder.NewSafe(),
 		subject:            subject,
 	}
 }

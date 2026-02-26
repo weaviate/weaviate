@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,11 +25,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -425,21 +425,21 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
+func (l *hnswCommitLogger) AddPQCompression(data compression.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddPQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+func (l *hnswCommitLogger) AddSQCompression(data compression.SQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+func (l *hnswCommitLogger) AddRQCompression(data compression.RQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -453,7 +453,7 @@ func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return l.commitLogger.AddMuvera(data)
 }
 
-func (l *hnswCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (l *hnswCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -604,9 +604,14 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	return executedCombine || executedCondense || executedSnapshot
 }
 
-func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
+func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 	_, err := l.switchCommitLogs(force)
 	return err
+}
+
+func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
+	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	return nil
 }
 
 func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
