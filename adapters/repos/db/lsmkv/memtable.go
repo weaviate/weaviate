@@ -152,14 +152,25 @@ type Memtable struct {
 	// so that we don't have to compute it from scratch for search, flush and compaction.
 	currPropLengthCount, currPropLengthSum uint64
 	propLengthExists                       *sroar.Bitmap
+
+	skipSecondaryKeyCheck bool
 }
 
-func newMemtable(path string, strategy string, secondaryIndices uint16,
-	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
-	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error),
+type memtableConfig struct {
+	path                         string
+	strategy                     string
+	secondaryIndices             uint16
+	enableChecksumValidation     bool
+	writeSegmentInfoIntoFileName bool
+	skipSecondaryKeyCheck        bool
+	shouldSkipKeyFunc            func(key []byte, ctx context.Context) (bool, error)
+	bm25config                   *models.BM25Config
+}
+
+func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
+	allocChecker memwatch.AllocChecker, config memtableConfig,
 ) (*Memtable, error) {
-	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(path), strategy)
+	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(config.path), config.strategy)
 	if err != nil {
 		return nil, fmt.Errorf("init memtable metrics: %w", err)
 	}
@@ -172,16 +183,17 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
 		commitlog:                    cl,
-		path:                         path,
-		strategy:                     strategy,
-		secondaryIndices:             secondaryIndices,
+		path:                         config.path,
+		strategy:                     config.strategy,
+		secondaryIndices:             config.secondaryIndices,
 		dirtyAt:                      time.Time{},
 		createdAt:                    time.Now(),
 		metrics:                      memtableMetrics,
-		enableChecksumValidation:     enableChecksumValidation,
-		bm25config:                   bm25config,
-		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
-		shouldSkipKeyFunc:            shouldSkipKeyFunc,
+		enableChecksumValidation:     config.enableChecksumValidation,
+		bm25config:                   config.bm25config,
+		writeSegmentInfoIntoFileName: config.writeSegmentInfoIntoFileName,
+		shouldSkipKeyFunc:            config.shouldSkipKeyFunc,
+		skipSecondaryKeyCheck:        config.skipSecondaryKeyCheck,
 	}
 
 	if m.secondaryIndices > 0 {
@@ -205,8 +217,8 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	start := time.Now()
 	defer m.metrics.observeGet(start.UnixNano())
 
-	if m.strategy != StrategyReplace {
-		return nil, errors.Errorf("get only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return nil, fmt.Errorf("Memtable::get(): %w", err)
 	}
 
 	m.RLock()
@@ -218,8 +230,8 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 // exists checks if a key exists and is not deleted, without returning the value.
 // This is more efficient than get() when only existence check is needed.
 func (m *Memtable) exists(key []byte) error {
-	if m.strategy != StrategyReplace {
-		return errors.Errorf("exists only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::exists(): %w", err)
 	}
 
 	m.RLock()
@@ -232,8 +244,8 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	start := time.Now()
 	defer m.metrics.observeGetBySecondary(start.UnixNano())
 
-	if m.strategy != StrategyReplace {
-		return nil, errors.Errorf("get only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return nil, fmt.Errorf("Memtable::getBySecondary(): %w", err)
 	}
 
 	m.RLock()
@@ -251,19 +263,15 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
 	defer m.metrics.observePut(start.UnixNano())
 
-	if m.strategy != StrategyReplace {
-		return errors.Errorf("put only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::put(): %w", err)
 	}
 
-	var secondaryKeys [][]byte
-	if m.secondaryIndices > 0 {
-		secondaryKeys = make([][]byte, m.secondaryIndices)
-		for _, opt := range opts {
-			if err := opt(secondaryKeys); err != nil {
-				return err
-			}
-		}
+	secondaryKeys, err := m.createSecondaryKeys(opts)
+	if err != nil {
+		return fmt.Errorf("put for key %q: %w", key, err)
 	}
+
 	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               value,
@@ -280,12 +288,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
-	for i, sec := range previousKeys {
-		m.secondaryToPrimary[i][string(sec)] = nil
-	}
-	for i, sec := range secondaryKeys {
-		m.secondaryToPrimary[i][string(sec)] = key
-	}
+	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
 
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
@@ -299,31 +302,15 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
 	defer m.metrics.observeSetTombstone(start.UnixNano())
 
-	if m.strategy != "replace" {
-		return errors.Errorf("setTombstone only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::setTombstone(): %w", err)
 	}
 
-	var secondaryKeys [][]byte
-	if m.secondaryIndices > 0 {
-		secondaryKeys = make([][]byte, m.secondaryIndices)
-		for _, opt := range opts {
-			if err := opt(secondaryKeys); err != nil {
-				return err
-			}
-		}
-		// When writeSegmentInfoIntoFileName is set, flushed segments get the
-		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
-		// That optimisation is only safe if every delete carries secondary
-		// tombstones, so enforce it here.
-		if m.writeSegmentInfoIntoFileName {
-			for i, sk := range secondaryKeys {
-				if sk == nil {
-					return fmt.Errorf("tombstone missing secondary key at index %d; "+
-						"buckets with secondary indices require all secondary keys on delete", i)
-				}
-			}
-		}
+	secondaryKeys, err := m.createSecondaryKeys(opts)
+	if err != nil {
+		return fmt.Errorf("setTombstone for key %q: %w", key, err)
 	}
+
 	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               nil,
@@ -340,12 +327,8 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	previousKeys := m.key.setTombstone(key, nil, secondaryKeys)
-	for i, sec := range previousKeys {
-		m.secondaryToPrimary[i][string(sec)] = nil
-	}
-	for i, sec := range secondaryKeys {
-		m.secondaryToPrimary[i][string(sec)] = key
-	}
+	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
@@ -358,31 +341,15 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	start := time.Now()
 	defer m.metrics.observeSetTombstone(start.UnixNano())
 
-	if m.strategy != "replace" {
-		return errors.Errorf("setTombstone only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::setTombstoneWith(): %w", err)
 	}
 
-	var secondaryKeys [][]byte
-	if m.secondaryIndices > 0 {
-		secondaryKeys = make([][]byte, m.secondaryIndices)
-		for _, opt := range opts {
-			if err := opt(secondaryKeys); err != nil {
-				return err
-			}
-		}
-		// When writeSegmentInfoIntoFileName is set, flushed segments get the
-		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
-		// That optimisation is only safe if every delete carries secondary
-		// tombstones, so enforce it here.
-		if m.writeSegmentInfoIntoFileName {
-			for i, sk := range secondaryKeys {
-				if sk == nil {
-					return fmt.Errorf("tombstone missing secondary key at index %d; "+
-						"buckets with secondary indices require all secondary keys on delete", i)
-				}
-			}
-		}
+	secondaryKeys, err := m.createSecondaryKeys(opts)
+	if err != nil {
+		return fmt.Errorf("setTombstoneWith for key %q: %w", key, err)
 	}
+
 	tombstonedVal := tombstonedValue(deletionTime)
 	node := segmentReplaceNode{
 		primaryKey:          key,
@@ -400,12 +367,8 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	}
 
 	previousKeys := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
-	for i, sec := range previousKeys {
-		m.secondaryToPrimary[i][string(sec)] = nil
-	}
-	for i, sec := range secondaryKeys {
-		m.secondaryToPrimary[i][string(sec)] = key
-	}
+	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
@@ -439,14 +402,46 @@ func errorFromTombstonedValue(tombstonedVal []byte) error {
 	return lsmkv.NewErrDeleted(time.UnixMilli(deletionTimeUnixMilli))
 }
 
+func (m *Memtable) createSecondaryKeys(opts []SecondaryKeyOption) ([][]byte, error) {
+	var secondaryKeys [][]byte
+	if m.secondaryIndices > 0 {
+		secondaryKeys = make([][]byte, m.secondaryIndices)
+		for _, opt := range opts {
+			if err := opt(secondaryKeys); err != nil {
+				return nil, err
+			}
+		}
+		if !m.skipSecondaryKeyCheck {
+			for i, sk := range secondaryKeys {
+				if sk == nil {
+					return nil, fmt.Errorf("missing secondary key at index %d", i)
+				}
+			}
+		}
+	}
+	return secondaryKeys, nil
+}
+
+func (m *Memtable) updateSecondaryToPrimary(key []byte, secondaryKeys, previousKeys [][]byte) {
+	for i, sec := range previousKeys {
+		m.secondaryToPrimary[i][string(sec)] = nil
+	}
+	for i, sec := range secondaryKeys {
+		m.secondaryToPrimary[i][string(sec)] = key
+	}
+}
+
+func (m *Memtable) checkStrategy(strategy ...string) error {
+	return CheckExpectedStrategy(m.strategy, strategy...)
+}
+
 func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	start := time.Now()
 	defer m.metrics.observeGetCollection(start.UnixNano())
 
 	// TODO amourao: check if this is needed for StrategyInverted
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return nil, errors.Errorf("getCollection only possible with strategies %q, %q, %q",
-			StrategySetCollection, StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategySetCollection, StrategyMapCollection, StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getCollection(): %w", err)
 	}
 
 	m.RLock()
@@ -465,9 +460,8 @@ func (m *Memtable) getCollectionBytes(key []byte) ([][]byte, error) {
 	defer m.metrics.observeGetCollection(start.UnixNano())
 
 	// TODO amourao: check if this is needed for StrategyInverted
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return nil, errors.Errorf("getCollection only possible with strategies %q, %q, %q",
-			StrategySetCollection, StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategySetCollection, StrategyMapCollection, StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getCollectionBytes(): %w", err)
 	}
 
 	m.RLock()
@@ -489,9 +483,8 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	start := time.Now()
 	defer m.metrics.observeGetMap(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return nil, errors.Errorf("getMap only possible with strategies %q, %q",
-			StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getMap(): %w", err)
 	}
 
 	m.RLock()
@@ -509,9 +502,8 @@ func (m *Memtable) append(key []byte, values []value) error {
 	start := time.Now()
 	defer m.metrics.observeAppend(start.UnixNano())
 
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection {
-		return errors.Errorf("append only possible with strategies %q, %q",
-			StrategySetCollection, StrategyMapCollection)
+	if err := m.checkStrategy(StrategySetCollection, StrategyMapCollection); err != nil {
+		return fmt.Errorf("Memtable::append(): %w", err)
 	}
 
 	m.Lock()
@@ -540,9 +532,8 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.observeAppendMapSorted(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return errors.Errorf("append only possible with strategy %q, %q",
-			StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
+		return fmt.Errorf("Memtable::appendMapSorted(): %w", err)
 	}
 
 	valuesForCommitLog, err := pair.Bytes()
@@ -644,8 +635,8 @@ func (m *Memtable) writeWAL() error {
 }
 
 func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
-	if m.strategy != StrategyInverted {
-		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
 
 	m.RLock()
@@ -659,8 +650,8 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 }
 
 func (m *Memtable) SetTombstone(docId uint64) error {
-	if m.strategy != StrategyInverted {
-		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return fmt.Errorf("Memtable::SetTombstone(): %w", err)
 	}
 
 	m.Lock()
