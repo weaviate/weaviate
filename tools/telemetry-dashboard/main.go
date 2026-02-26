@@ -765,7 +765,7 @@ func formatNumber(n int64) string {
 
 // fmtVersionCount formats a version string with its count for display, e.g. "1.0.0 (42)".
 func fmtVersionCount(version string, count int64) string {
-	return fmtVersionCount(version, count)
+	return fmt.Sprintf("%s (%d)", version, count)
 }
 
 func joinStrings(strs []string, sep string) string {

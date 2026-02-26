@@ -788,14 +788,6 @@ func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent stri
 	tel.clientTracker.Track(req)
 }
 
-// trackIntegrationRequest is a helper function to simulate an integration request
-func trackIntegrationRequest(t *testing.T, tel *Telemeter, integrationHeader string) {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
-	req.Header.Set(integrationHeaderKey, integrationHeader)
-	tel.integrationTracker.Track(req)
-}
-
 func TestClientTracker(t *testing.T) {
 	t.Run("track and get client counts", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
