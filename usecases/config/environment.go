@@ -1052,6 +1052,9 @@ func FromEnv(config *Config) error {
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
+	traceVectorSearch := entcfg.Enabled(os.Getenv("TRACE_VECTOR_SEARCH"))
+	config.TraceVectorSearch = configRuntime.NewDynamicValue(traceVectorSearch)
+
 	return nil
 }
 

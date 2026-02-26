@@ -26,6 +26,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -37,9 +40,11 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/tracing"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
 
@@ -132,6 +137,18 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 func (e *Explorer) GetClass(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	searchType := "list"
+	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
+		searchType = "vector"
+	} else if params.KeywordRanking != nil {
+		searchType = "keyword"
+	} else if params.HybridSearch != nil {
+		searchType = "hybrid"
+	}
+	ctx, span := tracing.StartSpan(ctx, tracing.PathVectorSearch, "weaviate.explorer.GetClass",
+		trace.WithAttributes(attribute.String("weaviate.search_type", searchType)))
+	defer span.End()
+
 	searchStartTime := time.Now()
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
