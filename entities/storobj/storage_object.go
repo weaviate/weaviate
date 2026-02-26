@@ -309,11 +309,22 @@ type bucket interface {
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
 }
 
+// batchBucket is an optional extension of bucket for implementations that
+// support batched secondary-index lookups (e.g. via io_uring). ObjectsByDocID
+// uses a type assertion to detect this capability at runtime.
+type batchBucket interface {
+	BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error)
+}
+
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
 		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+	}
+
+	if bb, ok := bucket.(batchBucket); ok {
+		return objectsByDocIDBatch(bb, ids, additional, properties)
 	}
 
 	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
@@ -326,13 +337,58 @@ func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
 	}
 
+	if bb, ok := bucket.(batchBucket); ok {
+		return objectsByDocIDBatch(bb, ids, additional, properties)
+	}
+
 	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
 }
 
-func objectsByDocIDParallel(bucket bucket, ids []uint64,
-	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+// objectsByDocIDBatch retrieves objects using the bucket's BatchGetBySecondary
+// method, which on Linux uses io_uring to submit all pread operations in a
+// single syscall instead of spawning goroutines that each block on individual
+// preads.
+//
+// The function mirrors the nil-skipping and ordering semantics of
+// objectsByDocIDParallel.
+func objectsByDocIDBatch(bucket batchBucket, ids []uint64,
+	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
-	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
+	// Build the secondary-index keys (8-byte little-endian doc IDs).
+	keys := make([][]byte, len(ids))
+	docIDBufs := make([][8]byte, len(ids))
+	for i, id := range ids {
+		binary.LittleEndian.PutUint64(docIDBufs[i][:], id)
+		keys[i] = docIDBufs[i][:]
+	}
+
+	values, err := bucket.BatchGetBySecondary(0, keys)
+	if err != nil {
+		return nil, err
+	}
+
+	var props *PropertyExtraction
+	if properties != nil {
+		propertyPaths := make([][]string, len(properties))
+		for j := range properties {
+			propertyPaths[j] = []string{properties[j]}
+		}
+		props = &PropertyExtraction{PropertyPaths: propertyPaths}
+	}
+
+	out := make([]*Object, 0, len(ids))
+	for i, res := range values {
+		if res == nil {
+			continue
+		}
+		unmarshalled, err := FromBinaryOptional(res, additional, props)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+		out = append(out, unmarshalled)
+	}
+
+	return out, nil
 }
 
 func objectsByDocIDParallelInner(bucket bucket, ids []uint64,

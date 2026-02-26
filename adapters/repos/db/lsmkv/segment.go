@@ -104,6 +104,9 @@ type Segment interface {
 	//   d1: every tombstone also carries a secondary-key tombstone, so
 	//       secondary lookups can skip the primary-key recheck.
 	hasSecondaryTombstones() bool
+
+	// batch pread helper (replace strategy, io_uring path)
+	getSecondaryNodePos(pos int, key []byte) (secondaryNodePos, error)
 }
 
 type segment struct {
