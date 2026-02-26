@@ -33,6 +33,9 @@ type GraphQLResponse struct {
 	// GraphQL data object.
 	Data map[string]JSONObject `json:"data,omitempty"`
 
+	// Extensions object.
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
+
 	// Array with errors.
 	Errors []*GraphQLError `json:"errors,omitempty"`
 }
