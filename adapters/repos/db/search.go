@@ -19,17 +19,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -341,16 +341,28 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	}
 
 	totalLimit := offset + limit
-	// TODO: Search in parallel, rather than sequentially or this will be
-	// painfully slow on large schemas
-	// wrapped in func to unlock mutex within defer
-	if err := func() error {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
+	ec := errorcompounder.NewSafe()
 
-		for _, index := range db.indices {
+	// Get schema once for all indices
+	scheme := db.schemaGetter.GetSchemaSkipAuth()
+
+	db.indexLock.RLock()
+	indices := make([]*Index, 0, len(db.indices))
+	for _, idx := range db.indices {
+		indices = append(indices, idx)
+	}
+	db.indexLock.RUnlock()
+
+	// Channel to collect results from goroutines
+	resultCh := make(chan []*storobj.Object, len(indices))
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(db.logger, ctx)
+	eg.SetLimit(_NUMCPU * 2)
+
+	for _, index := range indices {
+		index := index
+		eg.Go(func() error {
 			// TODO support all additional props
-			scheme := index.getSchema.GetSchemaSkipAuth()
 			props := scheme.GetClass(string(index.Config.ClassName)).Properties
 			propsNames := make([]string, len(props))
 			for i, prop := range props {
@@ -365,28 +377,48 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 					// validation failed (either MT class without tenant or non-MT class with tenant)
 					if strings.Contains(err.Error(), "has multi-tenancy enabled, but request was without tenant") ||
 						strings.Contains(err.Error(), "has multi-tenancy disabled, but request was with tenant") {
-						continue
+						return nil
 					}
 					// tenant not added to class
 					if strings.Contains(err.Error(), "no tenant found with key") {
-						continue
+						return nil
 					}
 					// tenant does belong to this class
 					if errors.Is(err, enterrors.ErrTenantNotFound) {
-						continue // tenant does belong to this class
+						return nil // tenant does belong to this class
 					}
 				}
-				return errors.Wrapf(err, "search index %s", index.ID())
+				ec.Add(errors.Wrapf(err, "search index %s", index.ID()))
+				return nil
 			}
 
-			found = append(found, res...)
-			if len(found) >= totalLimit {
-				// we are done
-				break
+			// Send results through channel (non-blocking if channel is full)
+			select {
+			case resultCh <- res:
+			case <-ctx.Done():
+				return ctx.Err()
 			}
+			return nil
+		}, index.ID())
+	}
+
+	if err := eg.Wait(); err != nil {
+		// Error group wrapper returns first error, but we collect all errors manually
+		// Log the error group wrapper error for debugging
+		db.logger.WithFields(logrus.Fields{"action": "object_search_error_group", "error": err}).Warnf("error group wrapper returned error during parallel search: %v", err)
+		// So we check ec below for all collected errors
+	}
+	close(resultCh)
+
+	// Collect results from channel
+	for res := range resultCh {
+		// Only append if we haven't exceeded the limit yet (optimization to reduce memory usage)
+		if len(found) < totalLimit {
+			found = append(found, res...)
 		}
-		return nil
-	}(); err != nil {
+	}
+
+	if err := ec.ToError(); err != nil {
 		return nil, err
 	}
 
