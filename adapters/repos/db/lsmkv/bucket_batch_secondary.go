@@ -61,7 +61,7 @@ func (b *Bucket) BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error) {
 			continue
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			panic("unsupported error in BatchGetBySecondary active memtable")
+			return nil, fmt.Errorf("BatchGetBySecondary active memtable: %w", err)
 		}
 
 		if b.flushing != nil {
@@ -74,7 +74,7 @@ func (b *Bucket) BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error) {
 				continue
 			}
 			if !errors.Is(err, lsmkv.NotFound) {
-				panic("unsupported error in BatchGetBySecondary flushing memtable")
+				return nil, fmt.Errorf("BatchGetBySecondary flushing memtable: %w", err)
 			}
 		}
 
@@ -175,7 +175,7 @@ func (b *Bucket) BatchGetBySecondaryWithView(pos int, keys [][]byte, viewAny any
 			continue
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			panic("unsupported error in BatchGetBySecondaryWithView active memtable")
+			return nil, fmt.Errorf("BatchGetBySecondaryWithView active memtable: %w", err)
 		}
 
 		if view.Flushing != nil {
@@ -188,7 +188,7 @@ func (b *Bucket) BatchGetBySecondaryWithView(pos int, keys [][]byte, viewAny any
 				continue
 			}
 			if !errors.Is(err, lsmkv.NotFound) {
-				panic("unsupported error in BatchGetBySecondaryWithView flushing memtable")
+				return nil, fmt.Errorf("BatchGetBySecondaryWithView flushing memtable: %w", err)
 			}
 		}
 

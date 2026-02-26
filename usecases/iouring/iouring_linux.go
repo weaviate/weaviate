@@ -242,6 +242,11 @@ func (r *Ring) SubmitAndWaitAll(ops []ReadOp) ([]Result, error) {
 	if n > r.entries {
 		return nil, fmt.Errorf("too many ops: %d > ring capacity %d", n, r.entries)
 	}
+	for i := range ops {
+		if len(ops[i].Buf) == 0 {
+			return nil, fmt.Errorf("op %d has empty Buf", i)
+		}
+	}
 
 	sqTail := atomic.LoadUint32(r.sqTail)
 	mask := atomic.LoadUint32(r.sqMask)
@@ -296,6 +301,10 @@ func (r *Ring) SubmitAndWaitAll(ops []ReadOp) ([]Result, error) {
 		cqHead++
 	}
 	atomic.StoreUint32(r.cqHead, cqHead)
+
+	if len(results) != int(n) {
+		return nil, fmt.Errorf("incomplete: got %d results, expected %d", len(results), n)
+	}
 
 	return results, nil
 }
