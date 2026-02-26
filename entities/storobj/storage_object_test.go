@@ -1710,6 +1710,10 @@ func (f *fakeBatchBucket) BatchGetBySecondary(_ int, keys [][]byte) ([][]byte, e
 	return results, nil
 }
 
+func (f *fakeBatchBucket) BatchGetBySecondaryWithView(_ int, keys [][]byte, _ any) ([][]byte, error) {
+	return f.BatchGetBySecondary(0, keys)
+}
+
 func BenchmarkObjectsByDocID(b *testing.B) {
 	plain := genFakeBucket(b, 10000)
 	batch := &fakeBatchBucket{plain}

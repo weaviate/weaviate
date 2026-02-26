@@ -314,6 +314,7 @@ type bucket interface {
 // uses a type assertion to detect this capability at runtime.
 type batchBucket interface {
 	BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error)
+	BatchGetBySecondaryWithView(pos int, keys [][]byte, view any) ([][]byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,

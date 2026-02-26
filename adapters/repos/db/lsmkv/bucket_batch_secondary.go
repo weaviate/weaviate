@@ -141,6 +141,110 @@ func (b *Bucket) BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error) {
 	return results, nil
 }
 
+// BatchGetBySecondaryWithView is like BatchGetBySecondary but uses a
+// pre-acquired BucketConsistentView instead of taking the flushLock itself.
+// This is useful when the caller already holds a view (e.g. the HNSW rescore
+// path) and wants io_uring batching without double-locking.
+//
+// The view parameter must be a BucketConsistentView. It is typed as any so
+// that the method can satisfy interfaces in packages that cannot import lsmkv.
+//
+// The caller must keep the view alive (do not call ReleaseView) until this
+// method returns.
+func (b *Bucket) BatchGetBySecondaryWithView(pos int, keys [][]byte, viewAny any) ([][]byte, error) {
+	view, ok := viewAny.(BucketConsistentView)
+	if !ok {
+		return nil, fmt.Errorf("BatchGetBySecondaryWithView: expected BucketConsistentView, got %T", viewAny)
+	}
+	if pos >= int(b.secondaryIndices) {
+		return nil, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
+	results := make([][]byte, len(keys))
+
+	// --- Phase 1: memtable lookups ---
+	diskKeys := make([]int, 0, len(keys))
+
+	for i, key := range keys {
+		v, err := view.Active.getBySecondary(pos, key)
+		if err == nil {
+			results[i] = v
+			continue
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			continue
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			panic("unsupported error in BatchGetBySecondaryWithView active memtable")
+		}
+
+		if view.Flushing != nil {
+			v, err = view.Flushing.getBySecondary(pos, key)
+			if err == nil {
+				results[i] = v
+				continue
+			}
+			if errors.Is(err, lsmkv.Deleted) {
+				continue
+			}
+			if !errors.Is(err, lsmkv.NotFound) {
+				panic("unsupported error in BatchGetBySecondaryWithView flushing memtable")
+			}
+		}
+
+		diskKeys = append(diskKeys, i)
+	}
+
+	if len(diskKeys) == 0 {
+		return results, nil
+	}
+
+	// --- Phase 2: disk segment index lookups ---
+	diskLookupKeys := make([][]byte, len(diskKeys))
+	for j, i := range diskKeys {
+		diskLookupKeys[j] = keys[i]
+	}
+
+	positions, err := b.disk.batchGetSecondaryNodePosWithSegments(pos, diskLookupKeys, view.Disk)
+	if err != nil {
+		return nil, err
+	}
+
+	// --- Phase 3: batch disk reads ---
+	rawData := make([][]byte, len(diskKeys))
+
+	for j, p := range positions {
+		if p.deleted {
+			continue
+		}
+		if p.inMemoryData != nil {
+			rawData[j] = p.inMemoryData
+		}
+	}
+
+	if err := batchPread(positions, rawData); err != nil {
+		return nil, fmt.Errorf("batch pread: %w", err)
+	}
+
+	// --- Phase 4: parse secondary node data ---
+	for j, i := range diskKeys {
+		data := rawData[j]
+		if data == nil {
+			continue
+		}
+		_, value, err := parseReplaceNodeData(data)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) || errors.Is(err, lsmkv.Deleted) {
+				continue
+			}
+			return nil, errors.Wrapf(err, "parse node data for key index %d", i)
+		}
+		results[i] = value
+	}
+
+	return results, nil
+}
+
 // batchPreadSequential is the platform-agnostic fallback for batchPread.
 // It reads each pread-backed position using a raw pread64 syscall, which is
 // equivalent to what the existing sequential path does but without needing a

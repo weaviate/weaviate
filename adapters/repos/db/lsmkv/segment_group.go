@@ -758,6 +758,45 @@ func (sg *SegmentGroup) batchGetSecondaryNodePos(pos int, keys [][]byte) ([]seco
 	return results, nil
 }
 
+// batchGetSecondaryNodePosWithSegments is like batchGetSecondaryNodePos but
+// uses a pre-acquired slice of segments instead of calling
+// getConsistentViewOfSegments(). The caller is responsible for keeping the
+// segments alive (e.g. via a BucketConsistentView).
+func (sg *SegmentGroup) batchGetSecondaryNodePosWithSegments(pos int, keys [][]byte, segments []Segment) ([]secondaryNodePos, error) {
+	results := make([]secondaryNodePos, len(keys))
+	done := make([]bool, len(keys))
+	remaining := len(keys)
+
+	// Iterate segments newest-to-oldest. Stop early once all keys are resolved.
+	for i := len(segments) - 1; i >= 0 && remaining > 0; i-- {
+		for j, key := range keys {
+			if done[j] {
+				continue
+			}
+
+			p, err := segments[i].getSecondaryNodePos(pos, key)
+			if err != nil {
+				if errors.Is(err, lsmkv.NotFound) {
+					continue // not in this segment; try an older one
+				}
+				if errors.Is(err, lsmkv.Deleted) {
+					results[j] = secondaryNodePos{deleted: true}
+					done[j] = true
+					remaining--
+					continue
+				}
+				return nil, err
+			}
+
+			results[j] = p
+			done[j] = true
+			remaining--
+		}
+	}
+
+	return results, nil
+}
+
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
 	var out []value
 
