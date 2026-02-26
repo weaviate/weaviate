@@ -88,7 +88,9 @@ func isCommitLogCompatibleReplace(wal io.ReadSeeker) (compatible bool, err error
 		return false, err
 	}
 
-	memtable, err := newMemtable("", StrategyReplace, 0, &noopMemtableCommitLogger{}, nil, nil, false, nil, false, nil, nil, false)
+	memtable, err := newMemtable(&noopMemtableCommitLogger{}, nil, nil, nil, memtableConfig{
+		strategy: StrategyReplace,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -129,7 +131,9 @@ func isCommitLogCompatibleCollection(wal io.ReadSeeker, collectionStrategy strin
 		}
 	}()
 
-	memtable, err := newMemtable("", collectionStrategy, 0, &noopMemtableCommitLogger{}, nil, nil, false, nil, false, nil, nil, false)
+	memtable, err := newMemtable(&noopMemtableCommitLogger{}, nil, nil, nil, memtableConfig{
+		strategy: collectionStrategy,
+	})
 	if err != nil {
 		return false, err
 	}
