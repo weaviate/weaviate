@@ -407,8 +407,9 @@ type Hybrid struct {
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
 	// Deprecated: Marked as deprecated in v1/base_search.proto.
-	Vector     []float32         `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vectors
-	Alpha      float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
+	Vector []float32 `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vectors
+	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	Alpha      float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"` // deprecated in 1.36.0 - use alpha_param
 	FusionType Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
 	// Deprecated: Marked as deprecated in v1/base_search.proto.
 	VectorBytes []byte `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // deprecated in 1.29.0 - use vectors
@@ -418,6 +419,7 @@ type Hybrid struct {
 	NearVector         *NearVector            `protobuf:"bytes,9,opt,name=near_vector,json=nearVector,proto3" json:"near_vector,omitempty"`          // same as above. Use the target vector in the hybrid message
 	Targets            *Targets               `protobuf:"bytes,10,opt,name=targets,proto3" json:"targets,omitempty"`
 	Bm25SearchOperator *SearchOperatorOptions `protobuf:"bytes,11,opt,name=bm25_search_operator,json=bm25SearchOperator,proto3,oneof" json:"bm25_search_operator,omitempty"`
+	AlphaParam         *float32               `protobuf:"fixed32,12,opt,name=alpha_param,json=alphaParam,proto3,oneof" json:"alpha_param,omitempty"`
 	// only vector distance, but keep it extendable
 	//
 	// Types that are valid to be assigned to Threshold:
@@ -481,6 +483,7 @@ func (x *Hybrid) GetVector() []float32 {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in v1/base_search.proto.
 func (x *Hybrid) GetAlpha() float32 {
 	if x != nil {
 		return x.Alpha
@@ -537,6 +540,13 @@ func (x *Hybrid) GetBm25SearchOperator() *SearchOperatorOptions {
 		return x.Bm25SearchOperator
 	}
 	return nil
+}
+
+func (x *Hybrid) GetAlphaParam() float32 {
+	if x != nil && x.AlphaParam != nil {
+		return *x.AlphaParam
+	}
+	return 0
 }
 
 func (x *Hybrid) GetThreshold() isHybrid_Threshold {
@@ -1474,14 +1484,14 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vOPERATOR_OR\x10\x01\x12\x10\n" +
 	"\fOPERATOR_AND\x10\x02B\x1a\n" +
-	"\x18_minimum_or_tokens_match\"\xe6\x05\n" +
+	"\x18_minimum_or_tokens_match\"\xa0\x06\n" +
 	"\x06Hybrid\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1e\n" +
 	"\n" +
 	"properties\x18\x02 \x03(\tR\n" +
 	"properties\x12\x1a\n" +
-	"\x06vector\x18\x03 \x03(\x02B\x02\x18\x01R\x06vector\x12\x14\n" +
-	"\x05alpha\x18\x04 \x01(\x02R\x05alpha\x12?\n" +
+	"\x06vector\x18\x03 \x03(\x02B\x02\x18\x01R\x06vector\x12\x18\n" +
+	"\x05alpha\x18\x04 \x01(\x02B\x02\x18\x01R\x05alpha\x12?\n" +
 	"\vfusion_type\x18\x05 \x01(\x0e2\x1e.weaviate.v1.Hybrid.FusionTypeR\n" +
 	"fusionType\x12%\n" +
 	"\fvector_bytes\x18\x06 \x01(\fB\x02\x18\x01R\vvectorBytes\x12)\n" +
@@ -1491,7 +1501,9 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"nearVector\x12.\n" +
 	"\atargets\x18\n" +
 	" \x01(\v2\x14.weaviate.v1.TargetsR\atargets\x12Y\n" +
-	"\x14bm25_search_operator\x18\v \x01(\v2\".weaviate.v1.SearchOperatorOptionsH\x01R\x12bm25SearchOperator\x88\x01\x01\x12)\n" +
+	"\x14bm25_search_operator\x18\v \x01(\v2\".weaviate.v1.SearchOperatorOptionsH\x01R\x12bm25SearchOperator\x88\x01\x01\x12$\n" +
+	"\valpha_param\x18\f \x01(\x02H\x02R\n" +
+	"alphaParam\x88\x01\x01\x12)\n" +
 	"\x0fvector_distance\x18\x14 \x01(\x02H\x00R\x0evectorDistance\x12.\n" +
 	"\avectors\x18\x15 \x03(\v2\x14.weaviate.v1.VectorsR\avectors\"a\n" +
 	"\n" +
@@ -1500,7 +1512,8 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x12FUSION_TYPE_RANKED\x10\x01\x12\x1e\n" +
 	"\x1aFUSION_TYPE_RELATIVE_SCORE\x10\x02B\v\n" +
 	"\tthresholdB\x17\n" +
-	"\x15_bm25_search_operator\"\xa7\x04\n" +
+	"\x15_bm25_search_operatorB\x0e\n" +
+	"\f_alpha_param\"\xa7\x04\n" +
 	"\n" +
 	"NearVector\x12\x1a\n" +
 	"\x06vector\x18\x01 \x03(\x02B\x02\x18\x01R\x06vector\x12!\n" +

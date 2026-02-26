@@ -315,7 +315,7 @@ func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	if len(x) != pq.m || len(y) != pq.m {
-		return 0, fmt.Errorf("ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths")
+		return 0, fmt.Errorf("ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths: got %d and %d, expected %d", len(x), len(y), pq.m)
 	}
 
 	dist := float32(0)
@@ -367,7 +367,7 @@ func (d *PQDistancer) Distance(x []byte) (float32, error) {
 		return d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
 	}
 	if len(x) != d.pq.m {
-		return 0, fmt.Errorf("inconsistent compressed vector length")
+		return 0, fmt.Errorf("inconsistent compressed vector length: got %d, expected %d", len(x), d.pq.m)
 	}
 	return d.pq.Distance(x, d.lut), nil
 }

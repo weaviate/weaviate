@@ -180,7 +180,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		dims := len(vectors[0])
 		for _, vec := range vectors {
 			if len(vec) != dims {
-				err = errors.Errorf("addBatch called with vectors of different lengths")
+				err = errors.Errorf("addBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
 				return
 			}
 		}
@@ -295,7 +295,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		for _, doc := range vectors {
 			for _, vec := range doc {
 				if len(vec) != dim {
-					err = errors.Errorf("addMultiBatch called with vectors of different lengths")
+					err = errors.Errorf("addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), dim)
 					return
 				}
 			}

@@ -717,7 +717,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schemaConfig.VectorIndexConfig,
 ) error {
 	// an updated is not specific to one shard, but rather all
-	err := i.ForEachShard(func(name string, shard ShardLike) error {
+	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -741,7 +741,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
-	err := i.ForEachShard(func(name string, shard ShardLike) error {
+	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
 		}
@@ -916,7 +916,11 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return fmt.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	targetShard, err := i.shardResolver.ResolveShard(ctx, object)
 	if err != nil {
 		switch {
@@ -1281,7 +1285,11 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(objects))
+		}
+	}
 	byShard := map[string]objsAndPos{}
 	for pos, obj := range objects {
 		target, err := i.shardResolver.ResolveShard(ctx, obj)
@@ -1401,7 +1409,11 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(refs))
+		}
+	}
 	byShard := map[string]refsAndPos{}
 	out := make([]error, len(refs))
 
@@ -1527,11 +1539,11 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.ObjectByID(ctx, id, props, additional)
@@ -1547,11 +1559,11 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
@@ -1693,11 +1705,11 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return false, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return false, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.Exists(ctx, id)
@@ -1980,7 +1992,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shard.Name()))
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
 		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
@@ -2237,11 +2249,11 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard not found", shardName))
+		return nil, nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
@@ -2268,6 +2280,11 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	deletionTime time.Time, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
 	if err != nil {
 		switch {
@@ -2488,6 +2505,11 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, merge.ID, tenant)
 	if err != nil {
 		switch {
@@ -2599,11 +2621,11 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
@@ -2861,11 +2883,11 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	defer release()
 
 	if shard == nil {
-		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return 0, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return 0, enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 	var size int64
 	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
@@ -2924,11 +2946,11 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	defer release()
 
 	if shard == nil {
-		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return "", fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return "", enterrors.NewErrShardNotReady(fmt.Errorf("local %s shard is not ready", shardName))
+		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 	return shard.GetStatus().String(), nil
 }
@@ -2942,7 +2964,7 @@ func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, ta
 	if shard == nil {
 		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 	}
-	return shard.UpdateStatus(targetStatus, "manually set by user")
+	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -2956,7 +2978,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 		return fmt.Errorf("shard %s does not exist locally", shardName)
 	}
 
-	return shard.UpdateStatus(targetStatus, "manually set by user")
+	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
@@ -3028,7 +3050,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
+		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -3044,7 +3066,11 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 ) (objects.BatchSimpleObjects, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
-
+	if schemaVersion > 0 {
+		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return nil, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	type result struct {
 		objs objects.BatchSimpleObjects
 	}

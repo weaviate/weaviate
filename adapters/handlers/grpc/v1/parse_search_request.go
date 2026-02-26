@@ -291,11 +291,16 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 		nearVec := req.HybridSearch.NearVector
 
+		alpha := float64(hs.Alpha)
+		if hs.AlphaParam != nil {
+			alpha = float64(*hs.AlphaParam)
+		}
+
 		out.HybridSearch = &searchparams.HybridSearch{
 			Query:           hs.Query,
 			Properties:      schema.LowercaseFirstLetterOfStrings(hs.Properties),
 			Vector:          vector,
-			Alpha:           float64(hs.Alpha),
+			Alpha:           alpha,
 			FusionAlgorithm: fusionType,
 			TargetVectors:   targetVectors,
 			Distance:        distance,
@@ -674,6 +679,10 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
+func isNested(dataType []string) bool {
+	return len(dataType) == 1 && schema.IsNested(schema.DataType(dataType[0]))
+}
+
 func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
@@ -685,6 +694,11 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
 		return nonRefProps, nil
+	}
+
+	class, err := authorizedGetClass(className)
+	if err != nil {
+		return nil, err
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
@@ -700,20 +714,33 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 		// This catches the case where users send an empty list of non ref properties as their request,
 		// i.e. they want no non-ref properties
 		for _, prop := range reqProps.NonRefProperties {
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
+			if err != nil {
+				return nil, errors.Wrapf(err, "get property by name %v for class %v", normalizedRefPropName, className)
+			}
+			if !isNested(schemaProp.DataType) {
+				props = append(props, search.SelectProperty{
+					Name:        normalizedRefPropName,
+					IsPrimitive: true,
+					IsObject:    false,
+				})
+				continue
+			}
+			nestedProps, err := getAllNonRefNonBlobNestedProperties(&Property{Property: schemaProp})
+			if err != nil {
+				return nil, errors.Wrapf(err, "get all non ref non blob nested properties for property %v", normalizedRefPropName)
+			}
 			props = append(props, search.SelectProperty{
-				Name:        schema.LowercaseFirstLetter(prop),
-				IsPrimitive: true,
-				IsObject:    false,
+				Name:        normalizedRefPropName,
+				IsPrimitive: false,
+				IsObject:    true,
+				Props:       nestedProps,
 			})
 		}
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		class, err := authorizedGetClass(className)
-		if err != nil {
-			return nil, err
-		}
-
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)

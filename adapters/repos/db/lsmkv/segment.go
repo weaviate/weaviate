@@ -61,6 +61,7 @@ type Segment interface {
 	exists(key []byte) error
 	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
+	getCollectionBytes(key []byte) ([][]byte, error)
 	getInvertedData() *segmentInvertedData
 	isLoaded() bool
 	markForDeletion() error
@@ -86,7 +87,7 @@ type Segment interface {
 	getDocCount(key []byte) uint64
 	getPropertyLengths() (map[uint64]uint32, error)
 	newInvertedCursorReusable() *segmentCursorInvertedReusable
-	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+	newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
 
 	// replace specific
 	getCountNetAdditions() int
@@ -127,6 +128,8 @@ type segment struct {
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
 	refCount         int
+
+	deleteMarkerSuffix string
 }
 
 type diskIndex interface {
@@ -168,6 +171,7 @@ type segmentConfig struct {
 	fileList                     map[string]int64
 	precomputedCountNetAdditions *int
 	writeMetadata                bool
+	deleteMarkerCounter          int64
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -343,8 +347,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		invertedData: &segmentInvertedData{
 			tombstones: sroar.NewBitmap(),
 		},
-		unMapContents:    unMapContents,
-		observeMetaWrite: func(n int64) { observeWrite.Observe(float64(n)) },
+		unMapContents:      unMapContents,
+		observeMetaWrite:   func(n int64) { observeWrite.Observe(float64(n)) },
+		deleteMarkerSuffix: fmt.Sprintf(".%013d%s", cfg.deleteMarkerCounter, DeleteMarkerSuffix),
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -464,28 +469,28 @@ func (s *segment) dropMarked() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath() + DeleteMarkerSuffix); err != nil {
+	if err := s.removeAllMarked(s.bloomFilterPath()); err != nil {
 		return fmt.Errorf("drop previously marked bloom filter: %w", err)
 	}
 
 	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i) + DeleteMarkerSuffix); err != nil {
+		if err := s.removeAllMarked(s.bloomFilterSecondaryPath(i)); err != nil {
 			return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
 		}
 	}
 
-	if err := os.RemoveAll(s.countNetPath() + DeleteMarkerSuffix); err != nil {
+	if err := s.removeAllMarked(s.countNetPath()); err != nil {
 		return fmt.Errorf("drop previously marked count net additions file: %w", err)
 	}
 
-	if err := os.RemoveAll(s.metadataPath() + DeleteMarkerSuffix); err != nil {
+	if err := s.removeAllMarked(s.metadataPath()); err != nil {
 		return fmt.Errorf("drop previously marked metadata file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
 	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
-	if err := os.Remove(s.path + DeleteMarkerSuffix); err != nil {
+	if err := s.removeMarked(s.path); err != nil {
 		return fmt.Errorf("drop previously marked segment: %w", err)
 	}
 
@@ -494,35 +499,43 @@ func (s *segment) dropMarked() error {
 
 const DeleteMarkerSuffix = ".deleteme"
 
-func markDeleted(path string) error {
-	return os.Rename(path, path+DeleteMarkerSuffix)
+func (s *segment) markDeleted(path string) error {
+	return os.Rename(path, path+s.deleteMarkerSuffix)
+}
+
+func (s *segment) removeAllMarked(path string) error {
+	return os.RemoveAll(path + s.deleteMarkerSuffix)
+}
+
+func (s *segment) removeMarked(path string) error {
+	return os.Remove(path + s.deleteMarkerSuffix)
 }
 
 func (s *segment) markForDeletion() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. If we get a not exist error, we ignore it.
-	if err := markDeleted(s.bloomFilterPath()); err != nil {
+	if err := s.markDeleted(s.bloomFilterPath()); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("mark bloom filter deleted: %w", err)
 		}
 	}
 
 	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
+		if err := s.markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
 			if !os.IsNotExist(err) {
 				return fmt.Errorf("mark secondary bloom filter deleted: %w", err)
 			}
 		}
 	}
 
-	if err := markDeleted(s.countNetPath()); err != nil {
+	if err := s.markDeleted(s.countNetPath()); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("mark count net additions file deleted: %w", err)
 		}
 	}
 
-	if err := markDeleted(s.metadataPath()); err != nil {
+	if err := s.markDeleted(s.metadataPath()); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("mark metadata file deleted: %w", err)
 		}
@@ -531,7 +544,7 @@ func (s *segment) markForDeletion() error {
 	// for the segment itself, we're not accepting a NotExists error. If there
 	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
-	if err := markDeleted(s.path); err != nil {
+	if err := s.markDeleted(s.path); err != nil {
 		return fmt.Errorf("mark segment deleted: %w", err)
 	}
 

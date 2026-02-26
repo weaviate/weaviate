@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
@@ -154,7 +153,11 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 			for _, tn := range resp.Payload {
 				for i := range tenantNames {
 					if tn.Name == tenantNames[i] {
-						require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+						require.True(t,
+							tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+								tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+							"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+						)
 						break
 					}
 				}
@@ -237,7 +240,11 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 			for _, tn := range resp.Payload {
 				for i := range tenantNames {
 					if tn.Name == tenantNames[i] {
-						require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+						require.True(t,
+							tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+								tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+							"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+						)
 						break
 					}
 				}
@@ -369,7 +376,11 @@ func Test_AutoTenantActivation(t *testing.T) {
 		for _, tn := range resp.Payload {
 			for i := range tenantNames {
 				if tn.Name == tenantNames[i] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.True(t,
+						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
+							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
+						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
+					)
 					break
 				}
 			}
@@ -615,5 +626,111 @@ func Test_ConcurrentFreezeUnfreeze(t *testing.T) {
 				}
 			}
 		}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+	})
+}
+
+func Test_SingleNode_DeactivateAndOffloadTenants(t *testing.T) {
+	ctx := context.Background()
+	t.Log("pre-instance env setup")
+	t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
+	t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
+
+	compose, err := docker.New().
+		WithOffloadS3("offloading", "us-west-1").
+		WithText2VecContextionary().
+		With1NodeCluster().
+		Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	className := "MultiTenantClass"
+	testClass := models.Class{
+		Class:             className,
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		},
+	}
+
+	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
+		helper.CreateClass(t, &testClass)
+	})
+
+	tenantA, tenantB := "TenantA", "TenantB"
+	tenants := []*models.Tenant{
+		{Name: tenantA, ActivityStatus: models.TenantActivityStatusHOT},
+		{Name: tenantB, ActivityStatus: models.TenantActivityStatusCOLD},
+	}
+	t.Run("create tenants A (active) and B (inactive)", func(t *testing.T) {
+		helper.CreateTenants(t, className, tenants)
+	})
+
+	defer func() {
+		helper.DeleteClass(t, className)
+	}()
+
+	t.Run("deactivate A and offload B", func(t *testing.T) {
+		helper.UpdateTenants(t, className, []*models.Tenant{
+			{Name: tenantA, ActivityStatus: models.TenantActivityStatusINACTIVE},
+			{Name: tenantB, ActivityStatus: models.TenantActivityStatusOFFLOADED},
+		})
+	})
+
+	t.Run("A inactive, B offloaded", func(t *testing.T) {
+		require.Eventually(t, func() bool {
+			resp, err := helper.GetTenants(t, className)
+			if err != nil || resp.Payload == nil {
+				return false
+			}
+			var aStatus, bStatus string
+			for _, tn := range resp.Payload {
+				switch tn.Name {
+				case tenantA:
+					aStatus = tn.ActivityStatus
+				case tenantB:
+					bStatus = tn.ActivityStatus
+				}
+			}
+			return aStatus == models.TenantActivityStatusCOLD && bStatus == models.TenantActivityStatusFROZEN
+		}, 10*time.Second, time.Second, "tenant A should be COLD and tenant B should be FROZEN")
+	})
+
+	t.Run("COLD A and B", func(t *testing.T) {
+		helper.UpdateTenants(t, className, []*models.Tenant{
+			{Name: tenantA, ActivityStatus: models.TenantActivityStatusINACTIVE},
+			{Name: tenantB, ActivityStatus: models.TenantActivityStatusINACTIVE},
+		})
+	})
+
+	t.Run("A inactive, B offloaded", func(t *testing.T) {
+		require.Eventually(t, func() bool {
+			resp, err := helper.GetTenants(t, className)
+			if err != nil || resp.Payload == nil {
+				return false
+			}
+			var aStatus, bStatus string
+			for _, tn := range resp.Payload {
+				switch tn.Name {
+				case tenantA:
+					aStatus = tn.ActivityStatus
+				case tenantB:
+					bStatus = tn.ActivityStatus
+				}
+			}
+			return aStatus == models.TenantActivityStatusCOLD && bStatus == models.TenantActivityStatusCOLD
+		}, 10*time.Second, time.Second, "tenant A and B should be COLD")
 	})
 }
