@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
@@ -34,6 +35,10 @@ import (
 
 type fakeSchemaGetter struct {
 	schema schema.Schema
+}
+
+func (f *fakeSchemaGetter) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
 }
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {

@@ -268,6 +268,10 @@ func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...st
 	return status, err
 }
 
+func (m *Manager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return m.schemaReader.WaitForUpdate(ctx, schemaVersion)
+}
+
 // TenantsShardsWithVersion returns tenant status and the schema version from any implicit activation.
 // Callers performing writes should use the returned schemaVersion in WaitForUpdate before proceeding.
 func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
