@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"fmt"
-	"syscall"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -243,26 +242,4 @@ func (b *Bucket) BatchGetBySecondaryWithView(pos int, keys [][]byte, viewAny any
 	}
 
 	return results, nil
-}
-
-// batchPreadSequential is the platform-agnostic fallback for batchPread.
-// It reads each pread-backed position using a raw pread64 syscall, which is
-// equivalent to what the existing sequential path does but without needing a
-// live *os.File (we only have the fd stored in secondaryNodePos).
-func batchPreadSequential(positions []secondaryNodePos, results [][]byte) error {
-	for i, p := range positions {
-		if p.inMemoryData != nil || p.deleted || (p.fd == 0 && p.length == 0) {
-			continue
-		}
-		buf := make([]byte, p.length)
-		n, err := syscall.Pread(p.fd, buf, p.offset)
-		if err != nil {
-			return fmt.Errorf("pread fd=%d offset=%d: %w", p.fd, p.offset, err)
-		}
-		if n != int(p.length) {
-			return fmt.Errorf("short pread fd=%d: got %d, want %d", p.fd, n, p.length)
-		}
-		results[i] = buf
-	}
-	return nil
 }

@@ -16,6 +16,7 @@ package lsmkv
 import (
 	"fmt"
 	"sync"
+	"syscall"
 
 	"github.com/weaviate/weaviate/usecases/iouring"
 )
@@ -113,8 +114,21 @@ func batchPread(positions []secondaryNodePos, results [][]byte) error {
 }
 
 // batchPreadFallback is used when io_uring is unavailable at runtime.
-// It reads each position sequentially using os.File.ReadAt via the
-// positions' file descriptors.
+// It reads each position sequentially using pread.
 func batchPreadFallback(positions []secondaryNodePos, results [][]byte) error {
-	return batchPreadSequential(positions, results)
+	for i, p := range positions {
+		if p.inMemoryData != nil || p.deleted || (p.fd == 0 && p.length == 0) {
+			continue
+		}
+		buf := make([]byte, p.length)
+		n, err := syscall.Pread(p.fd, buf, p.offset)
+		if err != nil {
+			return fmt.Errorf("pread fd=%d offset=%d: %w", p.fd, p.offset, err)
+		}
+		if n != int(p.length) {
+			return fmt.Errorf("short pread fd=%d: got %d, want %d", p.fd, n, p.length)
+		}
+		results[i] = buf
+	}
+	return nil
 }
