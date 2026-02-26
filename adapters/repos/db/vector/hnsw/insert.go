@@ -106,6 +106,10 @@ func (h *hnsw) validatePQSegments(dims int) error {
 func (h *hnsw) checkAndCompress() error {
 	var err error
 	if h.rqActive.Load() {
+		// Defer RQ initialization until the cache is fully prefilled.
+		if !h.cachePrefilled.Load() {
+			return nil
+		}
 		h.trackRQOnce.Do(func() {
 			h.compressActionLock.Lock()
 			defer h.compressActionLock.Unlock()
