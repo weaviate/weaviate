@@ -798,6 +798,8 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
@@ -831,6 +833,8 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 		MakeCommitLoggerThunk: makeCommitLogger,
 		DistanceProvider:      dist,
 		WaitForCachePrefill:   false,
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			time.Sleep(100 * time.Millisecond)
 			if int(id) >= len(vectors) {
