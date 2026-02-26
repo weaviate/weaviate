@@ -50,14 +50,14 @@ type schemaManager interface {
 
 // Telemeter is responsible for managing the transmission of telemetry data
 type Telemeter struct {
-	machineID         strfmt.UUID
-	nodesStatusGetter nodesStatusGetter
-	schemaManager     schemaManager
-	logger            logrus.FieldLogger
-	shutdown          chan struct{}
-	failedToStart     bool
-	consumer          string
-	pushInterval      time.Duration
+	machineID          strfmt.UUID
+	nodesStatusGetter  nodesStatusGetter
+	schemaManager      schemaManager
+	logger             logrus.FieldLogger
+	shutdown           chan struct{}
+	failedToStart      bool
+	consumer           string
+	pushInterval       time.Duration
 	clientTracker      *ClientTracker
 	integrationTracker *IntegrationTracker
 	cloudInfoHelper    *cloudInfoHelper

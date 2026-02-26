@@ -28,16 +28,16 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
-	MachineID        strfmt.UUID                     `json:"machineId"`
-	Type             string                          `json:"type"`
-	Version          string                          `json:"version"`
-	ObjectsCount     int64                           `json:"objs"`
-	OS               string                          `json:"os"`
-	Arch             string                          `json:"arch"`
-	UsedModules      []string                        `json:"usedModules,omitempty"`
-	CollectionsCount int                             `json:"collectionsCount"`
-	ClientUsage             map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
-	ClientIntegrationUsage  map[string]map[string]int64    `json:"clientIntegrationUsage,omitempty"`
-	CloudProvider           *string                        `json:"cloudProvider,omitempty"`
-	UniqueID                *string                        `json:"uniqueID,omitempty"`
+	MachineID              strfmt.UUID                     `json:"machineId"`
+	Type                   string                          `json:"type"`
+	Version                string                          `json:"version"`
+	ObjectsCount           int64                           `json:"objs"`
+	OS                     string                          `json:"os"`
+	Arch                   string                          `json:"arch"`
+	UsedModules            []string                        `json:"usedModules,omitempty"`
+	CollectionsCount       int                             `json:"collectionsCount"`
+	ClientUsage            map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
+	ClientIntegrationUsage map[string]map[string]int64     `json:"clientIntegrationUsage,omitempty"`
+	CloudProvider          *string                         `json:"cloudProvider,omitempty"`
+	UniqueID               *string                         `json:"uniqueID,omitempty"`
 }
