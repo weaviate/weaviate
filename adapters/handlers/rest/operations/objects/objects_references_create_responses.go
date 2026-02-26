@@ -208,3 +208,48 @@ func (o *ObjectsReferencesCreateInternalServerError) WriteResponse(rw http.Respo
 		}
 	}
 }
+
+// ObjectsReferencesCreateServiceUnavailableCode is the HTTP code returned for type ObjectsReferencesCreateServiceUnavailable
+const ObjectsReferencesCreateServiceUnavailableCode int = 503
+
+/*
+ObjectsReferencesCreateServiceUnavailable The operational mode of the server does not allow objects operations at this time.
+
+swagger:response objectsReferencesCreateServiceUnavailable
+*/
+type ObjectsReferencesCreateServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsReferencesCreateServiceUnavailable creates ObjectsReferencesCreateServiceUnavailable with default headers values
+func NewObjectsReferencesCreateServiceUnavailable() *ObjectsReferencesCreateServiceUnavailable {
+
+	return &ObjectsReferencesCreateServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the objects references create service unavailable response
+func (o *ObjectsReferencesCreateServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ObjectsReferencesCreateServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects references create service unavailable response
+func (o *ObjectsReferencesCreateServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsReferencesCreateServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

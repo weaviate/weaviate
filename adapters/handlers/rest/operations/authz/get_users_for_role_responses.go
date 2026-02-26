@@ -256,3 +256,48 @@ func (o *GetUsersForRoleInternalServerError) WriteResponse(rw http.ResponseWrite
 		}
 	}
 }
+
+// GetUsersForRoleServiceUnavailableCode is the HTTP code returned for type GetUsersForRoleServiceUnavailable
+const GetUsersForRoleServiceUnavailableCode int = 503
+
+/*
+GetUsersForRoleServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response getUsersForRoleServiceUnavailable
+*/
+type GetUsersForRoleServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetUsersForRoleServiceUnavailable creates GetUsersForRoleServiceUnavailable with default headers values
+func NewGetUsersForRoleServiceUnavailable() *GetUsersForRoleServiceUnavailable {
+
+	return &GetUsersForRoleServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the get users for role service unavailable response
+func (o *GetUsersForRoleServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GetUsersForRoleServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get users for role service unavailable response
+func (o *GetUsersForRoleServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetUsersForRoleServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -76,6 +76,12 @@ func (o *DeleteAllReplicationsReader) ReadResponse(response runtime.ClientRespon
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewDeleteAllReplicationsServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -522,6 +528,74 @@ func (o *DeleteAllReplicationsNotImplemented) GetPayload() *models.ErrorResponse
 }
 
 func (o *DeleteAllReplicationsNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewDeleteAllReplicationsServiceUnavailable creates a DeleteAllReplicationsServiceUnavailable with default headers values
+func NewDeleteAllReplicationsServiceUnavailable() *DeleteAllReplicationsServiceUnavailable {
+	return &DeleteAllReplicationsServiceUnavailable{}
+}
+
+/*
+DeleteAllReplicationsServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow replica movement operations at this time.
+*/
+type DeleteAllReplicationsServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this delete all replications service unavailable response has a 2xx status code
+func (o *DeleteAllReplicationsServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this delete all replications service unavailable response has a 3xx status code
+func (o *DeleteAllReplicationsServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this delete all replications service unavailable response has a 4xx status code
+func (o *DeleteAllReplicationsServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this delete all replications service unavailable response has a 5xx status code
+func (o *DeleteAllReplicationsServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this delete all replications service unavailable response a status code equal to that given
+func (o *DeleteAllReplicationsServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the delete all replications service unavailable response
+func (o *DeleteAllReplicationsServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *DeleteAllReplicationsServiceUnavailable) Error() string {
+	return fmt.Sprintf("[DELETE /replication/replicate][%d] deleteAllReplicationsServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *DeleteAllReplicationsServiceUnavailable) String() string {
+	return fmt.Sprintf("[DELETE /replication/replicate][%d] deleteAllReplicationsServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *DeleteAllReplicationsServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *DeleteAllReplicationsServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

@@ -70,6 +70,12 @@ func (o *GetGroupsReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewGetGroupsServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -458,6 +464,74 @@ func (o *GetGroupsInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewGetGroupsServiceUnavailable creates a GetGroupsServiceUnavailable with default headers values
+func NewGetGroupsServiceUnavailable() *GetGroupsServiceUnavailable {
+	return &GetGroupsServiceUnavailable{}
+}
+
+/*
+GetGroupsServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow users operations at this time.
+*/
+type GetGroupsServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this get groups service unavailable response has a 2xx status code
+func (o *GetGroupsServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get groups service unavailable response has a 3xx status code
+func (o *GetGroupsServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get groups service unavailable response has a 4xx status code
+func (o *GetGroupsServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this get groups service unavailable response has a 5xx status code
+func (o *GetGroupsServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this get groups service unavailable response a status code equal to that given
+func (o *GetGroupsServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the get groups service unavailable response
+func (o *GetGroupsServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *GetGroupsServiceUnavailable) Error() string {
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *GetGroupsServiceUnavailable) String() string {
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *GetGroupsServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetGroupsServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

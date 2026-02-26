@@ -298,3 +298,48 @@ func (o *ObjectsClassReferencesDeleteInternalServerError) WriteResponse(rw http.
 		}
 	}
 }
+
+// ObjectsClassReferencesDeleteServiceUnavailableCode is the HTTP code returned for type ObjectsClassReferencesDeleteServiceUnavailable
+const ObjectsClassReferencesDeleteServiceUnavailableCode int = 503
+
+/*
+ObjectsClassReferencesDeleteServiceUnavailable The operational mode of the server does not allow objects operations at this time.
+
+swagger:response objectsClassReferencesDeleteServiceUnavailable
+*/
+type ObjectsClassReferencesDeleteServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassReferencesDeleteServiceUnavailable creates ObjectsClassReferencesDeleteServiceUnavailable with default headers values
+func NewObjectsClassReferencesDeleteServiceUnavailable() *ObjectsClassReferencesDeleteServiceUnavailable {
+
+	return &ObjectsClassReferencesDeleteServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the objects class references delete service unavailable response
+func (o *ObjectsClassReferencesDeleteServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ObjectsClassReferencesDeleteServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class references delete service unavailable response
+func (o *ObjectsClassReferencesDeleteServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassReferencesDeleteServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

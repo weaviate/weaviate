@@ -72,6 +72,12 @@ func (o *AliasesUpdateReader) ReadResponse(response runtime.ClientResponse, cons
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewAliasesUpdateServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -462,6 +468,74 @@ func (o *AliasesUpdateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewAliasesUpdateServiceUnavailable creates a AliasesUpdateServiceUnavailable with default headers values
+func NewAliasesUpdateServiceUnavailable() *AliasesUpdateServiceUnavailable {
+	return &AliasesUpdateServiceUnavailable{}
+}
+
+/*
+AliasesUpdateServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow aliases operations at this time.
+*/
+type AliasesUpdateServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this aliases update service unavailable response has a 2xx status code
+func (o *AliasesUpdateServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this aliases update service unavailable response has a 3xx status code
+func (o *AliasesUpdateServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this aliases update service unavailable response has a 4xx status code
+func (o *AliasesUpdateServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this aliases update service unavailable response has a 5xx status code
+func (o *AliasesUpdateServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this aliases update service unavailable response a status code equal to that given
+func (o *AliasesUpdateServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the aliases update service unavailable response
+func (o *AliasesUpdateServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *AliasesUpdateServiceUnavailable) Error() string {
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *AliasesUpdateServiceUnavailable) String() string {
+	return fmt.Sprintf("[PUT /aliases/{aliasName}][%d] aliasesUpdateServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *AliasesUpdateServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *AliasesUpdateServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

@@ -76,6 +76,12 @@ func (o *ObjectsClassGetReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewObjectsClassGetServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -522,6 +528,74 @@ func (o *ObjectsClassGetInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewObjectsClassGetServiceUnavailable creates a ObjectsClassGetServiceUnavailable with default headers values
+func NewObjectsClassGetServiceUnavailable() *ObjectsClassGetServiceUnavailable {
+	return &ObjectsClassGetServiceUnavailable{}
+}
+
+/*
+ObjectsClassGetServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow objects operations at this time.
+*/
+type ObjectsClassGetServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects class get service unavailable response has a 2xx status code
+func (o *ObjectsClassGetServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class get service unavailable response has a 3xx status code
+func (o *ObjectsClassGetServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class get service unavailable response has a 4xx status code
+func (o *ObjectsClassGetServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects class get service unavailable response has a 5xx status code
+func (o *ObjectsClassGetServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects class get service unavailable response a status code equal to that given
+func (o *ObjectsClassGetServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the objects class get service unavailable response
+func (o *ObjectsClassGetServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *ObjectsClassGetServiceUnavailable) Error() string {
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *ObjectsClassGetServiceUnavailable) String() string {
+	return fmt.Sprintf("[GET /objects/{className}/{id}][%d] objectsClassGetServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *ObjectsClassGetServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassGetServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

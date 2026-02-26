@@ -253,3 +253,48 @@ func (o *GetUserInfoInternalServerError) WriteResponse(rw http.ResponseWriter, p
 		}
 	}
 }
+
+// GetUserInfoServiceUnavailableCode is the HTTP code returned for type GetUserInfoServiceUnavailable
+const GetUserInfoServiceUnavailableCode int = 503
+
+/*
+GetUserInfoServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response getUserInfoServiceUnavailable
+*/
+type GetUserInfoServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetUserInfoServiceUnavailable creates GetUserInfoServiceUnavailable with default headers values
+func NewGetUserInfoServiceUnavailable() *GetUserInfoServiceUnavailable {
+
+	return &GetUserInfoServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the get user info service unavailable response
+func (o *GetUserInfoServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GetUserInfoServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get user info service unavailable response
+func (o *GetUserInfoServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetUserInfoServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

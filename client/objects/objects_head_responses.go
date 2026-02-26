@@ -64,6 +64,12 @@ func (o *ObjectsHeadReader) ReadResponse(response runtime.ClientResponse, consum
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewObjectsHeadServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -362,6 +368,74 @@ func (o *ObjectsHeadInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsHeadInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewObjectsHeadServiceUnavailable creates a ObjectsHeadServiceUnavailable with default headers values
+func NewObjectsHeadServiceUnavailable() *ObjectsHeadServiceUnavailable {
+	return &ObjectsHeadServiceUnavailable{}
+}
+
+/*
+ObjectsHeadServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow objects operations at this time.
+*/
+type ObjectsHeadServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects head service unavailable response has a 2xx status code
+func (o *ObjectsHeadServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects head service unavailable response has a 3xx status code
+func (o *ObjectsHeadServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects head service unavailable response has a 4xx status code
+func (o *ObjectsHeadServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects head service unavailable response has a 5xx status code
+func (o *ObjectsHeadServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects head service unavailable response a status code equal to that given
+func (o *ObjectsHeadServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the objects head service unavailable response
+func (o *ObjectsHeadServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *ObjectsHeadServiceUnavailable) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *ObjectsHeadServiceUnavailable) String() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *ObjectsHeadServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsHeadServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 
