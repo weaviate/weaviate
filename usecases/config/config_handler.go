@@ -691,6 +691,16 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Load config from flags
 	f.fromFlags(flags.Options.(*Flags))
 
+	_, usernameEnvSet := os.LookupEnv("CLUSTER_BASIC_AUTH_USERNAME")
+	_, passwordEnvSet := os.LookupEnv("CLUSTER_BASIC_AUTH_PASSWORD")
+	if f.Config.Cluster.AuthConfig.BasicAuth.Enabled() && !usernameEnvSet && !passwordEnvSet {
+		logger.WithField("action", "config_load").
+			Warn("inter-node cluster auth credentials sourced from config file because " +
+				"CLUSTER_BASIC_AUTH_USERNAME and CLUSTER_BASIC_AUTH_PASSWORD env vars are not set; " +
+				"if peer nodes loaded credentials from env vars at their startup, auth will be " +
+				"inconsistent and inter-node calls will return 401 — migrate to env vars to avoid this")
+	}
+
 	return f.Config.Validate()
 }
 

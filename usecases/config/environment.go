@@ -507,10 +507,25 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// Save YAML-loaded cluster auth config before parseClusterConfig replaces config.Cluster.
+	existingClusterAuth := config.Cluster.AuthConfig
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err
 	}
+
+	// Only apply env var auth overrides when the variable is explicitly present in the environment.
+	// This prevents an unset env var (empty string) from silently disabling inter-node auth that
+	// was configured via the config file, which causes persistent 401s after a single-pod restart
+	// when long-running peers still have auth enabled from their original startup.
+	if _, set := os.LookupEnv("CLUSTER_BASIC_AUTH_USERNAME"); !set {
+		clusterCfg.AuthConfig.BasicAuth.Username = existingClusterAuth.BasicAuth.Username
+	}
+	if _, set := os.LookupEnv("CLUSTER_BASIC_AUTH_PASSWORD"); !set {
+		clusterCfg.AuthConfig.BasicAuth.Password = existingClusterAuth.BasicAuth.Password
+	}
+
 	config.Cluster = clusterCfg
 
 	if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
