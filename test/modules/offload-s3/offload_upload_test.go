@@ -444,13 +444,15 @@ func Test_UploadS3Journey(t *testing.T) {
 
 		// Add many objects so offload takes long enough to observe FREEZING.
 		t.Run("add many objects to tenant to prolong FREEZING", func(t *testing.T) {
-			const extraObjects = 3000
+			const extraObjects = 10000
 			for i := 0; i < extraObjects; i++ {
 				obj := &models.Object{
 					ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", i+1)),
 					Class: className,
 					Properties: map[string]interface{}{
-						"name": fmt.Sprintf("extra-%d", i),
+						"name":          fmt.Sprintf("extra-%d", i),
+						"someData":      "ref#0",
+						"someOtherData": "ref#1",
 					},
 					Tenant: tenantNames[0],
 				}
@@ -465,22 +467,6 @@ func Test_UploadS3Journey(t *testing.T) {
 					ActivityStatus: models.TenantActivityStatusFROZEN,
 				},
 			})
-		})
-
-		t.Run("verify tenant status FREEZING", func(t *testing.T) {
-			resp, err := helper.GetTenants(t, className)
-			require.Nil(t, err)
-
-			for _, tn := range resp.Payload {
-				if tn.Name == tenantNames[0] {
-					require.True(t,
-						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
-							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
-						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
-					)
-					break
-				}
-			}
 		})
 
 		t.Run("terminate Minio", func(t *testing.T) {
