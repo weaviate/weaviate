@@ -192,6 +192,8 @@ type Bucket struct {
 	// function to decide whether a key should be skipped
 	// during compaction for the SetCollection strategy
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
+
+	skipSecondaryKeyCheck bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -1327,7 +1329,8 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker, b.shouldSkipKey)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName,
+		b.allocChecker, b.shouldSkipKey, b.skipSecondaryKeyCheck)
 	if err != nil {
 		return nil, err
 	}

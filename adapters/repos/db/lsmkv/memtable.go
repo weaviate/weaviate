@@ -152,12 +152,14 @@ type Memtable struct {
 	// so that we don't have to compute it from scratch for search, flush and compaction.
 	currPropLengthCount, currPropLengthSum uint64
 	propLengthExists                       *sroar.Bitmap
+
+	skipSecondaryKeyCheck bool
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
-	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error),
+	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error), skipSecondaryKeyCheck bool,
 ) (*Memtable, error) {
 	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(path), strategy)
 	if err != nil {
@@ -182,6 +184,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		bm25config:                   bm25config,
 		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
 		shouldSkipKeyFunc:            shouldSkipKeyFunc,
+		skipSecondaryKeyCheck:        skipSecondaryKeyCheck,
 	}
 
 	if m.secondaryIndices > 0 {
@@ -255,15 +258,11 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
-	var secondaryKeys [][]byte
-	if m.secondaryIndices > 0 {
-		secondaryKeys = make([][]byte, m.secondaryIndices)
-		for _, opt := range opts {
-			if err := opt(secondaryKeys); err != nil {
-				return err
-			}
-		}
+	secondaryKeys, err := m.createSecondaryKeys(opts)
+	if err != nil {
+		return fmt.Errorf("put for key %q: %w", key, err)
 	}
+
 	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               value,
@@ -280,12 +279,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
-	for i, sec := range previousKeys {
-		m.secondaryToPrimary[i][string(sec)] = nil
-	}
-	for i, sec := range secondaryKeys {
-		m.secondaryToPrimary[i][string(sec)] = key
-	}
+	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
 
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
@@ -303,27 +297,11 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	var secondaryKeys [][]byte
-	if m.secondaryIndices > 0 {
-		secondaryKeys = make([][]byte, m.secondaryIndices)
-		for _, opt := range opts {
-			if err := opt(secondaryKeys); err != nil {
-				return err
-			}
-		}
-		// When writeSegmentInfoIntoFileName is set, flushed segments get the
-		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
-		// That optimisation is only safe if every delete carries secondary
-		// tombstones, so enforce it here.
-		if m.writeSegmentInfoIntoFileName {
-			for i, sk := range secondaryKeys {
-				if sk == nil {
-					return fmt.Errorf("tombstone missing secondary key at index %d; "+
-						"buckets with secondary indices require all secondary keys on delete", i)
-				}
-			}
-		}
+	secondaryKeys, err := m.createSecondaryKeys(opts)
+	if err != nil {
+		return fmt.Errorf("setTombstone for key %q: %w", key, err)
 	}
+
 	node := segmentReplaceNode{
 		primaryKey:          key,
 		value:               nil,
@@ -340,12 +318,8 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	previousKeys := m.key.setTombstone(key, nil, secondaryKeys)
-	for i, sec := range previousKeys {
-		m.secondaryToPrimary[i][string(sec)] = nil
-	}
-	for i, sec := range secondaryKeys {
-		m.secondaryToPrimary[i][string(sec)] = key
-	}
+	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
@@ -359,30 +333,14 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	defer m.metrics.observeSetTombstone(start.UnixNano())
 
 	if m.strategy != "replace" {
-		return errors.Errorf("setTombstone only possible with strategy 'replace'")
+		return errors.Errorf("setTombstoneWith only possible with strategy 'replace'")
 	}
 
-	var secondaryKeys [][]byte
-	if m.secondaryIndices > 0 {
-		secondaryKeys = make([][]byte, m.secondaryIndices)
-		for _, opt := range opts {
-			if err := opt(secondaryKeys); err != nil {
-				return err
-			}
-		}
-		// When writeSegmentInfoIntoFileName is set, flushed segments get the
-		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
-		// That optimisation is only safe if every delete carries secondary
-		// tombstones, so enforce it here.
-		if m.writeSegmentInfoIntoFileName {
-			for i, sk := range secondaryKeys {
-				if sk == nil {
-					return fmt.Errorf("tombstone missing secondary key at index %d; "+
-						"buckets with secondary indices require all secondary keys on delete", i)
-				}
-			}
-		}
+	secondaryKeys, err := m.createSecondaryKeys(opts)
+	if err != nil {
+		return fmt.Errorf("setTombstoneWith for key %q: %w", key, err)
 	}
+
 	tombstonedVal := tombstonedValue(deletionTime)
 	node := segmentReplaceNode{
 		primaryKey:          key,
@@ -400,12 +358,8 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	}
 
 	previousKeys := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
-	for i, sec := range previousKeys {
-		m.secondaryToPrimary[i][string(sec)] = nil
-	}
-	for i, sec := range secondaryKeys {
-		m.secondaryToPrimary[i][string(sec)] = key
-	}
+	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
@@ -437,6 +391,35 @@ func errorFromTombstonedValue(tombstonedVal []byte) error {
 	deletionTimeUnixMilli := int64(binary.LittleEndian.Uint64(tombstonedVal[1:]))
 
 	return lsmkv.NewErrDeleted(time.UnixMilli(deletionTimeUnixMilli))
+}
+
+func (m *Memtable) createSecondaryKeys(opts []SecondaryKeyOption) ([][]byte, error) {
+	var secondaryKeys [][]byte
+	if m.secondaryIndices > 0 {
+		secondaryKeys = make([][]byte, m.secondaryIndices)
+		for _, opt := range opts {
+			if err := opt(secondaryKeys); err != nil {
+				return nil, err
+			}
+		}
+		if !m.skipSecondaryKeyCheck {
+			for i, sk := range secondaryKeys {
+				if sk == nil {
+					return nil, fmt.Errorf("missing secondary key at index %d", i)
+				}
+			}
+		}
+	}
+	return secondaryKeys, nil
+}
+
+func (m *Memtable) updateSecondaryToPrimary(key []byte, secondaryKeys, previousKeys [][]byte) {
+	for i, sec := range previousKeys {
+		m.secondaryToPrimary[i][string(sec)] = nil
+	}
+	for i, sec := range secondaryKeys {
+		m.secondaryToPrimary[i][string(sec)] = key
+	}
 }
 
 func (m *Memtable) getCollection(key []byte) ([]value, error) {
