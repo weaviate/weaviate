@@ -342,22 +342,28 @@ func TestBucketDelete(t *testing.T) {
 	value := []byte("world")
 	secKey := []byte("bonjour")
 
-	initBucket := func(t *testing.T) *Bucket {
+	initBucket := func(t *testing.T, customOpts ...BucketOption) *Bucket {
 		t.Helper()
 
 		dirName := t.TempDir()
 
+		opts := append([]BucketOption{
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+		}, customOpts...)
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.NoError(t, err)
 
+		t.Cleanup(func() {
+			require.NoError(t, b.Shutdown(ctx))
+		})
 		return b
 	}
 
 	t.Run("delete without secondary key", func(t *testing.T) {
 		t.Run("put and delete in memtable", func(t *testing.T) {
-			bucket := initBucket(t)
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
@@ -379,7 +385,7 @@ func TestBucketDelete(t *testing.T) {
 		})
 
 		t.Run("put in segment, delete in memtable", func(t *testing.T) {
-			bucket := initBucket(t)
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
@@ -402,7 +408,7 @@ func TestBucketDelete(t *testing.T) {
 		})
 
 		t.Run("put and delete in same segment", func(t *testing.T) {
-			bucket := initBucket(t)
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
@@ -426,7 +432,7 @@ func TestBucketDelete(t *testing.T) {
 		})
 
 		t.Run("put and delete in different segments", func(t *testing.T) {
-			bucket := initBucket(t)
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
 
 			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
 			require.NoError(t, err)
@@ -2718,4 +2724,145 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 	seckey = []byte("olá")
 	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
 	require.Nil(t, err)
+}
+
+func TestDeleteRequiresSecondaryKeys(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Delete without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 0")
+	})
+
+	t.Run("DeleteWith without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithKeepTombstones(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.DeleteWith([]byte("key-00"), time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 0")
+	})
+
+	t.Run("Delete with secondary key succeeds", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"), WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		v, err := b.Get([]byte("key-00"))
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("Delete without secondary key is allowed with skipSecondaryKeyCheck", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithSkipSecondaryKeyCheck(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.NoError(t, err)
+	})
+}
+
+func TestPutRequiresSecondaryKeys(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	initBucket := func(t *testing.T, customOpts ...BucketOption) *Bucket {
+		t.Helper()
+
+		dirName := t.TempDir()
+
+		opts := append([]BucketOption{
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(2),
+		}, customOpts...)
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			require.NoError(t, b.Shutdown(ctx))
+		})
+		return b
+	}
+
+	t.Run("Put without secondary key is rejected", func(t *testing.T) {
+		b := initBucket(t)
+
+		err := b.Put([]byte("key-00"), []byte("value-00"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 0")
+
+		err = b.Put([]byte("key-01"), []byte("value-01"),
+			WithSecondaryKey(0, []byte("seckey-01")))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 1")
+	})
+
+	t.Run("Put with secondary key succeeds", func(t *testing.T) {
+		b := initBucket(t)
+
+		err := b.Put([]byte("key-02"), []byte("value-02"),
+			WithSecondaryKey(0, []byte("seckey-02")),
+			WithSecondaryKey(1, []byte("seckey-12")))
+		require.NoError(t, err)
+	})
+
+	t.Run("Put without secondary key is allowed with skipSecondaryKeyCheck", func(t *testing.T) {
+		b := initBucket(t, WithSkipSecondaryKeyCheck(true))
+
+		err := b.Put([]byte("key-03"), []byte("value-03"))
+		require.NoError(t, err)
+	})
 }

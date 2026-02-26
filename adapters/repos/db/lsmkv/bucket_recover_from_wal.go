@@ -107,8 +107,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			cl.pause()
 			defer cl.unpause()
 
-			mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
-				cl, b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
+			mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics, b.logger, b.enableChecksumValidation,
+				b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker, b.skipSecondaryKeyCheck)
 			if err != nil {
 				return err
 			}
