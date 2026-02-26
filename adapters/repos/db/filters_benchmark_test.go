@@ -51,14 +51,19 @@ type vectorIndexSetup struct {
 
 func hnswDefault() vectorIndexSetup {
 	return vectorIndexSetup{
-		name:              "hnsw",
-		vectorIndexType:   "hnsw",
-		vectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+		name:            "hnsw",
+		vectorIndexType: "hnsw",
+		vectorIndexConfig: func() interface{} {
+			uc := enthnsw.NewDefaultUserConfig()
+			uc.FlatSearchCutoff = 0
+			return uc
+		}(),
 	}
 }
 
 func hnswAcorn() vectorIndexSetup {
 	uc := enthnsw.NewDefaultUserConfig()
+	uc.FlatSearchCutoff = 0
 	uc.FilterStrategy = enthnsw.FilterStrategyAcorn
 	return vectorIndexSetup{
 		name:              "hnsw_acorn",
@@ -69,6 +74,7 @@ func hnswAcorn() vectorIndexSetup {
 
 func hnswWithPQ() vectorIndexSetup {
 	uc := enthnsw.NewDefaultUserConfig()
+	uc.FlatSearchCutoff = 0
 	uc.PQ = enthnsw.PQConfig{
 		Enabled:       true,
 		Segments:      0,
@@ -88,6 +94,7 @@ func hnswWithPQ() vectorIndexSetup {
 
 func hnswWithBQ() vectorIndexSetup {
 	uc := enthnsw.NewDefaultUserConfig()
+	uc.FlatSearchCutoff = 0
 	uc.BQ = enthnsw.BQConfig{Enabled: true}
 	return vectorIndexSetup{
 		name:              "hnsw_bq",
@@ -486,6 +493,45 @@ func benchmarkFilterClass(className string, vis vectorIndexSetup) *models.Class 
 	}
 }
 
+func flushAllProperties(t testing.TB, repo *DB, className string) {
+	t.Helper()
+	idx := repo.GetIndex(schema.ClassName(className))
+	require.NotNil(t, idx)
+
+	err := idx.ForEachShard(func(_ string, shard ShardLike) error {
+		return shard.Store().FlushMemtables(t.Context())
+	})
+	require.NoError(t, err)
+}
+
+func pauseAllQueues(t testing.TB, repo *DB, className string) {
+	t.Helper()
+	idx := repo.GetIndex(schema.ClassName(className))
+	require.NotNil(t, idx)
+
+	err := idx.ForEachShard(func(_ string, shard ShardLike) error {
+		return shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+			queue.Pause()
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
+func resumeAllQueues(t testing.TB, repo *DB, className string) {
+	t.Helper()
+	idx := repo.GetIndex(schema.ClassName(className))
+	require.NotNil(t, idx)
+
+	err := idx.ForEachShard(func(_ string, shard ShardLike) error {
+		return shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+			queue.Resume()
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
 // waitForIndexing flushes all async vector index queues and waits until
 // every enqueued vector has been fully processed by the scheduler.
 func waitForIndexing(t testing.TB, repo *DB, className string) {
@@ -507,7 +553,7 @@ func waitForIndexing(t testing.TB, repo *DB, className string) {
 	require.NoError(t, err)
 }
 
-func insertBenchmarkData(t testing.TB, repo *DB, className string, corpusCount int, vectorDim int) {
+func insertBenchmarkData(t testing.TB, repo *DB, className string, corpusCount int, vectorDim int) []strfmt.UUID {
 	t.Helper()
 	ctx := context.Background()
 	vector := make([]float32, vectorDim)
@@ -515,10 +561,13 @@ func insertBenchmarkData(t testing.TB, repo *DB, className string, corpusCount i
 		vector[d] = 0.5
 	}
 
+	uuids := make([]strfmt.UUID, corpusCount)
+
 	batchSize := 1000
 	batch := make(objects.BatchObjects, 0, batchSize)
 	for i := 0; i < corpusCount; i++ {
 		id := strfmt.UUID(uuid.NewString())
+		uuids[i] = id
 		obj := &models.Object{
 			ID:    id,
 			Class: className,
@@ -554,6 +603,7 @@ func insertBenchmarkData(t testing.TB, repo *DB, className string, corpusCount i
 			require.NoError(t, r.Err)
 		}
 	}
+	return uuids
 }
 
 func TestFiltersBenchmark(t *testing.T) {
@@ -605,32 +655,6 @@ func TestFiltersBenchmark(t *testing.T) {
 
 					for _, fc := range filterCases {
 						t.Run(fc.name, func(t *testing.T) {
-							// Multi vector search with filter
-							t.Run("multi_vector_search", func(t *testing.T) {
-								params := dto.GetParams{
-									ClassName:  className,
-									Pagination: &filters.Pagination{Limit: corpusCount},
-									Filters:    fc.filter,
-									NearVector: &searchparams.NearVector{
-										Distance:      100,
-										WithDistance:  true,
-										TargetVectors: []string{"default", "other"},
-									},
-									TargetVectorCombination: &dto.TargetCombination{
-										Type: dto.Minimum,
-									},
-									AdditionalProperties: additional.Properties{Distance: true},
-								}
-								res, err := repo.VectorSearch(
-									context.Background(),
-									params,
-									[]string{"default", "other"},
-									[]models.Vector{searchVector, searchVector},
-								)
-								require.NoError(t, err)
-								require.NotNil(t, res)
-								require.Equal(t, corpusCount*fc.expectedMatchPercentage, len(res)*100)
-							})
 							// Object search (inverted index only)
 							t.Run("object_search", func(t *testing.T) {
 								params := dto.GetParams{
@@ -693,6 +717,32 @@ func TestFiltersBenchmark(t *testing.T) {
 								require.NotNil(t, res)
 								require.Equal(t, corpusCount*fc.expectedMatchPercentage, len(res)*100)
 							})
+							// Multi vector search with filter
+							t.Run("multi_vector_search", func(t *testing.T) {
+								params := dto.GetParams{
+									ClassName:  className,
+									Pagination: &filters.Pagination{Limit: corpusCount},
+									Filters:    fc.filter,
+									NearVector: &searchparams.NearVector{
+										Distance:      100,
+										WithDistance:  true,
+										TargetVectors: []string{"default", "other"},
+									},
+									TargetVectorCombination: &dto.TargetCombination{
+										Type: dto.Minimum,
+									},
+									AdditionalProperties: additional.Properties{Distance: true},
+								}
+								res, err := repo.VectorSearch(
+									context.Background(),
+									params,
+									[]string{"default", "other"},
+									[]models.Vector{searchVector, searchVector},
+								)
+								require.NoError(t, err)
+								require.NotNil(t, res)
+								require.Equal(t, corpusCount*fc.expectedMatchPercentage, len(res)*100)
+							})
 						})
 					}
 
@@ -705,10 +755,9 @@ func TestFiltersBenchmark(t *testing.T) {
 	}
 }
 
-func BenchmarkFilters(b *testing.B) {
-	// set env var to increase search limit
+func TestFiltersDelete(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
 	corpusCounts := []int{100}
-	matchPcts := []int{1, 50, 99}
 	vectorDim := 4
 
 	searchVector := make([]float32, vectorDim)
@@ -716,16 +765,25 @@ func BenchmarkFilters(b *testing.B) {
 		searchVector[d] = 0.5
 	}
 
-	vectorSetups := allVectorIndexSetups()
-	filterCases := allFilterTestCases(matchPcts)
+	searchVectorForUpdate := make([]float32, vectorDim)
+	for d := range searchVectorForUpdate {
+		searchVectorForUpdate[d] = 0.49
+	}
 
-	for v, vis := range vectorSetups {
-		b.Run(fmt.Sprintf("index_%s", vis.name), func(b *testing.B) {
-			repo, schemaGetter := setupBenchmarkDB(b)
+	vectorSetups := allVectorIndexSetups()
+
+	fc := buildFilterTestCase(buildBenchFilter("TestClass", "intField", 1, filters.OperatorNotEqual, schema.DataTypeInt))
+
+	for _, vis := range vectorSetups {
+		t.Run(fmt.Sprintf("index_%s", vis.name), func(t *testing.T) {
+			repo, schemaGetter := setupBenchmarkDB(t)
 			logger, _ := test.NewNullLogger()
 
 			for _, corpusCount := range corpusCounts {
-				b.Run(fmt.Sprintf("corpus_%d", corpusCount), func(b *testing.B) {
+				if corpusCount%100 != 0 {
+					t.Fatalf("corpusCount must be a multiple of 100 to match the way filter values are set up")
+				}
+				t.Run(fmt.Sprintf("corpus_%d", corpusCount), func(t *testing.T) {
 					className := fmt.Sprintf("Bench_%s_%d", vis.name, corpusCount)
 					class := benchmarkFilterClass(className, vis)
 
@@ -735,93 +793,144 @@ func BenchmarkFilters(b *testing.B) {
 						},
 					}
 
-					migrator := NewMigrator(repo, logger, "node1")
-					require.NoError(b, migrator.AddClass(context.Background(), class))
-
-					insertBenchmarkData(b, repo, className, corpusCount, vectorDim)
-					waitForIndexing(b, repo, className)
-
-					idx := repo.GetIndex(schema.ClassName(className))
-					require.NotNil(b, idx)
-
 					props := make([]string, len(class.Properties))
 					for i, prop := range class.Properties {
 						props[i] = prop.Name
 					}
 
-					for _, matchPct := range matchPcts {
-						b.Run(fmt.Sprintf("match_%dpct", matchPct), func(b *testing.B) {
-							for _, fc := range filterCases {
-								b.Run(fc.name, func(b *testing.B) {
-									// For the first vector index setup, we run all benchmarks. For the others, we only run the vector search benchmark to save time.
-									if v == 0 {
-										b.Run("object_search", func(b *testing.B) {
-											params := dto.GetParams{
-												ClassName:  className,
-												Pagination: &filters.Pagination{Limit: corpusCount},
-												Filters:    fc.filter,
-											}
-											b.ResetTimer()
-											for i := 0; i < b.N; i++ {
-												_, err := repo.Search(context.Background(), params)
-												require.NoError(b, err)
-											}
-										})
+					migrator := NewMigrator(repo, logger, "node1")
+					require.NoError(t, migrator.AddClass(context.Background(), class))
 
-										b.Run("keyword_bm25", func(b *testing.B) {
-											addit := additional.Properties{}
-											kwr := &searchparams.KeywordRanking{
-												Type:       "bm25",
-												Properties: []string{"text"},
-												Query:      "benchmark",
-											}
-											b.ResetTimer()
-											for i := 0; i < b.N; i++ {
-												_, _, err := idx.objectSearch(
-													context.Background(),
-													corpusCount,
-													fc.filter,
-													kwr,
-													nil,
-													nil,
-													addit,
-													nil,
-													"",
-													0,
-													props,
-												)
-												require.NoError(b, err)
-											}
-										})
-									}
-									b.Run("vector_search", func(b *testing.B) {
-										params := dto.GetParams{
-											ClassName:  className,
-											Pagination: &filters.Pagination{Limit: corpusCount},
-											Filters:    fc.filter,
-											NearVector: &searchparams.NearVector{
-												Distance:      100,
-												WithDistance:  true,
-												TargetVectors: []string{"default"},
-											},
-											AdditionalProperties: additional.Properties{Distance: true},
-										}
-										b.ResetTimer()
-										for i := 0; i < b.N; i++ {
-											_, err := repo.VectorSearch(
-												context.Background(),
-												params,
-												[]string{"default"},
-												[]models.Vector{searchVector},
-											)
-											require.NoError(b, err)
-										}
-									})
-								})
+					uuids := insertBenchmarkData(t, repo, className, corpusCount, vectorDim)
+					waitForIndexing(t, repo, className)
+
+					idx := repo.GetIndex(schema.ClassName(className))
+					require.NotNil(t, idx)
+
+					mergeDoc := objects.MergeDocument{
+						Class: "TestClass",
+						ID:    uuids[0],
+						PrimitiveSchema: map[string]interface{}{
+							"text":        "benchmark",
+							"intField":    1,
+							"intFieldRev": 100,
+						},
+						Vectors: models.Vectors{
+							"default": searchVector,
+							"other":   searchVectorForUpdate,
+						},
+						UpdateTime: time.Now().Unix(),
+					}
+					// flush all MemTables so that getObjectsBySecondary doesn't have the tombstone
+					flushAllProperties(t, repo, className)
+
+					// forces the delete and insert to not happen until queues are resumed,
+					// simulating the case where there are a lot of objects waiting.
+					pauseAllQueues(t, repo, className)
+					err := idx.mergeObject(context.Background(), mergeDoc, &additional.ReplicationProperties{}, "", 1)
+					require.NoError(t, err)
+
+					for i := 0; i < 2; i++ {
+						// Keyword (BM25) search with filter
+						t.Run("keyword_bm25", func(t *testing.T) {
+							addit := additional.Properties{}
+							kwr := &searchparams.KeywordRanking{
+								Type:       "bm25",
+								Properties: []string{"text"},
+								Query:      "benchmark",
+							}
+							res, _, err := idx.objectSearch(
+								context.Background(),
+								corpusCount,
+								fc.filter,
+								kwr,
+								nil,
+								nil,
+								addit,
+								nil,
+								"",
+								0,
+								props,
+							)
+							require.NoError(t, err)
+							require.NotNil(t, res)
+
+							// fail if uuids[0] is in the results
+							for _, r := range res {
+								if r.Object.ID == uuids[0] {
+									t.Fatalf("expected object with ID %s to be deleted, but it was found in the results", uuids[0])
+								}
 							}
 						})
+
+						// Vector search with filter
+						t.Run("vector_search", func(t *testing.T) {
+							params := dto.GetParams{
+								ClassName:  className,
+								Pagination: &filters.Pagination{Limit: corpusCount + 1},
+								Filters:    fc.filter,
+								NearVector: &searchparams.NearVector{
+									Distance:      100,
+									WithDistance:  true,
+									TargetVectors: []string{"default"},
+								},
+								AdditionalProperties: additional.Properties{Distance: true},
+							}
+							res, err := repo.VectorSearch(
+								context.Background(),
+								params,
+								[]string{"default"},
+								[]models.Vector{searchVector},
+							)
+							require.NoError(t, err)
+							require.NotNil(t, res)
+
+							// fail if uuids[0] is in the results
+							for _, r := range res {
+								if r.ID == uuids[0] {
+									t.Fatalf("expected object with ID %s to be deleted, but it was found in the results", uuids[0])
+								}
+							}
+						})
+						// Multi vector search with filter
+						t.Run("multi_vector_search", func(t *testing.T) {
+							params := dto.GetParams{
+								ClassName:  className,
+								Pagination: &filters.Pagination{Limit: corpusCount + 1},
+								Filters:    fc.filter,
+								NearVector: &searchparams.NearVector{
+									Distance:      100,
+									WithDistance:  true,
+									TargetVectors: []string{"default", "other"},
+								},
+								TargetVectorCombination: &dto.TargetCombination{
+									Type: dto.Minimum,
+								},
+								AdditionalProperties: additional.Properties{Distance: true},
+							}
+							res, err := repo.VectorSearch(
+								context.Background(),
+								params,
+								[]string{"default", "other"},
+								[]models.Vector{searchVector, searchVector},
+							)
+							require.NoError(t, err)
+							require.NotNil(t, res)
+							// fail if uuids[0] is in the results
+							for _, r := range res {
+								if r.ID == uuids[0] {
+									t.Fatalf("expected object with ID %s to be deleted, but it was found in the results", uuids[0])
+								}
+							}
+						})
+						resumeAllQueues(t, repo, className)
+						waitForIndexing(t, repo, className)
 					}
+					t.Cleanup(func() {
+						migrator.DropClass(context.Background(), className, false)
+					})
 				})
+
 			}
 		})
 	}
