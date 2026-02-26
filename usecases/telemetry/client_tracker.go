@@ -55,12 +55,12 @@ type trackEvent[K comparable] struct {
 // A single background goroutine owns the counts map, eliminating lock contention on
 // the hot path. Both ClientTracker and IntegrationTracker delegate to this type.
 type mapTracker[K comparable] struct {
-	trackChan   chan trackEvent[K]              // Buffered, for non-blocking sends
-	getChan     chan chan map[K]map[string]int64 // Request/response for Get()
-	resetChan   chan chan map[K]map[string]int64 // Request/response for GetAndReset()
-	stopChan    chan struct{}                    // Signal to stop goroutine
-	stopOnce    sync.Once                       // Ensures stop() is safe to call multiple times
-	initCap     int                             // Initial map capacity hint
+	trackChan chan trackEvent[K]               // Buffered, for non-blocking sends
+	getChan   chan chan map[K]map[string]int64 // Request/response for Get()
+	resetChan chan chan map[K]map[string]int64 // Request/response for GetAndReset()
+	stopChan  chan struct{}                    // Signal to stop goroutine
+	stopOnce  sync.Once                        // Ensures stop() is safe to call multiple times
+	initCap   int                              // Initial map capacity hint
 }
 
 func newMapTracker[K comparable](logger logrus.FieldLogger, initCap int) *mapTracker[K] {
