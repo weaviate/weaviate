@@ -217,8 +217,8 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	start := time.Now()
 	defer m.metrics.observeGet(start.UnixNano())
 
-	if m.strategy != StrategyReplace {
-		return nil, errors.Errorf("get only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return nil, fmt.Errorf("Memtable::get(): %w", err)
 	}
 
 	m.RLock()
@@ -230,8 +230,8 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 // exists checks if a key exists and is not deleted, without returning the value.
 // This is more efficient than get() when only existence check is needed.
 func (m *Memtable) exists(key []byte) error {
-	if m.strategy != StrategyReplace {
-		return errors.Errorf("exists only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::exists(): %w", err)
 	}
 
 	m.RLock()
@@ -244,8 +244,8 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	start := time.Now()
 	defer m.metrics.observeGetBySecondary(start.UnixNano())
 
-	if m.strategy != StrategyReplace {
-		return nil, errors.Errorf("get only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return nil, fmt.Errorf("Memtable::getBySecondary(): %w", err)
 	}
 
 	m.RLock()
@@ -263,8 +263,8 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
 	defer m.metrics.observePut(start.UnixNano())
 
-	if m.strategy != StrategyReplace {
-		return errors.Errorf("put only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::put(): %w", err)
 	}
 
 	secondaryKeys, err := m.createSecondaryKeys(opts)
@@ -302,8 +302,8 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
 	defer m.metrics.observeSetTombstone(start.UnixNano())
 
-	if m.strategy != "replace" {
-		return errors.Errorf("setTombstone only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::setTombstone(): %w", err)
 	}
 
 	secondaryKeys, err := m.createSecondaryKeys(opts)
@@ -341,8 +341,8 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	start := time.Now()
 	defer m.metrics.observeSetTombstone(start.UnixNano())
 
-	if m.strategy != "replace" {
-		return errors.Errorf("setTombstoneWith only possible with strategy 'replace'")
+	if err := m.checkStrategy(StrategyReplace); err != nil {
+		return fmt.Errorf("Memtable::setTombstoneWith(): %w", err)
 	}
 
 	secondaryKeys, err := m.createSecondaryKeys(opts)
@@ -431,14 +431,17 @@ func (m *Memtable) updateSecondaryToPrimary(key []byte, secondaryKeys, previousK
 	}
 }
 
+func (m *Memtable) checkStrategy(strategy ...string) error {
+	return CheckExpectedStrategy(m.strategy, strategy...)
+}
+
 func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	start := time.Now()
 	defer m.metrics.observeGetCollection(start.UnixNano())
 
 	// TODO amourao: check if this is needed for StrategyInverted
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return nil, errors.Errorf("getCollection only possible with strategies %q, %q, %q",
-			StrategySetCollection, StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategySetCollection, StrategyMapCollection, StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getCollection(): %w", err)
 	}
 
 	m.RLock()
@@ -457,9 +460,8 @@ func (m *Memtable) getCollectionBytes(key []byte) ([][]byte, error) {
 	defer m.metrics.observeGetCollection(start.UnixNano())
 
 	// TODO amourao: check if this is needed for StrategyInverted
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return nil, errors.Errorf("getCollection only possible with strategies %q, %q, %q",
-			StrategySetCollection, StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategySetCollection, StrategyMapCollection, StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getCollectionBytes(): %w", err)
 	}
 
 	m.RLock()
@@ -481,9 +483,8 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	start := time.Now()
 	defer m.metrics.observeGetMap(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return nil, errors.Errorf("getMap only possible with strategies %q, %q",
-			StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getMap(): %w", err)
 	}
 
 	m.RLock()
@@ -501,9 +502,8 @@ func (m *Memtable) append(key []byte, values []value) error {
 	start := time.Now()
 	defer m.metrics.observeAppend(start.UnixNano())
 
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection {
-		return errors.Errorf("append only possible with strategies %q, %q",
-			StrategySetCollection, StrategyMapCollection)
+	if err := m.checkStrategy(StrategySetCollection, StrategyMapCollection); err != nil {
+		return fmt.Errorf("Memtable::append(): %w", err)
 	}
 
 	m.Lock()
@@ -532,9 +532,8 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.observeAppendMapSorted(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
-		return errors.Errorf("append only possible with strategy %q, %q",
-			StrategyMapCollection, StrategyInverted)
+	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
+		return fmt.Errorf("Memtable::appendMapSorted(): %w", err)
 	}
 
 	valuesForCommitLog, err := pair.Bytes()
@@ -636,8 +635,8 @@ func (m *Memtable) writeWAL() error {
 }
 
 func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
-	if m.strategy != StrategyInverted {
-		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
 
 	m.RLock()
@@ -651,8 +650,8 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 }
 
 func (m *Memtable) SetTombstone(docId uint64) error {
-	if m.strategy != StrategyInverted {
-		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return fmt.Errorf("Memtable::SetTombstone(): %w", err)
 	}
 
 	m.Lock()
