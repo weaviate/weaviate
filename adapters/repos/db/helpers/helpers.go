@@ -119,5 +119,3 @@ func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimension
 	// Default to no compression
 	return 1
 }
-
-type MaxIdGetterFunc func() uint64

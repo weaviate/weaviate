@@ -48,17 +48,19 @@ func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
 // to reduce the amount of times BitmapFactory has to reallocate.
 const defaultIdIncrement = uint64(1024)
 
+type MaxIdGetterFunc func() uint64
+
 // BitmapFactory exists to provide prefilled bitmaps using pool (reducing allocation of memory)
 // and favor cloning (faster) over prefilling bitmap from scratch each time bitmap is requested
 type BitmapFactory struct {
 	bufPool        BitmapBufPool
-	maxIdGetter    func() uint64
+	maxIdGetter    MaxIdGetterFunc
 	lock           *sync.RWMutex
 	prefilled      *sroar.Bitmap
 	prefilledMaxId uint64
 }
 
-func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter func() uint64) *BitmapFactory {
+func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *BitmapFactory {
 	prefilledMaxId := maxIdGetter() + defaultIdIncrement
 
 	return &BitmapFactory{

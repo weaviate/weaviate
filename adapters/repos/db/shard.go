@@ -265,7 +265,6 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
-	maxIdGetter    helpers.MaxIdGetterFunc
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32

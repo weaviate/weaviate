@@ -55,7 +55,6 @@ type Searcher struct {
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
-	maxIdGetter         helpers.MaxIdGetterFunc
 }
 
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
@@ -65,7 +64,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory, maxIdGetter helpers.MaxIdGetterFunc,
+	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -79,7 +78,6 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
-		maxIdGetter:            maxIdGetter,
 	}
 }
 
@@ -97,8 +95,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	}
 	defer allowList.Close()
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_took", time.Since(beforeFilters))
-	helpers.AnnotateSlowQueryLog(ctx, "allow_list_doc_ids_count", allowList.Cardinality())
-	helpers.AnnotateSlowQueryLog(ctx, "allow_list_is_deny_list", allowList.IsDenyList())
+	helpers.AnnotateSlowQueryLog(ctx, "allow_list_doc_ids_count", allowList.Len())
 
 	var it docIDsIterator
 	if len(sort) > 0 {

@@ -199,8 +199,7 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 	}
 	s.counter = counter
 
-	s.maxIdGetter = func() uint64 { return s.counter.Get() - 1 }
-	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, s.maxIdGetter)
+	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, func() uint64 { return s.counter.Get() - 1 })
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")

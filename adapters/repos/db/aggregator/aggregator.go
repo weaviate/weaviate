@@ -55,7 +55,6 @@ type Aggregator struct {
 	tenant                 string
 	nestedCrossRefLimit    int64
 	bitmapFactory          *roaringset.BitmapFactory
-	maxIdGetter            helpers.MaxIdGetterFunc
 	modules                *modules.Provider
 	defaultLimit           int64
 }
@@ -68,7 +67,6 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
-	maxIdGetter helpers.MaxIdGetterFunc,
 	modules *modules.Provider, defaultLimit int64,
 ) *Aggregator {
 	return &Aggregator{
@@ -85,7 +83,6 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
-		maxIdGetter:            maxIdGetter,
 		modules:                modules,
 		defaultLimit:           defaultLimit,
 	}

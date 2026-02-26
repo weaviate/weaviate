@@ -103,7 +103,7 @@ func TestObjects(t *testing.T) {
 
 		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(docIDCounter))
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 		t.Run("NotEqual", func(t *testing.T) {
 			t.Parallel()
@@ -158,7 +158,7 @@ func TestObjects(t *testing.T) {
 
 		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocIDWithNonExistentIds))
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 		t.Run("sanity check", func(t *testing.T) {
 			bm, release := bitmapFactory.GetBitmap()
@@ -312,7 +312,7 @@ func TestDocIDs(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(docIDCounter-1))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type testCase struct {
 		expectedMatches int
@@ -435,7 +435,7 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 		searcher = NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, newFakeMaxIDGetter(maxDocID))
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 		bucketName := helpers.BucketFromPropNameLSM(propName)
 		require.NoError(tt, store.CreateOrLoadBucket(context.Background(), bucketName,

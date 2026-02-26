@@ -32,9 +32,6 @@ type AllowList interface {
 	Size() uint64
 	Truncate(uint64) AllowList
 
-	IsDenyList() bool
-	Cardinality() int
-
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
 }
@@ -111,14 +108,6 @@ func (al *BitmapAllowList) Max() uint64 {
 func (al *BitmapAllowList) Size() uint64 {
 	// TODO provide better size estimation
 	return uint64(1.5 * float64(len(al.Bm.ToBuffer())))
-}
-
-func (al *BitmapAllowList) IsDenyList() bool {
-	return false
-}
-
-func (al *BitmapAllowList) Cardinality() int {
-	return al.Bm.GetCardinality()
 }
 
 func (al *BitmapAllowList) Truncate(upTo uint64) AllowList {
