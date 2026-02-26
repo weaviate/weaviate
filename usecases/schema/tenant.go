@@ -188,7 +188,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	uTenants := make([]*models.Tenant, len(tenantsStatus))
+	uTenants := make([]*models.Tenant, 0, len(tenantsStatus))
 	for name, status := range tenantsStatus {
 		uTenants = append(uTenants, &models.Tenant{
 			Name:           name,
