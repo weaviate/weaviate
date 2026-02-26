@@ -201,6 +201,7 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 	t.Run("delete existing keys", func(t *testing.T) {
 		t.Run("delete without secondary key", func(t *testing.T) {
 			memtable := initMemtable(t)
+			memtable.skipSecondaryKeyCheck = true
 			populateMemtable(t, memtable)
 
 			err := memtable.setTombstone(key)
@@ -385,6 +386,7 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 	t.Run("delete non existent keys", func(t *testing.T) {
 		t.Run("delete without secondary key", func(t *testing.T) {
 			memtable := initMemtable(t)
+			memtable.skipSecondaryKeyCheck = true
 
 			err := memtable.setTombstone(key)
 			require.NoError(t, err)
@@ -584,6 +586,7 @@ func TestMemtable_PutDeletePut(t *testing.T) {
 
 	t.Run("without secondary key", func(t *testing.T) {
 		m := initMemtable(t)
+		m.skipSecondaryKeyCheck = true
 
 		err := m.put(key, value)
 		require.NoError(t, err)
