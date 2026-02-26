@@ -122,3 +122,12 @@ func (bmf *BitmapFactory) Remove(ids *sroar.Bitmap) {
 
 	bmf.prefilled.AndNot(ids)
 }
+
+func (bmf *BitmapFactory) RemoveIds(ids ...uint64) {
+	bmf.lock.Lock()
+	defer bmf.lock.Unlock()
+
+	for _, id := range ids {
+		bmf.prefilled.Remove(id)
+	}
+}

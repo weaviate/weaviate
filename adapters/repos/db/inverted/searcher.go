@@ -250,7 +250,17 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
-	return helpers.NewAllowDenyListCloseableFromBitmap(dbm.docIDs, dbm.isDenyList, dbm.release, s.maxIdGetter()+1, s.bitmapFactory), nil
+	// invert once at the end if it's a deny list, to avoid multiple inversions in case of nested ORs
+	if dbm.isDenyList {
+		universe, universeRelease := s.bitmapFactory.GetBitmap()
+		universe = universe.AndNot(dbm.docIDs)
+		dbm.docIDs = universe
+		dbm.release()
+		dbm.release = universeRelease
+		dbm.isDenyList = false
+	}
+
+	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
 func (s *Searcher) extractPropValuePair(
