@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,20 +16,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
-
-func NewGoCronJob(callback func()) *GoCronJob {
-	return &GoCronJob{callback: callback}
-}
-
-type GoCronJob struct {
-	callback func()
-}
-
-func (j *GoCronJob) Run() {
-	j.callback()
-}
-
-// ----------------------------------------------------------------------------
 
 func NewGoCronLogger(logger logrus.FieldLogger, infoLevel logrus.Level) *GoCronLogger {
 	return &GoCronLogger{logger: logger, infoLevel: infoLevel}

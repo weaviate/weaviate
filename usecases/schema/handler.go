@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,6 +49,7 @@ type SchemaManager interface {
 	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
+	UpdateProperty(ctx context.Context, class string, property *models.Property) (uint64, error)
 	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
 	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
 	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)

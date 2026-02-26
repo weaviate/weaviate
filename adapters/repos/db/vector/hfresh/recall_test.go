@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -120,6 +120,7 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 		RootPath:              t.TempDir(),
 		ID:                    "hfresh",
 		MakeCommitLoggerThunk: makeNoopCommitLogger,
+		GetViewThunk:          getViewThunk,
 		DistanceProvider:      distanceProvider,
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
@@ -184,6 +185,10 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 
 	for index.taskQueue.Size() > 0 {
 		t.Logf("background tasks: %d", index.taskQueue.Size())
+		err := index.IndexMetadata.bucket.FlushAndSwitch()
+		require.NoError(t, err)
+		err = index.PostingStore.bucket.FlushAndSwitch()
+		require.NoError(t, err)
 		time.Sleep(500 * time.Millisecond)
 	}
 

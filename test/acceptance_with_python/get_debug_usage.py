@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 import httpx
@@ -202,9 +203,17 @@ def get_debug_usage() -> Report:
         raise exc
 
 
-def get_debug_usage_for_collection(collection: str) -> CollectionUsage:
-    report = get_debug_usage()
-    for col in report.collections:
-        if col.name == collection:
-            return col
-    raise ValueError(f"Collection {collection} not found in debug usage report")
+def get_debug_usage_for_collection(collection: str, retries: int = 5, delay: float = 0.5) -> CollectionUsage:
+    last_err = None
+    for attempt in range(retries):
+        try:
+            report = get_debug_usage()
+            for col in report.collections:
+                if col.name == collection:
+                    return col
+            last_err = ValueError(f"Collection {collection} not found in debug usage report")
+        except Exception as e:
+            last_err = e
+        if attempt < retries - 1:
+            time.sleep(delay)
+    raise last_err

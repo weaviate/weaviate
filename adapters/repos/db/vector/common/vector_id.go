@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -118,6 +118,30 @@ type (
 	TempVectorForID[T []float32 | float32]                        func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
 	MultiVectorForID                                              func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
+
+// BucketView represents a consistent view of an LSM bucket that can be used
+// for multiple reads without acquiring locks for each read. The caller must
+// call ReleaseView() when done to avoid blocking compactions.
+type BucketView interface {
+	ReleaseView()
+}
+
+// GetViewThunk returns a consistent view of the underlying bucket.
+type GetViewThunk func() BucketView
+
+// TempVectorForIDWithView is like TempVectorForID but uses an existing bucket view.
+type TempVectorForIDWithView[T []float32 | float32] func(ctx context.Context, id uint64, container *VectorSlice, view BucketView) ([]T, error)
+
+// TargetTempVectorForIDWithView wraps a view-aware vector thunk with a target vector name.
+type TargetTempVectorForIDWithView[T []float32 | float32] struct {
+	TargetVector                 string
+	TempVectorForIDWithViewThunk func(ctx context.Context, id uint64, container *VectorSlice, targetVector string, view BucketView) ([]T, error)
+}
+
+// TempVectorForIDWithView returns the view-aware vector lookup function.
+func (t TargetTempVectorForIDWithView[T]) TempVectorForIDWithView(ctx context.Context, id uint64, container *VectorSlice, view BucketView) ([]T, error) {
+	return t.TempVectorForIDWithViewThunk(ctx, id, container, t.TargetVector, view)
+}
 
 type TargetVectorForID[T []float32 | float32 | byte | uint64] struct {
 	TargetVector     string

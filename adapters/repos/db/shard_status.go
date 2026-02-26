@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,18 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/storagestate"
+)
+
+// Standardized reasons for shard status changes.  These are stored in
+// ShardStatus.Reason and used by the recovery logic to decide whether a
+// READONLY shard can be automatically transitioned back to READY.
+const (
+	statusReasonResourcePressure  = "resource pressure"
+	statusReasonResourceRecovery  = "resource usage below threshold"
+	statusReasonManualUpdate      = "manually set by user"
+	statusReasonVectorIndexUpdate = "update vector index config"
+	statusReasonShutdown          = "shutdown"
+	statusReasonNotifyReady       = "notify ready"
 )
 
 type ShardStatus struct {
@@ -46,6 +58,12 @@ func (s *Shard) GetStatus() storagestate.Status {
 	})
 	s.status.Status = status
 	return status
+}
+
+func (s *Shard) GetStatusReason() string {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+	return s.status.Reason
 }
 
 // isReadOnly returns an error if shard is readOnly and nil otherwise

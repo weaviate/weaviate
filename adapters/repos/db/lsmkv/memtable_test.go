@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,8 +12,10 @@
 package lsmkv
 
 import (
+	"errors"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -76,5 +78,84 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 		val, err := m.getBySecondary(0, []byte("secondary-key-initial"))
 		assert.Equal(t, lsmkv.NotFound, err)
 		assert.Nil(t, val)
+	})
+}
+
+func TestMemtable_Exists(t *testing.T) {
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	cl, err := newCommitLogger(dir, StrategyReplace, 0)
+	require.NoError(t, err)
+
+	m, err := newMemtable(path.Join(dir, "test"), StrategyReplace, 0, cl, nil, logger, false, nil, false, nil, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, m.commitlog.close())
+	})
+
+	t.Run("key exists", func(t *testing.T) {
+		err := m.put([]byte("exists-key"), []byte("value"))
+		require.NoError(t, err)
+
+		err = m.exists([]byte("exists-key"))
+		require.NoError(t, err)
+	})
+
+	t.Run("key does not exist", func(t *testing.T) {
+		err := m.exists([]byte("nonexistent-key"))
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("key is tombstoned with deletion time", func(t *testing.T) {
+		key := []byte("deleted-key")
+		err := m.put(key, []byte("value"))
+		require.NoError(t, err)
+
+		deletionTime := time.Now()
+		err = m.setTombstoneWith(key, deletionTime)
+		require.NoError(t, err)
+
+		err = m.exists(key)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, lsmkv.Deleted))
+
+		// Verify deletion time is preserved
+		var deletedErr lsmkv.ErrDeleted
+		require.True(t, errors.As(err, &deletedErr))
+		assert.WithinDuration(t, deletionTime, deletedErr.DeletionTime(), time.Millisecond)
+	})
+
+	t.Run("exists returns same error as get for deleted key", func(t *testing.T) {
+		key := []byte("compare-key")
+		err := m.put(key, []byte("value"))
+		require.NoError(t, err)
+
+		err = m.setTombstone(key)
+		require.NoError(t, err)
+
+		_, getErr := m.get(key)
+		existsErr := m.exists(key)
+
+		// Both should return Deleted error
+		assert.True(t, errors.Is(getErr, lsmkv.Deleted))
+		assert.True(t, errors.Is(existsErr, lsmkv.Deleted))
+	})
+
+	t.Run("exists returns same error as get for all cases", func(t *testing.T) {
+		// Test nonexistent key
+		_, getErr := m.get([]byte("never-existed"))
+		existsErr := m.exists([]byte("never-existed"))
+		assert.ErrorIs(t, getErr, lsmkv.NotFound)
+		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
+
+		// Test existing key
+		key := []byte("consistency-key")
+		err := m.put(key, []byte("value"))
+		require.NoError(t, err)
+
+		_, getErr = m.get(key)
+		existsErr = m.exists(key)
+		assert.NoError(t, getErr)
+		assert.NoError(t, existsErr)
 	})
 }

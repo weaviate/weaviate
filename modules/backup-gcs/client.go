@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,7 @@ import (
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
@@ -74,6 +75,28 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		Multiplier: 3,
 	}),
 		storage.WithPolicy(storage.RetryAlways),
+		storage.WithErrorFunc(func(err error) bool {
+			if err == nil {
+				return false
+			}
+
+			if storage.ShouldRetry(err) {
+				return true
+			}
+
+			// Retry on http2 connection lost error which is not covered by ShouldRetry
+			if strings.Contains(err.Error(), "http2: client connection lost") {
+				return true
+			}
+
+			var gerr *googleapi.Error
+			if errors.As(err, &gerr) {
+				// retry on 401 on top of the default retryable errors
+				return gerr.Code == 401
+			}
+
+			return false
+		}),
 	)
 	return &gcsClient{client, *config, projectID, dataPath}, nil
 }
@@ -313,8 +336,12 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, ov
 	return nil
 }
 
-func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
@@ -322,20 +349,20 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 	}
 
 	// create a new writer
-	path := g.makeObjectName(overridePath, []string{backupID, key})
-	writer := bucket.Object(path).NewWriter(ctx)
+	objectPath := g.makeObjectName(overridePath, []string{backupID, key})
+	writer := bucket.Object(objectPath).NewWriter(ctx)
 	writer.ContentType = "application/octet-stream"
 	writer.Metadata = map[string]string{"backup-id": backupID}
 
 	// copy
-	written, err := io.Copy(writer, r)
+	written, err = io.Copy(writer, r)
 	if err != nil {
 		writer.Close() // ignore error here as copy already failed
-		return 0, fmt.Errorf("io.copy for gcs write %q: %w", path, err)
+		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return 0, fmt.Errorf("close writer for gcs write %q: %w", path, err)
+		return written, fmt.Errorf("close writer for gcs write %q: %w", objectPath, err)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.

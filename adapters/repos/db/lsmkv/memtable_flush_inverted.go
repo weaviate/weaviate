@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,7 +40,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
-	tombstones := m.tombstones
+	tombstones := m.tombstones.Clone()
 
 	docIdsLengths := make(map[uint64]uint32)
 	propLengthSum := uint64(0)
@@ -79,6 +79,10 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	} else {
 		m.averagePropLength = (m.averagePropLength*float64(m.propLengthCount) + float64(propLengthSum)) / float64(m.propLengthCount+propLengthCount)
 		m.propLengthCount += propLengthCount
+	}
+
+	if math.IsNaN(m.averagePropLength) {
+		m.averagePropLength = 0
 	}
 
 	tombstoneBuffer := make([]byte, 0)
@@ -187,6 +191,10 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	b := new(bytes.Buffer)
 
 	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
+
+	if propLengthCount == 0 || math.IsNaN(propLengthAvg) || math.IsInf(propLengthAvg, 0) {
+		propLengthAvg = 0
+	}
 
 	binary.LittleEndian.PutUint64(buf, math.Float64bits(propLengthAvg))
 	if _, err := bw.Write(buf); err != nil {

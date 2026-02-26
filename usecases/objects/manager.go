@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -71,6 +71,10 @@ type schemaManager interface {
 
 	// ResolveAlias returns a class name associated with a given alias, empty string if doesn't exist
 	ResolveAlias(alias string) string
+
+	// EnsureTenantActiveForWrite activates tenants when AutoTenantActivation is enabled.
+	// Returns the schema version from activation. callers must use it in WaitForUpdate before writes.
+	EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error)
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of

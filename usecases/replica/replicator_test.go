@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -146,14 +148,22 @@ func TestReplicatorPutObject(t *testing.T) {
 			rep := f.newReplicator()
 			resp := replica.SimpleResponse{}
 
-			f.WClient.On("PutObject", mock.Anything, "A", cls, shard, anyVal, obj, uint64(123)).Return(resp, errAny).After(time.Second * 10)
-			f.WClient.On("Abort", mock.Anything, "A", cls, shard, anyVal).Return(resp, nil)
+			// Route-dependent host(make it deterministic): succeed only on "A", return a phase-one error
+			// for any other host. This guarantees:
+			//   - multiple hosts are tried
+			//   - exactly one host ("A") can be committed successfully.
+			f.WClient.EXPECT().
+				PutObject(mock.Anything, mock.Anything, cls, shard, anyVal, obj, uint64(123)).
+				RunAndReturn(func(ctx context.Context, host, index, shard, reqID string, o *storobj.Object, sv uint64) (replica.SimpleResponse, error) {
+					if host == "A" {
+						return resp, nil
+					}
+					return replica.SimpleResponse{}, errAny
+				})
 
-			f.WClient.On("PutObject", mock.Anything, "B", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
-			f.WClient.On("Commit", ctx, "B", cls, shard, anyVal, anyVal).Return(errAny)
+			f.WClient.On("Commit", ctx, "A", "C1", shard, anyVal, anyVal).
+				Return(nil)
 
-			f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
-			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil)
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelOne, 123)
 			assert.Nil(t, err)
 		})
@@ -163,17 +173,22 @@ func TestReplicatorPutObject(t *testing.T) {
 			f := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
 			resp := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			for _, n := range nodes[:2] {
 				f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 				f.WClient.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 			}
 			f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: []replica.Error{{Msg: "e3"}}}
 			}
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 123)
 			assert.Nil(t, err)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelQuorumDifferentSourceNode_%v", tc.variant), func(t *testing.T) {
@@ -347,7 +362,6 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			resp := replica.SimpleResponse{Errors: make([]replica.Error, 1)}
 			for _, n := range nodes[:2] {
 				client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, anyVal, uint64(123)).Return(resp, nil)
-				client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 			}
 			client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid, anyVal, uint64(123)).Return(replica.SimpleResponse{}, errAny)
 			for _, n := range nodes {
@@ -480,9 +494,12 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
+				wg.Add(1)
 				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+					defer wg.Done()
 					resp := args[5].(*replica.DeleteBatchResponse)
 					*resp = replica.DeleteBatchResponse{
 						Batch: []replica.UUID2Error{{"1", replica.Error{}}, {"2", replica.Error{Msg: "e1"}}},
@@ -493,6 +510,8 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: &replica.Error{Msg: "e1"}}, result[1])
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelAll_%v", tc.variant), func(t *testing.T) {
@@ -501,9 +520,12 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
+				wg.Add(1)
 				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+					defer wg.Done()
 					resp := args[5].(*replica.DeleteBatchResponse)
 					*resp = replica.DeleteBatchResponse{
 						Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}},
@@ -514,6 +536,8 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 			assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: nil}, result[1])
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelOne_%v", tc.variant), func(t *testing.T) {
@@ -522,9 +546,12 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
+			var wg sync.WaitGroup
 			client.On("DeleteObjects", mock.Anything, nodes[0], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
 			client.On("DeleteObjects", mock.Anything, nodes[1], cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, errAny)
+			wg.Add(1)
 			client.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+				defer wg.Done()
 				resp := args[5].(*replica.DeleteBatchResponse)
 				*resp = replica.DeleteBatchResponse{
 					Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}},
@@ -533,27 +560,34 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelOne, 123)
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyQuorum_%v", tc.variant), func(t *testing.T) {
-			nodes = []string{"A", "B", "C"}
-			factory := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
+			nodesQuorum := []string{"A", "B", "C"}
+			factory := newFakeFactory(t, "C1", shard, nodesQuorum, tc.isMultiTenant)
 			client := factory.WClient
 			rep := factory.newReplicator()
 			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 			resp1 := replica.SimpleResponse{}
-			for _, n := range nodes {
+			var wg sync.WaitGroup
+			for _, n := range nodesQuorum {
 				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(resp1, nil)
 			}
-			for _, n := range nodes[:2] {
+			for _, n := range nodesQuorum[:2] {
+				wg.Add(1)
 				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+					defer wg.Done()
 					resp := args[5].(*replica.DeleteBatchResponse)
 					*resp = replica.DeleteBatchResponse{
 						Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}},
 					}
 				}
 			}
+			wg.Add(1)
 			client.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+				defer wg.Done()
 				resp := args[5].(*replica.DeleteBatchResponse)
 				*resp = replica.DeleteBatchResponse{
 					Batch: []replica.UUID2Error{{UUID: "1"}, {UUID: "2", Error: replica.Error{Msg: "e2"}}},
@@ -562,6 +596,8 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelQuorum, 123)
 			assert.Equal(t, len(result), 2)
 			assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 	}
 }
@@ -601,40 +637,60 @@ func TestReplicatorPutObjects(t *testing.T) {
 			nodes := []string{"A", "B", "C"}
 			f := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
-			for _, n := range nodes[:2] {
-				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
-				f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
-					resp := a[5].(*replica.SimpleResponse)
-					*resp = replica.SimpleResponse{Errors: []replica.Error{{}, {}, {Msg: "e3"}}}
-				}
-			}
-			f.WClient.On("PutObjects", mock.Anything, "C", cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
-			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+
+			// Phase one: branch on host(make it deterministic). Only "A" can succeed; all other hosts
+			// return a phase-one error. This guarantees:
+			//   - multiple replicas are contacted
+			//   - only "A" is eligible for commit.
+			f.WClient.EXPECT().
+				PutObjects(mock.Anything, mock.Anything, cls, shard, anyVal, objs, uint64(0)).
+				RunAndReturn(func(ctx context.Context, host, index, shard, reqID string, os []*storobj.Object, sv uint64) (replica.SimpleResponse, error) {
+					if host == "A" {
+						return resp1, nil
+					}
+					return replica.SimpleResponse{}, errAny
+				})
+
+			// Commit only on the successful node.
+			var wg sync.WaitGroup
+			wg.Add(1)
+			f.WClient.On("Commit", ctx, "A", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replica.Error, 3)}
 			}
+
 			errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelOne, 0)
 			assert.Equal(t, []error{nil, nil, nil}, errs)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelQuorum_%v", tc.variant), func(t *testing.T) {
 			nodes := []string{"A", "B", "C"}
 			f := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
+			var wg sync.WaitGroup
 			for _, n := range nodes[:2] {
 				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
+				wg.Add(1)
 				f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+					defer wg.Done()
 					resp := a[5].(*replica.SimpleResponse)
 					*resp = replica.SimpleResponse{Errors: []replica.Error{{}}}
 				}
 			}
 			f.WClient.On("PutObjects", mock.Anything, "C", cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: []replica.Error{{Msg: "e3"}}}
 			}
 			errs := rep.PutObjects(ctx, shard, objs, types.ConsistencyLevelQuorum, 0)
 			assert.Equal(t, []error{nil, nil, nil}, errs)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("PhaseOneConnectionError_%v", tc.variant), func(t *testing.T) {
@@ -669,10 +725,13 @@ func TestReplicatorPutObjects(t *testing.T) {
 		t.Run(fmt.Sprintf("PhaseTwoDecodingError_%v", tc.variant), func(t *testing.T) {
 			f := newFakeFactory(t, cls, shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
 			}
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replica.Error, 3)}
 			}
@@ -683,20 +742,27 @@ func TestReplicatorPutObjects(t *testing.T) {
 			assert.ErrorIs(t, errs[0], errAny)
 			assert.ErrorIs(t, errs[1], errAny)
 			assert.ErrorIs(t, errs[2], errAny)
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 		})
 
 		t.Run(fmt.Sprintf("PhaseTwoUnsuccessfulResponse_%v", tc.variant), func(t *testing.T) {
 			f := newFakeFactory(t, cls, shard, nodes, tc.isMultiTenant)
 			rep := f.newReplicator()
 			node2Errs := []replica.Error{{Msg: "E1"}, {}, {Msg: "E3"}}
+			var wg sync.WaitGroup
 			for _, n := range nodes {
 				f.WClient.On("PutObjects", mock.Anything, n, cls, shard, anyVal, objs, uint64(0)).Return(resp1, nil)
 			}
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: make([]replica.Error, 3)}
 			}
+			wg.Add(1)
 			f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny).RunFn = func(a mock.Arguments) {
+				defer wg.Done()
 				resp := a[5].(*replica.SimpleResponse)
 				*resp = replica.SimpleResponse{Errors: node2Errs}
 			}
@@ -705,6 +771,8 @@ func TestReplicatorPutObjects(t *testing.T) {
 			assert.Equal(t, len(errs), len(objs))
 
 			wantError := []error{&node2Errs[0], nil, &node2Errs[2]}
+			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
+			wg.Wait()
 			assert.Equal(t, wantError, errs)
 		})
 	}
@@ -794,8 +862,8 @@ type fakeFactory struct {
 	CLS            string
 	Nodes          []string
 	Shard2replicas map[string][]string
-	WClient        *fakeClient
-	RClient        *fakeRClient
+	WClient        *replica.MockWClient
+	RClient        *replica.MockRClient
 	log            *logrus.Logger
 	hook           *test.Hook
 	isMultiTenant  bool
@@ -809,8 +877,8 @@ func newFakeFactory(t *testing.T, class, shard string, nodes []string, isMultiTe
 		CLS:            class,
 		Nodes:          nodes,
 		Shard2replicas: map[string][]string{shard: nodes},
-		WClient:        &fakeClient{},
-		RClient:        &fakeRClient{},
+		WClient:        replica.NewMockWClient(t),
+		RClient:        replica.NewMockRClient(t),
 		log:            logger,
 		hook:           hook,
 		isMultiTenant:  isMultiTenant,
@@ -908,11 +976,19 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 
+	nodeResolver := cluster.NewMockNodeResolver(f.t)
+	for _, n := range f.Nodes {
+		nodeResolver.EXPECT().NodeHostname(n).Return(n, true).Maybe()
+	}
+	// used in TestFinderNodeObject unresolved branch
+	nodeResolver.EXPECT().NodeHostname("N").Return("", false).Maybe()
+
 	metrics := monitoring.GetMetrics()
 
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
+		nodeResolver,
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -935,11 +1011,19 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 
+	nodeResolver := cluster.NewMockNodeResolver(f.t)
+	for _, n := range f.Nodes {
+		nodeResolver.EXPECT().NodeHostname(n).Return(n, true).Maybe()
+	}
+	// used in TestFinderNodeObject unresolved branch
+	nodeResolver.EXPECT().NodeHostname("N").Return("", false).Maybe()
+
 	metrics := monitoring.GetMetrics()
 
 	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
+		nodeResolver,
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -962,12 +1046,19 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 
+	nodeResolver := cluster.NewMockNodeResolver(f.t)
+	for _, n := range f.Nodes {
+		nodeResolver.EXPECT().NodeHostname(n).Return(n, true).Maybe()
+	}
+	// used in TestFinderNodeObject unresolved branch
+	nodeResolver.EXPECT().NodeHostname("N").Return("", false).Maybe()
+
 	metrics, err := replica.NewMetrics(monitoring.GetMetrics())
 	if err != nil {
 		f.t.Fatalf("could not create metrics: %v", err)
 	}
 
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
+	return replica.NewFinder(f.CLS, router, nodeResolver, thisNode, f.RClient, metrics, f.log, getDeletionStrategy)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {

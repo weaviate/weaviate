@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,10 +82,17 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
+
+			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)
+			if err != nil {
+				return fmt.Errorf("async replication config: %w", err)
+			}
+
 			collection := schema.ClassName(class.Class).String()
 			indexRouter := router.NewBuilder(
 				collection,
-				multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+				isMultiTenant,
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,
@@ -113,19 +120,25 @@ func (db *DB) init(ctx context.Context) error {
 				SeparateObjectsCompactions:                   db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:                   db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
+				ObjectsTTLBatchSize:                          db.config.ObjectsTTLBatchSize,
+				ObjectsTTLPauseEveryNoBatches:                db.config.ObjectsTTLPauseEveryNoBatches,
+				ObjectsTTLPauseDuration:                      db.config.ObjectsTTLPauseDuration,
 				MaxSegmentSize:                               db.config.MaxSegmentSize,
 				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
 				TrackVectorDimensionsInterval:                db.config.TrackVectorDimensionsInterval,
 				UsageEnabled:                                 db.config.UsageEnabled,
 				AvoidMMap:                                    db.config.AvoidMMap,
-				DisableLazyLoadShards:                        db.config.DisableLazyLoadShards,
+				EnableLazyLoadShards:                         db.config.EnableLazyLoadShards,
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+				AsyncReplicationConfig:                       asyncConfig,
+				AsyncReplicationWorkersLimiter:               db.asyncReplicationWorkersLimiter,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
+				BucketLoadLimiter:                            db.bucketLoadLimiter,
 				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
 				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
 				HNSWSnapshotIntervalSeconds:                  db.config.HNSWSnapshotIntervalSeconds,
@@ -142,13 +155,14 @@ func (db *DB) init(ctx context.Context) error {
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 				HFreshEnabled:                                db.config.HFreshEnabled,
+				AutoTenantActivation:                         schema.AutoTenantActivationEnabled(class),
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
-				db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled)
+				db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled, db.tenantsManager)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

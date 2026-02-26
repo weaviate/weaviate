@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -101,15 +101,17 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 			distToQuery := curr.Dist
 
 			currVec := vecs[curr.Value]
-			if err := errs[curr.Value]; err != nil {
-				var e storobj.ErrNotFound
-				if errors.As(err, &e) {
-					h.handleDeletedNode(e.DocID, "selectNeighborsHeuristic")
-					continue
-				} else {
-					// not a typed error, we can recover from, return with err
-					return errors.Wrapf(err,
-						"unrecoverable error for docID %d", curr.ID)
+			if errs != nil {
+				if err := errs[curr.Value]; err != nil {
+					var e storobj.ErrNotFound
+					if errors.As(err, &e) {
+						h.handleDeletedNode(e.DocID, "selectNeighborsHeuristic")
+						continue
+					} else {
+						// not a typed error, we can recover from, return with err
+						return errors.Wrapf(err,
+							"unrecoverable error for docID %d", curr.ID)
+					}
 				}
 			}
 			good := true

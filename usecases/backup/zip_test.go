@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,11 +52,11 @@ func TestZip(t *testing.T) {
 
 			// compression writer
 			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			z, rc, err := NewZip(pathDest, int(compressionLevel))
+			z, rc, err := NewZip(pathDest, int(compressionLevel), 0)
 			require.NoError(t, err)
 			var zInputLen int64
 			go func() {
-				zInputLen, err = z.WriteShard(ctx, &sd)
+				zInputLen, err = z.WriteShard(ctx, &sd, sd.CopyFilesInShard(), true, &atomic.Int64{})
 				if err != nil {
 					t.Errorf("compress: %v", err)
 				}
@@ -394,10 +394,10 @@ func TestRenamingDuringBackup(t *testing.T) {
 			sd.PropLengthTracker = []byte("12345")
 
 			// start backup process
-			z, rc, err := NewZip(dir, int(compressionLevel))
+			z, rc, err := NewZip(dir, int(compressionLevel), 0)
 			require.NoError(t, err)
 			go func() {
-				_, err := z.WriteShard(ctx, &sd)
+				_, err := z.WriteShard(ctx, &sd, sd.CopyFilesInShard(), true, &atomic.Int64{})
 				require.NoError(t, err)
 				require.NoError(t, z.Close())
 			}()

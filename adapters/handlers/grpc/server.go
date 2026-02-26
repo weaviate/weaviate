@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -115,18 +115,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1, drainBatch := v1.NewService(
-		state.Traverser,
-		composer.New(
-			state.ServerConfig.Config.Authentication,
-			state.APIKey, state.OIDC),
-		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
-		state.SchemaManager,
-		state.BatchManager,
-		&state.ServerConfig.Config,
-		state.Authorizer,
-		state.Logger,
-	)
+	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -46,22 +47,22 @@ type RQDataContainer struct {
 
 // RQ1Data represents RQ1 (Binary Rotational Quantization) data
 type RQ1Data struct {
-	InputDim  uint32                      `msgpack:"input_dim"`
-	OutputDim uint32                      `msgpack:"output_dim"`
-	Rounds    uint32                      `msgpack:"rounds"`
-	Swaps     [][]compressionhelpers.Swap `msgpack:"swaps"`
-	Signs     [][]float32                 `msgpack:"signs"`
-	Rounding  []float32                   `msgpack:"rounding"`
+	InputDim  uint32               `msgpack:"input_dim"`
+	OutputDim uint32               `msgpack:"output_dim"`
+	Rounds    uint32               `msgpack:"rounds"`
+	Swaps     [][]compression.Swap `msgpack:"swaps"`
+	Signs     [][]float32          `msgpack:"signs"`
+	Rounding  []float32            `msgpack:"rounding"`
 }
 
 // RQ8Data represents RQ8 (8-bit Rotational Quantization) data
 type RQ8Data struct {
-	InputDim  uint32                      `msgpack:"input_dim"`
-	Bits      uint32                      `msgpack:"bits"`
-	OutputDim uint32                      `msgpack:"output_dim"`
-	Rounds    uint32                      `msgpack:"rounds"`
-	Swaps     [][]compressionhelpers.Swap `msgpack:"swaps"`
-	Signs     [][]float32                 `msgpack:"signs"`
+	InputDim  uint32               `msgpack:"input_dim"`
+	Bits      uint32               `msgpack:"bits"`
+	OutputDim uint32               `msgpack:"output_dim"`
+	Rounds    uint32               `msgpack:"rounds"`
+	Swaps     [][]compression.Swap `msgpack:"swaps"`
+	Signs     [][]float32          `msgpack:"signs"`
 }
 
 func (index *flat) getMetadataFile() string {
@@ -356,25 +357,25 @@ func (index *flat) serializeRQ8Data() (*RQ8Data, error) {
 
 // dataCaptureLogger captures RQ data from quantizer PersistCompression calls
 type dataCaptureLogger struct {
-	rqData  *compressionhelpers.RQData
-	brqData *compressionhelpers.BRQData
+	rqData  *compression.RQData
+	brqData *compression.BRQData
 }
 
-func (d *dataCaptureLogger) AddRQCompression(data compressionhelpers.RQData) error {
+func (d *dataCaptureLogger) AddRQCompression(data compression.RQData) error {
 	d.rqData = &data
 	return nil
 }
 
-func (d *dataCaptureLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (d *dataCaptureLogger) AddBRQCompression(data compression.BRQData) error {
 	d.brqData = &data
 	return nil
 }
 
-func (d *dataCaptureLogger) AddPQCompression(data compressionhelpers.PQData) error {
+func (d *dataCaptureLogger) AddPQCompression(data compression.PQData) error {
 	return nil // Not used for flat index
 }
 
-func (d *dataCaptureLogger) AddSQCompression(data compressionhelpers.SQData) error {
+func (d *dataCaptureLogger) AddSQCompression(data compression.SQData) error {
 	return nil // Not used for flat index
 }
 

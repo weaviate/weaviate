@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -154,6 +154,7 @@ type SegmentBlockMax struct {
 	currentBlockImpact float32
 	currentBlockMaxId  uint64
 	tombstones         *sroar.Bitmap
+	memTombstones      *sroar.Bitmap
 	filterDocIds       *sroar.Bitmap
 
 	// at position 0 we have the doc ids decoder, at position 1 is the tfs decoder
@@ -165,38 +166,30 @@ type SegmentBlockMax struct {
 	sectionReader *io.SectionReader
 }
 
-func generateSingleFilter(tombstones *sroar.Bitmap, filterDocIds helpers.AllowList) (*sroar.Bitmap, *sroar.Bitmap) {
-	if tombstones != nil && tombstones.IsEmpty() {
-		tombstones = nil
-	}
-
+func generateFilters(tombstones *sroar.Bitmap, filterDocIds helpers.AllowList) (*sroar.Bitmap, *sroar.Bitmap) {
 	var filterSroar *sroar.Bitmap
-	// if we don't have an allow list filter, tombstones are the only needed filter
 	if filterDocIds != nil {
 		// the ok check should always succeed, but we keep it for safety
 		bm, ok := filterDocIds.(*helpers.BitmapAllowList)
-		// if we have a (allow list) filter and a (block list) tombstones filter, we can combine them into a single allowlist filter filter
-		if ok && tombstones != nil {
-			filterSroar = bm.Bm.AndNot(tombstones)
-			tombstones = nil
-		} else if ok && tombstones == nil {
-			filterSroar = bm.Bm
+		if !ok {
+			return tombstones, nil
 		}
+		filterSroar = bm.Bm
 	}
 	return tombstones, filterSroar
 }
 
-func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
-	return NewSegmentBlockMax(s, key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+func (s *segment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	return NewSegmentBlockMax(s, key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
 }
 
-func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	node, err := s.index.Get(key)
 	if err != nil {
 		return nil
 	}
 
-	tombstones, filterSroar := generateSingleFilter(tombstones, filterDocIds)
+	tombstones, filterSroar := generateFilters(tombstones, filterDocIds)
 
 	// if filter is empty after checking for tombstones,
 	// we can skip it and return nil for the segment
@@ -231,6 +224,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		propertyBoost: float64(propertyBoost),
 		filterDocIds:  filterSroar,
 		tombstones:    tombstones,
+		memTombstones: memTombstones,
 		sectionReader: sectionReader,
 	}
 
@@ -252,7 +246,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 		decoders[i] = varenc.GetVarEncEncoder64(codec)
 	}
 
-	tombstones, filterSroar := generateSingleFilter(tombstones, filterDocIds)
+	tombstones, filterSroar := generateFilters(tombstones, filterDocIds)
 
 	// if filter is empty after checking for tombstones,
 	// we can skip it and return nil for the segment
@@ -295,7 +289,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 }
 
 func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost float32, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
-	_, filterSroar := generateSingleFilter(nil, filterDocIds)
+	_, filterSroar := generateFilters(nil, filterDocIds)
 
 	output := &SegmentBlockMax{
 		queryTermIndex:    queryTermIndex,
@@ -320,7 +314,7 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 }
 
 func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
-	if (s.filterDocIds == nil && s.tombstones == nil) || s.exhausted {
+	if (s.filterDocIds == nil && s.tombstones == nil && s.memTombstones == nil) || s.exhausted {
 		if !s.exhausted {
 			s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 		}
@@ -328,7 +322,8 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	}
 
 	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
-		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
+		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
+		(s.memTombstones != nil && s.memTombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
 		s.blockDataIdx++
 		if s.blockDataIdx > s.blockDataSize-1 {
 			if s.blockEntryIdx >= len(s.blockEntries)-1 {

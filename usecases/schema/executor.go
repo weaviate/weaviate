@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -180,14 +180,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
-	ctx := context.Background()
-	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (e *executor) DeleteClass(cls string, hasFrozen bool) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls, hasFrozen); err != nil {
@@ -215,6 +207,19 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 		"action": "add_property",
 		"class":  className,
 	}).Debug("adding property")
+	return nil
+}
+
+func (e *executor) UpdateProperty(className string, req api.UpdatePropertyRequest) error {
+	ctx := context.Background()
+	if err := e.migrator.UpdateProperty(ctx, className, req.Property); err != nil {
+		return err
+	}
+
+	e.logger.WithFields(logrus.Fields{
+		"action": "update_property",
+		"class":  className,
+	}).Debug("updating property")
 	return nil
 }
 

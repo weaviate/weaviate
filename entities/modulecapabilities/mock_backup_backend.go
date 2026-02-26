@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -501,7 +501,7 @@ func (_c *MockBackupBackend_SourceDataPath_Call) RunAndReturn(run func() string)
 }
 
 // Write provides a mock function with given fields: ctx, backupID, key, overrideBucket, overridePath, r
-func (_m *MockBackupBackend) Write(ctx context.Context, backupID string, key string, overrideBucket string, overridePath string, r io.ReadCloser) (int64, error) {
+func (_m *MockBackupBackend) Write(ctx context.Context, backupID string, key string, overrideBucket string, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	ret := _m.Called(ctx, backupID, key, overrideBucket, overridePath, r)
 
 	if len(ret) == 0 {
@@ -510,16 +510,16 @@ func (_m *MockBackupBackend) Write(ctx context.Context, backupID string, key str
 
 	var r0 int64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, io.ReadCloser) (int64, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, backup.ReadCloserWithError) (int64, error)); ok {
 		return rf(ctx, backupID, key, overrideBucket, overridePath, r)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, io.ReadCloser) int64); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, backup.ReadCloserWithError) int64); ok {
 		r0 = rf(ctx, backupID, key, overrideBucket, overridePath, r)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, io.ReadCloser) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, backup.ReadCloserWithError) error); ok {
 		r1 = rf(ctx, backupID, key, overrideBucket, overridePath, r)
 	} else {
 		r1 = ret.Error(1)
@@ -539,14 +539,14 @@ type MockBackupBackend_Write_Call struct {
 //   - key string
 //   - overrideBucket string
 //   - overridePath string
-//   - r io.ReadCloser
+//   - r backup.ReadCloserWithError
 func (_e *MockBackupBackend_Expecter) Write(ctx interface{}, backupID interface{}, key interface{}, overrideBucket interface{}, overridePath interface{}, r interface{}) *MockBackupBackend_Write_Call {
 	return &MockBackupBackend_Write_Call{Call: _e.mock.On("Write", ctx, backupID, key, overrideBucket, overridePath, r)}
 }
 
-func (_c *MockBackupBackend_Write_Call) Run(run func(ctx context.Context, backupID string, key string, overrideBucket string, overridePath string, r io.ReadCloser)) *MockBackupBackend_Write_Call {
+func (_c *MockBackupBackend_Write_Call) Run(run func(ctx context.Context, backupID string, key string, overrideBucket string, overridePath string, r backup.ReadCloserWithError)) *MockBackupBackend_Write_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(io.ReadCloser))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(backup.ReadCloserWithError))
 	})
 	return _c
 }
@@ -556,7 +556,7 @@ func (_c *MockBackupBackend_Write_Call) Return(_a0 int64, _a1 error) *MockBackup
 	return _c
 }
 
-func (_c *MockBackupBackend_Write_Call) RunAndReturn(run func(context.Context, string, string, string, string, io.ReadCloser) (int64, error)) *MockBackupBackend_Write_Call {
+func (_c *MockBackupBackend_Write_Call) RunAndReturn(run func(context.Context, string, string, string, string, backup.ReadCloserWithError) (int64, error)) *MockBackupBackend_Write_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -617,7 +617,8 @@ func (_c *MockBackupBackend_WriteToFile_Call) RunAndReturn(run func(context.Cont
 func NewMockBackupBackend(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockBackupBackend {
+},
+) *MockBackupBackend {
 	mock := &MockBackupBackend{}
 	mock.Mock.Test(t)
 

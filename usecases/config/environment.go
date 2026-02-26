@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,13 +22,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netresearch/go-cron"
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -120,8 +120,9 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
+	config.EnableLazyLoadShards = true
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.DisableLazyLoadShards = true
+		config.EnableLazyLoadShards = false
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
@@ -151,21 +152,41 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
-	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
-	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
-		config.ObjectsTtlAllowSeconds = true
-	}
-	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
-	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
-		parser := cron.StandardParser()
-		if config.ObjectsTtlAllowSeconds {
-			// equivalent of cron.WithSeconds() option
-			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+	{
+		if err := parser.ParseDynamicFloatWithValidation("OBJECTS_TTL_CONCURRENCY_FACTOR",
+			DefaultObjectsTTLConcurrencyFactor,
+			parser.ValidateFloatGreaterThan0,
+			func(val *configRuntime.DynamicValue[float64]) { config.ObjectsTTLConcurrencyFactor = val }); err != nil {
+			return err
 		}
-		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_BATCH_SIZE",
+			DefaultObjectsTTLBatchSize,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLBatchSize = val }); err != nil {
+			return err
 		}
-		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
+
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_PAUSE_EVERY_NO_BATCHES",
+			DefaultObjectsTTLPauseEveryNoBatches,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLPauseEveryNoBatches = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicDurationWithValidation("OBJECTS_TTL_PAUSE_DURATION",
+			DefaultObjectsTTLPauseDuration,
+			parser.ValidateDurationGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[time.Duration]) { config.ObjectsTTLPauseDuration = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicStringWithValidation("OBJECTS_TTL_DELETE_SCHEDULE",
+			DefaultObjectsTTLDeleteSchedule,
+			parser.ValidateGocronSchedule,
+			func(val *configRuntime.DynamicValue[string]) { config.ObjectsTTLDeleteSchedule = val }); err != nil {
+			return err
+		}
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -485,9 +506,7 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
-	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
-		config.HFreshEnabled = true
-	}
+	config.HFreshEnabled = true
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -607,6 +626,17 @@ func FromEnv(config *Config) error {
 		if config.QueryDefaults.Limit == 0 {
 			config.QueryDefaults.Limit = DefaultQueryDefaultsLimit
 		}
+	}
+
+	if v := os.Getenv("BACKUP_CHUNK_TARGET_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_CHUNK_TARGET_SIZE: %w", err)
+		}
+
+		config.Backup.ChunkTargetSize = parsed
+	} else {
+		config.Backup.ChunkTargetSize = DefaultBackupChunkTargetSize
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -783,6 +813,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err = parsePositiveInt(
+		"MAXIMUM_CONCURRENT_BUCKET_LOADS",
+		func(val int) { config.MaximumConcurrentBucketLoads = val },
+		DefaultMaxConcurrentBucketLoads,
+	); err != nil {
+		return err
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_MAX_MESSAGE_SIZE",
 		func(val int) { config.GRPC.MaxMsgSize = val },
@@ -838,6 +876,16 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
+	if err := parsePositiveInt(
+		"ASYNC_REPLICATION_CLUSTER_MAX_WORKERS",
+		func(val int) {
+			config.Replication.AsyncReplicationClusterMaxWorkers = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationClusterMaxWorkers,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
@@ -845,6 +893,20 @@ func FromEnv(config *Config) error {
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
+	}
+
+	// Telemetry URL override (useful for local development with telemetry dashboard)
+	if v := os.Getenv("TELEMETRY_URL"); v != "" {
+		config.TelemetryURL = v
+	}
+
+	// Telemetry push interval override
+	if v := os.Getenv("TELEMETRY_PUSH_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
+		}
+		config.TelemetryPushInterval = interval
 	}
 
 	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
@@ -1262,26 +1324,30 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 	return nil
 }
 
+func validatePositiveInt(val int, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
+	}
+	return nil
+}
+
+func validateNonNegativeInt(val int, envName string) error {
+	if val < 0 {
+		return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
+	}
+	return nil
+}
+
 func parseInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error { return nil })
 }
 
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseIntVerify(envName, defaultValue, cb, validatePositiveInt)
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val < 0 {
-			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
-		}
-		return nil
-	})
+	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
 }
 
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
@@ -1320,21 +1386,23 @@ func parsePositiveDuration(envName string, cb func(val time.Duration), defaultVa
 	return nil
 }
 
+func validatePositiveFloat(val float64, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
+	}
+	return nil
+}
+
 // func parseFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error { return nil })
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error { return nil })
 // }
 
 func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
-	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseFloatVerify(envName, defaultValue, cb, validatePositiveFloat)
 }
 
 // func parseNonNegativeFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error {
 // 		if val < 0 {
 // 			return fmt.Errorf("%s must be a float greater than or equal 0. Got %v", envName, val)
 // 		}
@@ -1342,7 +1410,7 @@ func parsePositiveFloat(envName string, cb func(val float64), defaultValue float
 // 	})
 // }
 
-func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64) error) error {
+func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64, envName string) error) error {
 	var err error
 	asFloat := defaultValue
 
@@ -1351,7 +1419,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 		if err != nil {
 			return fmt.Errorf("parse %s as float: %w", envName, err)
 		}
-		if err = verify(asFloat); err != nil {
+		if err = verify(asFloat, envName); err != nil {
 			return err
 		}
 	}
@@ -1393,12 +1461,14 @@ const (
 	DefaultPersistenceMemtablesMinDuration     = 15
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
-	DefaultMaxConcurrentShardLoads             = 500
+	DefaultMaxConcurrentShardLoads             = 100
+	DefaultMaxConcurrentBucketLoads            = 100
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
+	DefaultAsyncReplicationClusterMaxWorkers   = 30
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 

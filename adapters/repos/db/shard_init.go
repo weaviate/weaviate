@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -48,6 +47,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if shardusage.RemoveComputedUsageDataForUnloadedShard(index.path(), shardName); err != nil {
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
+	}
+
+	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
+		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 
 	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
@@ -96,7 +99,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				"index": index.ID(),
 				"shard": shardName,
 			}).Error("panic during shard initialization")
-			debug.PrintStack()
+			enterrors.PrintStack(index.logger)
 		}
 
 		if err != nil {
@@ -188,7 +191,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String(), "notify ready")
+	s.UpdateStatus(storagestate.StatusReady.String(), statusReasonNotifyReady)
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)

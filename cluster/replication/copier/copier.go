@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,16 +25,16 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/integrity"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -505,12 +505,13 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	if err != nil {
 		return fmt.Errorf("get shard %s err: %w", shardName, err)
 	}
+	defer release()
+
 	if shard == nil {
 		return fmt.Errorf("get shard %s: not found", shardName)
 	}
-	defer release()
 
-	return shard.SetAsyncReplicationEnabled(ctx, true)
+	return shard.SetAsyncReplicationState(ctx, index.AsyncReplicationConfig(), true)
 }
 
 func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -523,12 +524,13 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	if err != nil {
 		return fmt.Errorf("get shard %s err: %w", shardName, err)
 	}
+	defer release()
+
 	if shard == nil {
 		return fmt.Errorf("get shard %s: not found", shardName)
 	}
-	defer release()
 
-	return shard.SetAsyncReplicationEnabled(ctx, shard.Index().Config.AsyncReplicationEnabled)
+	return shard.SetAsyncReplicationState(ctx, index.AsyncReplicationConfig(), index.AsyncReplicationEnabled())
 }
 
 // AsyncReplicationStatus returns the async replication status for a shard.

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,18 +23,16 @@ func (p ObjectsExpiredStatusResponse) MIME() string {
 	return "application/vnd.weaviate.objectsexpired+json"
 }
 
-func (p ObjectsExpiredStatusResponse) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+func (p ObjectsExpiredStatusResponse) CheckContentTypeHeader(r *http.Response) (string, bool) {
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
-}
-
-func (p ObjectsExpiredStatusResponse) SetContentTypeHeaderReq(r *http.Request) {
-	r.Header.Set("content-type", p.MIME())
 }
 
 func (p ObjectsExpiredStatusResponse) SetContentTypeHeader(w http.ResponseWriter) {
 	w.Header().Set("content-type", p.MIME())
 }
+
+// ----------------------------------------------------------------------------
 
 type ObjectsExpiredPayload struct {
 	Class        string `json:"class"`
@@ -55,4 +53,23 @@ func (p ObjectsExpiredPayload) CheckContentTypeHeaderReq(r *http.Request) (strin
 
 func (p ObjectsExpiredPayload) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
+}
+
+// ----------------------------------------------------------------------------
+
+type ObjectsExpiredAbortResponse struct {
+	Aborted bool `json:"aborted"`
+}
+
+func (p ObjectsExpiredAbortResponse) MIME() string {
+	return "application/vnd.weaviate.objectsexpired+json"
+}
+
+func (p ObjectsExpiredAbortResponse) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p ObjectsExpiredAbortResponse) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
 }

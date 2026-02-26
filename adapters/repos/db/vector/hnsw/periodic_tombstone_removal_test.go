@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -26,6 +27,10 @@ import (
 	testhelper "github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type periodicNoopBucketView struct{}
+
+func (n *periodicNoopBucketView) ReleaseView() {}
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
 	ctx := context.Background()
@@ -44,6 +49,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &periodicNoopBucketView{} },
 	}, ent.UserConfig{
 		CleanupIntervalSeconds: cleanupIntervalSeconds,
 		MaxConnections:         30,

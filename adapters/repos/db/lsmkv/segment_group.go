@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -38,14 +39,20 @@ import (
 )
 
 type SegmentGroup struct {
-	segments []Segment
-	// Holds map of all segments currently in use (based on consistentView requests).
-	// Segments are added to the map when consistentView is acquired and removed from map
-	// when they are released and number of refs is 0.
-	// It may contains segments that are no longer present in sg.segments, but still being read from
-	// (segments that were cleaned or compacted and replaced by new ones)
-	segmentsWithRefs      map[string]Segment // segment.path => segment
+	segments              []Segment
 	segmentRefCounterLock sync.Mutex
+
+	// Holds compacted / cleaned up segments meant to be closed and removed from disk
+	// after their's refs counter drops to 0.
+	segmentsAwaitingDrop []struct {
+		seg  Segment
+		time time.Time
+	}
+	segmentsAwaitingLastWarn time.Time
+	// Counter for generating unique names of segments marked for deletions.
+	// Segments for deletions are marked with unique stamp and extension eg:
+	// segment-1771258130098421000.db.1771333257123.deleteme
+	deleteMarkerCounter *atomic.Int64
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -95,6 +102,11 @@ type SegmentGroup struct {
 	writeMetadata                  bool
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
+	// Store the average property length for segments in this sg,
+	// to be used for BM25 scoring.
+	// This avoids recalculating the average property length for each segment during scoring.
+	averagePropSum   atomic.Uint64
+	averagePropCount atomic.Uint64
 }
 
 type sgConfig struct {
@@ -123,9 +135,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
 ) (*SegmentGroup, error) {
 	now := time.Now()
+	deleteMarkerCounter := new(atomic.Int64)
+	deleteMarkerCounter.Store(now.UnixMilli())
+
 	sg := &SegmentGroup{
 		segments:                     make([]Segment, len(files)),
-		segmentsWithRefs:             map[string]Segment{},
 		dir:                          cfg.dir,
 		logger:                       logger,
 		metrics:                      metrics,
@@ -149,6 +163,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
+		deleteMarkerCounter:          deleteMarkerCounter,
 	}
 
 	segmentIndex := 0
@@ -224,6 +239,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 					writeMetadata:            sg.writeMetadata,
+					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -346,6 +362,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
+			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -442,6 +459,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 	switch sg.strategy {
 	case StrategyInverted:
+		if len(sg.segments) == 0 {
+			break
+		}
+		avg, count := sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsAvg, sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsCount
+
+		if count > 0 {
+			sg.averagePropSum.Store(uint64(avg * float64(count)))
+			sg.averagePropCount.Store(count)
+		}
 		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
@@ -451,6 +477,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			}
 			if _, err := sg.segments[i].MergeTombstones(tombstonesNext); err != nil {
 				return nil, fmt.Errorf("init segment %s: merge tombstones %w", sg.segments[i].getPath(), err)
+			}
+
+			avg, count := sg.segments[i].getInvertedData().avgPropertyLengthsAvg, sg.segments[i].getInvertedData().avgPropertyLengthsCount
+
+			if count > 0 {
+				sg.averagePropSum.Add(uint64(avg * float64(count)))
+				sg.averagePropCount.Add(count)
 			}
 		}
 
@@ -518,6 +551,7 @@ func (sg *SegmentGroup) add(path string) error {
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
+			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
@@ -538,7 +572,6 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	sg.segmentRefCounterLock.Lock()
 	for _, seg := range segments {
 		seg.incRef()
-		sg.segmentsWithRefs[seg.getPath()] = seg
 	}
 	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
@@ -547,9 +580,6 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
-			if seg.getRefs() == 0 {
-				delete(sg.segmentsWithRefs, seg.getPath())
-			}
 		}
 		sg.segmentRefCounterLock.Unlock()
 	}
@@ -605,6 +635,40 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 	return nil, lsmkv.NotFound
 }
 
+// existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
+// This is more efficient than getWithSegmentList() when only existence check is needed.
+func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) error {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return fmt.Errorf("SegmentGroup::existsWithSegmentList(): %w", err)
+	}
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	for i := len(segments) - 1; i >= 0; i-- {
+		beforeSegment := time.Now()
+		err := segments[i].exists(key)
+		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
+			sg.logger.WithError(err).
+				WithFields(logrus.Fields{
+					"duration":    duration,
+					"action":      "lsm_segment_group_exists_individual_segment",
+					"segment_pos": i,
+				}).Debug("waited over 100ms to check existence in individual segment")
+		}
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			return err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return fmt.Errorf("SegmentGroup::existsWithSegmentList() %q: %w", segments[i].getPath(), err)
+		}
+	}
+
+	return lsmkv.NotFound
+}
+
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
 ) ([]byte, []byte, []byte, error) {
@@ -644,6 +708,30 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	// start with first and do not exit
 	for _, segment := range segments {
 		v, err := segment.getCollection(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
+	}
+
+	return out, nil
+}
+
+func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]byte, error) {
+	var out [][]byte
+
+	// start with first and do not exit
+	for _, segment := range segments {
+		v, err := segment.getCollectionBytes(key)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
@@ -756,15 +844,18 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
-	sg.segmentRefCounterLock.Lock()
-	segmentsWithRefs := make([]Segment, len(sg.segmentsWithRefs))
-	i := 0
-	for _, seg := range sg.segmentsWithRefs {
-		segmentsWithRefs[i] = seg
-		i++
+	sg.maintenanceLock.RLock()
+	ln1 := len(sg.segmentsAwaitingDrop)
+	ln2 := len(sg.segments)
+	segmentsWithRefs := make([]Segment, ln1+ln2)
+	copy(segmentsWithRefs[ln1:], sg.segments)
+	for i := range ln1 {
+		segmentsWithRefs[i] = sg.segmentsAwaitingDrop[i].seg
 	}
-	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
+
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+	sg.dropSegmentsAwaiting()
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
@@ -861,6 +952,15 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 		return cleaned
 	}
 
+	defer func() {
+		if _, err := sg.dropSegmentsAwaiting(); err != nil {
+			sg.logger.WithField("action", "lsm_drop_segments_awaiting").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("periodical drop failed")
+		}
+	}()
+
 	// alternatively run compaction or cleanup first
 	// if 1st one called succeeds, 2nd one is skipped, otherwise 2nd one is called as well
 	//
@@ -884,28 +984,10 @@ func (sg *SegmentGroup) Len() int {
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
-	segments, release := sg.getConsistentViewOfSegments()
-	defer release()
-
-	if len(segments) == 0 {
+	count := sg.averagePropCount.Load()
+	if count == 0 {
 		return 0, 0
 	}
-
-	totalDocCount := uint64(0)
-	for _, segment := range segments {
-		invertedData := segment.getInvertedData()
-		totalDocCount += invertedData.avgPropertyLengthsCount
-	}
-
-	if totalDocCount == 0 {
-		return defaultAveragePropLength, 0
-	}
-
-	weightedAverage := 0.0
-	for _, segment := range segments {
-		invertedData := segment.getInvertedData()
-		weightedAverage += float64(invertedData.avgPropertyLengthsCount) / float64(totalDocCount) * invertedData.avgPropertyLengthsAvg
-	}
-
-	return weightedAverage, totalDocCount
+	sum := sg.averagePropSum.Load()
+	return float64(sum) / float64(count), count
 }

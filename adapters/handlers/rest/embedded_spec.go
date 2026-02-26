@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0"
+    "version": "1.36.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -1793,11 +1793,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -1809,7 +1809,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -1829,7 +1829,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1841,13 +1841,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1989,6 +1989,71 @@ func init() {
           },
           "500": {
             "description": "An internal server error occurred during restore initiation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.",
+        "tags": [
+          "backups"
+        ],
+        "summary": "Cancel a backup restoration",
+        "operationId": "backups.restore.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the backup restoration to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Backup restoration cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration cancellation request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred during backup restoration cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4948,6 +5013,73 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "delete": {
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a property's inverted index",
+        "operationId": "schema.objects.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be deleted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ],
+            "type": "string",
+            "description": "The name of the inverted index to delete from the property.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid index, property or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
@@ -6135,8 +6267,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6166,6 +6300,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -6179,8 +6318,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6225,8 +6366,10 @@ func init() {
               "STARTED",
               "TRANSFERRING",
               "TRANSFERRED",
+              "FINALIZING",
               "SUCCESS",
               "FAILED",
+              "CANCELLING",
               "CANCELED"
             ]
           }
@@ -6302,8 +6445,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6336,8 +6481,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -7985,6 +8132,12 @@ func init() {
           "description": "Description of the property.",
           "type": "string"
         },
+        "disableDuplicatedReferences": {
+          "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
+          "type": "boolean",
+          "default": true,
+          "x-nullable": true
+        },
         "indexFilterable": {
           "description": "Whether to include this property in the filterable, Roaring Bitmap index. If ` + "`" + `false` + "`" + `, this property cannot be used in ` + "`" + `where` + "`" + ` filters. \u003cbr/\u003e\u003cbr/\u003eNote: Unrelated to vectorization behavior.",
           "type": "boolean",
@@ -8160,10 +8313,119 @@ func init() {
         }
       }
     },
+    "ReplicationAsyncConfig": {
+      "description": "Configuration for asynchronous replication.",
+      "type": "object",
+      "properties": {
+        "aliveNodesCheckingFrequency": {
+          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "diffBatchSize": {
+          "description": "Maximum number of object keys included in a single diff batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "diffPerNodeTimeout": {
+          "description": "Timeout in seconds for computing a diff against a single node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequency": {
+          "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequencyWhilePropagating": {
+          "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "hashtreeHeight": {
+          "description": "Height of the hashtree used for diffing.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "loggingFrequency": {
+          "description": "Interval in seconds at which async replication logs its status.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "maxWorkers": {
+          "description": "Maximum number of async replication workers.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "prePropagationTimeout": {
+          "description": "Overall timeout in seconds for the pre-propagation phase.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationBatchSize": {
+          "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationConcurrency": {
+          "description": "Maximum number of concurrent propagation workers.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationDelay": {
+          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationLimit": {
+          "description": "Maximum number of objects to propagate in a single async replication run.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationTimeout": {
+          "description": "Timeout in seconds for propagating batch of changes to a node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        }
+      }
+    },
     "ReplicationConfig": {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncConfig": {
+          "description": "Configuration parameters for asynchronous replication.",
+          "x-omitempty": true,
+          "$ref": "#/definitions/ReplicationAsyncConfig"
+        },
         "asyncEnabled": {
           "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
@@ -9308,7 +9570,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0"
+    "version": "1.36.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -11029,11 +11291,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -11045,7 +11307,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -11065,7 +11327,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -11077,13 +11339,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11225,6 +11487,71 @@ func init() {
           },
           "500": {
             "description": "An internal server error occurred during restore initiation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.",
+        "tags": [
+          "backups"
+        ],
+        "summary": "Cancel a backup restoration",
+        "operationId": "backups.restore.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the backup restoration to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Backup restoration cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration cancellation request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred during backup restoration cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14306,6 +14633,73 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "delete": {
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a property's inverted index",
+        "operationId": "schema.objects.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be deleted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ],
+            "type": "string",
+            "description": "The name of the inverted index to delete from the property.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid index, property or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
@@ -15493,8 +15887,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15524,6 +15920,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -15537,8 +15938,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15587,8 +15990,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15663,8 +16068,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15697,8 +16104,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -17707,6 +18116,12 @@ func init() {
           "description": "Description of the property.",
           "type": "string"
         },
+        "disableDuplicatedReferences": {
+          "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
+          "type": "boolean",
+          "default": true,
+          "x-nullable": true
+        },
         "indexFilterable": {
           "description": "Whether to include this property in the filterable, Roaring Bitmap index. If ` + "`" + `false` + "`" + `, this property cannot be used in ` + "`" + `where` + "`" + ` filters. \u003cbr/\u003e\u003cbr/\u003eNote: Unrelated to vectorization behavior.",
           "type": "boolean",
@@ -17882,10 +18297,119 @@ func init() {
         }
       }
     },
+    "ReplicationAsyncConfig": {
+      "description": "Configuration for asynchronous replication.",
+      "type": "object",
+      "properties": {
+        "aliveNodesCheckingFrequency": {
+          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "diffBatchSize": {
+          "description": "Maximum number of object keys included in a single diff batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "diffPerNodeTimeout": {
+          "description": "Timeout in seconds for computing a diff against a single node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequency": {
+          "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequencyWhilePropagating": {
+          "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "hashtreeHeight": {
+          "description": "Height of the hashtree used for diffing.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "loggingFrequency": {
+          "description": "Interval in seconds at which async replication logs its status.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "maxWorkers": {
+          "description": "Maximum number of async replication workers.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "prePropagationTimeout": {
+          "description": "Overall timeout in seconds for the pre-propagation phase.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationBatchSize": {
+          "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationConcurrency": {
+          "description": "Maximum number of concurrent propagation workers.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationDelay": {
+          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationLimit": {
+          "description": "Maximum number of objects to propagate in a single async replication run.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationTimeout": {
+          "description": "Timeout in seconds for propagating batch of changes to a node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        }
+      }
+    },
     "ReplicationConfig": {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncConfig": {
+          "description": "Configuration parameters for asynchronous replication.",
+          "x-omitempty": true,
+          "$ref": "#/definitions/ReplicationAsyncConfig"
+        },
         "asyncEnabled": {
           "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",

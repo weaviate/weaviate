@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -249,6 +249,52 @@ func (s *ShardDescriptor) ClearTemporary() {
 
 	s.PropLengthTrackerPath = ""
 	s.PropLengthTracker = nil
+}
+
+func (s *ShardDescriptor) CopyFilesInShard() *FileList {
+	filesInShard := &FileList{Files: make([]string, len(s.Files))}
+	copy(filesInShard.Files, s.Files)
+	return filesInShard
+}
+
+// FileList holds a list of file paths and allows modification of the underlying slice
+type FileList struct {
+	Files []string
+	start int
+}
+
+// Len returns the number of files in the list
+func (f *FileList) Len() int {
+	if f == nil {
+		return 0
+	}
+	if f.start >= len(f.Files) {
+		return 0
+	}
+	return len(f.Files) - f.start
+}
+
+// PopFront removes and returns the first file from the list
+func (f *FileList) PopFront() string {
+	if f == nil || f.Len() == 0 {
+		return ""
+	}
+	file := f.Files[f.start]
+	f.start++
+	// When all elements have been popped, release the backing array.
+	if f.start >= len(f.Files) {
+		f.Files = nil
+		f.start = 0
+	}
+	return file
+}
+
+// Peek returns the first file without removing it
+func (f *FileList) Peek() string {
+	if f == nil || f.Len() == 0 {
+		return ""
+	}
+	return f.Files[f.start]
 }
 
 // ClassDescriptor contains everything needed to completely restore a class

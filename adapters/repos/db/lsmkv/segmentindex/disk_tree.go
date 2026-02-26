@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package segmentindex
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -202,4 +203,38 @@ func (t *DiskTree) AllKeys() ([][]byte, error) {
 
 func (t *DiskTree) Size() int {
 	return len(t.data)
+}
+
+// KeyCount returns the number of keys in the tree without allocating.
+// It walks through the serialized nodes, skipping over each one.
+func (t *DiskTree) KeyCount() int {
+	count := 0
+	bufferPos := 0
+	// each node: 4 (keyLen) + keyLen + 8 (start) + 8 (end) + 8 (left) + 8 (right)
+	for bufferPos+36 <= len(t.data) {
+		keyLen := int(binary.LittleEndian.Uint32(t.data[bufferPos:]))
+		nodeSize := keyLen + 36
+		if bufferPos+nodeSize > len(t.data) {
+			break
+		}
+		bufferPos += nodeSize
+		count++
+	}
+	return count
+}
+
+// ForEachKey iterates over all keys in the tree without allocating a slice.
+// The key passed to fn is a subslice of the underlying data and must not
+// be retained or modified by the caller.
+func (t *DiskTree) ForEachKey(fn func(key []byte)) {
+	bufferPos := 0
+	for bufferPos+36 <= len(t.data) {
+		keyLen := int(binary.LittleEndian.Uint32(t.data[bufferPos:]))
+		nodeSize := keyLen + 36
+		if bufferPos+nodeSize > len(t.data) {
+			break
+		}
+		fn(t.data[bufferPos+4 : bufferPos+4+keyLen])
+		bufferPos += nodeSize
+	}
 }

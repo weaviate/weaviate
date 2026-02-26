@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -53,7 +52,7 @@ func (b *BM25Searcher) wandBlock(
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
 				b.logger.Errorf("Recovered from panic in wandBlock: %v", r)
-				debug.PrintStack()
+				enterrors.PrintStack(b.logger)
 			}
 		}
 	}()
@@ -349,6 +348,15 @@ func (b *BM25Searcher) sortResultsByScore(ids []uint64, scores []float32, explan
 	return sorter.ids, sorter.scores, sorter.explanations
 }
 
+func (b *BM25Searcher) sortResultsByExternalId(objects []*storobj.Object, scores []float32) ([]*storobj.Object, []float32) {
+	sorter := &objectIdsSorter{
+		objects: objects,
+		scores:  scores,
+	}
+	sort.Sort(sorter)
+	return sorter.objects, sorter.scores
+}
+
 func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// reverse arrays to start with the highest score
 	slices.Reverse(ids)
@@ -368,32 +376,22 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	// try to get docs up to the limit
 	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
-		// storobj.ObjectsByDocID may return fewer than limit objects
-		// notFoundCount keeps track of the number of objects that were not found,
-		// so we can keep matching scores and explanations to the correct object
-		notFoundCount := 0
-		objsBatch, err := storobj.ObjectsByDocID(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
+		objsBatch, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
 		if err != nil {
 			return objs, nil, errors.Errorf("objects loading")
 		}
 		for i, obj := range objsBatch {
-			if obj == nil {
+			if obj == nil || obj.DocID != ids[startAt+i] {
 				continue
 			}
-			// move forward the notFoundCount until we find the next object
-			// if we enter the loop, it means that doc at ids[startAt+notFoundCount+i]
-			// was not found, so we need to skip it
-			for obj.DocID != ids[startAt+notFoundCount+i] {
-				notFoundCount++
-			}
 			objs = append(objs, obj)
-			scoresResult = append(scoresResult, scores[startAt+notFoundCount+i])
+			scoresResult = append(scoresResult, scores[startAt+i])
 			if explanations != nil {
-				explanationsResults = append(explanationsResults, explanations[startAt+notFoundCount+i])
+				explanationsResults = append(explanationsResults, explanations[startAt+i])
 			}
 		}
 		startAt = endAt
-		endAt = int(math.Min(float64(endAt+limit), float64(len(ids))))
+		endAt = min(endAt+limit, len(ids))
 	}
 
 	if explanationsResults != nil && len(explanationsResults) == len(scoresResult) {
@@ -412,6 +410,8 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 			}
 		}
 	}
+
+	objs, scoresResult = b.sortResultsByExternalId(objs, scoresResult)
 
 	// reverse back the arrays to the expected order
 	slices.Reverse(objs)
@@ -443,4 +443,25 @@ func (s *scoreSorter) Swap(i, j int) {
 	if s.explanations != nil {
 		s.explanations[i], s.explanations[j] = s.explanations[j], s.explanations[i]
 	}
+}
+
+type objectIdsSorter struct {
+	objects []*storobj.Object
+	scores  []float32
+}
+
+func (s *objectIdsSorter) Len() int {
+	return len(s.objects)
+}
+
+func (s *objectIdsSorter) Less(i, j int) bool {
+	if s.scores[i] == s.scores[j] {
+		return s.objects[i].Object.ID > s.objects[j].Object.ID
+	}
+	return s.scores[i] < s.scores[j]
+}
+
+func (s *objectIdsSorter) Swap(i, j int) {
+	s.scores[i], s.scores[j] = s.scores[j], s.scores[i]
+	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
 }

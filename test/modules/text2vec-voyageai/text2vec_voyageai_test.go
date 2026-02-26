@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -66,6 +66,33 @@ func testText2VecVoyageAI(rest, grpc string) func(t *testing.T) {
 				name:       "voyage-context-3 256 dimensions",
 				model:      "voyage-context-3",
 				dimensions: 256,
+			},
+			{
+				name:  "voyage-4",
+				model: "voyage-4",
+			},
+			{
+				name:       "voyage-4 512 dimensions",
+				model:      "voyage-4",
+				dimensions: 512,
+			},
+			{
+				name:  "voyage-4-lite",
+				model: "voyage-4-lite",
+			},
+			{
+				name:       "voyage-4-lite 256 dimensions",
+				model:      "voyage-4-lite",
+				dimensions: 256,
+			},
+			{
+				name:  "voyage-4-large",
+				model: "voyage-4-large",
+			},
+			{
+				name:       "voyage-4-large 2048 dimensions",
+				model:      "voyage-4-large",
+				dimensions: 2048,
 			},
 		}
 		for _, tt := range tests {

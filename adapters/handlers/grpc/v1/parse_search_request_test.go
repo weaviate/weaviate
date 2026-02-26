@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -839,17 +839,17 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return values non-ref",
-			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "CapitalizedName"}}},
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "Number"}}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}},
 			},
 			error: false,
 		},
 		{
 			name: "Properties return values non-ref with new default logic",
-			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "CapitalizedName"}}},
+			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "Number"}}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}},
 			},
 			error: false,
 		},
@@ -885,10 +885,10 @@ func TestGRPCSearchRequest(t *testing.T) {
 			name: "hybrid ranked",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "CapitalizedName"}},
+				HybridSearch: &pb.Hybrid{Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "Number"}},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "number"}},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
@@ -899,10 +899,10 @@ func TestGRPCSearchRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
 				GroupBy:      &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
-				HybridSearch: &pb.Hybrid{Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "CapitalizedName"}},
+				HybridSearch: &pb.Hybrid{Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "Number"}},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "number"}},
 				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
@@ -953,11 +953,11 @@ func TestGRPCSearchRequest(t *testing.T) {
 			name: "bm25",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
-				Bm25Search: &pb.BM25{Query: "query", Properties: []string{"name", "CapitalizedName"}},
+				Bm25Search: &pb.BM25{Query: "query", Properties: []string{"name", "Number"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
+				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "number"}, Type: "bm25"},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
@@ -968,11 +968,11 @@ func TestGRPCSearchRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
 				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
-				Bm25Search: &pb.BM25{Query: "query", Properties: []string{"name", "CapitalizedName"}},
+				Bm25Search: &pb.BM25{Query: "query", Properties: []string{"name", "Number"}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
+				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "number"}, Type: "bm25"},
 				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},

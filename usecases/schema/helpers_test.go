@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -128,6 +128,10 @@ func (f *fakeDB) DeleteClass(class string, hasFrozen bool) error {
 }
 
 func (f *fakeDB) AddProperty(prop string, cmd command.AddPropertyRequest) error {
+	return nil
+}
+
+func (f *fakeDB) UpdateProperty(class string, req command.UpdatePropertyRequest) error {
 	return nil
 }
 
@@ -299,6 +303,11 @@ func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop .
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, property *models.Property) error {
+	args := f.Called(ctx, className, property)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
@@ -312,10 +321,6 @@ func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string
 func (f *fakeMigrator) ShutdownShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
-}
-
-func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
-	return nil
 }
 
 func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error {

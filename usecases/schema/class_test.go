@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,6 +44,7 @@ func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
 	ctx := context.Background()
 
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 
 	class := &models.Class{
 		Class:      "TTLClass",
@@ -965,6 +966,7 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				collection := createCollection()
 				tc.reconfigure(collection)
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 
@@ -2293,6 +2295,8 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			t.Helper()
 
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 			store := NewFakeStore()
 			store.parser = handler.parser
 
@@ -2362,11 +2366,14 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				tc.reconfigure(updated)
 
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 				store := NewFakeStore()
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				_, _, err := handler.AddClass(context.Background(), nil, initial)
@@ -2429,6 +2436,9 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		},
 	}
 
+	fakeSchemaManager.On("ReadOnlyClass", "Class_A").Return(classes[0]).Maybe()
+	fakeSchemaManager.On("ReadOnlyClass", "Class_B").Return(classes[1]).Maybe()
+	fakeSchemaManager.On("ReadOnlyClass", "Class_C").Return(classes[2]).Maybe()
 	for _, classRaw := range classes {
 		schemaBytes, err := json.Marshal(classRaw)
 		require.Nil(t, err)
@@ -2848,4 +2858,79 @@ func Test_GetConsistentClass_WithAlias(t *testing.T) {
 		assert.Equal(t, expectedClass, class)
 		fakeSchemaManager.AssertExpectations(t)
 	})
+}
+
+func Test_deepEqualVectorizerSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial any
+		updated any
+		want    bool
+	}{
+		{
+			name: "all empty",
+			want: true,
+		},
+		{
+			name: "initial is empty, updated is not empty",
+			updated: map[string]any{
+				"model": "name",
+			},
+			want: false,
+		},
+		{
+			name: "initial is not empty, updated is empty",
+			initial: map[string]any{
+				"model": "name",
+			},
+			want: false,
+		},
+		{
+			name: "both are equal",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			want: true,
+		},
+		{
+			name: "both are equal, but dimensions is json.Number type",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": json.Number("1024"),
+			},
+			want: true,
+		},
+		{
+			name: "both are equal, but weights ares of json.Number type",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+				"weights": map[string]any{
+					"image": 0.9,
+				},
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+				"weights": map[string]any{
+					"image": json.Number("0.9"),
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, deepEqualVectorizerSettings(tt.initial, tt.updated))
+		})
+	}
 }

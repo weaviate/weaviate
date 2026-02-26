@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -400,7 +401,7 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{})
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{})
 }
 
 type fakeRbacBackupWrapper struct{}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -221,10 +222,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
-				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
+				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -516,15 +519,17 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, IndexConfig{
+				EnableLazyLoadShards:  true,
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
-				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -736,15 +741,16 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
-		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
-		MaxReuseWalSize:       4096, // with recovery from .wal
+		EnableLazyLoadShards:  false, // we have to make sure lazyload shard disabled to load directly
+		MaxReuseWalSize:       4096,  // with recovery from .wal
 
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	// Add properties
@@ -845,14 +851,15 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
-		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TrackVectorDimensions: true,
 		MaxReuseWalSize:       4096,
-		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
+		EnableLazyLoadShards:  true, // we have to make sure lazyload enabled
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
+		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 

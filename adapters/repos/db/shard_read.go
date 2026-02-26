@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -219,10 +219,19 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 	keyBuf := make([]byte, 8)
-	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector)
+	view := s.GetObjectsBucketView()
+	defer view.ReleaseView()
+	return s.readVectorByIndexIDIntoSliceWithView(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector, view)
 }
 
-func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]float32, error) {
+func (s *Shard) multiVectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([][]float32, error) {
+	keyBuf := make([]byte, 8)
+	view := s.GetObjectsBucketView()
+	defer view.ReleaseView()
+	return s.readMultiVectorByIndexIDIntoSliceWithView(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector, view)
+}
+
+func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
@@ -237,19 +246,47 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	}
 
 	container.Buff = newBuff
+	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+}
+
+// GetObjectsBucketView returns a consistent view of the objects bucket that can
+// be reused for multiple reads without acquiring locks for each read.
+func (s *Shard) GetObjectsBucketView() common.BucketView {
+	return s.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+}
+
+func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]float32, error) {
+	binary.LittleEndian.PutUint64(container.Buff8, indexID)
+
+	bucketView, ok := view.(lsmkv.BucketConsistentView)
+	if !ok {
+		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+
+	bytes, newBuff, err := bucketView.Bucket.
+		GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, bucketView)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+
+	container.Buff = newBuff
 	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
 }
 
-func (s *Shard) multiVectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([][]float32, error) {
-	keyBuf := make([]byte, 8)
-	return s.readMultiVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector)
-}
-
-func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error) {
+func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
-	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
+	bucketView, ok := view.(lsmkv.BucketConsistentView)
+	if !ok {
+		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+
+	bytes, newBuff, err := bucketView.Bucket.GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, bucketView)
 	if err != nil {
 		return nil, err
 	}

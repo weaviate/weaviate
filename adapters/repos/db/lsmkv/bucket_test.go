@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -534,7 +536,6 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 				"key1": []byte("value1"),
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableReplace(map[string][]byte{
@@ -559,8 +560,8 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	require.Equal(t, 2, n)
 
 	// open a consistent view
-	view := b.getConsistentView()
-	defer view.Release()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	// controls before making changes
 	validateOriginalView := func(view BucketConsistentView) {
@@ -597,8 +598,8 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	validateOriginalView(view)
 
 	// prove that a new view sees the new state
-	view2 := b.getConsistentView()
-	defer view2.Release()
+	view2 := b.GetConsistentView()
+	defer view2.ReleaseView()
 	validateSecondView := func(view BucketConsistentView) {
 		require.NotNil(t, view.Active)
 		v, err := view.Active.get([]byte("key3"))
@@ -629,8 +630,8 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	validateSecondView(view2)
 
 	// finally, validate that a new view sees the final state
-	view3 := b.getConsistentView()
-	defer view3.Release()
+	view3 := b.GetConsistentView()
+	defer view3.ReleaseView()
 
 	require.NotNil(t, view3.Active)
 	v, err := view3.Active.get([]byte("key3"))
@@ -676,9 +677,8 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 			"key1": []byte("value1"),
 		}),
 		disk: &SegmentGroup{
-			strategy:         StrategyReplace,
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			strategy: StrategyReplace,
+			segments: []Segment{},
 		},
 		strategy: StrategyReplace,
 	}
@@ -716,8 +716,8 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 	<-flushComplete
 
 	// validate that all writes are present on disk
-	view := b.getConsistentView()
-	defer view.Release()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	expected := map[string][]byte{
 		"key1": []byte("value1"),
@@ -748,7 +748,6 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 				"key1": bitmapFromSlice([]uint64{1}),
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableRoaringSet(map[string][]uint64{
@@ -768,8 +767,8 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	releaseBuffers()
 
 	// open a consistent view
-	view := b.getConsistentView()
-	defer view.Release()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	// controls before making changes
 	validateOriginalView := func(view BucketConsistentView) {
@@ -799,8 +798,8 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	validateOriginalView(view)
 
 	// prove that a new view sees the new state
-	view2 := b.getConsistentView()
-	defer view2.Release()
+	view2 := b.GetConsistentView()
+	defer view2.ReleaseView()
 	validateSecondView := func(view BucketConsistentView) {
 		expected := map[string]*sroar.Bitmap{
 			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
@@ -823,8 +822,8 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	validateSecondView(view2)
 
 	// finally, validate that a new view sees the final state
-	view3 := b.getConsistentView()
-	defer view3.Release()
+	view3 := b.GetConsistentView()
+	defer view3.ReleaseView()
 
 	// the original memtable was flushed to disk
 	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk)
@@ -854,8 +853,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 			"key1": {1},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSet,
 	}
@@ -893,8 +891,8 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	<-flushComplete
 
 	// Validate: key1 has {1,2,3} on disk
-	view := b.getConsistentView()
-	defer view.Release()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk)
 	require.NoError(t, err)
@@ -928,7 +926,6 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 				key1: roaringset.NewBitmap(1),
 			}, sroar.NewBitmap()),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableRoaringSetRange(map[uint64][]uint64{
@@ -1106,8 +1103,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 			key1: {1},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSetRange,
 	}
@@ -1179,7 +1175,6 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		}),
 		disk: &SegmentGroup{
 			segments:                       []Segment{},
-			segmentsWithRefs:               map[string]Segment{},
 			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger),
 		},
 		strategy:             StrategyRoaringSetRange,
@@ -1238,7 +1233,6 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 				"key1": {[]byte("d1")},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableSet(map[string][][]byte{
@@ -1261,8 +1255,8 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	require.ElementsMatch(t, [][]byte{[]byte("a2")}, got)
 
 	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
-	view1 := b.getConsistentView()
-	defer view1.Release()
+	view1 := b.GetConsistentView()
+	defer view1.ReleaseView()
 
 	validateView1 := func(v BucketConsistentView) {
 		expected := map[string][][]byte{
@@ -1291,8 +1285,8 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
-	view2 := b.getConsistentView()
-	defer view2.Release()
+	view2 := b.GetConsistentView()
+	defer view2.ReleaseView()
 
 	validateView2 := func(v BucketConsistentView) {
 		expected := map[string][][]byte{
@@ -1316,8 +1310,8 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	validateView2(view2)
 
 	// Final view: active=key3, flushing=nil, disk has key1 & key2
-	view3 := b.getConsistentView()
-	defer view3.Release()
+	view3 := b.GetConsistentView()
+	defer view3.ReleaseView()
 
 	// active: key3 -> {"a3"}
 	a3, err := b.setListFromConsistentView(view3, []byte("key3"))
@@ -1344,8 +1338,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	b := Bucket{
 		active: newTestMemtableSet(map[string][][]byte{"key1": {[]byte("v1")}}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategySetCollection,
 	}
@@ -1383,8 +1376,8 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	<-flushDone
 
 	// Validate disk now has {"v1","v2","v3"} for key1
-	view := b.getConsistentView()
-	defer view.Release()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
 	require.NoError(t, err)
@@ -1403,7 +1396,6 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 				"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableMap(map[string][]MapPair{
@@ -1426,8 +1418,8 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	require.ElementsMatch(t, []MapPair{{Key: []byte("ak1"), Value: []byte("av1")}}, got)
 
 	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
-	view1 := b.getConsistentView()
-	defer view1.Release()
+	view1 := b.GetConsistentView()
+	defer view1.ReleaseView()
 
 	validateView1 := func(v BucketConsistentView) {
 		expected := map[string][]MapPair{
@@ -1456,8 +1448,8 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
-	view2 := b.getConsistentView()
-	defer view2.Release()
+	view2 := b.GetConsistentView()
+	defer view2.ReleaseView()
 
 	validateView2 := func(v BucketConsistentView) {
 		expected := map[string][]MapPair{
@@ -1481,8 +1473,8 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	validateView2(view2)
 
 	// Final view: active=key3, flushing=nil, disk has key1 & key2
-	view3 := b.getConsistentView()
-	defer view3.Release()
+	view3 := b.GetConsistentView()
+	defer view3.ReleaseView()
 
 	// active: key3 -> {"a3"}
 	a3, err := b.mapListFromConsistentView(ctx, view3, []byte("key3"))
@@ -1523,7 +1515,6 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 				"key1": {mapFromDocPointers(0, 1.0, 3)},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableMap(map[string][]MapPair{
@@ -1546,8 +1537,8 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	require.ElementsMatch(t, []terms.DocPointerWithScore{docPointers(1, 0.8, 4)}, got)
 
 	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
-	view1 := b.getConsistentView()
-	defer view1.Release()
+	view1 := b.GetConsistentView()
+	defer view1.ReleaseView()
 
 	validateView1 := func(v BucketConsistentView) {
 		expected := map[string][]terms.DocPointerWithScore{
@@ -1576,8 +1567,8 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
-	view2 := b.getConsistentView()
-	defer view2.Release()
+	view2 := b.GetConsistentView()
+	defer view2.ReleaseView()
 
 	validateView2 := func(v BucketConsistentView) {
 		expected := map[string][]terms.DocPointerWithScore{
@@ -1601,8 +1592,8 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	validateView2(view2)
 
 	// Final view: active=key3, flushing=nil, disk has key1 & key2
-	view3 := b.getConsistentView()
-	defer view3.Release()
+	view3 := b.GetConsistentView()
+	defer view3.ReleaseView()
 
 	// active: key3 -> {"a3"}
 	a3, err := b.docPointerWithScoreListFromConsistentView(ctx, view3, []byte("key3"), 1)
@@ -1639,8 +1630,7 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyMapCollection,
 	}
@@ -1682,8 +1672,8 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	<-flushDone
 
 	// Validate disk now has {"v1","v2","v3"} for key1
-	view := b.getConsistentView()
-	defer view.Release()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
 	require.NoError(t, err)
@@ -1707,7 +1697,6 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 				"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false), NewMapPairFromDocIdAndTf(10, 10, 1, false)},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableInverted(map[string][]MapPair{
@@ -1733,8 +1722,8 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 	require.NoError(t, err)
 
 	// View #1 (pre-switch): active=doc_id(0), flushing=nil, disk=doc_id(1)
-	view1 := b.getConsistentView()
-	defer view1.Release()
+	view1 := b.GetConsistentView()
+	defer view1.ReleaseView()
 
 	validateView1 := func(v BucketConsistentView) {
 		expected := []kv{
@@ -1764,8 +1753,8 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// View #2 (post-switch): active=doc_id(2), flushing=doc_id(1), disk=doc_id(0)
-	view2 := b.getConsistentView()
-	defer view2.Release()
+	view2 := b.GetConsistentView()
+	defer view2.ReleaseView()
 
 	validateView2 := func(v BucketConsistentView) {
 		expected := []kv{
@@ -1812,8 +1801,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 			"key1": {NewMapPairFromDocIdAndTf(0, 3, 1, false)},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyInverted,
 	}
@@ -1855,8 +1843,8 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	<-flushDone
 
 	// Validate disk now has all 3 writes
-	view := b.getConsistentView()
-	defer view.Release()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
 
 	require.Len(t, view.Disk, 1, "there should be exactly one disk segment")
 	expected := []kv{
@@ -2001,11 +1989,12 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 	}
 
 	m := &Memtable{
-		strategy:   StrategyInverted,
-		keyMap:     &binarySearchTreeMap{},
-		commitlog:  newDummyCommitLogger(),
-		metrics:    metrics,
-		tombstones: sroar.NewBitmap(),
+		strategy:         StrategyInverted,
+		keyMap:           &binarySearchTreeMap{},
+		commitlog:        newDummyCommitLogger(),
+		metrics:          metrics,
+		tombstones:       sroar.NewBitmap(),
+		propLengthExists: sroar.NewBitmap(),
 	}
 
 	for k, v := range initialData {
@@ -2165,8 +2154,8 @@ type kv struct {
 }
 
 func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, expectedMultiKey []kv) error {
-	view := bucket.getConsistentView()
-	defer view.Release()
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
 	return validateMapPairListVsBlockMaxSearchFromView(ctx, bucket, view, expectedMultiKey)
 }
 
@@ -2241,7 +2230,7 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 		duplicateTextBoosts[0] = 1
 		diskTerms := make([][]*SegmentBlockMax, 0, len(segments))
 		for _, segment := range segments {
-			bmws := segment.newSegmentBlockMax(mapKey, 0, 1, 1, nil, nil, 3, bm25config)
+			bmws := segment.newSegmentBlockMax(mapKey, 0, 1, 1, nil, nil, nil, 3, bm25config)
 			diskTerms = append(diskTerms, []*SegmentBlockMax{bmws})
 		}
 
@@ -2274,4 +2263,189 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 
 	}
 	return nil
+}
+
+func TestBucket_ExistsWithConsistentView(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "bucket_Exists_MemtableOnly",
+			f:    bucket_Exists_MemtableOnly,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "bucket_Exists_WithSegments",
+			f:    bucket_Exists_WithSegments,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "bucket_Exists_TombstoneInMemtable",
+			f:    bucket_Exists_TombstoneInMemtable,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithKeepTombstones(true),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []BucketOption) {
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(context.Background()))
+	})
+
+	// Prevent automatic flushes
+	b.SetMemtableThreshold(1e9)
+
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	t.Run("key does not exist initially", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		err := b.existsWithConsistentView(key, view)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("key exists after put", func(t *testing.T) {
+		err := b.Put(key, value)
+		require.NoError(t, err)
+
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		err = b.existsWithConsistentView(key, view)
+		require.NoError(t, err)
+	})
+
+	t.Run("exists returns same result as get", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		existsErr := b.existsWithConsistentView(key, view)
+		_, getErr := b.getWithConsistentView(key, view)
+
+		// Both should succeed for existing key
+		assert.NoError(t, existsErr)
+		assert.NoError(t, getErr)
+	})
+}
+
+func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []BucketOption) {
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(context.Background()))
+	})
+
+	b.SetMemtableThreshold(1e9)
+
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	t.Run("put and flush to segment", func(t *testing.T) {
+		err := b.Put(key, value)
+		require.NoError(t, err)
+
+		err = b.FlushAndSwitch()
+		require.NoError(t, err)
+	})
+
+	t.Run("key exists in segment", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		err := b.existsWithConsistentView(key, view)
+		require.NoError(t, err)
+	})
+
+	t.Run("nonexistent key returns NotFound", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		err := b.existsWithConsistentView([]byte("nonexistent"), view)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("exists returns same result as get for segment data", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		existsErr := b.existsWithConsistentView(key, view)
+		_, getErr := b.getWithConsistentView(key, view)
+
+		assert.NoError(t, existsErr)
+		assert.NoError(t, getErr)
+
+		existsErr = b.existsWithConsistentView([]byte("nonexistent"), view)
+		_, getErr = b.getWithConsistentView([]byte("nonexistent"), view)
+
+		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
+		assert.ErrorIs(t, getErr, lsmkv.NotFound)
+	})
+}
+
+func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
+	tmpDir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, b.Shutdown(context.Background()))
+	})
+
+	b.SetMemtableThreshold(1e9)
+
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	t.Run("put to segment, delete in memtable", func(t *testing.T) {
+		err := b.Put(key, value)
+		require.NoError(t, err)
+
+		err = b.FlushAndSwitch()
+		require.NoError(t, err)
+
+		// Delete in memtable (creates tombstone)
+		err = b.Delete(key)
+		require.NoError(t, err)
+	})
+
+	t.Run("exists returns Deleted for tombstoned key", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		err := b.existsWithConsistentView(key, view)
+		assert.True(t, errors.Is(err, lsmkv.Deleted))
+	})
+
+	t.Run("exists and get return consistent Deleted error", func(t *testing.T) {
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		existsErr := b.existsWithConsistentView(key, view)
+		_, getErr := b.getWithConsistentView(key, view)
+
+		// Both should return Deleted
+		assert.True(t, errors.Is(existsErr, lsmkv.Deleted))
+		assert.True(t, errors.Is(getErr, lsmkv.Deleted))
+	})
 }

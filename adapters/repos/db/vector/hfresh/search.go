@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -24,21 +25,37 @@ import (
 const (
 	// minimum max distance to use when pruning
 	pruningMinMaxDistance = 0.1
+	flatSearchCutoff      = 5_000
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	rescoreLimit := k + 5
-	vector = h.normalizeVec(vector)
-	queryVector := NewAnonymousVector(h.quantizer.Encode(vector))
+	if allowList != nil && allowList.Len() < flatSearchCutoff {
+		return h.flatSearch(ctx, vector, k, allowList)
+	}
 
-	var selected []uint64
+	rescoreLimit := int(h.rescoreLimit)
+	vector = h.normalizeVec(vector)
+	if h.quantizer == nil {
+		if atomic.LoadUint32(&h.dims) == 0 {
+			return nil, nil, nil
+		}
+		return nil, nil, errors.New("quantizer not initialized")
+	}
+	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+
+	var selectedCentroids []uint64
 	var postings []Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(rescoreLimit, int(h.searchProbe))
+	candidateCentroidNum := max(k, int(h.searchProbe))
 
-	centroids, err := h.Centroids.Search(vector, candidateNum)
+	nAllowList := allowList
+	if allowList != nil {
+		nAllowList = h.wrapAllowList(ctx, allowList)
+		defer nAllowList.Close()
+	}
+	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -52,12 +69,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
-	selected = make([]uint64, 0, candidateNum)
-	for i := 0; i < len(centroids.data) && len(selected) < candidateNum; i++ {
+	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
+	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
-		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
+		count, err := h.PostingMap.CountVectors(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -65,11 +82,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			continue
 		}
 
-		selected = append(selected, centroids.data[i].ID)
+		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
 	}
 
 	// read all the selected postings
-	postings, err = h.PostingStore.MultiGet(ctx, selected)
+	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -77,7 +94,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
 
-	totalVectors := 0
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -85,7 +101,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		// keep track of the posting size
 		postingSize := len(p)
-		totalVectors += postingSize
 
 		for _, v := range p {
 			id := v.ID()
@@ -121,9 +136,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if postingSize < int(h.minPostingSize) {
-			err = h.taskQueue.EnqueueMerge(selected[i])
+			err = h.taskQueue.EnqueueMerge(selectedCentroids[i])
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
+				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
 		}
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,13 +50,14 @@ type compressor interface {
 }
 
 type zip struct {
-	sourcePath       string
-	w                *tar.Writer
-	compressorWriter compressor
-	pipeWriter       *io.PipeWriter
+	sourcePath          string
+	w                   *tar.Writer
+	compressorWriter    compressor
+	pipeWriter          *io.PipeWriter
+	maxChunkSizeInBytes int64
 }
 
-func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -87,23 +88,34 @@ func NewZip(sourcePath string, level int) (zip, io.ReadCloser, error) {
 	default:
 		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
 	}
+	chunkTargetSizeInBytes := chunkTargetSize
+	if chunkTargetSizeInBytes == 0 {
+		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
+	}
 
 	return zip{
-		sourcePath:       sourcePath,
-		compressorWriter: gzw,
-		w:                tarW,
-		pipeWriter:       pw,
+		sourcePath:          sourcePath,
+		compressorWriter:    gzw,
+		w:                   tarW,
+		pipeWriter:          pw,
+		maxChunkSizeInBytes: chunkTargetSizeInBytes,
 	}, reader, nil
 }
 
 func (z *zip) Close() error {
+	return z.CloseWithError(nil)
+}
+
+// CloseWithError closes the zip and signals the given error to the consumer.
+// If err is non-nil, the consumer's read will return this error instead of EOF.
+func (z *zip) CloseWithError(err error) error {
 	var err1, err2, err3 error
 	err1 = z.w.Close()
 	if z.compressorWriter != nil {
 		err2 = z.compressorWriter.Close()
 	}
-	if err := z.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
-		err3 = err
+	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil && !errors.Is(closeErr, io.ErrClosedPipe) {
+		err3 = closeErr
 	}
 	if err1 != nil || err2 != nil || err3 != nil {
 		return fmt.Errorf("tar: %w, gzip: %w, pw: %w", err1, err2, err3)
@@ -112,57 +124,74 @@ func (z *zip) Close() error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor) (written int64, err error) {
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64) (written int64, err error) {
 	var n int64 // temporary written bytes
-	for _, x := range [3]struct {
-		relPath string
-		data    []byte
-		modTime time.Time
-	}{
-		{relPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
-		{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
-		{relPath: sd.ShardVersionPath, data: sd.Version},
-	} {
-		if err := ctx.Err(); err != nil {
-			return written, err
-		}
-		info := vFileInfo{
-			name: filepath.Base(x.relPath),
-			size: len(x.data),
-		}
-		if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
-			return written, err
-		}
-		written += n
 
+	// write in-memory files only for the first chunk of the shard, these files are small and we can assume that they will
+	// always fit into the first chunk
+	if firstChunkForShard {
+		for _, x := range [3]struct {
+			relPath string
+			data    []byte
+			modTime time.Time
+		}{
+			{relPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
+			{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
+			{relPath: sd.ShardVersionPath, data: sd.Version},
+		} {
+			if err := ctx.Err(); err != nil {
+				return written, err
+			}
+			info := vFileInfo{
+				name: filepath.Base(x.relPath),
+				size: len(x.data),
+			}
+			preCompressionSize.Add(int64(len(x.data)))
+			if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
+				return written, err
+			}
+			written += n
+		}
 	}
 
-	n, err = z.WriteRegulars(ctx, sd.Files)
+	n, err = z.WriteRegulars(ctx, filesInShard, preCompressionSize)
 	written += n
 
 	return written, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int64, err error) {
-	for _, relPath := range relPaths {
+func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
+	// Process files in filesInShard and remove them as we go (pop from front).
+	firstFile := true
+	for filesInShard.Len() > 0 {
+		relPath := filesInShard.Peek()
 		if filepath.Base(relPath) == ".DS_Store" {
+			filesInShard.PopFront()
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, err := z.WriteRegular(ctx, relPath)
+		n, sizeExceeded, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
 		if err != nil {
 			return written, err
 		}
+		if sizeExceeded {
+			// The file was not written because the current chunk is full.
+			// It will be processed on the next chunk.
+			return written, nil
+		}
+		// remove processed element from slice
+		filesInShard.PopFront()
 		written += n
+		firstFile = false
 	}
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64, firstFile bool) (written int64, sizeExceeded bool, err error) {
 	if err := ctx.Err(); err != nil {
-		return written, err
+		return written, false, err
 	}
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
@@ -173,22 +202,30 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, 
 			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath))
 			info, err = os.Stat(absPath)
 			if err != nil {
-				return written, fmt.Errorf("stat for deleted files: %w", err)
+				return written, false, fmt.Errorf("stat for deleted files: %w", err)
 			}
 		} else {
-			return written, fmt.Errorf("stat: %w", err)
+			return written, false, fmt.Errorf("stat: %w", err)
 		}
 	}
 	if !info.Mode().IsRegular() {
-		return 0, nil // ignore directories
+		return 0, false, nil // ignore directories
 	}
+	// always write at least one file per chunk
+	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
+		return 0, true, nil
+	}
+
 	f, err := os.Open(absPath)
 	if err != nil {
-		return written, fmt.Errorf("open: %w", err)
+		return written, false, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
 
-	return z.writeOne(ctx, info, relPath, f)
+	preCompressionSize.Add(info.Size())
+
+	written, err = z.writeOne(ctx, info, relPath, f)
+	return written, false, err
 }
 
 func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
@@ -216,7 +253,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 			// we ignore in case the ctx was cancelled
 			return written, nil
 		}
-		return written, fmt.Errorf("copy: %s %w", relPath, err)
+		return written, fmt.Errorf("copy: %s with filesize %d: %w", relPath, info.Size(), err)
 	}
 	return written, err
 }
@@ -363,7 +400,7 @@ func (v vFileInfo) IsDir() bool        { return false }
 func (v vFileInfo) Sys() interface{}   { return nil }
 
 type readCloser struct {
-	src io.ReadCloser
+	src *io.PipeReader
 	n   int64
 }
 
@@ -374,6 +411,11 @@ func (r *readCloser) Read(p []byte) (n int, err error) {
 }
 
 func (r *readCloser) Close() error { return r.src.Close() }
+
+// CloseWithError closes the reader and signals the given error to the producer.
+// If err is non-nil, the producer's write will return this error instead of
+// the generic "io: read/write on closed pipe".
+func (r *readCloser) CloseWithError(err error) error { return r.src.CloseWithError(err) }
 
 func zipLevel(level int) int {
 	if level < 0 || level > 3 {

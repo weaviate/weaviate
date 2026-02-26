@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,10 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -189,4 +193,101 @@ func DeleteAzureContainer(ctx context.Context, t *testing.T, endpoint, container
 			assert.NoError(collect, err, "Failed to delete container %s", containerName)
 		}
 	}, 10*time.Second, 1*time.Second)
+}
+
+func CreateS3Bucket(ctx context.Context, t *testing.T, endpoint, region, bucketName string) {
+	t.Logf("Creating S3 bucket %s at endpoint %s", bucketName, endpoint)
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		client, err := createS3Client(ctx, endpoint, region)
+		assert.NoError(collect, err, "Failed to create S3 client")
+
+		_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
+			Bucket: aws.String(bucketName),
+		})
+		if err != nil {
+			// Ignore "bucket already exists" errors
+			if !isBucketAlreadyExistsError(err) {
+				assert.NoError(collect, err, "Failed to create bucket %s", bucketName)
+			}
+		}
+	}, 10*time.Second, 500*time.Millisecond)
+}
+
+func DeleteS3Bucket(ctx context.Context, t *testing.T, endpoint, region, bucketName string) {
+	t.Logf("Deleting S3 bucket %s", bucketName)
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		client, err := createS3Client(ctx, endpoint, region)
+		assert.NoError(collect, err, "Failed to create S3 client")
+
+		// First, delete all objects in the bucket
+		listOutput, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket: aws.String(bucketName),
+		})
+		if err == nil && listOutput.Contents != nil {
+			for _, obj := range listOutput.Contents {
+				_, _ = client.DeleteObject(ctx, &s3.DeleteObjectInput{
+					Bucket: aws.String(bucketName),
+					Key:    obj.Key,
+				})
+			}
+		}
+
+		// Now delete the bucket
+		_, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
+			Bucket: aws.String(bucketName),
+		})
+		// Ignore "bucket not found" errors during cleanup
+		if err != nil && !isBucketNotFoundError(err) {
+			assert.NoError(collect, err, "Failed to delete bucket %s", bucketName)
+		}
+	}, 10*time.Second, 500*time.Millisecond)
+}
+
+func createS3Client(ctx context.Context, endpoint, region string) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			"aws_access_key", "aws_secret_key", "",
+		)),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://" + endpoint)
+		o.UsePathStyle = true
+	}), nil
+}
+
+func isBucketAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// MinIO and S3 return different error messages for existing buckets
+	return contains(errStr, "BucketAlreadyOwnedByYou") ||
+		contains(errStr, "BucketAlreadyExists") ||
+		contains(errStr, "bucket already exists")
+}
+
+func isBucketNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return contains(errStr, "NoSuchBucket") || contains(errStr, "NotFound")
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

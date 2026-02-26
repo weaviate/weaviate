@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,11 +16,13 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // This test proves two things:
@@ -37,9 +39,8 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) 
 		"key1": []byte("value1"),
 	}
 	sg := &SegmentGroup{
-		strategy:         StrategyReplace,
-		segments:         []Segment{newFakeReplaceSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		strategy: StrategyReplace,
+		segments: []Segment{newFakeReplaceSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -80,10 +81,9 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 		"key2": []byte("value2"),
 	})
 	sg := &SegmentGroup{
-		logger:           logger,
-		strategy:         StrategyReplace,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		strategy: StrategyReplace,
+		segments: []Segment{segA, segB},
 	}
 
 	// control before segment changes
@@ -131,8 +131,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 		"key1": bitmapFromSlice([]uint64{1}),
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeRoaringSetSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeRoaringSetSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -176,9 +175,8 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 		"key2": bitmapFromSlice([]uint64{2}),
 	})
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// control: take a consistent view before any switch
@@ -232,8 +230,7 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentAddition(t *tes
 		key1: roaringset.NewBitmap(1),
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeRoaringSetRangeSegment(segmentData, sroar.NewBitmap())},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeRoaringSetRangeSegment(segmentData, sroar.NewBitmap())},
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
@@ -290,9 +287,8 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testi
 		key2: roaringset.NewBitmap(2),
 	}, sroar.NewBitmap())
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
@@ -358,8 +354,7 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 		"key1": {[]byte("v1")},
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeSetSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeSetSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -407,9 +402,8 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// take a consistent view before switch
@@ -460,8 +454,7 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 		"key1": {{Key: []byte("k1"), Value: []byte("v1")}},
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeMapSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeMapSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -525,9 +518,8 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// take a consistent view before switch
@@ -583,8 +575,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 		"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false)},
 	}
 	sg := &SegmentGroup{
-		segments:         []Segment{newFakeInvertedSegment(segmentData)},
-		segmentsWithRefs: map[string]Segment{},
+		segments: []Segment{newFakeInvertedSegment(segmentData)},
 	}
 
 	// control before segment changes
@@ -633,9 +624,8 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:   logger,
+		segments: []Segment{segA, segB},
 	}
 
 	// take a consistent view before switch
@@ -672,4 +662,111 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 
 	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "compacted segment should have received calls on new view")
+}
+
+func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
+	t.Run("key found in segment", func(t *testing.T) {
+		segmentData := map[string][]byte{
+			"key1": []byte("value1"),
+		}
+		sg := &SegmentGroup{
+			strategy: StrategyReplace,
+			segments: []Segment{newFakeReplaceSegment(segmentData)},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		require.NoError(t, err)
+	})
+
+	t.Run("key not found in any segment", func(t *testing.T) {
+		segmentData := map[string][]byte{
+			"key1": []byte("value1"),
+		}
+		sg := &SegmentGroup{
+			strategy: StrategyReplace,
+			segments: []Segment{newFakeReplaceSegment(segmentData)},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		err := sg.existsWithSegmentList([]byte("nonexistent"), segments)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("key in older segment overridden by newer", func(t *testing.T) {
+		// older segment has key1
+		seg1 := newFakeReplaceSegment(map[string][]byte{
+			"key1": []byte("old-value"),
+		})
+		// newer segment also has key1
+		seg2 := newFakeReplaceSegment(map[string][]byte{
+			"key1": []byte("new-value"),
+		})
+		sg := &SegmentGroup{
+			strategy: StrategyReplace,
+			segments: []Segment{seg1, seg2}, // seg2 is newer (higher index)
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		require.NoError(t, err)
+	})
+
+	t.Run("exists and get return consistent results", func(t *testing.T) {
+		segmentData := map[string][]byte{
+			"key1": []byte("value1"),
+		}
+		sg := &SegmentGroup{
+			strategy: StrategyReplace,
+			segments: []Segment{newFakeReplaceSegment(segmentData)},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		// For existing key
+		existsErr := sg.existsWithSegmentList([]byte("key1"), segments)
+		_, getErr := sg.getWithSegmentList([]byte("key1"), segments)
+		assert.NoError(t, existsErr)
+		assert.NoError(t, getErr)
+
+		// For non-existing key
+		existsErr = sg.existsWithSegmentList([]byte("nonexistent"), segments)
+		_, getErr = sg.getWithSegmentList([]byte("nonexistent"), segments)
+		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
+		assert.ErrorIs(t, getErr, lsmkv.NotFound)
+	})
+
+	t.Run("multiple segments with different keys", func(t *testing.T) {
+		seg1 := newFakeReplaceSegment(map[string][]byte{
+			"key1": []byte("value1"),
+		})
+		seg2 := newFakeReplaceSegment(map[string][]byte{
+			"key2": []byte("value2"),
+		})
+		sg := &SegmentGroup{
+			strategy: StrategyReplace,
+			segments: []Segment{seg1, seg2},
+		}
+
+		segments, release := sg.getConsistentViewOfSegments()
+		defer release()
+
+		// Both keys should exist
+		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		require.NoError(t, err)
+
+		err = sg.existsWithSegmentList([]byte("key2"), segments)
+		require.NoError(t, err)
+
+		// Non-existent key should return NotFound
+		err = sg.existsWithSegmentList([]byte("key3"), segments)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
 }

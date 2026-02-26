@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,15 @@ const (
 	StrategyInverted        = "inverted"
 )
 
+var allStrategies = []string{
+	StrategyReplace,
+	StrategySetCollection,
+	StrategyMapCollection,
+	StrategyRoaringSet,
+	StrategyRoaringSetRange,
+	StrategyInverted,
+}
+
 func SegmentStrategyFromString(in string) segmentindex.Strategy {
 	switch in {
 	case StrategyReplace:
@@ -48,14 +57,7 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 
 func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 	if len(expectedStrategies) == 0 {
-		expectedStrategies = []string{
-			StrategyReplace,
-			StrategySetCollection,
-			StrategyMapCollection,
-			StrategyRoaringSet,
-			StrategyRoaringSetRange,
-			StrategyInverted,
-		}
+		expectedStrategies = allStrategies
 	}
 
 	for _, s := range expectedStrategies {

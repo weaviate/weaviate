@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -58,8 +59,8 @@ type RemoteIndexIncomingRepo interface {
 		id strfmt.UUID) (bool, error)
 	IncomingDeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
-	IncomingDeleteObjectsExpired(eg *enterrors.ErrorGroupWrapper, deleteOnProperty string,
-		ttlThreshold, deletionTime time.Time, schemaVersion uint64) error
+	IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
+		deleteOnProperty string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64)
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
@@ -74,7 +75,7 @@ type RemoteIndexIncomingRepo interface {
 		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
 
 	IncomingFindUUIDs(ctx context.Context, shardName string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
@@ -240,14 +241,14 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
-	return index.IncomingFindUUIDs(ctx, shardName, filters)
+	return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
 }
 
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,

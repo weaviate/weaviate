@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -365,7 +365,7 @@ func (b *BaseModule) adjustInitialInterval(config *config.Config) error {
 	b.lastPushDateFilePath = filepath.Join(config.Persistence.DataPath, "usage.module.last.push")
 	b.initialInterval = b.interval
 	b.initialIntervalDefined = false
-	if _, err := os.Stat(b.lastPushDateFilePath); !os.IsNotExist(err) {
+	if info, err := os.Stat(b.lastPushDateFilePath); !os.IsNotExist(err) && info != nil && info.Size() > 0 {
 		lastPushPathData, err := os.ReadFile(b.lastPushDateFilePath)
 		if err != nil {
 			return fmt.Errorf("cannot read usage module last push file: %s: %w", b.lastPushDateFilePath, err)

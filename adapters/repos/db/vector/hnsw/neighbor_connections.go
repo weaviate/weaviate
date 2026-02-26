@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -61,6 +61,8 @@ type neighborFinderConnector struct {
 	// bufLinksLog     BufferedLinksLogger
 	tombstoneCleanupNodes bool
 	processedIDs          *sync.Map
+	connectionsBuf        []uint64 // reusable buffer to avoid allocations in CopyLayer
+	pendingBuf            []uint64 // reusable buffer for accumulating pending IDs
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
@@ -102,13 +104,12 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	} else {
 		dist, err = n.distancer.DistanceToNode(id)
 	}
-
-	var e storobj.ErrNotFound
-	if errors.As(err, &e) {
-		n.graph.handleDeletedNode(e.DocID, "processNode")
-		return math.MaxFloat32, nil
-	}
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID, "processNode")
+			return math.MaxFloat32, nil
+		}
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
 	}
@@ -126,7 +127,6 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	n.graph.RLock()
 	nodesLen := uint64(len(n.graph.nodes))
 	n.graph.RUnlock()
-	var pending []uint64
 	// Check if already completed (not just started)
 	if n.processedIDs != nil {
 		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
@@ -158,10 +158,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
-	connections := make([]uint64, n.graph.nodes[from].connections.LenAtLayer(uint8(level)))
-	n.graph.nodes[from].connections.CopyLayer(connections, uint8(level))
+	// Reuse connectionsBuf to avoid allocations. Safe despite recursion because
+	// we complete the first loop over connections before any recursive calls.
+	n.connectionsBuf = n.graph.nodes[from].connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+	connections := n.connectionsBuf
 	n.graph.nodes[from].Unlock()
 	n.graph.shardedNodeLocks.Unlock(from)
+	pending := make([]uint64, 0, min(16, len(connections)))
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
@@ -216,7 +219,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	before := time.Now()
 
 	var results *priorityqueue.Queue[any]
-	var extraIDs []uint64 = nil
+	extraIDs := make([]uint64, 0, n.graph.maximumConnections)
 	total := 0
 	maxConnections := n.graph.maximumConnections
 
@@ -227,24 +230,25 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.RUnlock()
 		n.node.Lock()
-		connections := make([]uint64, n.node.connections.LenAtLayer(uint8(level)))
-		n.node.connections.CopyLayer(connections, uint8(level))
+		n.connectionsBuf = n.node.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+		connections := n.connectionsBuf
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
-		var pending []uint64 = nil
+		// Reuse pendingBuf for accumulation
+		n.pendingBuf = n.pendingBuf[:0]
 
 		for _, id := range connections {
 			visited.Visit(id)
 			if n.denyList.Contains(id) {
-				pending = append(pending, id)
+				n.pendingBuf = append(n.pendingBuf, id)
 				continue
 			}
 			extraIDs = append(extraIDs, id)
 			top--
 			total++
 		}
-		for _, id := range pending {
+		for _, id := range n.pendingBuf {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
@@ -342,7 +346,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// upgrade neighbor level if the level is out of sync due to a delete re-assign
 		neighbor.upgradeToLevelNoLock(level)
 	}
-	currentConnections := neighbor.connectionsAtLevelNoLock(level)
+	// Reuse connectionsBuf to avoid allocations
+	n.connectionsBuf = neighbor.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+	currentConnections := n.connectionsBuf
 
 	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {
@@ -356,14 +362,14 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// we need to run the heuristic
 
 		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
-		var e storobj.ErrNotFound
-		if err != nil && errors.As(err, &e) {
-			n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-			// it seems either the node or the neighbor were deleted in the meantime,
-			// there is nothing we can do now
-			return nil
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+				// it seems either the node or the neighbor were deleted in the meantime,
+				// there is nothing we can do now
+				return nil
+			}
 			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
 
@@ -372,13 +378,13 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		for _, existingConnection := range currentConnections {
 			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-				// was deleted in the meantime
-				continue
-			}
 			if err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+					// was deleted in the meantime
+					continue
+				}
 				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
 
@@ -533,12 +539,12 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	} else {
 		dist, err = n.distancer.DistanceToNode(candidate)
 	}
-	var e storobj.ErrNotFound
-	if errors.As(err, &e) {
-		n.graph.handleDeletedNode(e.DocID, "tryEpCandidate")
-		return false, nil
-	}
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID, "tryEpCandidate")
+			return false, nil
+		}
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
 	}
 

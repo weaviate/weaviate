@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -171,6 +171,7 @@ func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs helpers.Al
 	sorter := newInsertSorter(h.comparator, h.limit)
 	docIDBytes := make([]byte, 8)
 	it := docIDs.Iterator()
+	defer it.Stop()
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)

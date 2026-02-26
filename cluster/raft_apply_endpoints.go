@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -104,6 +104,23 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_PROPERTY,
+		Class:      class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
+func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property) (uint64, error) {
+	if class == "" || property == nil {
+		return 0, fmt.Errorf("empty property or empty class name: %w", schema.ErrBadRequest)
+	}
+	req := cmd.UpdatePropertyRequest{Property: property}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
 		Class:      class,
 		SubCommand: subCommand,
 	}
