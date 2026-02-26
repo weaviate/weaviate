@@ -1574,7 +1574,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, test.inputIDs, additional.Properties{}, nil, logger)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -1701,7 +1701,7 @@ type fakeBatchBucket struct {
 	*fakeBucket
 }
 
-func (f *fakeBatchBucket) BatchGetBySecondary(_ int, keys [][]byte) ([][]byte, error) {
+func (f *fakeBatchBucket) BatchGetBySecondary(_ context.Context, _ int, keys [][]byte) ([][]byte, error) {
 	results := make([][]byte, len(keys))
 	for i, key := range keys {
 		docID := binary.LittleEndian.Uint64(key)
@@ -1710,8 +1710,8 @@ func (f *fakeBatchBucket) BatchGetBySecondary(_ int, keys [][]byte) ([][]byte, e
 	return results, nil
 }
 
-func (f *fakeBatchBucket) BatchGetBySecondaryWithView(_ int, keys [][]byte, _ any) ([][]byte, error) {
-	return f.BatchGetBySecondary(0, keys)
+func (f *fakeBatchBucket) BatchGetBySecondaryWithView(_ context.Context, _ int, keys [][]byte, _ any) ([][]byte, error) {
+	return f.BatchGetBySecondary(context.Background(), 0, keys)
 }
 
 func BenchmarkObjectsByDocID(b *testing.B) {
@@ -1744,7 +1744,7 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 		b.Run(fmt.Sprintf("Batch/n=%d", amount), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_, err := objectsByDocIDBatch(batch, slice, additional.Properties{}, nil)
+				_, err := objectsByDocIDBatch(context.Background(), batch, slice, additional.Properties{}, nil)
 				require.Nil(b, err)
 			}
 		})
@@ -1786,7 +1786,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+		res, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {

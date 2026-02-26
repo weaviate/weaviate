@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -34,7 +35,7 @@ import (
 // The bucket's flushLock is held for the full duration of this call (index
 // lookups + disk reads) to prevent compaction from closing segment files
 // mid-flight.
-func (b *Bucket) BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error) {
+func (b *Bucket) BatchGetBySecondary(ctx context.Context, pos int, keys [][]byte) ([][]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -85,6 +86,10 @@ func (b *Bucket) BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error) {
 	}
 
 	// --- Phase 2: disk segment index lookups ---
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// Collect positions for all unresolved keys in a single pass through the
 	// segment list (one getConsistentViewOfSegments() call for the whole batch).
 	diskLookupKeys := make([][]byte, len(diskKeys))
@@ -98,6 +103,10 @@ func (b *Bucket) BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error) {
 	}
 
 	// --- Phase 3: batch disk reads ---
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// For pread-backed positions use batchPread (io_uring on Linux, sequential
 	// ReadAt on other platforms). For in-memory positions the data was already
 	// copied during the index lookup.
@@ -150,7 +159,7 @@ func (b *Bucket) BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error) {
 //
 // The caller must keep the view alive (do not call ReleaseView) until this
 // method returns.
-func (b *Bucket) BatchGetBySecondaryWithView(pos int, keys [][]byte, viewAny any) ([][]byte, error) {
+func (b *Bucket) BatchGetBySecondaryWithView(ctx context.Context, pos int, keys [][]byte, viewAny any) ([][]byte, error) {
 	view, ok := viewAny.(BucketConsistentView)
 	if !ok {
 		return nil, fmt.Errorf("BatchGetBySecondaryWithView: expected BucketConsistentView, got %T", viewAny)
@@ -199,6 +208,10 @@ func (b *Bucket) BatchGetBySecondaryWithView(pos int, keys [][]byte, viewAny any
 	}
 
 	// --- Phase 2: disk segment index lookups ---
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	diskLookupKeys := make([][]byte, len(diskKeys))
 	for j, i := range diskKeys {
 		diskLookupKeys[j] = keys[i]
@@ -210,6 +223,10 @@ func (b *Bucket) BatchGetBySecondaryWithView(pos int, keys [][]byte, viewAny any
 	}
 
 	// --- Phase 3: batch disk reads ---
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	rawData := make([][]byte, len(diskKeys))
 
 	for j, p := range positions {

@@ -32,6 +32,7 @@ package lsmkv
 // performs a full cold read, which can take hundreds of milliseconds.
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -149,7 +150,7 @@ func BenchmarkBatchGetBySecondaryPreadCold(b *testing.B) {
 				evictSegmentPages(dir)
 				b.StartTimer()
 
-				_, err := bucket.BatchGetBySecondary(0, keys)
+				_, err := bucket.BatchGetBySecondary(context.Background(), 0, keys)
 				if err != nil {
 					b.Fatal(err)
 				}

@@ -115,7 +115,7 @@ func BenchmarkBatchGetBySecondary(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := bucket.BatchGetBySecondary(0, keys)
+				_, err := bucket.BatchGetBySecondary(context.Background(), 0, keys)
 				if err != nil {
 					b.Fatal(err)
 				}

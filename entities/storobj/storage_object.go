@@ -313,11 +313,11 @@ type bucket interface {
 // support batched secondary-index lookups (e.g. via io_uring). ObjectsByDocID
 // uses a type assertion to detect this capability at runtime.
 type batchBucket interface {
-	BatchGetBySecondary(pos int, keys [][]byte) ([][]byte, error)
-	BatchGetBySecondaryWithView(pos int, keys [][]byte, view any) ([][]byte, error)
+	BatchGetBySecondary(ctx context.Context, pos int, keys [][]byte) ([][]byte, error)
+	BatchGetBySecondaryWithView(ctx context.Context, pos int, keys [][]byte, view any) ([][]byte, error)
 }
 
-func ObjectsByDocID(bucket bucket, ids []uint64,
+func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
@@ -325,13 +325,13 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 	}
 
 	if bb, ok := bucket.(batchBucket); ok {
-		return objectsByDocIDBatch(bb, ids, additional, properties)
+		return objectsByDocIDBatch(ctx, bb, ids, additional, properties)
 	}
 
 	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
 }
 
-func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
+func ObjectsByDocIDWithEmpty(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
@@ -339,7 +339,7 @@ func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 	}
 
 	if bb, ok := bucket.(batchBucket); ok {
-		return objectsByDocIDBatch(bb, ids, additional, properties)
+		return objectsByDocIDBatch(ctx, bb, ids, additional, properties)
 	}
 
 	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
@@ -352,7 +352,7 @@ func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 //
 // The function mirrors the nil-skipping and ordering semantics of
 // objectsByDocIDParallel.
-func objectsByDocIDBatch(bucket batchBucket, ids []uint64,
+func objectsByDocIDBatch(ctx context.Context, bucket batchBucket, ids []uint64,
 	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
 	// Build the secondary-index keys (8-byte little-endian doc IDs).
@@ -363,7 +363,7 @@ func objectsByDocIDBatch(bucket batchBucket, ids []uint64,
 		keys[i] = docIDBufs[i][:]
 	}
 
-	values, err := bucket.BatchGetBySecondary(0, keys)
+	values, err := bucket.BatchGetBySecondary(ctx, 0, keys)
 	if err != nil {
 		return nil, err
 	}
