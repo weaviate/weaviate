@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,27 +41,27 @@ const (
 
 // io_uring constants from linux/io_uring.h.
 const (
-	opRead          uint8  = 22 // IORING_OP_READ
-	enterGetEvents  uint32 = 1  // IORING_ENTER_GETEVENTS
-	featSingleMMap  uint32 = 1  // IORING_FEAT_SINGLE_MMAP
+	opRead         uint8  = 22 // IORING_OP_READ
+	enterGetEvents uint32 = 1  // IORING_ENTER_GETEVENTS
+	featSingleMMap uint32 = 1  // IORING_FEAT_SINGLE_MMAP
 
-	offSQRing uint64 = 0x0         // IORING_OFF_SQ_RING
-	offCQRing uint64 = 0x8000000   // IORING_OFF_CQ_RING
-	offSQEs   uint64 = 0x10000000  // IORING_OFF_SQES
+	offSQRing uint64 = 0x0        // IORING_OFF_SQ_RING
+	offCQRing uint64 = 0x8000000  // IORING_OFF_CQ_RING
+	offSQEs   uint64 = 0x10000000 // IORING_OFF_SQES
 )
 
 // ioUringParams mirrors struct io_uring_params (linux/io_uring.h). Total: 120 bytes.
 type ioUringParams struct {
-	sqEntries   uint32
-	cqEntries   uint32
-	flags       uint32
-	sqThreadCPU uint32
+	sqEntries    uint32
+	cqEntries    uint32
+	flags        uint32
+	sqThreadCPU  uint32
 	sqThreadIdle uint32
-	features    uint32
-	wqFd        uint32
-	resv        [3]uint32
-	sqOff       sqRingOffsets
-	cqOff       cqRingOffsets
+	features     uint32
+	wqFd         uint32
+	resv         [3]uint32
+	sqOff        sqRingOffsets
+	cqOff        cqRingOffsets
 }
 
 // sqRingOffsets mirrors struct io_sqring_offsets (40 bytes).
@@ -120,8 +120,8 @@ type ioUringCQE struct {
 type ReadOp struct {
 	Fd       int
 	Offset   int64
-	Buf      []byte   // destination; must be non-empty
-	UserData uint64   // echoed back in the completion
+	Buf      []byte // destination; must be non-empty
+	UserData uint64 // echoed back in the completion
 }
 
 // Result is the completion result for one ReadOp.
@@ -170,7 +170,7 @@ func NewRing(entries uint32) (*Ring, error) {
 
 	sqRingSize := int(p.sqOff.array + p.sqEntries*4)
 	cqRingSize := int(p.cqOff.cqes + p.cqEntries*16)
-	sqesSize   := int(unsafe.Sizeof(ioUringSQE{})) * int(p.sqEntries)
+	sqesSize := int(unsafe.Sizeof(ioUringSQE{})) * int(p.sqEntries)
 
 	// mmap SQ ring
 	sqMem, err := mmapRing(ringFd, sqRingSize, offSQRing)
@@ -178,10 +178,10 @@ func NewRing(entries uint32) (*Ring, error) {
 		_ = syscall.Close(ringFd)
 		return nil, fmt.Errorf("mmap SQ ring: %w", err)
 	}
-	r.sqMem   = sqMem
-	r.sqHead  = (*uint32)(unsafe.Pointer(&sqMem[p.sqOff.head]))
-	r.sqTail  = (*uint32)(unsafe.Pointer(&sqMem[p.sqOff.tail]))
-	r.sqMask  = (*uint32)(unsafe.Pointer(&sqMem[p.sqOff.ringMask]))
+	r.sqMem = sqMem
+	r.sqHead = (*uint32)(unsafe.Pointer(&sqMem[p.sqOff.head]))
+	r.sqTail = (*uint32)(unsafe.Pointer(&sqMem[p.sqOff.tail]))
+	r.sqMask = (*uint32)(unsafe.Pointer(&sqMem[p.sqOff.ringMask]))
 	r.sqArray = uintptr(unsafe.Pointer(&sqMem[p.sqOff.array]))
 
 	// mmap CQ ring (may share with SQ ring)
@@ -211,7 +211,7 @@ func NewRing(entries uint32) (*Ring, error) {
 		_ = syscall.Close(ringFd)
 		return nil, fmt.Errorf("mmap SQEs: %w", err)
 	}
-	r.sqesMem  = sqesMem
+	r.sqesMem = sqesMem
 	r.sqesBase = uintptr(unsafe.Pointer(&sqesMem[0]))
 
 	return r, nil
@@ -244,7 +244,7 @@ func (r *Ring) SubmitAndWaitAll(ops []ReadOp) ([]Result, error) {
 	}
 
 	sqTail := atomic.LoadUint32(r.sqTail)
-	mask    := atomic.LoadUint32(r.sqMask)
+	mask := atomic.LoadUint32(r.sqMask)
 	sqeSize := uintptr(unsafe.Sizeof(ioUringSQE{}))
 
 	for i, op := range ops {
@@ -252,11 +252,11 @@ func (r *Ring) SubmitAndWaitAll(ops []ReadOp) ([]Result, error) {
 
 		sqePtr := (*ioUringSQE)(unsafe.Pointer(r.sqesBase + uintptr(idx)*sqeSize))
 		*sqePtr = ioUringSQE{} // zero all fields
-		sqePtr.opcode   = opRead
-		sqePtr.fd       = int32(op.Fd)
-		sqePtr.off      = uint64(op.Offset)
-		sqePtr.addr     = uint64(uintptr(unsafe.Pointer(&op.Buf[0])))
-		sqePtr.length   = uint32(len(op.Buf))
+		sqePtr.opcode = opRead
+		sqePtr.fd = int32(op.Fd)
+		sqePtr.off = uint64(op.Offset)
+		sqePtr.addr = uint64(uintptr(unsafe.Pointer(&op.Buf[0])))
+		sqePtr.length = uint32(len(op.Buf))
 		sqePtr.userData = op.UserData
 
 		// sq_array[idx] = idx — default 1-to-1 mapping
@@ -287,7 +287,7 @@ func (r *Ring) SubmitAndWaitAll(ops []ReadOp) ([]Result, error) {
 	cqeSize := uintptr(unsafe.Sizeof(ioUringCQE{}))
 
 	for cqHead != cqTail {
-		idx    := cqHead & cqMask
+		idx := cqHead & cqMask
 		cqePtr := (*ioUringCQE)(unsafe.Pointer(r.cqBase + uintptr(idx)*cqeSize))
 		results = append(results, Result{
 			UserData: cqePtr.userData,
