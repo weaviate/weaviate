@@ -50,14 +50,14 @@ type schemaManager interface {
 
 // Telemeter is responsible for managing the transmission of telemetry data
 type Telemeter struct {
-	machineID         strfmt.UUID
-	nodesStatusGetter nodesStatusGetter
-	schemaManager     schemaManager
-	logger            logrus.FieldLogger
-	shutdown          chan struct{}
-	failedToStart     bool
-	consumer          string
-	pushInterval      time.Duration
+	machineID          strfmt.UUID
+	nodesStatusGetter  nodesStatusGetter
+	schemaManager      schemaManager
+	logger             logrus.FieldLogger
+	shutdown           chan struct{}
+	failedToStart      bool
+	consumer           string
+	pushInterval       time.Duration
 	clientTracker      *ClientTracker
 	integrationTracker *IntegrationTracker
 	cloudInfoHelper    *cloudInfoHelper
@@ -77,13 +77,13 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	}
 
 	tel := &Telemeter{
-		machineID:         strfmt.UUID(uuid.NewString()),
-		nodesStatusGetter: nodesStatusGetter,
-		schemaManager:     schemaManager,
-		logger:            logger,
-		shutdown:          make(chan struct{}),
-		consumer:          consumerURL,
-		pushInterval:      pushInterval,
+		machineID:          strfmt.UUID(uuid.NewString()),
+		nodesStatusGetter:  nodesStatusGetter,
+		schemaManager:      schemaManager,
+		logger:             logger,
+		shutdown:           make(chan struct{}),
+		consumer:           consumerURL,
+		pushInterval:       pushInterval,
 		clientTracker:      NewClientTracker(logger),
 		integrationTracker: NewIntegrationTracker(logger),
 		cloudInfoHelper:    newCloudInfoHelper(logger),
