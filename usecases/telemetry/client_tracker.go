@@ -29,12 +29,14 @@ const (
 	ClientTypeCSharp     ClientType = "csharp"
 	ClientTypeTypeScript ClientType = "typescript"
 	ClientTypeGo         ClientType = "go"
+	ClientTypePHP        ClientType = "php"
+	ClientTypeRuby       ClientType = "ruby"
 	ClientTypeUnknown    ClientType = "unknown"
 )
 
 // knownClientTypeCount is the number of known client types we track (excludes ClientTypeUnknown).
 // Used for map preallocation.
-const knownClientTypeCount = 5
+const knownClientTypeCount = 7
 
 // integrationHeaderKey is the HTTP header used to identify the client integration.
 const integrationHeaderKey = "X-Weaviate-Client-Integration"
@@ -252,6 +254,10 @@ func identifyClient(r *http.Request) ClientInfo {
 			clientType = ClientTypeTypeScript
 		case "go":
 			clientType = ClientTypeGo
+		case "php":
+			clientType = ClientTypePHP
+		case "ruby":
+			clientType = ClientTypeRuby
 		default:
 			return ClientInfo{Type: ClientTypeUnknown, Version: ""}
 		}
