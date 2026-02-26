@@ -48,10 +48,7 @@ func (ct *ClientTracker) TrackHeader(headerValue string) {
 		return
 	}
 
-	select {
-	case ct.trackChan <- clientInfo:
-	default:
-	}
+	ct.inner.send(clientInfo.Type, clientInfo.Version)
 }
 
 // ClientTrackingUnaryInterceptor creates a gRPC unary interceptor that tracks

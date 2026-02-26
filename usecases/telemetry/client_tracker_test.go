@@ -81,7 +81,7 @@ func TestIdentifyClientFromHeader(t *testing.T) {
 		},
 		{
 			name:         "unknown sdk",
-			headerValue:  "weaviate-client-ruby/1.0.0",
+			headerValue:  "weaviate-client-rust/1.0.0",
 			expectedType: ClientTypeUnknown,
 			expectedVer:  "",
 		},
