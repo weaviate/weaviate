@@ -159,3 +159,496 @@ func TestMemtable_Exists(t *testing.T) {
 		assert.NoError(t, existsErr)
 	})
 }
+
+func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
+	key := []byte("my-key")
+	value := []byte("my-value")
+	secKey := []byte("secondary-key")
+	otherSecKey := []byte("other-secondary-key")
+
+	initMemtable := func(t *testing.T) *Memtable {
+		t.Helper()
+
+		dir := t.TempDir()
+
+		logger, _ := test.NewNullLogger()
+		cl, err := newCommitLogger(dir, StrategyReplace, 0)
+		require.NoError(t, err)
+
+		m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+			path:             path.Join(dir, "will-never-flush"),
+			strategy:         StrategyReplace,
+			secondaryIndices: 1,
+		})
+		require.NoError(t, err)
+
+		return m
+	}
+	populateMemtable := func(t *testing.T, m *Memtable) {
+		t.Helper()
+
+		// add initial value
+		err := m.put(key, value, WithSecondaryKey(0, secKey))
+		require.NoError(t, err)
+
+		// retrieve by primary
+		val, err := m.get(key)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+
+		// retrieve by secondary
+		val, err = m.getBySecondary(0, secKey)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+	}
+
+	t.Run("delete existing keys", func(t *testing.T) {
+		t.Run("delete without secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+			memtable.skipSecondaryKeyCheck = true
+			populateMemtable(t, memtable)
+
+			err := memtable.setTombstone(key)
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Nil(t, node.secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+			populateMemtable(t, memtable)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, secKey, node.secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with other secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+			populateMemtable(t, memtable)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, otherSecKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by other secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, otherSecKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, otherSecKey, node.secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with secondary key, then other secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+			populateMemtable(t, memtable)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = memtable.setTombstone(key, WithSecondaryKey(0, otherSecKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by other secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, otherSecKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, otherSecKey, node.secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with other secondary key, then secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+			populateMemtable(t, memtable)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, otherSecKey))
+			require.NoError(t, err)
+			err = memtable.setTombstone(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by other secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, otherSecKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, secKey, node.secondaryKeys[0])
+			})
+		})
+	})
+
+	t.Run("delete non existent keys", func(t *testing.T) {
+		t.Run("delete without secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+			memtable.skipSecondaryKeyCheck = true
+
+			err := memtable.setTombstone(key)
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Nil(t, node.secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, secKey, node.secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with other secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, otherSecKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by other secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, otherSecKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, otherSecKey, node.secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with secondary key, then other secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = memtable.setTombstone(key, WithSecondaryKey(0, otherSecKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by other secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, otherSecKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, otherSecKey, nodes[0].secondaryKeys[0])
+			})
+		})
+
+		t.Run("delete with other secondary key, then secondary key", func(t *testing.T) {
+			memtable := initMemtable(t)
+
+			err := memtable.setTombstone(key, WithSecondaryKey(0, otherSecKey))
+			require.NoError(t, err)
+			err = memtable.setTombstone(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary", func(t *testing.T) {
+				val, err := memtable.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, secKey)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by other secondary", func(t *testing.T) {
+				val, err := memtable.getBySecondary(0, otherSecKey)
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+
+			t.Run("flattened", func(t *testing.T) {
+				nodes := memtable.key.flattenInOrder()
+				require.Len(t, nodes, 1)
+
+				node := nodes[0]
+				assert.Equal(t, key, node.key)
+				assert.Nil(t, node.value)
+				assert.True(t, node.tombstone)
+				require.Len(t, node.secondaryKeys, 1)
+				assert.Equal(t, secKey, node.secondaryKeys[0])
+			})
+		})
+	})
+}
+
+func TestMemtable_PutDeletePut(t *testing.T) {
+	key := []byte("my-key")
+	value := []byte("my-value")
+	secKey := []byte("secondary-key")
+
+	initMemtable := func(t *testing.T) *Memtable {
+		t.Helper()
+
+		dir := t.TempDir()
+
+		logger, _ := test.NewNullLogger()
+		cl, err := newCommitLogger(dir, StrategyReplace, 0)
+		require.NoError(t, err)
+
+		m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+			path:             path.Join(dir, "will-never-flush"),
+			strategy:         StrategyReplace,
+			secondaryIndices: 1,
+		})
+		require.NoError(t, err)
+
+		return m
+	}
+
+	t.Run("without secondary key", func(t *testing.T) {
+		m := initMemtable(t)
+		m.skipSecondaryKeyCheck = true
+
+		err := m.put(key, value)
+		require.NoError(t, err)
+
+		val, err := m.get(key)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+
+		err = m.setTombstone(key)
+		require.NoError(t, err)
+
+		val, err = m.get(key)
+		require.ErrorIs(t, err, lsmkv.Deleted)
+		require.Nil(t, val)
+
+		err = m.put(key, value)
+		require.NoError(t, err)
+
+		val, err = m.get(key)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+	})
+
+	t.Run("with secondary key", func(t *testing.T) {
+		m := initMemtable(t)
+
+		err := m.put(key, value, WithSecondaryKey(0, secKey))
+		require.NoError(t, err)
+
+		val, err := m.get(key)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+		val, err = m.getBySecondary(0, secKey)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+
+		err = m.setTombstone(key, WithSecondaryKey(0, secKey))
+		require.NoError(t, err)
+
+		val, err = m.get(key)
+		require.ErrorIs(t, err, lsmkv.Deleted)
+		require.Nil(t, val)
+		val, err = m.getBySecondary(0, secKey)
+		require.ErrorIs(t, err, lsmkv.Deleted)
+		require.Nil(t, val)
+
+		err = m.put(key, value, WithSecondaryKey(0, secKey))
+		require.NoError(t, err)
+
+		val, err = m.get(key)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+		val, err = m.getBySecondary(0, secKey)
+		require.NoError(t, err)
+		require.Equal(t, value, val)
+	})
+}
