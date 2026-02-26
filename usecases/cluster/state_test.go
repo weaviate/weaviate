@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -512,4 +513,70 @@ func TestGetConfigType(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestParseJoinAddresses(t *testing.T) {
+	tests := []struct {
+		name     string
+		join     string
+		expected []string
+	}{
+		{"empty string yields nil", "", nil},
+		{"single address no comma", "192.168.1.1:7946", []string{"192.168.1.1:7946"}},
+		{"two addresses", "host1:7946,host2:7946", []string{"host1:7946", "host2:7946"}},
+		{"three addresses", "a:1,b:2,c:3", []string{"a:1", "b:2", "c:3"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseJoinAddresses(tt.join)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestInitJoinBehavior(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel) // reduce noise in tests
+
+	validConfig := Config{
+		Hostname:       "test-node-join",
+		GossipBindPort: 17946,
+		DataBindPort:   17947,
+		AdvertisePort:  17946,
+		AdvertiseAddr:  "127.0.0.1",
+		BindAddr:       "127.0.0.1",
+		Localhost:      true,
+	}
+
+	t.Run("empty Join does not attempt join and succeeds", func(t *testing.T) {
+		cfg := validConfig
+		cfg.Hostname = "test-node-empty-join"
+		cfg.Join = ""
+		state, err := Init(cfg, 1, ".", nil, logger)
+		require.NoError(t, err)
+		require.NotNil(t, state)
+		defer func() { _ = state.Shutdown() }()
+	})
+
+	t.Run("non-empty Join attempts join and returns error when unreachable", func(t *testing.T) {
+		cfg := validConfig
+		cfg.Hostname = "test-node-unreachable"
+		cfg.GossipBindPort, cfg.DataBindPort, cfg.AdvertisePort = 17956, 17957, 17956
+		cfg.Join = "nonexistent-host.invalid:7946"
+		state, err := Init(cfg, 1, ".", nil, logger)
+		require.Error(t, err)
+		assert.Nil(t, state)
+		assert.Contains(t, err.Error(), "join cluster")
+	})
+
+	t.Run("multiple join addresses are all passed to Join", func(t *testing.T) {
+		cfg := validConfig
+		cfg.Hostname = "test-node-multi-join"
+		cfg.GossipBindPort, cfg.DataBindPort, cfg.AdvertisePort = 17966, 17967, 17966
+		cfg.Join = "host1.invalid:7946,host2.invalid:7946"
+		state, err := Init(cfg, 1, ".", nil, logger)
+		require.Error(t, err)
+		assert.Nil(t, state)
+		assert.Contains(t, err.Error(), "join cluster")
+	})
 }

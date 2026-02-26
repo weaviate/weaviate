@@ -186,7 +186,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	// Set delegate and events
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-
+	joinAddresses := parseJoinAddresses(userConfig.Join)
 	// Log configuration details
 	logger.WithFields(logrus.Fields{
 		"action":          "memberlist_config",
@@ -198,6 +198,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		"config_type":     getConfigType(userConfig),
 		"tcp_timeout":     cfg.TCPTimeout,
 		"raft_multiplier": raftTimeoutsMultiplier,
+		"join_addresses":  joinAddresses,
 	}).Info("memberlist configuration")
 
 	// Create memberlist
@@ -213,30 +214,14 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		}).Errorf("memberlist not created: %v", err)
 		return nil, errors.Wrap(err, "create memberlist")
 	}
-	var joinAddr []string
-	if userConfig.Join != "" {
-		joinAddr = strings.Split(userConfig.Join, ",")
-	}
 
-	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"action":          "cluster_attempt_join",
-				"remote_hostname": joinAddr[0],
-			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
-					"if this is the first node of a new cluster, but problematic otherwise.")
-		} else {
-			_, err := state.list.Join(joinAddr)
-			if err != nil {
-				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
-					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
-				return nil, errors.Wrap(err, "join cluster")
-			}
-		}
+	_, err = state.list.Join(joinAddresses)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"action":          "memberlist_init",
+			"remote_hostname": joinAddresses,
+		}).WithError(err).Error("memberlist join not successful")
+		return nil, errors.Wrap(err, "join cluster")
 	}
 
 	return &state, nil
@@ -520,6 +505,15 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
+}
+
+// parseJoinAddresses splits the Join config (comma-separated addresses) into a slice.
+// Empty string yields nil; no comma yields a single-element slice.
+func parseJoinAddresses(join string) []string {
+	if join == "" {
+		return nil
+	}
+	return strings.Split(join, ",")
 }
 
 // validateClusterConfig validates the cluster configuration
