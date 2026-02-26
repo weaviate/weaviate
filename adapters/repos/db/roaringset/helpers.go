@@ -58,6 +58,8 @@ type BitmapFactory struct {
 	lock           *sync.RWMutex
 	prefilled      *sroar.Bitmap
 	prefilledMaxId uint64
+	removedLock    *sync.RWMutex
+	removed        *sroar.Bitmap
 }
 
 func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *BitmapFactory {
@@ -69,6 +71,8 @@ func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *Bitma
 		lock:           new(sync.RWMutex),
 		prefilled:      sroar.Prefill(prefilledMaxId),
 		prefilledMaxId: prefilledMaxId,
+		removedLock:    new(sync.RWMutex),
+		removed:        sroar.NewBitmap(),
 	}
 }
 
@@ -107,14 +111,30 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 				return bmf.bufPool.CloneToBuf(bmf.prefilled)
 			}
 
+			var removed *sroar.Bitmap
+			func() {
+				bmf.removedLock.Lock()
+				defer bmf.removedLock.Unlock()
+
+				removed = bmf.removed
+				bmf.removed = sroar.NewBitmap()
+			}()
+
 			// expand bitmap with additional ids
 			prefilledMaxId = maxId + defaultIdIncrement
 			bmf.prefilled.FillUp(prefilledMaxId)
+			bmf.prefilled.AndNot(removed)
 			bmf.prefilledMaxId = prefilledMaxId
+
 			return bmf.bufPool.CloneToBuf(bmf.prefilled)
 		}()
 	}
 	cloned.RemoveRange(maxId+1, prefilledMaxId+1)
+
+	bmf.removedLock.RLock()
+	defer bmf.removedLock.RUnlock()
+	cloned.AndNot(bmf.removed)
+
 	return cloned, release
 }
 
@@ -125,11 +145,20 @@ func (bmf *BitmapFactory) Remove(ids *sroar.Bitmap) {
 	bmf.prefilled.AndNot(ids)
 }
 
+// func (bmf *BitmapFactory) RemoveIds(ids ...uint64) {
+// 	bmf.lock.Lock()
+// 	defer bmf.lock.Unlock()
+
+// 	for _, id := range ids {
+// 		bmf.prefilled.Remove(id)
+// 	}
+// }
+
 func (bmf *BitmapFactory) RemoveIds(ids ...uint64) {
-	bmf.lock.Lock()
-	defer bmf.lock.Unlock()
+	bmf.removedLock.Lock()
+	defer bmf.removedLock.Unlock()
 
 	for _, id := range ids {
-		bmf.prefilled.Remove(id)
+		bmf.removed.Set(id)
 	}
 }
