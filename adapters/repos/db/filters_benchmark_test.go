@@ -148,6 +148,13 @@ func allVectorIndexSetups() []vectorIndexSetup {
 	}
 }
 
+// nonFlakyIndexSetups returns all vector index configurations that are not flaky to test.
+func nonFlakyIndexSetups() []vectorIndexSetup {
+	return []vectorIndexSetup{
+		flatDefault(),
+	}
+}
+
 // filterTestCase describes a filter combination to test.
 type filterTestCase struct {
 	name                    string
@@ -616,7 +623,9 @@ func TestFiltersBenchmark(t *testing.T) {
 		searchVector[d] = 0.5
 	}
 
-	vectorSetups := allVectorIndexSetups()
+	// only work with non-flaky index setups for the benchmark,
+	// as the test is recall dependent and flaky setups would make the benchmark results unreliable and hard to interpret.
+	vectorSetups := nonFlakyIndexSetups()
 
 	filterCases := allFilterTestCases(matchPcts)
 
@@ -770,6 +779,9 @@ func TestFiltersDelete(t *testing.T) {
 		searchVectorForUpdate[d] = 0.49
 	}
 
+	// Test all use-cases, as it is not a benchmark test and we want to make sure the delete works in all of them.
+	// If we were to only test non-flaky setups, we would miss the fact that some flaky setups (e.g. hnsw with PQ) do not properly handle deletes,
+	// which would be an important finding.
 	vectorSetups := allVectorIndexSetups()
 
 	fc := buildFilterTestCase(buildBenchFilter("TestClass", "intField", 1, filters.OperatorNotEqual, schema.DataTypeInt))
