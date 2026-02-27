@@ -33,6 +33,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+const (
+	testLangchainHeader = "langchain/0.3.0"
+	testMyIntegration   = "my-integration"
+)
+
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
@@ -925,33 +930,174 @@ func TestClientTracker(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewClientTracker(logger)
 
-		// Track some requests
 		pythonReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
 		pythonReq.Header.Set("X-Weaviate-Client", "weaviate-client-python/1.0.0")
 		tracker.Track(pythonReq)
 
-		// Verify we can get counts before stop
-		counts := tracker.Get()
-		assert.NotNil(t, counts)
-
-		// Stop the tracker
-		tracker.Stop()
-
-		// Get and GetAndReset should return nil after stop (not block forever)
-		assert.Nil(t, tracker.Get())
-		assert.Nil(t, tracker.GetAndReset())
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
 	})
 
 	t.Run("double Stop does not panic", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewClientTracker(logger)
+		testMapTrackerDoubleStop(t, tracker.inner)
+	})
+}
 
-		// Should not panic when called multiple times
-		assert.NotPanics(t, func() {
-			tracker.Stop()
-			tracker.Stop()
-			tracker.Stop()
+func TestIntegrationTracker(t *testing.T) {
+	t.Run("track and get integration counts", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		langchainReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		langchainReq.Header.Set(integrationHeaderKey, testLangchainHeader)
+
+		llamaIndexReq := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		llamaIndexReq.Header.Set(integrationHeaderKey, "llama-index/0.10.0")
+
+		tracker.Track(langchainReq)
+		tracker.Track(langchainReq)
+		tracker.Track(llamaIndexReq)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(2), counts["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts["llama-index"]["0.10.0"])
+
+		// Counts preserved after Get
+		counts2 := tracker.Get()
+		assert.Equal(t, int64(2), counts2["langchain"]["0.3.0"])
+
+		// GetAndReset returns and clears
+		counts3 := tracker.GetAndReset()
+		assert.Equal(t, int64(2), counts3["langchain"]["0.3.0"])
+		assert.Equal(t, int64(1), counts3["llama-index"]["0.10.0"])
+
+		counts4 := tracker.Get()
+		assert.Empty(t, counts4)
+	})
+
+	t.Run("accepts arbitrary integration names without validation", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, "anydatahere/0.3.0")
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts["anydatahere"]["0.3.0"])
+	})
+
+	t.Run("skips empty header", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		tracker.Track(req) // no header set
+
+		counts := tracker.Get()
+		assert.Empty(t, counts)
+	})
+
+	t.Run("tracks integration name only when no version provided", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, testMyIntegration)
+		tracker.Track(req)
+
+		counts := tracker.Get()
+		assert.Equal(t, int64(1), counts[testMyIntegration]["unknown"])
+	})
+
+	t.Run("Get and GetAndReset return nil after Stop", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+		req.Header.Set(integrationHeaderKey, testLangchainHeader)
+		tracker.Track(req)
+
+		assert.NotNil(t, tracker.Get())
+		testMapTrackerStopBehavior(t, tracker.inner)
+	})
+
+	t.Run("double Stop does not panic", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		testMapTrackerDoubleStop(t, tracker.inner)
+	})
+}
+
+func TestIdentifyIntegration(t *testing.T) {
+	testCases := []struct {
+		name            string
+		header          string
+		expectedName    string
+		expectedVersion string
+	}{
+		{
+			name:            "name and version",
+			header:          testLangchainHeader,
+			expectedName:    "langchain",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:            "arbitrary integration name",
+			header:          "anydatahere/0.3.0",
+			expectedName:    "anydatahere",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:         "name only (no version)",
+			header:       testMyIntegration,
+			expectedName: testMyIntegration,
+		},
+		{
+			name: "empty header",
+		},
+		{
+			name:   "whitespace only",
+			header: "   ",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			if tc.header != "" {
+				req.Header.Set(integrationHeaderKey, tc.header)
+			}
+			name, version := identifyIntegration(req)
+			assert.Equal(t, tc.expectedName, name)
+			assert.Equal(t, tc.expectedVersion, version)
 		})
+	}
+}
+
+// testMapTrackerStopBehavior verifies that get and getAndReset return nil
+// after the tracker has been stopped. Uses the inner mapTracker directly
+// since this test file is in the same package.
+func testMapTrackerStopBehavior[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	inner.stop()
+	assert.Nil(t, inner.get())
+	assert.Nil(t, inner.getAndReset())
+}
+
+// testMapTrackerDoubleStop verifies that calling stop multiple times does not panic.
+func testMapTrackerDoubleStop[K comparable](t *testing.T, inner *mapTracker[K]) {
+	t.Helper()
+	assert.NotPanics(t, func() {
+		inner.stop()
+		inner.stop()
+		inner.stop()
 	})
 }
 

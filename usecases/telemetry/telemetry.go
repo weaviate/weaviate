@@ -50,16 +50,17 @@ type schemaManager interface {
 
 // Telemeter is responsible for managing the transmission of telemetry data
 type Telemeter struct {
-	machineID         strfmt.UUID
-	nodesStatusGetter nodesStatusGetter
-	schemaManager     schemaManager
-	logger            logrus.FieldLogger
-	shutdown          chan struct{}
-	failedToStart     bool
-	consumer          string
-	pushInterval      time.Duration
-	clientTracker     *ClientTracker
-	cloudInfoHelper   *cloudInfoHelper
+	machineID          strfmt.UUID
+	nodesStatusGetter  nodesStatusGetter
+	schemaManager      schemaManager
+	logger             logrus.FieldLogger
+	shutdown           chan struct{}
+	failedToStart      bool
+	consumer           string
+	pushInterval       time.Duration
+	clientTracker      *ClientTracker
+	integrationTracker *IntegrationTracker
+	cloudInfoHelper    *cloudInfoHelper
 }
 
 // New creates a new Telemeter instance.
@@ -76,15 +77,16 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	}
 
 	tel := &Telemeter{
-		machineID:         strfmt.UUID(uuid.NewString()),
-		nodesStatusGetter: nodesStatusGetter,
-		schemaManager:     schemaManager,
-		logger:            logger,
-		shutdown:          make(chan struct{}),
-		consumer:          consumerURL,
-		pushInterval:      pushInterval,
-		clientTracker:     NewClientTracker(logger),
-		cloudInfoHelper:   newCloudInfoHelper(logger),
+		machineID:          strfmt.UUID(uuid.NewString()),
+		nodesStatusGetter:  nodesStatusGetter,
+		schemaManager:      schemaManager,
+		logger:             logger,
+		shutdown:           make(chan struct{}),
+		consumer:           consumerURL,
+		pushInterval:       pushInterval,
+		clientTracker:      NewClientTracker(logger),
+		integrationTracker: NewIntegrationTracker(logger),
+		cloudInfoHelper:    newCloudInfoHelper(logger),
 	}
 	return tel
 }
@@ -92,6 +94,11 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 // GetClientTracker returns the client tracker instance for use in middleware
 func (tel *Telemeter) GetClientTracker() *ClientTracker {
 	return tel.clientTracker
+}
+
+// GetIntegrationTracker returns the integration tracker instance for use in middleware
+func (tel *Telemeter) GetIntegrationTracker() *IntegrationTracker {
+	return tel.integrationTracker
 }
 
 // Start begins telemetry for the node
@@ -136,11 +143,14 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 
 // Stop shuts down the telemeter
 func (tel *Telemeter) Stop(ctx context.Context) error {
-	// Always stop the client tracker goroutine, even if telemetry failed to start.
+	// Always stop the tracker goroutines, even if telemetry failed to start.
 	// This prevents goroutine leaks.
 	defer func() {
 		if tel.clientTracker != nil {
 			tel.clientTracker.Stop()
+		}
+		if tel.integrationTracker != nil {
+			tel.integrationTracker.Stop()
 		}
 	}()
 
@@ -220,32 +230,51 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		return nil, fmt.Errorf("get collections count: %w", err)
 	}
 
-	// Get client usage data and reset for the next period
-	// For Init payloads, we don't have client data yet, so skip it
-	var clientUsage map[ClientType]map[string]int64
-	if payloadType != PayloadType.Init && tel.clientTracker != nil {
-		clientUsage = tel.clientTracker.GetAndReset()
-		// Only include if there's actual data
-		if len(clientUsage) == 0 {
-			clientUsage = nil
-		}
-	}
+	// Get client usage data and reset for the next period.
+	// For Init payloads, we don't have client data yet, so skip it.
+	clientUsage, clientIntegrationUsage := tel.collectUsageForPayload(payloadType)
 
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
 	return &Payload{
-		MachineID:        tel.machineID,
-		Type:             payloadType,
-		Version:          config.ServerVersion,
-		ObjectsCount:     objs,
-		OS:               runtime.GOOS,
-		Arch:             runtime.GOARCH,
-		UsedModules:      usedMods,
-		CollectionsCount: cols,
-		ClientUsage:      clientUsage,
-		CloudProvider:    cloudProvider,
-		UniqueID:         uniqueID,
+		MachineID:              tel.machineID,
+		Type:                   payloadType,
+		Version:                config.ServerVersion,
+		ObjectsCount:           objs,
+		OS:                     runtime.GOOS,
+		Arch:                   runtime.GOARCH,
+		UsedModules:            usedMods,
+		CollectionsCount:       cols,
+		ClientUsage:            clientUsage,
+		ClientIntegrationUsage: clientIntegrationUsage,
+		CloudProvider:          cloudProvider,
+		UniqueID:               uniqueID,
 	}, nil
+}
+
+// collectUsageForPayload returns client and integration usage maps for the given
+// payload type, resetting the trackers. Returns (nil, nil) for Init payloads,
+// and nil for any map that contains no data.
+func (tel *Telemeter) collectUsageForPayload(payloadType string) (
+	clientUsage map[ClientType]map[string]int64,
+	clientIntegrationUsage map[string]map[string]int64,
+) {
+	if payloadType == PayloadType.Init {
+		return nil, nil
+	}
+	if tel.clientTracker != nil {
+		clientUsage = tel.clientTracker.GetAndReset()
+		if len(clientUsage) == 0 {
+			clientUsage = nil
+		}
+	}
+	if tel.integrationTracker != nil {
+		clientIntegrationUsage = tel.integrationTracker.GetAndReset()
+		if len(clientIntegrationUsage) == 0 {
+			clientIntegrationUsage = nil
+		}
+	}
+	return clientUsage, clientIntegrationUsage
 }
 
 func (tel *Telemeter) getUsedModules() ([]string, error) {

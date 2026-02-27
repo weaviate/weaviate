@@ -15,20 +15,20 @@ import (
 	"net/http"
 )
 
-// ClientTrackingMiddleware creates an HTTP middleware that tracks client SDK usage.
-// It should be placed early in the middleware chain to capture all requests.
-func ClientTrackingMiddleware(tracker *ClientTracker) func(http.Handler) http.Handler {
-	if tracker == nil {
-		// If no tracker is provided, return a no-op middleware
-		return func(next http.Handler) http.Handler {
-			return next
-		}
-	}
-
+// ClientTrackingMiddleware creates an HTTP middleware that tracks client SDK usage
+// and client integration usage. It should be placed early in the middleware chain
+// to capture all requests.
+func ClientTrackingMiddleware(tracker *ClientTracker, integrationTracker *IntegrationTracker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Track the client before processing the request
-			tracker.Track(r)
+			// Track the client SDK before processing the request
+			if tracker != nil {
+				tracker.Track(r)
+			}
+			// Track the client integration before processing the request
+			if integrationTracker != nil {
+				integrationTracker.Track(r)
+			}
 
 			// Continue with the request
 			next.ServeHTTP(w, r)
