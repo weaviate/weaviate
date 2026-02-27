@@ -22,7 +22,7 @@ repos:
         language: system
         types: [ go ]
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.4.0
+    rev: v2.10.1
     hooks:
       - id: golangci-lint
         args: [--new-from-rev=HEAD]
