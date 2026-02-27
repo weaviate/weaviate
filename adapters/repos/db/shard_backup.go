@@ -35,6 +35,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	s.haltForTransferCount++
 
+	// Register with index so state persists across shard drop/create
+	s.index.haltedShardsForTransfer.Store(s.name, struct{}{})
+
 	defer func() {
 		if err == nil && inactivityTimeout > 0 {
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
@@ -148,22 +151,17 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.haltForTransferCancel = cancel
 
-	s.haltForTransferInactivityTimer = time.NewTimer(s.haltForTransferInactivityTimeout)
+	timer := time.NewTimer(s.haltForTransferInactivityTimeout)
+	s.haltForTransferInactivityTimer = timer
 
 	enterrors.GoWrapper(func() {
 		// this goroutine will release maintenance cycles if no file activity
 		// is detected in the specified inactivity timeout
-		defer func() {
-			s.haltForTransferMux.Lock()
-			s.haltForTransferInactivityTimer.Stop()
-			s.haltForTransferCancel = nil
-			s.haltForTransferMux.Unlock()
-		}()
-
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-s.haltForTransferInactivityTimer.C:
+		case <-timer.C:
 			s.haltForTransferMux.Lock()
 			s.mayForceResumeMaintenanceCycles(context.Background(), true)
 			s.haltForTransferMux.Unlock()
@@ -238,9 +236,15 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		}
 	}
 
+	// Unregister from index halted tracking. This is important for shard
+	// movement: if a shard is dropped and re-created while halted, the new
+	// shard checks this map during init to decide whether to start halted.
+	s.index.haltedShardsForTransfer.Delete(s.name)
+
 	if s.haltForTransferCancel != nil {
 		// terminate background goroutine checking for inactivity timeout
 		s.haltForTransferCancel()
+		s.haltForTransferCancel = nil
 	}
 
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
@@ -264,6 +268,35 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
+	}
+
+	// If shard was initialized halted, also start processes that were skipped
+	if s.haltedOnInit.CompareAndSwap(true, false) {
+
+		// Start vector cycles
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+
+		// Start async replication if enabled
+		if s.index.AsyncReplicationEnabled() {
+			s.asyncReplicationRWMux.Lock()
+			if err := s.initAsyncReplication(s.index.AsyncReplicationConfig()); err != nil {
+				s.index.logger.WithError(err).Error("failed to init async replication on resume")
+			}
+			s.asyncReplicationRWMux.Unlock()
+		}
+
+		// Start async queue conversion if enabled
+		if asyncEnabled() {
+			enterrors.GoWrapper(func() {
+				_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
+					if err := s.ConvertQueue(targetVector); err != nil {
+						s.index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
+					}
+					return nil
+				})
+			}, s.index.logger)
+		}
 	}
 
 	return nil

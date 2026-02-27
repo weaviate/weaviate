@@ -229,11 +229,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
-	i.resetBackupState()
-	if err := i.resumeMaintenanceCycles(ctx); err != nil {
-		return err
-	}
-	return nil
+	return i.releaseBackupAndResume(ctx)
 }
 
 func (i *Index) initBackup(id string) error {
@@ -247,7 +243,7 @@ func (i *Index) initBackup(id string) error {
 			bid = x.BackupID
 		}
 		return errors.Errorf(
-			"cannot create new backup, backup ‘%s’ is not yet released, this "+
+			"cannot create new backup, backup '%s' is not yet released, this "+
 				"means its contents have not yet been fully copied to its destination, "+
 				"try again later", bid)
 	}
@@ -255,19 +251,27 @@ func (i *Index) initBackup(id string) error {
 	return nil
 }
 
-func (i *Index) resetBackupState() {
-	i.lastBackup.Store(nil)
-}
+// releaseBackupAndResume clears the halted shard map, resumes all shards,
+// then clears lastBackup. lastBackup stays set during resume so that initBackup's
+// CAS prevents a new backup from starting while shards are still being resumed.
+// Shards not yet in the shard map will self-resume via maybeResumeAfterInit, which
+// checks the halted map after being stored.
+func (i *Index) releaseBackupAndResume(ctx context.Context) (lastErr error) {
+	i.haltedShardsForTransfer.Clear()
 
-func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	i.ForEachShard(func(name string, shard ShardLike) error {
+	// Resume all shards. resumeMaintenanceCycles is a no-op for shards that
+	// are not halted (haltForTransferCount == 0).
+	if err := i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
 		}
-		time.Sleep(time.Millisecond * 10)
 		return nil
-	})
+	}); err != nil {
+		lastErr = err
+	}
+
+	i.lastBackup.Store(nil)
 	return lastErr
 }
 

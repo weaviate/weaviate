@@ -101,6 +101,7 @@ type ShardLike interface {
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
+	maybeResumeAfterInit(ctx context.Context)
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
@@ -299,6 +300,16 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 
 	SPFreshEnabled bool
+
+	// haltedOnInit tracks if shard was initialized in halted state.
+	// This is different from a shard that was halted after being fully initialized:
+	// - Normal halt: vector cycles were started then deactivated, async replication
+	//   was initialized then stopped. Resume just reactivates existing cycles.
+	// - Halted on init: vector cycles were never started, async replication was
+	//   never initialized. Resume must actually start these for the first time.
+	// We need this flag because while vector cycle Start() is idempotent,
+	// initAsyncReplication() is not - it creates hashtrees and spawns goroutines.
+	haltedOnInit atomic.Bool
 }
 
 func (s *Shard) ID() string {
