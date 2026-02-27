@@ -51,13 +51,13 @@ func TestQueuePush(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
-		q.Close()
+		q.Close(t.Context())
 	})
 
 	t.Run("push when closed", func(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
 
-		err := q.Close()
+		err := q.Close(t.Context())
 		require.NoError(t, err)
 
 		err = q.Push(makeRecord(1, 100))
@@ -99,7 +99,7 @@ func TestQueuePush(t *testing.T) {
 
 		pushMany(t, q, 1, 100, 200, 300)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 
 		q, err = NewDiskQueue(DiskQueueOptions{
@@ -231,7 +231,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, batch)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -344,7 +344,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 2)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 
 		q, err = NewDiskQueue(DiskQueueOptions{
@@ -380,7 +380,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, batch)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 }
@@ -442,7 +442,7 @@ func TestPartialChunkRecovery(t *testing.T) {
 			}
 
 			// close the queue to ensure all records are flushed
-			err := q.Close()
+			err := q.Close(t.Context())
 			require.NoError(t, err)
 
 			// ensure there is a chunk file
@@ -587,7 +587,7 @@ func TestQueueListFiles(t *testing.T) {
 	}
 
 	// close the queue to ensure all records are flushed
-	err = q.Close()
+	err = q.Close(t.Context())
 	require.NoError(t, err)
 
 	// ensure there is a chunk file
