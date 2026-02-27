@@ -103,13 +103,13 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		overrideBucket = params.Body.Config.Bucket
 		overridePath = params.Body.Config.Path
 	}
-	baseBackupId := ""
+	baseBackupID := ""
 	if params.Body.IncrementalBackupBaseID != nil {
-		baseBackupId = *params.Body.IncrementalBackupBaseID
+		baseBackupID = *params.Body.IncrementalBackupBaseID
 	}
-	if params.Body.ID == baseBackupId {
+	if params.Body.ID == baseBackupID {
 		return backups.NewBackupsCreateInternalServerError().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupId)))
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupID)))
 	}
 
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
@@ -120,7 +120,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Include:      params.Body.Include,
 		Exclude:      params.Body.Exclude,
 		Compression:  compressionFromBCfg(params.Body.Config),
-		BaseBackupId: baseBackupId,
+		BaseBackupID: baseBackupID,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

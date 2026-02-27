@@ -185,7 +185,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ServerVersion:   config.ServerVersion,
 		Leader:          leader,
 		CompressionType: compressionType,
-		BaseBackupId:    req.BaseBackupID,
+		BaseBackupID:    req.BaseBackupID,
 	}
 
 	for key := range c.Participants {
@@ -396,7 +396,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Path:              req.Path,
 				UserRestoreOption: req.UserRestoreOption,
 				RbacRestoreOption: req.RbacRestoreOption,
-				BaseBackupID:      c.descriptor.BaseBackupId,
+				BaseBackupID:      c.descriptor.BaseBackupID,
 			}
 		}
 		return nil

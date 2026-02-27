@@ -57,7 +57,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
 		for _, c := range classes {
-			desc := backup.ClassDescriptor{Name: c, BackupId: bakid}
+			desc := backup.ClassDescriptor{Name: c, BackupID: bakid}
 			func() {
 				idx := db.GetIndex(schema.ClassName(c))
 				if idx == nil {
@@ -201,15 +201,15 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
 
-		var shardBaseDescr []backup.ShardAndId
+		var shardBaseDescr []backup.ShardAndID
 		for _, classBaseDescr := range classBaseDescrs {
 			shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(name)
 			if shardBaseDescrTmp == nil {
 				continue
 			}
-			shardBaseDescr = append(shardBaseDescr, backup.ShardAndId{
+			shardBaseDescr = append(shardBaseDescr, backup.ShardAndID{
 				ShardDesc: shardBaseDescrTmp,
-				BackupId:  classBaseDescr.BackupId,
+				BackupID:  classBaseDescr.BackupID,
 			})
 		}
 		// prevent writing into the index during collection of metadata

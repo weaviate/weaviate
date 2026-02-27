@@ -147,7 +147,7 @@ type BackupRequest struct {
 	RbacRestoreOption string
 	UserRestoreOption string
 
-	BaseBackupId string
+	BaseBackupID string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate

@@ -145,7 +145,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			Version:         Version,
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
-			BaseBackupId:    baseBackupID,
+			BaseBackupID:    baseBackupID,
 		}
 
 		if err := provider.all(ctx, req.Classes, &result, baseDescrs, req.Bucket, req.Path); err != nil {
@@ -162,7 +162,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 }
 
 type ChainDescriptor interface {
-	GetBaseBackupId() string
+	GetBaseBackupID() string
 	GetCompressionType() backup.CompressionType
 	GetStatus() backup.Status
 }
@@ -187,37 +187,37 @@ func resolveBaseBackupChain[T ChainDescriptor](
 	}
 
 	var baseDescrs []T
-	visitedIds := make(map[string]struct{})
-	nextId := baseBackupID
+	visitedIDs := make(map[string]struct{})
+	nextID := baseBackupID
 
 	for {
 		// Check for circular references
-		if _, ok := visitedIds[nextId]; ok {
-			return nil, fmt.Errorf("circular references in backup ids detected, all visited IDs: %v, circular ID %v", visitedIds, nextId)
+		if _, ok := visitedIDs[nextID]; ok {
+			return nil, fmt.Errorf("circular references in backup ids detected, all visited IDs: %v, circular ID %v", visitedIDs, nextID)
 		}
-		visitedIds[nextId] = struct{}{}
+		visitedIDs[nextID] = struct{}{}
 
 		// Fetch the backup descriptor
-		baseDescr, err := fetchMeta(ctx, nextId, bucket, path)
+		baseDescr, err := fetchMeta(ctx, nextID, bucket, path)
 		if err != nil {
 			return nil, fmt.Errorf("could not fetch base backup: %w", err)
 		}
 
 		if baseDescr.GetCompressionType() != compression {
-			return nil, fmt.Errorf("backup %q has compression type %q, expected %q", nextId, baseDescr.GetCompressionType(), compression)
+			return nil, fmt.Errorf("backup %q has compression type %q, expected %q", nextID, baseDescr.GetCompressionType(), compression)
 		}
 
 		if baseDescr.GetStatus() != backup.Success {
-			return nil, fmt.Errorf("backup %q has status %q, expected %q", nextId, baseDescr.GetStatus(), backup.Success)
+			return nil, fmt.Errorf("backup %q has status %q, expected %q", nextID, baseDescr.GetStatus(), backup.Success)
 		}
 
 		baseDescrs = append(baseDescrs, baseDescr)
 
 		// Check if we've reached the end of the chain
-		if baseDescr.GetBaseBackupId() == "" {
+		if baseDescr.GetBaseBackupID() == "" {
 			break
 		}
-		nextId = baseDescr.GetBaseBackupId()
+		nextID = baseDescr.GetBaseBackupID()
 	}
 
 	return baseDescrs, nil

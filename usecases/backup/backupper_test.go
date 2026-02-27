@@ -451,7 +451,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 					return &backup.BackupDescriptor{
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
-						BaseBackupId:    "",
+						BaseBackupID:    "",
 						Status:          backup.Success,
 					}, nil
 				}
@@ -467,19 +467,19 @@ func TestResolveBaseBackupChain(t *testing.T) {
 					"backup-1": {
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
-						BaseBackupId:    "",
+						BaseBackupID:    "",
 						Status:          backup.Success,
 					},
 					"backup-2": {
 						ID:              "backup-2",
 						CompressionType: &gzipCompression,
-						BaseBackupId:    "backup-1",
+						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
 					},
 					"backup-3": {
 						ID:              "backup-3",
 						CompressionType: &gzipCompression,
-						BaseBackupId:    "backup-2",
+						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
 					},
 				}
@@ -498,13 +498,13 @@ func TestResolveBaseBackupChain(t *testing.T) {
 					"backup-1": {
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
-						BaseBackupId:    "backup-2",
+						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
 					},
 					"backup-2": {
 						ID:              "backup-2",
 						CompressionType: &gzipCompression,
-						BaseBackupId:    "backup-1",
+						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
 					},
 				}
@@ -534,7 +534,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 					return &backup.BackupDescriptor{
 						ID:              "backup-1",
 						CompressionType: &gzipCompression,
-						BaseBackupId:    "backup-1",
+						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
 					}, nil
 				}
@@ -551,7 +551,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 					return &backup.BackupDescriptor{
 						ID:              "backup-1",
 						CompressionType: &noneCompression,
-						BaseBackupId:    "",
+						BaseBackupID:    "",
 						Status:          backup.Success,
 					}, nil
 				}
@@ -568,7 +568,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 					return &backup.BackupDescriptor{
 						ID:              "backup-1",
 						CompressionType: &noneCompression,
-						BaseBackupId:    "",
+						BaseBackupID:    "",
 						Status:          backup.Failed,
 					}, nil
 				}

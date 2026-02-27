@@ -50,7 +50,7 @@ type DistributedBackupDescriptor struct {
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
-	BaseBackupId            string                     `json:"baseBackupId"`
+	BaseBackupID            string                     `json:"baseBackupId"`
 }
 
 // Len returns how many nodes exist in d
@@ -227,8 +227,8 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 	return d
 }
 
-func (d *DistributedBackupDescriptor) GetBaseBackupId() string {
-	return d.BaseBackupId
+func (d *DistributedBackupDescriptor) GetBaseBackupID() string {
+	return d.BaseBackupID
 }
 
 func (d *DistributedBackupDescriptor) GetStatus() Status {
@@ -268,7 +268,7 @@ func (s *ShardDescriptor) ClearTemporary() {
 	s.PropLengthTracker = nil
 }
 
-func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndId, rootPath string) error {
+func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndID, rootPath string) error {
 	if len(shardBaseDescrs) == 0 {
 		s.Files = files
 		return nil
@@ -292,8 +292,8 @@ FilesLoop:
 						s.IncrementalBackupInfo.FilesPerBackup = make(map[string][]IncrementalBackupInfo)
 					}
 					// files that are skipped due to being unchanged from base backup
-					s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupId] = append(
-						s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupId],
+					s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupID] = append(
+						s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupID],
 						IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
 					)
 					s.IncrementalBackupInfo.TotalSize += info.Size
@@ -309,9 +309,9 @@ FilesLoop:
 	return nil
 }
 
-type ShardAndId struct {
+type ShardAndID struct {
 	ShardDesc *ShardDescriptor
-	BackupId  string
+	BackupID  string
 }
 
 // FileList holds a list of file paths and allows modification of the underlying slice
@@ -429,7 +429,7 @@ type BigFileInfo struct {
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
 	Name          string             `json:"name"` // DB class name, also selected by user
-	BackupId      string             `json:"backup_id"`
+	BackupID      string             `json:"backupId"`
 	Shards        []*ShardDescriptor `json:"shards"`
 	ShardingState []byte             `json:"shardingState"`
 	Schema        []byte             `json:"schema"`
@@ -475,7 +475,7 @@ type BackupDescriptor struct {
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
-	BaseBackupId            string            `json:"baseBackupId,omitempty"`
+	BaseBackupID            string            `json:"baseBackupId,omitempty"`
 }
 
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
@@ -499,8 +499,8 @@ func (d *BackupDescriptor) List() []string {
 	return lst
 }
 
-func (d *BackupDescriptor) GetBaseBackupId() string {
-	return d.BaseBackupId
+func (d *BackupDescriptor) GetBaseBackupID() string {
+	return d.BaseBackupID
 }
 
 // AllExist checks if all classes exist in d.

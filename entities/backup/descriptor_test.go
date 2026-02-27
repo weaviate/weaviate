@@ -499,7 +499,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 	tests := []struct {
 		name              string
 		files             []string
-		shardBaseDescrs   []ShardAndId
+		shardBaseDescrs   []ShardAndID
 		expectedFiles     []string
 		expectedIncreInfo IncrementalBackupInfos
 		errorContains     string
@@ -520,9 +520,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "no matching files in base descriptor",
 			files: []string{"file1.db", "file2.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup2",
+					BackupID: "backup2",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
@@ -540,9 +540,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "file different time - newly backed up",
 			files: []string{"unchanged.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup3",
+					BackupID: "backup3",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -560,9 +560,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "file different size - newly backed up",
 			files: []string{"unchanged.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup4",
+					BackupID: "backup4",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -580,9 +580,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "both changed - newly backed up",
 			files: []string{"modified.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup5",
+					BackupID: "backup5",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"modified.db": {
@@ -600,9 +600,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "multiple backups in incremental info",
 			files: []string{"unchanged.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup7",
+					BackupID: "backup7",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -631,9 +631,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "file not found - error",
 			files: []string{"nonexistent.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup8",
+					BackupID: "backup8",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"nonexistent.db": {
@@ -650,9 +650,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "invalid path - sanitization error",
 			files: []string{"../../../etc/passwd"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup9",
+					BackupID: "backup9",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"../../../etc/passwd": {
@@ -669,9 +669,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "empty big files chunk map",
 			files: []string{"file1.db", "file2.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup10",
+					BackupID: "backup10",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{},
 					},
@@ -683,9 +683,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "multiple base backups - file unchanged in first",
 			files: []string{"unchanged.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup_base1",
+					BackupID: "backup_base1",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -697,7 +697,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 					},
 				},
 				{
-					BackupId: "backup_base2",
+					BackupID: "backup_base2",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
@@ -726,9 +726,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "multiple base backups - file unchanged in second",
 			files: []string{"unchanged.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup_base1",
+					BackupID: "backup_base1",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
@@ -740,7 +740,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 					},
 				},
 				{
-					BackupId: "backup_base2",
+					BackupID: "backup_base2",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -769,9 +769,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "multiple base backups - different files unchanged in different backups",
 			files: []string{"unchanged.db", "modified.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup_base1",
+					BackupID: "backup_base1",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -783,7 +783,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 					},
 				},
 				{
-					BackupId: "backup_base2",
+					BackupID: "backup_base2",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"modified.db": {
@@ -821,9 +821,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "multiple base backups - some files changed, some unchanged",
 			files: []string{"unchanged.db", "file1.db", "file2.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup_base1",
+					BackupID: "backup_base1",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -840,7 +840,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 					},
 				},
 				{
-					BackupId: "backup_base2",
+					BackupID: "backup_base2",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"file2.db": {
@@ -869,9 +869,9 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 		{
 			name:  "multiple base backups - file exists in both, unchanged in first",
 			files: []string{"unchanged.db"},
-			shardBaseDescrs: []ShardAndId{
+			shardBaseDescrs: []ShardAndID{
 				{
-					BackupId: "backup_base1",
+					BackupID: "backup_base1",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
@@ -883,7 +883,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 					},
 				},
 				{
-					BackupId: "backup_base2",
+					BackupID: "backup_base2",
 					ShardDesc: &ShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {

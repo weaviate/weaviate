@@ -151,7 +151,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Compression:  req.Compression,
 		Bucket:       req.Bucket,
 		Path:         req.Path,
-		BaseBackupID: req.BaseBackupId,
+		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -419,7 +419,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return nil, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupId, req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
 		return nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
