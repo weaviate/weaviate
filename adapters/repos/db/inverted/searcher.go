@@ -253,7 +253,6 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		universe.AndNotConc(dbm.docIDs, concurrency.SROAR_MERGE)
 		dbm.release()
 		return helpers.NewAllowListCloseableFromBitmap(universe, universeRelease), nil
-
 	}
 
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
