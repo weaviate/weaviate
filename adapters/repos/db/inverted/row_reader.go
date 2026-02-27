@@ -19,32 +19,29 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
-	value         []byte
-	bucket        *lsmkv.Bucket
-	operator      filters.Operator
-	keyOnly       bool
-	bitmapFactory *roaringset.BitmapFactory
+	value      []byte
+	bucket     *lsmkv.Bucket
+	operator   filters.Operator
+	keyOnly    bool
+	isDenyList bool
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
+	keyOnly bool,
 ) *RowReader {
 	return &RowReader{
-		bucket:        bucket,
-		value:         value,
-		operator:      operator,
-		keyOnly:       keyOnly,
-		bitmapFactory: bitmapFactory,
+		bucket:   bucket,
+		value:    value,
+		operator: operator,
+		keyOnly:  keyOnly,
 	}
 }
 
@@ -87,16 +84,8 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	v, err := rr.equalHelper(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Invert the Equal results for an efficient NotEqual
-	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotConc(rr.transformToBitmap(v), concurrency.SROAR_MERGE)
-	_, err = readFn(rr.value, inverted, release)
-	return err
+	rr.isDenyList = true
+	return rr.equal(ctx, readFn)
 }
 
 // greaterThan reads from the specified value to the end. The first row is only

@@ -658,10 +658,16 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	}
 	segmentsTook := time.Since(beforeSegments)
 
+	var v2 []byte
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	if _, err := b.getWithConsistentView(k, view); err != nil {
+	if v2, err = b.getWithConsistentView(k, view); err != nil {
 		return nil, nil, err
+	}
+
+	// document exists, but it has been updated with a different secondary key
+	if !bytes.Equal(v, v2) {
+		return nil, nil, lsmkv.Deleted
 	}
 	recheckTook := time.Since(beforeReCheck)
 

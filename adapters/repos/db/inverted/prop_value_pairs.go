@@ -14,10 +14,8 @@ package inverted
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -182,11 +180,8 @@ func (pv *propValuePair) resolveDocIDsNot(ctx context.Context, s *Searcher) (*do
 	if err != nil {
 		return nil, fmt.Errorf("nested NOT query: %w", err)
 	}
-	bm := dbm.docIDs
-	defer dbm.release()
 
-	dbm.docIDs, dbm.release = s.bitmapFactory.GetBitmap()
-	dbm.docIDs.AndNotConc(bm, concurrency.SROAR_MERGE)
+	dbm.isDenyList = !dbm.isDenyList // invert allow/deny list
 	return dbm, nil
 }
 
@@ -217,6 +212,84 @@ func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap,
 	}
 }
 
+func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *docBitmap {
+	//	- both A and B are denylists
+	//	  !A  or !B -> !(A and B) -> denylist A.And(B)
+	//	  !A and !B -> !(A  or B) -> denylist A.Or(B)
+	//
+	//	- one of A and B is a denylist, the other an allowlist
+	//	  !A and B ->   B and !A  -> allowlist B.AndNot(A)
+	//	  !A  or B -> !(A and !B) ->  denylist A.AndNot(B)
+	//
+	//	  (done by swapping A and B in the code below to avoid code duplication)
+	//	  A and !B -> allowlist A.AndNot(B): (same as !B and A)
+	//	  A  or !B -> !B or A -> !(B and !A) -> denylist B.AndNot(A): (same as !A or B)
+	//
+	//	- base case: both A and B are allowlists
+	//	  A or B -> allowlist A.Or(B)
+	//	  A and B -> allowlist A.And(B)
+	//
+	//	- for completeness, here are the remaining combinations, used as part of the Not and NotEqual operators:
+	//	  A -> allowlist A
+	//	  !A -> denylist A
+	//	  !!A -> allowlist A
+
+	// clean up resources of bitmap that is not used in the final result.
+	defer func() {
+		if b != nil {
+			b.release()
+		}
+	}()
+
+	// swapForEfficiency puts the larger bitmap in `a` for Or (fewer union ops),
+	// or the smaller bitmap in `a` for And (fewer intersection ops).
+	swapForEfficiency := func(op filters.Operator) {
+		if (op == filters.OperatorOr && a.docIDs.CompareNumKeys(b.docIDs) < 0) ||
+			(op == filters.OperatorAnd && a.docIDs.CompareNumKeys(b.docIDs) > 0) {
+			a, b = b, a
+		}
+	}
+
+	switch {
+	case a.IsDenyList() && b.IsDenyList():
+		// Both denylists — apply De Morgan: invert the operation.
+		// !A and !B -> !(A or B)  -> denylist A.Or(B)
+		// !A  or !B -> !(A and B) -> denylist A.And(B)
+		if operator == filters.OperatorAnd {
+			swapForEfficiency(filters.OperatorOr)
+			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+		} else {
+			swapForEfficiency(filters.OperatorAnd)
+			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
+		}
+
+	case a.IsDenyList() || b.IsDenyList():
+		// Mixed: one denylist, one allowlist.
+		// Normalise so that a=denylist, b=allowlist.
+		if b.IsDenyList() {
+			a, b = b, a
+		}
+		// !A and B -> allowlist B.AndNot(A)
+		// !A  or B -> denylist  A.AndNot(B)
+		if operator == filters.OperatorAnd {
+			b.docIDs.AndNotConc(a.docIDs, concurrency.SROAR_MERGE)
+			a, b = b, a // a=result(allowlist), b=old denylist(released by defer)
+		} else {
+			a.docIDs.AndNotConc(b.docIDs, concurrency.SROAR_MERGE)
+		}
+
+	default:
+		// Both allowlists.
+		swapForEfficiency(operator)
+		if operator == filters.OperatorAnd {
+			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
+		} else {
+			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+		}
+	}
+	return a
+}
+
 // mergeDocIDs merges provided docBitmaps using given operator.
 // It mutates given docBitmaps slice, by changing its length to 1 and putting
 // merge result as first element.
@@ -228,27 +301,8 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 		return dbms
 	}
 
-	var mergeFn func(*sroar.Bitmap, int) *sroar.Bitmap
-	if operator == filters.OperatorOr {
-		// biggest to smallest, so smaller bitmaps are merged into biggest one,
-		// minimising chance of expanding destination bitmap (memory allocations)
-		slices.SortFunc(dbms, func(dbma, dbmb *docBitmap) int {
-			return -dbma.docIDs.CompareNumKeys(dbmb.docIDs)
-		})
-		mergeFn = dbms[0].docIDs.OrConc
-	} else {
-		// smallest to biggest, so data is removed from smallest bitmap
-		// allowing bigger bitmaps to be garbage collected asap
-		slices.SortFunc(dbms, func(dbma, dbmb *docBitmap) int {
-			return dbma.docIDs.CompareNumKeys(dbmb.docIDs)
-		})
-		mergeFn = dbms[0].docIDs.AndConc
-	}
-
-	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs, concurrency.SROAR_MERGE)
-		// release resources of docBitmaps merged into 1st one
-		dbms[i].release()
+	for i := 0; i < len(dbms)-1; i++ {
+		dbms[0] = mergeBitmapsAndOrWithDenyList(dbms[0], dbms[i+1], operator)
 	}
 
 	return dbms[:1]

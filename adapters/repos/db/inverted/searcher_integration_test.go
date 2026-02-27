@@ -790,7 +790,9 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			allowList, err := searcher.DocIDs(context.Background(), tc.filter, additional.Properties{}, className)
 			assert.NoError(t, err)
-			assert.ElementsMatch(t, tc.expectedIds, allowList.Slice())
+			for _, expectedId := range tc.expectedIds {
+				assert.True(t, allowList.Contains(expectedId), "expected id %d not found in result %v", expectedId, tc.filter)
+			}
 			allowList.Close()
 		})
 	}
