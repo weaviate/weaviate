@@ -20,7 +20,6 @@ import (
 	"math"
 	"net/http"
 	"time"
-	"unsafe"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -549,13 +548,7 @@ func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
 	read += 8
 
 	dists := make([]float32, distsLength)
-	if distsLength > 0 {
-		// Reinterpret the []float32 backing array as []byte so we can bulk-copy
-		// the raw bytes directly via copy (memmove) instead of decoding each
-		// float32 individually. Safe on little-endian architectures (x86, ARM64).
-		outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&dists[0])), distsLength*4)
-		copy(outBytes, in[read:read+distsLength*4])
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return dists, nil
 }
@@ -717,13 +710,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	read += 8
 
 	dists := make([]float32, distsLength)
-	if distsLength > 0 {
-		// Reinterpret the []float32 backing array as []byte so we can bulk-copy
-		// the raw bytes directly via copy (memmove) instead of decoding each
-		// float32 individually. Safe on little-endian architectures (x86, ARM64).
-		distsBytes := unsafe.Slice((*byte)(unsafe.Pointer(&dists[0])), distsLength*4)
-		copy(distsBytes, in[read:read+distsLength*4])
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return objs, dists, nil
 }

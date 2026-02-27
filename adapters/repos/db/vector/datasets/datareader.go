@@ -16,9 +16,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"unsafe"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 func parquetMetadata(pqFile *parquet.File) (map[string]int, int) {
@@ -208,14 +208,7 @@ func convertBinaryToFloat32(data []byte) ([]float32, error) {
 		return nil, fmt.Errorf("binary data length %d is not divisible by 4 (float32 size)", len(data))
 	}
 	result := make([]float32, len(data)/4)
-	if len(result) == 0 {
-		return result, nil
-	}
-	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
-	// the raw bytes directly via copy (memmove) instead of decoding each
-	// float32 individually. Safe on little-endian architectures (x86, ARM64).
-	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&result[0])), len(data))
-	copy(outBytes, data)
+	byteops.CopyBytesToSlice(result, data)
 	return result, nil
 }
 

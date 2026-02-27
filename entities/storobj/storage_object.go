@@ -20,7 +20,6 @@ import (
 	"io"
 	"math"
 	"runtime"
-	"unsafe"
 
 	"github.com/buger/jsonparser"
 	"github.com/go-openapi/strfmt"
@@ -1465,11 +1464,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
-	// the raw bytes directly via copy (memmove) instead of decoding each
-	// float32 individually. Safe on little-endian architectures (x86, ARM64).
-	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), vecLen*4)
-	copy(outBytes, in[vecStart:vecEnd])
+	byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 
 	return out, nil
 }
@@ -1516,8 +1511,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 		} else {
 			out = make([]float32, vecLen)
 		}
-		outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), vecLen*4)
-		copy(outBytes, in[vecStart:vecEnd])
+		byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 	}
 
 	pos := vecEnd

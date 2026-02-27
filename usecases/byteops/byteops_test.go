@@ -13,8 +13,12 @@ package byteops
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"math/big"
+	mathrand "math/rand"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -336,4 +340,50 @@ func TestFp64SliceFromBytes(t *testing.T) {
 		})
 		assert.Equal(t, []float64{1.1, 2.2, 3.3}, slice)
 	})
+}
+
+// makeFloat32Bytes creates a []byte containing n little-endian float32 values.
+func makeFloat32Bytes(n int) []byte {
+	data := make([]byte, n*4)
+	for i := 0; i < n; i++ {
+		binary.LittleEndian.PutUint32(data[i*4:], math.Float32bits(mathrand.Float32()))
+	}
+	return data
+}
+
+//go:noinline
+func copyBytesToFloat32Loop(dst []float32, src []byte) {
+	for i := range dst {
+		dst[i] = math.Float32frombits(binary.LittleEndian.Uint32(src[i*4:]))
+	}
+}
+
+func BenchmarkCopyBytesToSlice(b *testing.B) {
+	for _, dims := range []int{128, 768, 1536} {
+		data := makeFloat32Bytes(dims)
+
+		b.Run(fmt.Sprintf("loop/dims_%d", dims), func(b *testing.B) {
+			dst := make([]float32, dims)
+			var sum float32
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				copyBytesToFloat32Loop(dst, data)
+				sum += dst[0] + dst[len(dst)-1]
+			}
+			runtime.KeepAlive(sum)
+		})
+
+		b.Run(fmt.Sprintf("bulk_copy/dims_%d", dims), func(b *testing.B) {
+			dst := make([]float32, dims)
+			var sum float32
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				CopyBytesToSlice(dst, data)
+				sum += dst[0] + dst[len(dst)-1]
+			}
+			runtime.KeepAlive(sum)
+		})
+	}
 }

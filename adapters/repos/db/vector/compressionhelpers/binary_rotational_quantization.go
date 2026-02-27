@@ -17,10 +17,10 @@ import (
 	"math/bits"
 	"math/rand/v2"
 	"strings"
-	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -430,12 +430,7 @@ func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []ui
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
 	slice := make([]byte, len(compressed)*8)
-	if len(compressed) > 0 {
-		// Reinterpret the []uint64 backing array as []byte so we can bulk-copy
-		// via copy (memmove). Safe on little-endian architectures (x86, ARM64).
-		src := unsafe.Slice((*byte)(unsafe.Pointer(&compressed[0])), len(compressed)*8)
-		copy(slice, src)
-	}
+	byteops.CopySliceToBytes(slice, compressed)
 	return slice
 }
 
@@ -445,12 +440,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytes(compressed []byte) []u
 		l++
 	}
 	slice := make([]uint64, l)
-	if len(compressed) > 0 {
-		// Reinterpret the []uint64 backing array as []byte so we can bulk-copy
-		// via copy (memmove). Safe on little-endian architectures (x86, ARM64).
-		dst := unsafe.Slice((*byte)(unsafe.Pointer(&slice[0])), l*8)
-		copy(dst, compressed)
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 
@@ -466,12 +456,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesInto(compressed []byte,
 		buffer = buffer[:l]
 	}
 
-	if len(compressed) > 0 {
-		// Reinterpret the []uint64 backing array as []byte so we can bulk-copy
-		// via copy (memmove). Safe on little-endian architectures (x86, ARM64).
-		dst := unsafe.Slice((*byte)(unsafe.Pointer(&buffer[0])), l*8)
-		copy(dst, compressed)
-	}
+	byteops.CopyBytesToSlice(buffer, compressed)
 
 	return buffer
 }
@@ -490,12 +475,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(comp
 	slice := (*buffer)[len(*buffer)-l:]
 	*buffer = (*buffer)[:len(*buffer)-l]
 
-	if len(compressed) > 0 {
-		// Reinterpret the []uint64 backing array as []byte so we can bulk-copy
-		// via copy (memmove). Safe on little-endian architectures (x86, ARM64).
-		dst := unsafe.Slice((*byte)(unsafe.Pointer(&slice[0])), l*8)
-		copy(dst, compressed)
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 

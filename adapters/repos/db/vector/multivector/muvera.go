@@ -16,13 +16,13 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
-	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type MuveraConfig struct {
@@ -220,14 +220,7 @@ func MuveraBytesFromFloat32(vec []float32) []byte {
 
 func MuveraFromBytes(bytes []byte) []float32 {
 	vec := make([]float32, len(bytes)/4)
-	if len(vec) == 0 {
-		return vec
-	}
-	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
-	// the raw bytes directly via copy (memmove) instead of decoding each
-	// float32 individually. Safe on little-endian architectures (x86, ARM64).
-	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&vec[0])), len(vec)*4)
-	copy(outBytes, bytes)
+	byteops.CopyBytesToSlice(vec, bytes)
 	return vec
 }
 

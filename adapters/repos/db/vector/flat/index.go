@@ -23,7 +23,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -40,6 +39,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -330,11 +330,7 @@ func uint64SliceFromByteSlice(vector []byte, slice []uint64) []uint64 {
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
-	// the raw bytes directly via copy (memmove) instead of decoding each
-	// float32 individually. Safe on little-endian architectures (x86, ARM64).
-	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&slice[0])), len(slice)*4)
-	copy(outBytes, vector[:len(slice)*4])
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 
