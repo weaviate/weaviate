@@ -463,13 +463,13 @@ func (s *BackupTestSuite) VerifyCompressedVectorsRestored(t *testing.T, sampleSi
 }
 
 // CreateBackup creates a backup and waits for it to complete.
-func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupId string) {
+func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID string) {
 	t.Helper()
 
 	cfg := helper.DefaultBackupConfig()
 
 	// Start backup
-	resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupId)
+	resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupID)
 	if err != nil {
 		// Try to extract detailed error message from the response
 		t.Logf("Backup creation failed with error type: %T", err)
@@ -1165,7 +1165,7 @@ func queryGQL(t *testing.T, query string) (*gql.GraphqlPostOK, error) {
 }
 
 // getFolderChunks gets all the chunks for a given backupID from the specified S3 bucket
-func getTotalSize(t *testing.T, minioURL, bucketName, backupId string) (int64, error) {
+func getTotalSize(t *testing.T, minioURL, bucketName, backupID string) (int64, error) {
 	t.Helper()
 
 	client, err := minio.New(minioURL, &minio.Options{
@@ -1186,7 +1186,7 @@ func getTotalSize(t *testing.T, minioURL, bucketName, backupId string) (int64, e
 	totalSize := int64(0)
 	for object := range objectCh {
 		require.NoError(t, object.Err)
-		if !strings.Contains(object.Key, backupId) {
+		if !strings.Contains(object.Key, backupID) {
 			continue
 		}
 		totalSize += object.Size

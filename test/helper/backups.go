@@ -48,14 +48,14 @@ func CreateBackup(t *testing.T, cfg *models.BackupConfig, className, backend, ba
 	return Client(t).Backups.BackupsCreate(params, nil)
 }
 
-func CreateBackupWithBase(t *testing.T, cfg *models.BackupConfig, className, backend, backupID, baseBackupId string) (*backups.BackupsCreateOK, error) {
+func CreateBackupWithBase(t *testing.T, cfg *models.BackupConfig, className, backend, backupID, baseBackupID string) (*backups.BackupsCreateOK, error) {
 	params := backups.NewBackupsCreateParams().
 		WithBackend(backend).
 		WithBody(&models.BackupCreateRequest{
 			ID:                      backupID,
 			Include:                 []string{className},
 			Config:                  cfg,
-			IncrementalBackupBaseID: &baseBackupId,
+			IncrementalBackupBaseID: &baseBackupID,
 		})
 	t.Logf("Creating backup with ID: %s, backend: %s, className: %s, config: %+v\n", backupID, backend, className, cfg)
 	return Client(t).Backups.BackupsCreate(params, nil)
