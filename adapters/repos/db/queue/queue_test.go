@@ -45,7 +45,7 @@ func TestNewDiskQueue(t *testing.T) {
 func TestQueuePush(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close()
+	defer s.Close(t.Context())
 
 	t.Run("a few tasks", func(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
@@ -196,7 +196,7 @@ func TestQueuePush(t *testing.T) {
 func TestQueueDecodeTask(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close()
+	defer s.Close(t.Context())
 
 	t.Run("a few tasks", func(t *testing.T) {
 		exec := discardExecutor()
@@ -497,7 +497,7 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		s := makeScheduler(t)
 		s.Start()
-		defer s.Close()
+		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
 		q.Pause() // prevent scheduler from processing the queue
@@ -540,7 +540,7 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		s := makeScheduler(t)
 		s.Start()
-		defer s.Close()
+		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
 		q.Pause() // prevent scheduler from processing the queue

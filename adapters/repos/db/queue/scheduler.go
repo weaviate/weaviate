@@ -189,7 +189,7 @@ func (s *Scheduler) Start() {
 	enterrors.GoWrapper(f, s.Logger)
 }
 
-func (s *Scheduler) Close() error {
+func (s *Scheduler) Close(ctx context.Context) error {
 	if s == nil || s.ctx == nil {
 		// scheduler not initialized. No op.
 		return nil
@@ -204,7 +204,7 @@ func (s *Scheduler) Close() error {
 	s.cancelFn()
 
 	// wait for the workers to finish processing tasks
-	_ = s.activeTasks.Wait(context.Background())
+	_ = s.activeTasks.Wait(ctx)
 
 	// wait for the spawned goroutines to stop
 	s.wg.Wait()

@@ -47,7 +47,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 
 	scheduler.Start()
-	defer scheduler.Close()
+	defer scheduler.Close(t.Context())
 	uc := ent.NewDefaultUserConfig()
 	store := testinghelpers.NewDummyStore(t)
 

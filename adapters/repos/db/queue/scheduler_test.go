@@ -33,7 +33,7 @@ func TestScheduler(t *testing.T) {
 		s := makeScheduler(t)
 		s.Start()
 		time.Sleep(100 * time.Millisecond)
-		err := s.Close()
+		err := s.Close(t.Context())
 		require.NoError(t, err)
 	})
 
@@ -41,13 +41,13 @@ func TestScheduler(t *testing.T) {
 		s := makeScheduler(t)
 		s.Start()
 		s.Start()
-		err := s.Close()
+		err := s.Close(t.Context())
 		require.NoError(t, err)
 	})
 
 	t.Run("commands before start", func(t *testing.T) {
 		s := makeScheduler(t)
-		err := s.Close()
+		err := s.Close(t.Context())
 		require.NoError(t, err)
 		s.PauseQueue("test")
 		s.ResumeQueue("test")
