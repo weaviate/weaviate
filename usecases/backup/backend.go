@@ -773,14 +773,20 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 					eg.Go(func() error {
 						uz, w := NewUnzip(classTempDir, compressionType)
 
-						enterrors.GoWrapper(func() {
+						errCh := enterrors.GoWrapperWithErrorCh(func() {
 							_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
 							if err != nil {
-								fw.logger.WithError(err).WithField("backup_id", backupId).Warn("failed to read chunk")
+								fw.logger.WithError(err).WithField("backup_id", backupId).Warn("failed to read chunk from base backup")
 							}
 						}, fw.logger)
 						_, err := uz.ReadChunk()
-						return err
+						if err != nil {
+							return err
+						}
+						if readErr := <-errCh; readErr != nil {
+							return readErr
+						}
+						return nil
 					})
 				}
 			}
