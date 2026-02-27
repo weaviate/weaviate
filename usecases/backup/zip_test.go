@@ -52,11 +52,12 @@ func TestZip(t *testing.T) {
 
 			// compression writer
 			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			z, rc, err := NewZip(pathDest, int(compressionLevel), 0)
+			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0)
 			require.NoError(t, err)
 			var zInputLen int64
 			go func() {
-				zInputLen, err = z.WriteShard(ctx, &sd, sd.CopyFilesInShard(), true, &atomic.Int64{})
+				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
+				zInputLen, err = z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				if err != nil {
 					t.Errorf("compress: %v", err)
 				}
@@ -327,6 +328,178 @@ func TestRenaming(t *testing.T) {
 	wg.Wait()
 }
 
+// TestWriteRegularsFillsChunkWithSmallFiles verifies that when a large file doesn't fit,
+// WriteRegulars scans ahead and fills the chunk with smaller files that do fit.
+func TestWriteRegularsFillsChunkWithSmallFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "source")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+
+	// Create files: one big (5000 bytes) and three small (100 bytes each)
+	bigData := bytes.Repeat([]byte("X"), 5000)
+	smallData := bytes.Repeat([]byte("s"), 100)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small1.db"), smallData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "big.db"), bigData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small2.db"), smallData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small3.db"), smallData, 0o644))
+
+	sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
+	files := []string{
+		"shard/small1.db",
+		"shard/big.db",
+		"shard/small2.db",
+		"shard/small3.db",
+	}
+	fileSizes := map[string]int64{
+		"shard/small1.db": 100,
+		"shard/big.db":    5000,
+		"shard/small2.db": 100,
+		"shard/small3.db": 100,
+	}
+
+	// Chunk size = 1000 bytes. small1 fits (100), big doesn't (5000).
+	// Scan ahead should pick up small2 and small3.
+	z, rc, err := NewZip(dir, int(NoCompression), 1000, 0)
+	require.NoError(t, err)
+
+	fileList := &backup.FileList{
+		Files:     append([]string{}, files...),
+		FileSizes: fileSizes,
+	}
+	preCompSize := &atomic.Int64{}
+
+	var writeErr error
+	var written int64
+	go func() {
+		written, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
+		z.Close()
+	}()
+
+	buf := bytes.NewBuffer(nil)
+	_, err = io.Copy(buf, rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+	require.NoError(t, writeErr)
+	require.Greater(t, written, int64(0))
+
+	// After chunk 1: small1, small2, small3 should have been written.
+	// Only big.db should remain in the file list.
+	require.Equal(t, 1, fileList.Len(), "only big file should remain")
+	require.Equal(t, "shard/big.db", fileList.Peek())
+
+	// Verify the tar contains exactly 3 files
+	tr := tar.NewReader(buf)
+	var tarFiles []string
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		tarFiles = append(tarFiles, hdr.Name)
+	}
+	require.ElementsMatch(t, []string{"shard/small1.db", "shard/small2.db", "shard/small3.db"}, tarFiles)
+}
+
+// TestBigFileGetsOwnChunk verifies that files >= minIndividualFileSize get their own chunk
+// and are tracked in BigFilesChunk for incremental dedup.
+func TestBigFileGetsOwnChunk(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "source")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+
+	smallData := bytes.Repeat([]byte("s"), 100)
+	bigData := bytes.Repeat([]byte("B"), 2000)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small1.db"), smallData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "big.db"), bigData, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small2.db"), smallData, 0o644))
+
+	sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
+	fileSizes := map[string]int64{
+		"shard/small1.db": 100,
+		"shard/big.db":    2000,
+		"shard/small2.db": 100,
+	}
+
+	// chunkTargetSize=10000 (plenty of room), minIndividualFileSize=500 (big.db qualifies)
+	fileList := &backup.FileList{
+		Files:     []string{"shard/small1.db", "shard/big.db", "shard/small2.db"},
+		FileSizes: fileSizes,
+	}
+
+	// Chunk 1: small1 is written, then big.db is at front but firstFile=false,
+	// so fillChunkWithSmallFiles runs and picks up small2. big.db remains.
+	z, rc, err := NewZip(dir, int(NoCompression), 10000, 500)
+	require.NoError(t, err)
+
+	preCompSize := &atomic.Int64{}
+	var writeErr error
+	go func() {
+		_, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
+		z.Close()
+	}()
+
+	buf := bytes.NewBuffer(nil)
+	_, err = io.Copy(buf, rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+	require.NoError(t, writeErr)
+
+	// After chunk 1: small1 and small2 written, only big.db remains
+	require.Equal(t, 1, fileList.Len(), "only big file should remain")
+	require.Equal(t, "shard/big.db", fileList.Peek())
+
+	// Verify chunk 1 tar contains the two small files
+	tr := tar.NewReader(buf)
+	var tarFiles []string
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		tarFiles = append(tarFiles, hdr.Name)
+	}
+	require.ElementsMatch(t, []string{"shard/small1.db", "shard/small2.db"}, tarFiles)
+
+	// Chunk 2: big.db is first file and big — gets its own chunk
+	z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500)
+	require.NoError(t, err)
+	preCompSize2 := &atomic.Int64{}
+	go func() {
+		_, writeErr = z2.WriteRegulars(context.Background(), &sd, fileList, preCompSize2, "chunk2")
+		z2.Close()
+	}()
+
+	buf2 := bytes.NewBuffer(nil)
+	_, err = io.Copy(buf2, rc2)
+	require.NoError(t, err)
+	require.NoError(t, rc2.Close())
+	require.NoError(t, writeErr)
+
+	require.Equal(t, 0, fileList.Len(), "all files should be written")
+
+	// Verify chunk 2 tar contains only big.db
+	tr2 := tar.NewReader(buf2)
+	var tarFiles2 []string
+	for {
+		hdr, err := tr2.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		tarFiles2 = append(tarFiles2, hdr.Name)
+	}
+	require.Equal(t, []string{"shard/big.db"}, tarFiles2)
+
+	// Verify big.db is tracked in BigFilesChunk
+	require.NotNil(t, sd.BigFilesChunk)
+	bigInfo, ok := sd.BigFilesChunk["shard/big.db"]
+	require.True(t, ok, "big.db should be tracked in BigFilesChunk")
+	require.Equal(t, int64(2000), bigInfo.Size)
+	require.Equal(t, []string{"chunk2"}, bigInfo.ChunkKeys)
+}
+
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
 func TestRenamingDuringBackup(t *testing.T) {
 	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
@@ -394,10 +567,11 @@ func TestRenamingDuringBackup(t *testing.T) {
 			sd.PropLengthTracker = []byte("12345")
 
 			// start backup process
-			z, rc, err := NewZip(dir, int(compressionLevel), 0)
+			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0)
 			require.NoError(t, err)
 			go func() {
-				_, err := z.WriteShard(ctx, &sd, sd.CopyFilesInShard(), true, &atomic.Int64{})
+				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
+				_, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				require.NoError(t, err)
 				require.NoError(t, z.Close())
 			}()

@@ -52,12 +52,12 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
 		for _, c := range classes {
-			desc := backup.ClassDescriptor{Name: c}
+			desc := backup.ClassDescriptor{Name: c, BackupID: bakid}
 			func() {
 				idx := db.GetIndex(schema.ClassName(c))
 				if idx == nil {
@@ -70,7 +70,15 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
-				if err := idx.descriptor(ctx, bakid, &desc); err != nil {
+				var classBaseDescr []*backup.ClassDescriptor
+				for _, b := range baseDescrs {
+					classbaseDescrTmp := b.GetClassDescriptor(c)
+					if classbaseDescrTmp == nil {
+						continue
+					}
+					classBaseDescr = append(classBaseDescr, classbaseDescrTmp)
+				}
+				if err := idx.descriptor(ctx, bakid, &desc, classBaseDescr); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
 			}()
@@ -177,7 +185,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -192,13 +200,30 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
+
+		var shardBaseDescr []backup.ShardAndID
+		for _, classBaseDescr := range classBaseDescrs {
+			shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(name)
+			if shardBaseDescrTmp == nil {
+				continue
+			}
+			shardBaseDescr = append(shardBaseDescr, backup.ShardAndID{
+				ShardDesc: shardBaseDescrTmp,
+				BackupID:  classBaseDescr.BackupID,
+			})
+		}
 		// prevent writing into the index during collection of metadata
 		i.backupLock.Lock(name)
 		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
 
-		if err := s.ListBackupFiles(ctx, &sd); err != nil {
+		files, err := s.ListBackupFiles(ctx, &sd)
+		if err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
+		}
+
+		if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
 		}
 
 		desc.Shards = append(desc.Shards, &sd)

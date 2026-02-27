@@ -13,8 +13,10 @@ package backuptest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,10 +24,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/brianvoe/gofakeit/v6"
+	"github.com/minio/minio-go/v7"
+	minioCredentials "github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"
+	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -98,6 +105,8 @@ type BackupTestSuiteConfig struct {
 
 	// TestCancellation runs backup cancellation test instead of full backup/restore
 	TestCancellation bool
+
+	TestIncremental bool
 }
 
 // DefaultSuiteConfig returns a default configuration for the backup test suite.
@@ -454,13 +463,13 @@ func (s *BackupTestSuite) VerifyCompressedVectorsRestored(t *testing.T, sampleSi
 }
 
 // CreateBackup creates a backup and waits for it to complete.
-func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID string) {
+func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID string) {
 	t.Helper()
 
 	cfg := helper.DefaultBackupConfig()
 
 	// Start backup
-	resp, err := helper.CreateBackup(t, cfg, s.config.ClassName, s.config.BackendType, backupID)
+	resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupID)
 	if err != nil {
 		// Try to extract detailed error message from the response
 		t.Logf("Backup creation failed with error type: %T", err)
@@ -527,6 +536,124 @@ func (s *BackupTestSuite) EnableRQ(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
+type book struct {
+	Title   string   `fake:"{sentence:10}"`
+	Content string   `fake:"{paragraph:10}"`
+	Tags    []string `fake:"{words:3}"`
+}
+
+func (b *book) toObject(class string) *models.Object {
+	return &models.Object{
+		Class: class,
+		Properties: map[string]interface{}{
+			"title":   b.Title,
+			"content": b.Content,
+			"tags":    b.Tags,
+		},
+	}
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
+	t.Run("incremental backup and restore errors", s.RunIncrementalTestAndRestoreErrors)
+	t.Run("successful incremental backup and restore", s.RunIncrementalTestAndRestoreSuccess)
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestoreErrors(t *testing.T) {
+	t.Run("base backup does not exist", func(t *testing.T) {
+		s.CreateTestClass(t)
+		s.CreateTestObjects(t)
+		cfg := helper.DefaultBackupConfig()
+
+		_, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, "incremental-no-base-"+s.config.BackupID, "non-existent-base-backup"+s.config.BackupID)
+		require.Error(t, err)
+	})
+}
+
+func (s *BackupTestSuite) RunIncrementalTestAndRestoreSuccess(t *testing.T) {
+	backupIDBase := fmt.Sprintf("base-%s-%d", s.config.BackupID, time.Now().UnixNano())
+	backupIDIncremental1 := fmt.Sprintf("incremental1-%s-%d", s.config.BackupID, time.Now().UnixNano())
+	backupIDIncremental2 := fmt.Sprintf("incremental2-%s-%d", s.config.BackupID, time.Now().UnixNano())
+	var endpoints []string
+	for i := 1; i <= s.config.ClusterSize; i++ {
+		endpoints = append(endpoints, s.compose.GetWeaviateNode(i).URI())
+	}
+	s.DeleteTestClass(t)
+	defer s.DeleteTestClass(t)
+	s.CreateTestClass(t)
+
+	// add lots of data
+	numObjects := 10000
+	for i := 0; i < numObjects; i++ {
+		var b book
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
+	}
+	checkCount(t, endpoints, s.config.ClassName, numObjects)
+	s.CreateBackup(t, backupIDBase, "")
+
+	// add more data after backup completed and do incremental backup
+	numObjects2 := 250
+	for i := 0; i < numObjects2; i++ {
+		var b book
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
+	}
+	s.CreateBackup(t, backupIDIncremental1, backupIDBase)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+numObjects2)
+
+	// add more data after backup completed and do a second incremental backup
+	for i := 0; i < numObjects2; i++ {
+		var b book
+		require.NoError(t, gofakeit.Struct(&b))
+		require.NoError(t, helper.CreateObject(t, b.toObject(s.config.ClassName)))
+	}
+
+	s.CreateBackup(t, backupIDIncremental2, backupIDIncremental1)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+2*numObjects2)
+
+	helper.DeleteClass(t, s.config.ClassName)
+	s.RestoreBackup(t, backupIDBase)
+	checkCount(t, endpoints, s.config.ClassName, numObjects)
+
+	helper.DeleteClass(t, s.config.ClassName)
+	s.RestoreBackup(t, backupIDIncremental1)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+numObjects2)
+
+	helper.DeleteClass(t, s.config.ClassName)
+	s.RestoreBackup(t, backupIDIncremental2)
+	checkCount(t, endpoints, s.config.ClassName, numObjects+2*numObjects2)
+
+	// check that sizes are as expected. We return the size of the pre-compression/deduplication data in the backup status
+	res1, err := helper.CreateBackupStatus(t, s.config.BackendType, backupIDBase, s.config.BucketName, "")
+	require.NoError(t, err)
+	res2, err := helper.CreateBackupStatus(t, s.config.BackendType, backupIDIncremental1, s.config.BucketName, "")
+	require.NoError(t, err)
+	res3, err := helper.CreateBackupStatus(t, s.config.BackendType, backupIDIncremental2, s.config.BucketName, "")
+	require.NoError(t, err)
+
+	if s.config.MinioEndpoint != "" {
+		// verify that incremental backups are smaller than the full backup. Only on S3 backends where we can check the
+		// actual stored size.
+		backupSize1, err := getTotalSize(t, s.config.MinioEndpoint, s.config.BucketName, backupIDBase)
+		require.NoError(t, err)
+
+		backupSize2, err := getTotalSize(t, s.config.MinioEndpoint, s.config.BucketName, backupIDIncremental1)
+		require.NoError(t, err)
+
+		backupSize3, err := getTotalSize(t, s.config.MinioEndpoint, s.config.BucketName, backupIDIncremental2)
+		require.NoError(t, err)
+
+		t.Logf("actual backup sizes from minio: base: %d, incremental1: %d, incremental2: %d", backupSize1, backupSize2, backupSize3)
+		require.Less(t, backupSize2, backupSize1)
+		require.Less(t, backupSize3, backupSize1)
+	}
+
+	// total sizes should increase with each incremental backup as we add more objects
+	t.Logf("Total precompression sizes: base backup size: %v, incremental1 size: %v, incremental size2: %v", res1.Payload.Size, res2.Payload.Size, res3.Payload.Size)
+	require.Greater(t, res2.Payload.Size, res1.Payload.Size)
+	require.Greater(t, res3.Payload.Size, res2.Payload.Size)
+}
+
 // RunBasicBackupRestoreTest runs a complete backup and restore test cycle.
 func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	backupID := fmt.Sprintf("%s-%d", s.config.BackupID, time.Now().UnixNano())
@@ -565,7 +692,7 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	})
 
 	t.Run("create backup", func(t *testing.T) {
-		s.CreateBackup(t, backupID)
+		s.CreateBackup(t, backupID, "")
 	})
 
 	t.Run("delete class", func(t *testing.T) {
@@ -687,6 +814,10 @@ func (s *BackupTestSuite) RunTestsWithSharedCompose(t *testing.T, compose *docke
 		t.Run("backup_cancellation", func(t *testing.T) {
 			s.RunCancellationTest(t)
 		})
+	} else if s.config.TestIncremental {
+		t.Run("incremental backup restore", func(t *testing.T) {
+			s.RunIncrementalTestAndRestore(t)
+		})
 	} else {
 		t.Run("basic_backup_restore", func(t *testing.T) {
 			s.RunBasicBackupRestoreTest(t)
@@ -792,6 +923,9 @@ type BackupTestCase struct {
 
 	// TestCancellation tests backup cancellation instead of full backup/restore
 	TestCancellation bool
+
+	// TestIncremental tests incremental backup and restore
+	TestIncremental bool
 }
 
 // DefaultTestCase returns a test case with default settings (single-tenant).
@@ -875,6 +1009,15 @@ func CancellationTestCase() BackupTestCase {
 	}
 }
 
+// IncrementalTestCase returns a test case for testing incremental backups.
+func IncrementalTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:            "incremental",
+		MultiTenant:     false,
+		TestIncremental: true,
+	}
+}
+
 // SharedComposeConfig holds configuration for the shared Docker compose environment.
 type SharedComposeConfig struct {
 	// Compose is the shared Docker compose instance
@@ -938,6 +1081,7 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 		MinioEndpoint:    sharedConfig.MinioEndpoint,
 		WithCompression:  testCase.WithCompression,
 		TestCancellation: testCase.TestCancellation,
+		TestIncremental:  testCase.TestIncremental,
 	}
 }
 
@@ -990,4 +1134,63 @@ func RunFilesystemBackupTests(t *testing.T, compose *docker.DockerCompose, testC
 	config := NewSuiteConfigFromTestCase(sharedConfig, testCase)
 	suite := NewBackupTestSuite(config)
 	suite.RunTestsWithSharedCompose(t, compose)
+}
+
+func checkCount(t *testing.T, nodeEndpoints []string, classname string, numObjects int) {
+	t.Helper()
+	for i := range nodeEndpoints {
+		helper.SetupClient(nodeEndpoints[i])
+		resp, err := queryGQL(t, fmt.Sprintf("{ Aggregate { %s { meta { count } } } }", classname))
+		require.NoError(t, err)
+		if resp.Payload.Errors != nil {
+			for _, err := range resp.Payload.Errors {
+				if err != nil {
+					t.Logf("GraphQL errors on node %d: %+v", i+1, resp.Payload.Errors)
+				}
+			}
+		}
+		require.Nil(t, resp.Payload.Errors, "GraphQL errors: %+v", resp.Payload.Errors)
+		require.NotNil(t, resp.Payload.Data)
+
+		countJson := resp.Payload.Data["Aggregate"].(map[string]interface{})[classname].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"].(json.Number)
+		count, err := countJson.Int64()
+		require.NoError(t, err)
+		require.Equal(t, int64(numObjects), count, "expected all objects to be present on node %d", i+1)
+	}
+}
+
+func queryGQL(t *testing.T, query string) (*gql.GraphqlPostOK, error) {
+	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
+	return helper.Client(t).Graphql.GraphqlPost(params, nil)
+}
+
+// getTotalSize gets the total size of all objects for a given backupID from the specified S3 bucket
+func getTotalSize(t *testing.T, minioURL, bucketName, backupID string) (int64, error) {
+	t.Helper()
+
+	client, err := minio.New(minioURL, &minio.Options{
+		Creds: minioCredentials.NewStaticV4("aws_access_key", // MinIO default access key
+			"aws_secret_key", // MinIO default secret key
+			"",
+		),
+		Secure: false,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	objectCh := client.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
+		Recursive: true,
+	})
+
+	totalSize := int64(0)
+	for object := range objectCh {
+		require.NoError(t, object.Err)
+		if !strings.Contains(object.Key, backupID) {
+			continue
+		}
+		totalSize += object.Size
+	}
+
+	return totalSize, nil
 }

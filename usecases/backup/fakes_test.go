@@ -66,9 +66,9 @@ func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
 	return args.Error(0)
 }
 
-func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
-	args := s.Called(ctx, bakid, classes)
+	args := s.Called(ctx, bakid, classes, baseDescr)
 	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 

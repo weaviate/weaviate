@@ -13,7 +13,10 @@ package backup
 
 import (
 	"fmt"
+	"os"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // DeleteMarkerAdd marks folders of indices that have been deleted during an ongoing backup and are already removed from
@@ -47,6 +50,7 @@ type DistributedBackupDescriptor struct {
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
+	BaseBackupID            string                     `json:"baseBackupId"`
 }
 
 // Len returns how many nodes exist in d
@@ -223,11 +227,25 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 	return d
 }
 
+func (d *DistributedBackupDescriptor) GetBaseBackupID() string {
+	return d.BaseBackupID
+}
+
+func (d *DistributedBackupDescriptor) GetStatus() Status {
+	return d.Status
+}
+
+func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
+	return d.CompressionType
+}
+
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
-	Name  string   `json:"name"`
-	Node  string   `json:"node"`
-	Files []string `json:"files,omitempty"`
+	Name                  string                 `json:"name"`
+	Node                  string                 `json:"node"`
+	Files                 []string               `json:"files,omitempty"`
+	BigFilesChunk         map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
+	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -235,7 +253,6 @@ type ShardDescriptor struct {
 	PropLengthTracker     []byte `json:"propLengthTracker,omitempty"`
 	ShardVersionPath      string `json:"shardVersionPath,omitempty"`
 	Version               []byte `json:"version,omitempty"`
-	Chunk                 int32  `json:"chunk"`
 }
 
 // ClearTemporary clears fields that are no longer needed once compression is done.
@@ -251,16 +268,60 @@ func (s *ShardDescriptor) ClearTemporary() {
 	s.PropLengthTracker = nil
 }
 
-func (s *ShardDescriptor) CopyFilesInShard() *FileList {
-	filesInShard := &FileList{Files: make([]string, len(s.Files))}
-	copy(filesInShard.Files, s.Files)
-	return filesInShard
+func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndID, rootPath string) error {
+	if len(shardBaseDescrs) == 0 {
+		s.Files = files
+		return nil
+	}
+
+FilesLoop:
+	for _, file := range files {
+		for _, shardBaseDescr := range shardBaseDescrs {
+			if info, ok := shardBaseDescr.ShardDesc.BigFilesChunk[file]; ok {
+				absPath, err := diskio.SanitizeFilePathJoin(rootPath, file)
+				if err != nil {
+					return fmt.Errorf("sanitize file path %v: %w", file, err)
+				}
+				infoNew, err := os.Stat(absPath)
+				if err != nil {
+					return fmt.Errorf("stat big file %v: %w", file, err)
+				}
+				// unchanged files. These can be skipped in incremental backup and restored from the previous backup
+				if info.Size == infoNew.Size() && info.ModifiedAt.Equal(infoNew.ModTime()) {
+					if s.IncrementalBackupInfo.FilesPerBackup == nil {
+						s.IncrementalBackupInfo.FilesPerBackup = make(map[string][]IncrementalBackupInfo)
+					}
+					// files that are skipped due to being unchanged from base backup
+					s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupID] = append(
+						s.IncrementalBackupInfo.FilesPerBackup[shardBaseDescr.BackupID],
+						IncrementalBackupInfo{File: file, ChunkKeys: info.ChunkKeys},
+					)
+					s.IncrementalBackupInfo.TotalSize += info.Size
+					s.IncrementalBackupInfo.NumFilesSkipped += 1
+					continue FilesLoop
+				}
+			}
+		}
+
+		// files to backup
+		s.Files = append(s.Files, file)
+	}
+	return nil
+}
+
+type ShardAndID struct {
+	ShardDesc *ShardDescriptor
+	BackupID  string
 }
 
 // FileList holds a list of file paths and allows modification of the underlying slice
 type FileList struct {
-	Files []string
-	start int
+	Files     []string
+	FileSizes map[string]int64 // map of relative file path to file size in bytes
+	// Top100Size is the size of the 100th biggest file (or smallest if fewer than 100 files),
+	// with a minimum of 1MB. This can be used for chunk size optimization.
+	Top100Size int64
+	start      int
 }
 
 // Len returns the number of files in the list
@@ -297,9 +358,78 @@ func (f *FileList) Peek() string {
 	return f.Files[f.start]
 }
 
+// PeekAt returns the file at offset i from start without removing it.
+// Returns "" if i is out of range.
+func (f *FileList) PeekAt(i int) string {
+	if f == nil || i < 0 || i >= f.Len() {
+		return ""
+	}
+	return f.Files[f.start+i]
+}
+
+// RemoveIndices removes files at the given offsets (relative to start) from the list.
+// Indices must be sorted ascending. Remaining files preserve their relative order.
+func (f *FileList) RemoveIndices(indices []int) {
+	if f == nil || len(indices) == 0 {
+		return
+	}
+	n := f.Len()
+	remove := make(map[int]struct{}, len(indices))
+	for _, idx := range indices {
+		if idx >= 0 && idx < n {
+			remove[f.start+idx] = struct{}{}
+		}
+	}
+	if len(remove) == 0 {
+		return
+	}
+	kept := make([]string, 0, len(f.Files)-len(remove))
+	for i, file := range f.Files {
+		if _, ok := remove[i]; !ok {
+			kept = append(kept, file)
+		}
+	}
+	// Adjust start: elements before f.start that were not removed stay in place.
+	// Since we only remove elements at indices >= f.start, the new start stays at
+	// the same position in the kept slice minus any removed elements before it (none).
+	f.Files = kept
+	// All removed indices are >= f.start, so start stays the same.
+}
+
+// GetFileSize returns the pre-collected size for a file, or -1 if not found
+func (f *FileList) GetFileSize(relPath string) int64 {
+	if f == nil || f.FileSizes == nil {
+		return -1
+	}
+	if size, ok := f.FileSizes[relPath]; ok {
+		return size
+	}
+	return -1
+}
+
+type IncrementalBackupInfos struct {
+	FilesPerBackup map[string][]IncrementalBackupInfo `json:"filesPerBackup,omitempty"`
+	// TotalSize and NumFilesSkipped are not needed for restore, only for correct
+	// calculation of sizes during the backup process.
+	TotalSize       int64 `json:"-"`
+	NumFilesSkipped int   `json:"-"`
+}
+
+type IncrementalBackupInfo struct {
+	File      string   `json:"file"`
+	ChunkKeys []string `json:"chunkKeys"`
+}
+
+type BigFileInfo struct {
+	ChunkKeys  []string  `json:"chunkKeys"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+}
+
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
 	Name          string             `json:"name"` // DB class name, also selected by user
+	BackupID      string             `json:"backupId"`
 	Shards        []*ShardDescriptor `json:"shards"`
 	ShardingState []byte             `json:"shardingState"`
 	Schema        []byte             `json:"schema"`
@@ -312,6 +442,15 @@ type ClassDescriptor struct {
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
+}
+
+func (c *ClassDescriptor) GetShardDescriptor(shardName string) *ShardDescriptor {
+	for _, shard := range c.Shards {
+		if shard.Name == shardName {
+			return shard
+		}
+	}
+	return nil
 }
 
 type CompressionType string
@@ -330,21 +469,25 @@ type BackupDescriptor struct {
 	Classes                 []ClassDescriptor `json:"classes"`
 	RbacBackups             []byte            `json:"rbacBackups"`
 	UserBackups             []byte            `json:"userBackups"`
-	Status                  string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
+	Status                  Status            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
 	Version                 string            `json:"version"` //
 	ServerVersion           string            `json:"serverVersion"`
 	Error                   string            `json:"error"`
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
+	BaseBackupID            string            `json:"baseBackupId,omitempty"`
 }
 
-// List all existing classes in d
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
 	if d.CompressionType == nil {
 		// backward compatibility with old backups that don't have this field and default to gzip
 		return CompressionGZIP
 	}
 	return *d.CompressionType
+}
+
+func (d *BackupDescriptor) GetStatus() Status {
+	return d.Status
 }
 
 // List all existing classes in d
@@ -354,6 +497,10 @@ func (d *BackupDescriptor) List() []string {
 		lst[i] = cls.Name
 	}
 	return lst
+}
+
+func (d *BackupDescriptor) GetBaseBackupID() string {
+	return d.BaseBackupID
 }
 
 // AllExist checks if all classes exist in d.
@@ -418,6 +565,15 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 		}
 	}
 	d.Classes = cs
+}
+
+func (d *BackupDescriptor) GetClassDescriptor(className string) *ClassDescriptor {
+	for i := range d.Classes {
+		if d.Classes[i].Name == className {
+			return &d.Classes[i]
+		}
+	}
+	return nil
 }
 
 // ValidateV1 validates d

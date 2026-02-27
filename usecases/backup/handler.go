@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Version of backup structure
@@ -146,6 +146,8 @@ type BackupRequest struct {
 
 	RbacRestoreOption string
 	UserRestoreOption string
+
+	BaseBackupID string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -275,7 +277,7 @@ func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucke
 	if err != nil {
 		return nodeStore{}, err
 	}
-	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path}}
+	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path, node: node}}
 	return ns, nil
 }
 
