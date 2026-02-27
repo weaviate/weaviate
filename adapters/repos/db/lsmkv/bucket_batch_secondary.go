@@ -19,6 +19,13 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
+// UsesPread reports whether this bucket's segments use pread-based I/O
+// (as opposed to mmap). When true, batched io_uring reads provide a real
+// benefit over the multi-goroutine parallel path.
+func (b *Bucket) UsesPread() bool {
+	return !b.mmapContents
+}
+
 // BatchGetBySecondary retrieves values for a batch of secondary-index keys in
 // a single operation. It is semantically equivalent to calling
 // GetBySecondaryWithBuffer for each key individually, but for segments that

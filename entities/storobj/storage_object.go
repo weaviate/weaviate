@@ -315,6 +315,7 @@ type bucket interface {
 type batchBucket interface {
 	BatchGetBySecondary(ctx context.Context, pos int, keys [][]byte) ([][]byte, error)
 	BatchGetBySecondaryWithView(ctx context.Context, pos int, keys [][]byte, view any) ([][]byte, error)
+	UsesPread() bool
 }
 
 func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
@@ -324,7 +325,7 @@ func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
 	}
 
-	if bb, ok := bucket.(batchBucket); ok {
+	if bb, ok := bucket.(batchBucket); ok && bb.UsesPread() {
 		return objectsByDocIDBatch(ctx, bb, ids, additional, properties)
 	}
 
@@ -338,7 +339,7 @@ func ObjectsByDocIDWithEmpty(ctx context.Context, bucket bucket, ids []uint64,
 		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
 	}
 
-	if bb, ok := bucket.(batchBucket); ok {
+	if bb, ok := bucket.(batchBucket); ok && bb.UsesPread() {
 		return objectsByDocIDBatch(ctx, bb, ids, additional, properties)
 	}
 

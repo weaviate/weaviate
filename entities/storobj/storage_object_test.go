@@ -1714,6 +1714,8 @@ func (f *fakeBatchBucket) BatchGetBySecondaryWithView(_ context.Context, _ int, 
 	return f.BatchGetBySecondary(context.Background(), 0, keys)
 }
 
+func (f *fakeBatchBucket) UsesPread() bool { return true }
+
 func BenchmarkObjectsByDocID(b *testing.B) {
 	plain := genFakeBucket(b, 10000)
 	batch := &fakeBatchBucket{plain}
