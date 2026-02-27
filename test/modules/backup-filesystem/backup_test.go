@@ -134,7 +134,7 @@ func TestFilesystemBackup_Cancellation(t *testing.T) {
 	backuptest.RunFilesystemBackupTests(t, compose, backuptest.CancellationTestCase())
 }
 
-// TestFilesystemBackup_Cancellation tests that filesystem backups can be cancelled.
+// TestFilesystemBackup_Incremental tests file-based incremental filesystem backups.
 func TestFilesystemBackup_Incremental(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

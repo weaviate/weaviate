@@ -137,7 +137,7 @@ func TestS3Backup_Cancellation(t *testing.T) {
 // Incremental Backup Tests
 // =============================================================================
 
-// TestS3Backup_Cancellation tests that S3 backups can be cancelled.
+// TestS3Backup_Incremental tests file-based incremental S3 backups.
 func TestS3Backup_Incremental(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
