@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -219,9 +220,14 @@ func MuveraBytesFromFloat32(vec []float32) []byte {
 
 func MuveraFromBytes(bytes []byte) []float32 {
 	vec := make([]float32, len(bytes)/4)
-	for i := range vec {
-		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(bytes[i*4 : (i+1)*4]))
+	if len(vec) == 0 {
+		return vec
 	}
+	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
+	// the raw bytes directly via copy (memmove) instead of decoding each
+	// float32 individually. Safe on little-endian architectures (x86, ARM64).
+	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&vec[0])), len(vec)*4)
+	copy(outBytes, bytes)
 	return vec
 }
 

@@ -16,7 +16,9 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1819,4 +1821,90 @@ func pickRandomIDsBetween(start, end uint64, count int) []uint64 {
 		ids[i] = start + uint64(rand.Intn(int(end-start)))
 	}
 	return ids
+}
+
+//go:noinline
+func vectorFromBinaryLoop(in []byte, buffer []float32) ([]float32, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	version := in[0]
+	if version != 1 {
+		return nil, fmt.Errorf("unsupported version %d", version)
+	}
+
+	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	if vecLen == 0 {
+		return nil, nil
+	}
+
+	var out []float32
+	if cap(buffer) >= int(vecLen) {
+		out = buffer[:vecLen]
+	} else {
+		out = make([]float32, vecLen)
+	}
+	vecStart := 44
+	vecEnd := vecStart + int(vecLen*4)
+
+	i := 0
+	for start := vecStart; start < vecEnd; start += 4 {
+		asUint := binary.LittleEndian.Uint32(in[start : start+4])
+		out[i] = math.Float32frombits(asUint)
+		i++
+	}
+
+	return out, nil
+}
+
+func BenchmarkVectorFromBinary(b *testing.B) {
+	for _, vecLen := range []int{128, 768, 1536} {
+		vec := make([]float32, vecLen)
+		for i := range vec {
+			vec[i] = rand.Float32()
+		}
+
+		obj := FromObject(
+			&models.Object{
+				Class:            "BenchClass",
+				CreationTimeUnix: 123456,
+				ID:               "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			},
+			vec, nil, nil,
+		)
+		obj.DocID = 7
+
+		asBinary, err := obj.MarshalBinary()
+		require.NoError(b, err)
+
+		b.Run(fmt.Sprintf("loop/dims_%d", vecLen), func(b *testing.B) {
+			buffer := make([]float32, vecLen)
+			var sum float32
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				result, err := vectorFromBinaryLoop(asBinary, buffer)
+				if err != nil {
+					b.Fatal(err)
+				}
+				sum += result[0] + result[len(result)-1]
+			}
+			runtime.KeepAlive(sum)
+		})
+
+		b.Run(fmt.Sprintf("copy/dims_%d", vecLen), func(b *testing.B) {
+			buffer := make([]float32, vecLen)
+			var sum float32
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				result, err := VectorFromBinary(asBinary, buffer, "")
+				if err != nil {
+					b.Fatal(err)
+				}
+				sum += result[0] + result[len(result)-1]
+			}
+			runtime.KeepAlive(sum)
+		})
+	}
 }

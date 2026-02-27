@@ -17,11 +17,11 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -485,9 +485,11 @@ func (dynamic *dynamic) Upgraded() bool {
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
+	// the raw bytes directly via copy (memmove) instead of decoding each
+	// float32 individually. Safe on little-endian architectures (x86, ARM64).
+	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&slice[0])), len(slice)*4)
+	copy(outBytes, vector[:len(slice)*4])
 	return slice
 }
 

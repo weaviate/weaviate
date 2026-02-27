@@ -20,6 +20,7 @@ import (
 	"io"
 	"math"
 	"runtime"
+	"unsafe"
 
 	"github.com/buger/jsonparser"
 	"github.com/go-openapi/strfmt"
@@ -1451,6 +1452,9 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
 	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	if vecLen == 0 {
+		return nil, nil
+	}
 
 	var out []float32
 	if cap(buffer) >= int(vecLen) {
@@ -1461,12 +1465,11 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
-	}
+	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
+	// the raw bytes directly via copy (memmove) instead of decoding each
+	// float32 individually. Safe on little-endian architectures (x86, ARM64).
+	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), vecLen*4)
+	copy(outBytes, in[vecStart:vecEnd])
 
 	return out, nil
 }
@@ -1504,19 +1507,17 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	vecLen := binary.LittleEndian.Uint16(in[42:44])
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
-		out = buffer[:vecLen]
-	} else {
-		out = make([]float32, vecLen)
-	}
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
+	if vecLen > 0 {
+		if cap(buffer) >= int(vecLen) {
+			out = buffer[:vecLen]
+		} else {
+			out = make([]float32, vecLen)
+		}
+		outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), vecLen*4)
+		copy(outBytes, in[vecStart:vecEnd])
 	}
 
 	pos := vecEnd

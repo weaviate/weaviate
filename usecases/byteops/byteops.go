@@ -17,6 +17,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"unsafe"
 )
 
 const (
@@ -252,10 +253,14 @@ func Fp64SliceToBytes(floats []float64) []byte {
 
 func Fp32SliceFromBytes(vector []byte) []float32 {
 	floats := make([]float32, len(vector)/Uint32Len)
-	for i := 0; i < len(floats); i++ {
-		asUint := binary.LittleEndian.Uint32(vector[i*Uint32Len : (i+1)*Uint32Len])
-		floats[i] = math.Float32frombits(asUint)
+	if len(floats) == 0 {
+		return floats
 	}
+	// Reinterpret the []float32 backing array as []byte so we can bulk-copy
+	// the raw bytes directly via copy (memmove) instead of decoding each
+	// float32 individually. Safe on little-endian architectures (x86, ARM64).
+	outBytes := unsafe.Slice((*byte)(unsafe.Pointer(&floats[0])), len(floats)*Uint32Len)
+	copy(outBytes, vector)
 	return floats
 }
 
