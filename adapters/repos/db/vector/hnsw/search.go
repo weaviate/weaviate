@@ -1081,6 +1081,10 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 	view := h.GetViewThunk()
 	defer view.ReleaseView()
 
+	if h.batchVectorsForIDsWithView != nil {
+		return h.rescoreBatch(ctx, res, k, ids, view, compressorDistancer)
+	}
+
 	mu := sync.Mutex{} // protect res
 	addID := func(id uint64, dist float32) {
 		mu.Lock()
@@ -1125,6 +1129,59 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 	}
 
 	return nil
+}
+
+func (h *hnsw) rescoreBatch(ctx context.Context, res *priorityqueue.Queue[any], k int,
+	ids []uint64, view common.BucketView, compressorDistancer compressionhelpers.CompressorDistancer,
+) error {
+	vecs, err := h.batchVectorsForIDsWithView(ctx, ids, view)
+	if err != nil {
+		return fmt.Errorf("batch vector fetch: %w", err)
+	}
+
+	mu := sync.Mutex{} // protect res
+	addID := func(id uint64, dist float32) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		res.Insert(id, dist)
+		if res.Len() > k {
+			res.Pop()
+		}
+	}
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
+		workerID := workerID
+
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("rescore: %w", err)
+				}
+
+				vec := vecs[idPos]
+				if vec == nil {
+					continue // deleted or not found
+				}
+				h.normalizeVecInPlace(vec)
+				dist, err := compressorDistancer.DistanceToFloat(vec)
+				if err == nil {
+					addID(ids[idPos], dist)
+				} else {
+					h.logger.
+						WithField("action", "rescore").
+						WithField("id", h.id).
+						WithField("class", h.className).
+						WithField("shard", h.shardName).
+						Error(err)
+				}
+			}
+			return nil
+		}, h.logger)
+	}
+
+	return eg.Wait()
 }
 
 func newSearchByDistParams(maxLimit int64) *searchByDistParams {

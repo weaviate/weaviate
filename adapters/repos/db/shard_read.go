@@ -300,6 +300,39 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
 }
 
+func (s *Shard) batchReadVectorsByIndexIDsWithView(ctx context.Context, ids []uint64, targetVector string, view common.BucketView) ([][]float32, error) {
+	bucketView, ok := view.(lsmkv.BucketConsistentView)
+	if !ok {
+		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+
+	keys := make([][]byte, len(ids))
+	for i, id := range ids {
+		key := make([]byte, 8)
+		binary.LittleEndian.PutUint64(key, id)
+		keys[i] = key
+	}
+
+	results, err := bucketView.Bucket.BatchGetBySecondaryWithView(ctx, 0, keys, bucketView)
+	if err != nil {
+		return nil, err
+	}
+
+	vecs := make([][]float32, len(ids))
+	for i, data := range results {
+		if data == nil {
+			continue // deleted or not found
+		}
+		vec, err := storobj.VectorFromBinary(data, nil, targetVector)
+		if err != nil {
+			return nil, fmt.Errorf("parse vector for doc id %d: %w", ids[i], err)
+		}
+		vecs[i] = vec
+	}
+
+	return vecs, nil
+}
+
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties, properties []string,

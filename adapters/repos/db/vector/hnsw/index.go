@@ -109,6 +109,7 @@ type hnsw struct {
 	GetViewThunk                      common.GetViewThunk
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
 	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	batchVectorsForIDsWithView        common.BatchVectorsForIDsWithView
 	multiVectorForID                  common.MultiVectorForID
 	trackDimensionsOnce               sync.Once
 	trackMuveraOnce                   sync.Once
@@ -377,6 +378,7 @@ func New(cfg Config, uc ent.UserConfig,
 		GetViewThunk:                      cfg.GetViewThunk,
 		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
 		TempMultiVectorForIDWithViewThunk: cfg.TempMultiVectorForIDWithViewThunk,
+		batchVectorsForIDsWithView:        cfg.BatchVectorsForIDsWithViewThunk,
 		pqConfig:                          uc.PQ,
 		bqConfig:                          uc.BQ,
 		sqConfig:                          uc.SQ,
