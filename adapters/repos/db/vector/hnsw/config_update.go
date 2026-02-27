@@ -146,6 +146,11 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	}
 
 	if !h.compressed.Load() {
+		// Defer compression until the cache is fully prefilled.
+		if !h.cachePrefilled.Load() {
+			callback()
+			return nil
+		}
 		// the compression will fire the callback once it's complete
 		return h.Upgrade(callback)
 	} else {

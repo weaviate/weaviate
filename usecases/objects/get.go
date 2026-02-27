@@ -45,16 +45,6 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	if tenant != "" {
-		activationVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, class, tenant)
-		if err != nil {
-			return nil, err
-		}
-		if err := m.schemaManager.WaitForUpdate(ctx, activationVersion); err != nil {
-			return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", activationVersion, err)
-		}
-	}
-
 	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps, tenant)
 	if err != nil {
 		return nil, err
