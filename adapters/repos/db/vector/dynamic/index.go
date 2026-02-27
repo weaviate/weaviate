@@ -103,8 +103,8 @@ type dynamic struct {
 	vectorForIDThunk             common.VectorForID[float32]
 	getViewThunk                 common.GetViewThunk
 	tempVectorForIDWithViewThunk     common.TempVectorForIDWithView[float32]
-	batchVectorsForIDsWithViewThunk common.BatchVectorsForIDsWithView
-	distanceProvider                distancer.Provider
+	batchRawDataForIDsWithViewThunk  common.BatchRawDataForIDsWithView
+	distanceProvider distancer.Provider
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
 	index                        VectorIndex
@@ -157,9 +157,9 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		prometheusMetrics:            cfg.PrometheusMetrics,
 		vectorForIDThunk:             cfg.VectorForIDThunk,
 		getViewThunk:                 cfg.GetViewThunk,
-		tempVectorForIDWithViewThunk:     cfg.TempVectorForIDWithViewThunk,
-		batchVectorsForIDsWithViewThunk: cfg.BatchVectorsForIDsWithViewThunk,
-		distanceProvider:                cfg.DistanceProvider,
+		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
+		batchRawDataForIDsWithViewThunk: cfg.BatchRawDataForIDsWithViewThunk,
+		distanceProvider:             cfg.DistanceProvider,
 		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
 		store:                        store,
 		threshold:                    uc.Threshold,
@@ -193,14 +193,14 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				PrometheusMetrics:            index.prometheusMetrics,
 				VectorForIDThunk:             index.vectorForIDThunk,
 				GetViewThunk:                 index.getViewThunk,
-				TempVectorForIDWithViewThunk:     index.tempVectorForIDWithViewThunk,
-				BatchVectorsForIDsWithViewThunk: index.batchVectorsForIDsWithViewThunk,
-				DistanceProvider:                index.distanceProvider,
-				MakeCommitLoggerThunk:           index.makeCommitLoggerThunk,
-				DisableSnapshots:                index.hnswDisableSnapshots,
-				SnapshotOnStartup:               index.hnswSnapshotOnStartup,
-				WaitForCachePrefill:             index.hnswWaitForCachePrefill,
-				AllocChecker:                    index.AllocChecker,
+				TempVectorForIDWithViewThunk:    index.tempVectorForIDWithViewThunk,
+				BatchRawDataForIDsWithViewThunk: index.batchRawDataForIDsWithViewThunk,
+				DistanceProvider:             index.distanceProvider,
+				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
+				DisableSnapshots:             index.hnswDisableSnapshots,
+				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
+				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
+				AllocChecker:                 index.AllocChecker,
 				MakeBucketOptions:            index.MakeBucketOptions,
 				AsyncIndexingEnabled:         index.AsyncIndexingEnabled,
 			},
@@ -538,13 +538,13 @@ func (dynamic *dynamic) doUpgrade() error {
 			PrometheusMetrics:            dynamic.prometheusMetrics,
 			VectorForIDThunk:             dynamic.vectorForIDThunk,
 			GetViewThunk:                 dynamic.getViewThunk,
-			TempVectorForIDWithViewThunk:     dynamic.tempVectorForIDWithViewThunk,
-			BatchVectorsForIDsWithViewThunk: dynamic.batchVectorsForIDsWithViewThunk,
-			DistanceProvider:                dynamic.distanceProvider,
-			MakeCommitLoggerThunk:           dynamic.makeCommitLoggerThunk,
-			DisableSnapshots:                dynamic.hnswDisableSnapshots,
-			SnapshotOnStartup:               dynamic.hnswSnapshotOnStartup,
-			WaitForCachePrefill:             dynamic.hnswWaitForCachePrefill,
+			TempVectorForIDWithViewThunk:    dynamic.tempVectorForIDWithViewThunk,
+			BatchRawDataForIDsWithViewThunk: dynamic.batchRawDataForIDsWithViewThunk,
+			DistanceProvider:             dynamic.distanceProvider,
+			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
+			DisableSnapshots:             dynamic.hnswDisableSnapshots,
+			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
+			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
 			AllocChecker:                 dynamic.AllocChecker,
 			MakeBucketOptions:            dynamic.MakeBucketOptions,
 			AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,

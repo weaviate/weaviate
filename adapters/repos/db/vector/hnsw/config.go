@@ -37,8 +37,7 @@ type Config struct {
 	GetViewThunk                      common.GetViewThunk
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
 	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
-	BatchVectorsForIDsWithViewThunk   common.BatchVectorsForIDsWithView
-	Logger                            logrus.FieldLogger
+	Logger logrus.FieldLogger
 	DistanceProvider                  distancer.Provider
 	PrometheusMetrics                 *monitoring.PrometheusMetrics
 	AllocChecker                      memwatch.AllocChecker
@@ -48,6 +47,7 @@ type Config struct {
 	DisableSnapshots                  bool
 	SnapshotOnStartup                 bool
 	MakeBucketOptions                 lsmkv.MakeBucketOptions
+	BatchRawDataForIDsWithViewThunk   common.BatchRawDataForIDsWithView
 
 	// metadata for monitoring
 	ShardName string
@@ -114,6 +114,15 @@ func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Conte
 	return t.TempVectorForID
 }
 
+func NewBatchRawDataForIDsWithViewThunk(
+	targetVector string,
+	fn func(ctx context.Context, ids []uint64, targetVector string, view common.BucketView) ([][]byte, error),
+) common.BatchRawDataForIDsWithView {
+	return func(ctx context.Context, ids []uint64, view common.BucketView) ([][]byte, error) {
+		return fn(ctx, ids, targetVector, view)
+	}
+}
+
 func NewTempVectorForIDWithViewThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]T, error)) common.TempVectorForIDWithView[T] {
 	t := common.TargetTempVectorForIDWithView[T]{
 		TargetVector:                 targetVector,
@@ -122,11 +131,3 @@ func NewTempVectorForIDWithViewThunk[T float32 | []float32](targetVector string,
 	return t.TempVectorForIDWithView
 }
 
-func NewBatchVectorsForIDsWithViewThunk(
-	targetVector string,
-	fn func(ctx context.Context, ids []uint64, targetVector string, view common.BucketView) ([][]float32, error),
-) common.BatchVectorsForIDsWithView {
-	return func(ctx context.Context, ids []uint64, view common.BucketView) ([][]float32, error) {
-		return fn(ctx, ids, targetVector, view)
-	}
-}

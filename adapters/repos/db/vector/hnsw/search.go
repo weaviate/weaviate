@@ -1081,10 +1081,6 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 	view := h.GetViewThunk()
 	defer view.ReleaseView()
 
-	if h.batchVectorsForIDsWithView != nil {
-		return h.rescoreBatch(ctx, res, k, ids, view, compressorDistancer)
-	}
-
 	mu := sync.Mutex{} // protect res
 	addID := func(id uint64, dist float32) {
 		mu.Lock()
@@ -1094,6 +1090,14 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 		if res.Len() > k {
 			res.Pop()
 		}
+	}
+
+	// Use batch I/O when available and not in multivector mode.
+	// Each worker independently batches its own subset of IDs,
+	// preserving cross-worker parallelism while getting io_uring
+	// batching within each worker.
+	if h.BatchRawDataForIDsWithViewThunk != nil && !h.multivector.Load() {
+		return h.rescoreBatch(ctx, ids, view, compressorDistancer, addID)
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
@@ -1131,51 +1135,84 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 	return nil
 }
 
-func (h *hnsw) rescoreBatch(ctx context.Context, res *priorityqueue.Queue[any], k int,
-	ids []uint64, view common.BucketView, compressorDistancer compressionhelpers.CompressorDistancer,
+// rescoreBatch parallelizes rescoring using batched I/O per worker.
+// Each worker collects its strided subset of IDs, does a single batch read
+// for those IDs (which uses io_uring on Linux), then parses and scores.
+func (h *hnsw) rescoreBatch(
+	ctx context.Context,
+	ids []uint64,
+	view common.BucketView,
+	compressorDistancer compressionhelpers.CompressorDistancer,
+	addID func(id uint64, dist float32),
 ) error {
-	vecs, err := h.batchVectorsForIDsWithView(ctx, ids, view)
-	if err != nil {
-		return fmt.Errorf("batch vector fetch: %w", err)
-	}
-
-	mu := sync.Mutex{} // protect res
-	addID := func(id uint64, dist float32) {
-		mu.Lock()
-		defer mu.Unlock()
-
-		res.Insert(id, dist)
-		if res.Len() > k {
-			res.Pop()
-		}
-	}
-
+	targetVector := h.getTargetVector()
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
+
 	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
 		workerID := workerID
 
 		eg.Go(func() error {
+			// Collect this worker's strided subset of IDs
+			var workerIDs []uint64
 			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+				workerIDs = append(workerIDs, ids[idPos])
+			}
+			if len(workerIDs) == 0 {
+				return nil
+			}
+
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("rescore: %w", err)
+			}
+
+			// Batch read raw data for this worker's IDs
+			rawData, err := h.BatchRawDataForIDsWithViewThunk(ctx, workerIDs, view)
+			if err != nil {
+				return fmt.Errorf("rescore batch read: %w", err)
+			}
+
+			// Get a pooled temp vector for parsing
+			slice := h.pools.tempVectors.Get(int(h.dims.Load()))
+			defer h.pools.tempVectors.Put(slice)
+
+			// Parse vectors and compute distances
+			for i, data := range rawData {
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("rescore: %w", err)
 				}
 
-				vec := vecs[idPos]
-				if vec == nil {
-					continue // deleted or not found
+				if data == nil {
+					// deleted or not found
+					h.handleDeletedNode(workerIDs[i], "rescoreBatch")
+					continue
 				}
-				h.normalizeVecInPlace(vec)
-				dist, err := compressorDistancer.DistanceToFloat(vec)
-				if err == nil {
-					addID(ids[idPos], dist)
-				} else {
+
+				vec, err := storobj.VectorFromBinary(data, slice.Slice, targetVector)
+				if err != nil {
 					h.logger.
 						WithField("action", "rescore").
 						WithField("id", h.id).
 						WithField("class", h.className).
 						WithField("shard", h.shardName).
-						Error(err)
+						WithError(err).
+						Warnf("could not parse vector for node %d", workerIDs[i])
+					continue
 				}
+
+				h.normalizeVecInPlace(vec)
+				dist, err := compressorDistancer.DistanceToFloat(vec)
+				if err != nil {
+					h.logger.
+						WithField("action", "rescore").
+						WithField("id", h.id).
+						WithField("class", h.className).
+						WithField("shard", h.shardName).
+						WithError(err).
+						Warnf("could not rescore node %d", workerIDs[i])
+					continue
+				}
+
+				addID(workerIDs[i], dist)
 			}
 			return nil
 		}, h.logger)

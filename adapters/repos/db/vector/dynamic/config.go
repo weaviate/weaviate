@@ -40,8 +40,8 @@ type Config struct {
 	VectorForIDThunk             common.VectorForID[float32]
 	GetViewThunk                 common.GetViewThunk
 	TempVectorForIDWithViewThunk     common.TempVectorForIDWithView[float32]
-	BatchVectorsForIDsWithViewThunk common.BatchVectorsForIDsWithView
-	DistanceProvider                distancer.Provider
+	BatchRawDataForIDsWithViewThunk  common.BatchRawDataForIDsWithView
+	DistanceProvider distancer.Provider
 	MakeCommitLoggerThunk        hnsw.MakeCommitLogger
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup
 	SharedDB                     *bolt.DB
