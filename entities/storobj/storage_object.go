@@ -1452,7 +1452,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	// it would be acceptable to panic
 	vecLen := binary.LittleEndian.Uint16(in[42:44])
 	if vecLen == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("vector length is 0")
 	}
 
 	var out []float32
