@@ -548,10 +548,7 @@ func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
 	read += 8
 
 	dists := make([]float32, distsLength)
-	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-		read += 4
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return dists, nil
 }
@@ -713,10 +710,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	read += 8
 
 	dists := make([]float32, distsLength)
-	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-		read += 4
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return objs, dists, nil
 }

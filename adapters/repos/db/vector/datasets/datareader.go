@@ -12,14 +12,13 @@
 package datasets
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 func parquetMetadata(pqFile *parquet.File) (map[string]int, int) {
@@ -209,11 +208,7 @@ func convertBinaryToFloat32(data []byte) ([]float32, error) {
 		return nil, fmt.Errorf("binary data length %d is not divisible by 4 (float32 size)", len(data))
 	}
 	result := make([]float32, len(data)/4)
-	for i := 0; i < len(result); i++ {
-		offset := i * 4
-		bits := binary.LittleEndian.Uint32(data[offset : offset+4])
-		result[i] = math.Float32frombits(bits)
-	}
+	byteops.CopyBytesToSlice(result, data)
 	return result, nil
 }
 
