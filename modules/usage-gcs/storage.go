@@ -14,17 +14,18 @@ package usagegcs
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/googleapis/gax-go/v2"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/api/googleapi"
+	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
 )
 
@@ -43,6 +44,16 @@ func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *comm
 
 	if baseStorage.IsLocalhostEnvironment() {
 		options = append(options, option.WithoutAuthentication())
+	}
+
+	useTokenSource := os.Getenv("USAGE_GCS_AUTH_PROXY_ENDPOINT") != ""
+	if useTokenSource {
+		options = append(
+			options,
+			option.WithTokenSource(
+				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(os.Getenv("USAGE_GCS_AUTH_PROXY_ENDPOINT"))),
+			),
+		)
 	}
 
 	client, err := storageapi.NewService(ctx, options...)
@@ -115,15 +126,7 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		Initial:    2 * time.Second, // Note: the client uses a jitter internally
 		Max:        60 * time.Second,
 		Multiplier: 3,
-	}, func(err error) bool {
-		var gerr *googleapi.Error
-		if errors.As(err, &gerr) {
-			g.Logger.WithField("gcs_upload", "retry").Debugf("retrying due to code: %v", gerr.Code)
-			// retry only on those given error codes
-			return gerr.Code == 401 || gerr.Code == 429 || (gerr.Code >= 500 && gerr.Code < 600)
-		}
-		return false
-	}).Media(bytes.NewReader(data)).Context(ctx).Do()
+	}, gcpcommon.RetryErrorFunc).Media(bytes.NewReader(data)).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("failed to upload to GCS: %w", err)
 	}
