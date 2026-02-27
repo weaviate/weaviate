@@ -41,6 +41,11 @@ func ValidateFilters(authorizedGetClass func(string) (*models.Class, error), fil
 }
 
 func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *clauseWrapper) error {
+	// Check if this is a Not operator first
+	if cw.getOperator() == OperatorNot {
+		return validateNotOperator(authorizedGetClass, cw)
+	}
+
 	// check if nested
 	if cw.getOperands() != nil {
 		var errs []error
@@ -148,6 +153,21 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 
 func valueNameFromDataType(dt schema.DataType) string {
 	return "value" + strings.ToUpper(string(dt[0])) + string(dt[1:])
+}
+
+func validateNotOperator(authorizedGetClass func(string) (*models.Class, error), cw *clauseWrapper) error {
+	// Validate operand count - must have exactly 1 operand
+	operands := cw.getOperands()
+	switch len(operands) {
+	case 0:
+		return fmt.Errorf("no children for operator %q", OperatorNot.Name())
+	case 1:
+		// Recursively validate the single operand
+		return validateClause(authorizedGetClass, operands[0])
+	default:
+		return fmt.Errorf("too many children for operator %q. Expected 1, given %d",
+			OperatorNot.Name(), len(operands))
+	}
 }
 
 func mergeErrs(errs []error) error {
