@@ -763,12 +763,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
-	if deletionTime.IsZero() {
-		err = bucket.Delete(idBytes)
-	} else {
-		err = bucket.DeleteWith(idBytes, deletionTime)
-	}
-	if err != nil {
+	if err = deleteObjectFromObjectsBucket(bucket, idBytes, docID, deletionTime); err != nil {
 		return errors.Wrap(err, "delete object from bucket")
 	}
 

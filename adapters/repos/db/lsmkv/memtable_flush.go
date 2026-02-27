@@ -90,8 +90,10 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	}
 	var tmpSegmentPath string
 	if m.writeSegmentInfoIntoFileName {
-		// new segments are always level 0
-		tmpSegmentPath = m.path + segmentExtraInfo(0, SegmentStrategyFromString(m.strategy)) + ".db.tmp"
+		// new segments are always level 0; for buckets with secondary indices
+		// they carry the .d1 marker because deletes always write both primary
+		// and secondary tombstones (see shard_write_delete.go).
+		tmpSegmentPath = m.path + segmentExtraInfo(0, SegmentStrategyFromString(m.strategy), m.secondaryIndices > 0) + ".db.tmp"
 	} else {
 		tmpSegmentPath = m.path + ".db.tmp"
 	}

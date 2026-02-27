@@ -714,18 +714,35 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 
 	beforeSegments := time.Now()
-	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	k, v, allocBuf, foundInD1, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
 	segmentsTook := time.Since(beforeSegments)
 
-	// additional validation to ensure the primary key has not been marked as deleted
-	beforeReCheck := time.Now()
-	if err := b.existsWithConsistentView(k, view); err != nil {
-		return nil, nil, err
+	// Validate that the primary key has not been tombstoned in a segment newer
+	// than the one that contained the secondary entry. This guards against a
+	// delete path that only tombstones the primary key without also writing a
+	// secondary tombstone, which would leave a stale secondary entry pointing
+	// at a deleted primary.
+	//
+	// When the entry was found in a d1 segment, this check is unnecessary: d1
+	// segments and all segments newer than them carry secondary tombstones for
+	// every delete, so the secondary lookup above would have returned Deleted
+	// if the key were tombstoned. The d1 boundary only moves left over time,
+	// so if the matching segment is d1, all newer segments are d1 too.
+	//
+	// For entries found in d0 (pre-change) segments, the check is still needed
+	// because older segments may contain primary-only tombstones invisible to
+	// the secondary index.
+	var recheckTook time.Duration
+	if !foundInD1 {
+		beforeReCheck := time.Now()
+		if err := b.existsWithConsistentView(k, view); err != nil {
+			return nil, nil, err
+		}
+		recheckTook = time.Since(beforeReCheck)
 	}
-	recheckTook := time.Since(beforeReCheck)
 
 	helpers.AnnotateSlowQueryLogAppend(ctx, logKey, BucketSlowLogEntry{
 		View:             viewTiming,
@@ -813,7 +830,7 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 }
 
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
-) (k, v []byte, buf []byte, err error) {
+) (k, v []byte, buf []byte, foundInD1 bool, err error) {
 	op := "getbysecondary"
 	component := "segment_group"
 

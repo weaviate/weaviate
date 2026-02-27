@@ -311,6 +311,18 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 				return err
 			}
 		}
+		// When writeSegmentInfoIntoFileName is set, flushed segments get the
+		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
+		// That optimisation is only safe if every delete carries secondary
+		// tombstones, so enforce it here.
+		if m.writeSegmentInfoIntoFileName {
+			for i, sk := range secondaryKeys {
+				if sk == nil {
+					return fmt.Errorf("tombstone missing secondary key at index %d; "+
+						"buckets with secondary indices require all secondary keys on delete", i)
+				}
+			}
+		}
 	}
 	node := segmentReplaceNode{
 		primaryKey:          key,
@@ -327,7 +339,13 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	m.key.setTombstone(key, nil, secondaryKeys)
+	previousKeys := m.key.setTombstone(key, nil, secondaryKeys)
+	for i, sec := range previousKeys {
+		m.secondaryToPrimary[i][string(sec)] = nil
+	}
+	for i, sec := range secondaryKeys {
+		m.secondaryToPrimary[i][string(sec)] = key
+	}
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
@@ -352,6 +370,18 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 				return err
 			}
 		}
+		// When writeSegmentInfoIntoFileName is set, flushed segments get the
+		// .d1 marker which lets GetBySecondary skip the primary-key recheck.
+		// That optimisation is only safe if every delete carries secondary
+		// tombstones, so enforce it here.
+		if m.writeSegmentInfoIntoFileName {
+			for i, sk := range secondaryKeys {
+				if sk == nil {
+					return fmt.Errorf("tombstone missing secondary key at index %d; "+
+						"buckets with secondary indices require all secondary keys on delete", i)
+				}
+			}
+		}
 	}
 	tombstonedVal := tombstonedValue(deletionTime)
 	node := segmentReplaceNode{
@@ -369,7 +399,13 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
+	previousKeys := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
+	for i, sec := range previousKeys {
+		m.secondaryToPrimary[i][string(sec)] = nil
+	}
+	for i, sec := range secondaryKeys {
+		m.secondaryToPrimary[i][string(sec)] = key
+	}
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()

@@ -221,8 +221,9 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 
 		var rightSegmentMetadata *struct {
-			Level    uint16
-			Strategy segmentindex.Strategy
+			Level               uint16
+			Strategy            segmentindex.Strategy
+			SecondaryIndexCount uint16
 		}
 		if !leftSegmentFound && rightSegmentFound {
 			// segment is initialized just to be erased
@@ -246,11 +247,13 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			}
 
 			rightSegmentMetadata = &struct {
-				Level    uint16
-				Strategy segmentindex.Strategy
+				Level               uint16
+				Strategy            segmentindex.Strategy
+				SecondaryIndexCount uint16
 			}{
-				Level:    rightSegment.getLevel(),
-				Strategy: rightSegment.getStrategy(),
+				Level:               rightSegment.getLevel(),
+				Strategy:            rightSegment.getStrategy(),
+				SecondaryIndexCount: rightSegment.getSecondaryIndexCount(),
 			}
 
 			err = rightSegment.close()
@@ -287,7 +290,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		var newRightSegmentFileName string
 		if cfg.writeSegmentInfoIntoFileName && rightSegmentMetadata != nil {
-			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy))
+			// Derive the secondary-tombstone marker from the .tmp filename itself
+			// (the output of the interrupted compaction), not from the original
+			// right segment, so the final filename reflects what the file contains.
+			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1],
+				segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy, segmentHasSecondaryTombstones(entry)))
 		} else {
 			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
 		}
@@ -671,9 +678,9 @@ func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) er
 
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
-) ([]byte, []byte, []byte, error) {
+) ([]byte, []byte, []byte, bool, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
+		return nil, nil, nil, false, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
@@ -690,16 +697,20 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 				}).Debug("waited over 100ms to get result from individual segment")
 		}
 		if err == nil {
-			return k, v, allocBuf, nil
+			// The d1 boundary only moves left over time, so if the matching
+			// segment is d1 then all newer segments are also d1. That means
+			// every tombstone in those segments carries a secondary key and the
+			// secondary index is self-sufficient — no primary-key recheck needed.
+			return k, v, allocBuf, segments[i].hasSecondaryTombstones(), nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			return nil, nil, nil, err
+			return nil, nil, nil, false, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
+			return nil, nil, nil, false, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
-	return nil, nil, nil, lsmkv.NotFound
+	return nil, nil, nil, false, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {

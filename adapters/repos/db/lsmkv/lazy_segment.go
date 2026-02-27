@@ -150,6 +150,12 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 	return s.segment.getSecondaryIndexCount()
 }
 
+// hasSecondaryTombstones is resolved directly from the path without loading
+// the segment, matching the same fast-path pattern as getLevel/getStrategy.
+func (s *lazySegment) hasSecondaryTombstones() bool {
+	return segmentHasSecondaryTombstones(s.path)
+}
+
 func (s *lazySegment) getLevel() uint16 {
 	ptr := s.level.Load()
 	if ptr != nil {

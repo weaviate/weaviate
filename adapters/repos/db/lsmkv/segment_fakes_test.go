@@ -404,6 +404,10 @@ func (s *fakeSegment) existsKey(key []byte) (bool, error) {
 	panic("not implemented")
 }
 
+func (s *fakeSegment) hasSecondaryTombstones() bool {
+	return segmentHasSecondaryTombstones(s.path)
+}
+
 func (s *fakeSegment) exists(key []byte) error {
 	keyStr := string(key)
 	if s.strategy != segmentindex.StrategyReplace {

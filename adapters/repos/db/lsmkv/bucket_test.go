@@ -2449,3 +2449,221 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		assert.True(t, errors.Is(getErr, lsmkv.Deleted))
 	})
 }
+
+// TestGetBySecondary_D1SkipsRecheck verifies the interaction between the .d1
+// segment marker and the existsWithConsistentView recheck in GetBySecondary.
+//
+// For d1 segments (all tombstones carry secondary keys), the recheck is
+// unnecessary because the secondary index is self-sufficient. For d0 segments
+// (pre-change, may have primary-only tombstones), the recheck must still run
+// to catch deletes invisible to the secondary index.
+func TestGetBySecondary_D1SkipsRecheck(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("d0 segment primary-only delete caught by recheck", func(t *testing.T) {
+		// Segments without writeSegmentInfoIntoFileName are d0 (no .d1 marker).
+		// A primary-only tombstone (Delete without WithSecondaryKey) is invisible
+		// to the secondary index. The existsWithConsistentView recheck must catch it.
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithKeepTombstones(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+		b.SetMemtableThreshold(1e9)
+
+		// Segment 1 (d0): live entry with secondary key
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+		require.NoError(t, b.FlushAndSwitch())
+
+		// Segment 2 (d0): primary-only tombstone (no secondary key)
+		err = b.Delete([]byte("key-00"))
+		require.NoError(t, err)
+		require.NoError(t, b.FlushAndSwitch())
+
+		// The secondary index doesn't see the tombstone, but the
+		// existsWithConsistentView recheck catches it.
+		res, err := b.GetBySecondary(ctx, 0, []byte("sec-00"))
+		require.NoError(t, err)
+		assert.Nil(t, res, "primary-only tombstone should be caught by recheck")
+	})
+
+	t.Run("d1 segment secondary delete is self-sufficient", func(t *testing.T) {
+		// With writeSegmentInfoIntoFileName + secondary indices, flushed segments
+		// get the .d1 marker. A delete with WithSecondaryKey writes a secondary
+		// tombstone that the secondary lookup finds directly.
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithKeepTombstones(true),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+		b.SetMemtableThreshold(1e9)
+
+		// Segment 1 (d1): live entry with secondary key
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+		require.NoError(t, b.FlushAndSwitch())
+
+		// Segment 2 (d1): delete with secondary key
+		err = b.Delete([]byte("key-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+		require.NoError(t, b.FlushAndSwitch())
+
+		// Verify segments are d1
+		require.Len(t, b.disk.segments, 2)
+		for _, seg := range b.disk.segments {
+			assert.Contains(t, seg.getPath(), ".d1.")
+		}
+
+		// The secondary tombstone is found directly — no recheck needed.
+		res, err := b.GetBySecondary(ctx, 0, []byte("sec-00"))
+		require.NoError(t, err)
+		assert.Nil(t, res, "secondary tombstone should be found directly in d1 segment")
+	})
+
+	t.Run("d1 segment live entry returned without recheck", func(t *testing.T) {
+		// A live entry in a d1 segment is returned directly. The recheck is
+		// skipped because all newer segments are also d1 and any delete would
+		// have been visible via secondary tombstone.
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithKeepTombstones(true),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+		b.SetMemtableThreshold(1e9)
+
+		// Segment 1 (d1): live entry
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+		require.NoError(t, b.FlushAndSwitch())
+
+		// Segment 2 (d1): another live entry (different key)
+		err = b.Put([]byte("key-01"), []byte("value-01"),
+			WithSecondaryKey(0, []byte("sec-01")))
+		require.NoError(t, err)
+		require.NoError(t, b.FlushAndSwitch())
+
+		// Both entries should be found
+		res, err := b.GetBySecondary(ctx, 0, []byte("sec-00"))
+		require.NoError(t, err)
+		assert.Equal(t, []byte("value-00"), res)
+
+		res, err = b.GetBySecondary(ctx, 0, []byte("sec-01"))
+		require.NoError(t, err)
+		assert.Equal(t, []byte("value-01"), res)
+	})
+}
+
+// TestDeleteRequiresSecondaryKeysOnD1Buckets verifies that the runtime guard
+// in setTombstone / setTombstoneWith rejects deletes that omit secondary keys
+// when the bucket is configured with writeSegmentInfoIntoFileName (d1 segments).
+func TestDeleteRequiresSecondaryKeysOnD1Buckets(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Delete without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "tombstone missing secondary key at index 0")
+	})
+
+	t.Run("DeleteWith without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithKeepTombstones(true),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.DeleteWith([]byte("key-00"), time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "tombstone missing secondary key at index 0")
+	})
+
+	t.Run("Delete with secondary key succeeds", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithWriteSegmentInfoIntoFileName(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"), WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		v, err := b.Get([]byte("key-00"))
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("Delete without secondary key is allowed on non-d1 bucket", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.NoError(t, err)
+	})
+}

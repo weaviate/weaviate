@@ -234,7 +234,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 
-	err = b2.Delete([]byte("hello"))
+	err = b2.Delete([]byte("hello"), WithSecondaryKey(0, []byte("bonjour")))
 	assert.Nil(t, err)
 
 	v, err := b2.Get([]byte("hello"))

@@ -92,6 +92,18 @@ type Segment interface {
 	// replace specific
 	getCountNetAdditions() int
 	existsKey(key []byte) (bool, error)
+
+	// hasSecondaryTombstones reports whether this segment carries the ".d1"
+	// marker in its filename. The "d" stands for "delete format", following
+	// the same single-letter-plus-number convention used for level ("l0")
+	// and strategy ("s0"), so a filename reads e.g. ".l0.s0.d1".
+	//
+	//   d0 (implicit, no marker): original format — a delete may only write
+	//       a primary-key tombstone. Secondary lookups need the
+	//       existsWithConsistentView recheck to catch these.
+	//   d1: every tombstone also carries a secondary-key tombstone, so
+	//       secondary lookups can skip the primary-key recheck.
+	hasSecondaryTombstones() bool
 }
 
 type segment struct {
@@ -130,6 +142,8 @@ type segment struct {
 	refCount         int
 
 	deleteMarkerSuffix string
+
+	secTombstones bool // cached result of segmentHasSecondaryTombstones(path)
 }
 
 type diskIndex interface {
@@ -350,6 +364,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		unMapContents:      unMapContents,
 		observeMetaWrite:   func(n int64) { observeWrite.Observe(float64(n)) },
 		deleteMarkerSuffix: fmt.Sprintf(".%013d%s", cfg.deleteMarkerCounter, DeleteMarkerSuffix),
+		secTombstones:      segmentHasSecondaryTombstones(path),
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -600,10 +615,22 @@ func (s *segment) getPath() string {
 
 func (s *segment) setPath(path string) {
 	s.path = path
+	s.secTombstones = segmentHasSecondaryTombstones(path)
 }
 
 func (s *segment) getStrategy() segmentindex.Strategy {
 	return s.strategy
+}
+
+// segmentHasSecondaryTombstones checks whether a segment path carries the
+// ".d1" (delete format version 1) marker, indicating that every tombstone in
+// the segment also has a secondary-key tombstone.
+func segmentHasSecondaryTombstones(path string) bool {
+	return strings.Contains(filepath.Base(path), ".d1.")
+}
+
+func (s *segment) hasSecondaryTombstones() bool {
+	return s.secTombstones
 }
 
 func (s *segment) getSecondaryIndexCount() uint16 {
