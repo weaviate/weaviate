@@ -408,6 +408,10 @@ func (s *fakeSegment) hasSecondaryTombstones() bool {
 	return segmentHasSecondaryTombstones(s.path)
 }
 
+func (s *fakeSegment) getSecondaryNodePos(pos int, key []byte) (secondaryNodePos, error) {
+	panic("not implemented")
+}
+
 func (s *fakeSegment) exists(key []byte) error {
 	keyStr := string(key)
 	if s.strategy != segmentindex.StrategyReplace {

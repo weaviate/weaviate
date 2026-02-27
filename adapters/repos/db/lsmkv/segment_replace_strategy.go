@@ -110,14 +110,24 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 }
 
 func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
+	return parseReplaceNodeData(in)
+}
+
+// parseReplaceNodeData parses a raw secondary-index node byte slice and
+// returns (primaryKey, value, error). It is a package-level function so that
+// the batch secondary-lookup path can reuse it without a segment receiver.
+//
+// Binary layout:
+//
+//	byte 0:       tombstone flag (0x01 = deleted)
+//	bytes 1-8:    value length (little-endian uint64)
+//	bytes 9-...:  value bytes
+//	next 4 bytes: primary-key length (little-endian uint32)
+//	remaining:    primary-key bytes
+func parseReplaceNodeData(in []byte) ([]byte, []byte, error) {
 	if len(in) == 0 {
 		return nil, nil, lsmkv.NotFound
 	}
-
-	// byte         meaning
-	// 0         is tombstone
-	// 1-8       data length as Little Endian uint64
-	// 9-length  data
 
 	// check the tombstone byte
 	if in[0] == 0x01 {
@@ -155,6 +165,76 @@ func (s *segment) existsKey(key []byte) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// secondaryNodePos describes the location of a single secondary-index node.
+//
+// For mmap-backed or in-memory segments the data has already been copied into
+// inMemoryData; Fd/Offset/Length are zero.
+//
+// For pread-backed segments inMemoryData is nil and Fd/Offset/Length describe
+// the byte range to read from the segment file. The file descriptor remains
+// valid as long as the bucket's flushLock read-lock is held.
+//
+// A zeroed secondaryNodePos with no inMemoryData and Fd==0 means "not found".
+// deleted==true means the entry exists but carries a tombstone.
+type secondaryNodePos struct {
+	inMemoryData []byte
+	fd           int
+	offset       int64
+	length       int64
+	deleted      bool
+}
+
+// getSecondaryNodePos performs only the in-memory index lookup for a secondary
+// key and returns the location of the corresponding node data. Unlike
+// getBySecondary it does NOT perform the disk read for pread-backed segments;
+// instead it returns the file position so that the caller can batch multiple
+// reads together (e.g. via io_uring).
+//
+// For mmap-backed segments the node data is copied eagerly (same safety
+// guarantee as getBySecondary: the copy is taken while the segment list lock
+// is held, before any compaction can remove the segment).
+func (s *segment) getSecondaryNodePos(pos int, key []byte) (secondaryNodePos, error) {
+	if s.strategy != segmentindex.StrategyReplace {
+		return secondaryNodePos{}, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
+	}
+
+	if pos >= len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
+		return secondaryNodePos{}, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
+	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
+		return secondaryNodePos{}, lsmkv.NotFound
+	}
+
+	node, err := s.secondaryIndices[pos].Get(key)
+	if err != nil {
+		return secondaryNodePos{}, err
+	}
+
+	sz := node.End - node.Start
+
+	if s.readFromMemory {
+		// Data is already in memory (mmap or preloaded). Copy it now while
+		// the maintenance lock is held so that a concurrent compaction cannot
+		// free the segment and leave us with a dangling pointer.
+		data := make([]byte, sz)
+		copy(data, s.contents[node.Start:node.End])
+		return secondaryNodePos{inMemoryData: data}, nil
+	}
+
+	// Pread-backed segment: return the position for later batch reading.
+	// The file descriptor is stable for as long as the bucket flushLock
+	// read-lock is held by the caller.
+	if s.contentFile == nil {
+		return secondaryNodePos{}, fmt.Errorf("nil contentFile for segment at %s", s.path)
+	}
+	return secondaryNodePos{
+		fd:     int(s.contentFile.Fd()),
+		offset: int64(node.Start),
+		length: int64(sz),
+	}, nil
 }
 
 // exists checks if a key exists and is not deleted, without reading the full value.

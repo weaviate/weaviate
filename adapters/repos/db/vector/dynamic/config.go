@@ -39,8 +39,9 @@ type Config struct {
 	PrometheusMetrics            *monitoring.PrometheusMetrics
 	VectorForIDThunk             common.VectorForID[float32]
 	GetViewThunk                 common.GetViewThunk
-	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
-	DistanceProvider             distancer.Provider
+	TempVectorForIDWithViewThunk     common.TempVectorForIDWithView[float32]
+	BatchRawDataForIDsWithViewThunk  common.BatchRawDataForIDsWithView
+	DistanceProvider distancer.Provider
 	MakeCommitLoggerThunk        hnsw.MakeCommitLogger
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup
 	SharedDB                     *bolt.DB

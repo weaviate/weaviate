@@ -116,7 +116,12 @@ type (
 	VectorForID[T []float32 | []uint64 | float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
 	MultipleVectorForID[T float32 | uint64 | byte]                func(ctx context.Context, id uint64, relativeID uint64) ([]T, error)
 	TempVectorForID[T []float32 | float32]                        func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
-	MultiVectorForID                                              func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
+
+	// BatchRawDataForIDsWithView fetches raw object data for multiple IDs in a
+	// single batched I/O operation using a pre-acquired bucket view.
+	// A nil entry means the object was not found or has been deleted.
+	BatchRawDataForIDsWithView func(ctx context.Context, ids []uint64, view BucketView) ([][]byte, error)
 )
 
 // BucketView represents a consistent view of an LSM bucket that can be used

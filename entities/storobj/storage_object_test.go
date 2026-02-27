@@ -1574,7 +1574,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, test.inputIDs, additional.Properties{}, nil, logger)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -1593,7 +1593,7 @@ func TestSkipMissingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 1000, 100)
 	ids = append(ids, 1001, 1002, 1003)
-	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
+	objs, err := objectsByDocIDParallelInner(bucket, ids, additional.Properties{}, nil, logger, false)
 	require.Nil(t, err)
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
@@ -1693,37 +1693,61 @@ func TestIterateThroughVectorDimensions(t *testing.T) {
 	}
 }
 
+// fakeBatchBucket wraps fakeBucket and adds BatchGetBySecondary so that the
+// objectsByDocIDBatch code path can be exercised in benchmarks. The
+// implementation is purely in-memory (no disk I/O), so it isolates framework
+// overhead rather than measuring io_uring throughput.
+type fakeBatchBucket struct {
+	*fakeBucket
+}
+
+func (f *fakeBatchBucket) BatchGetBySecondary(_ context.Context, _ int, keys [][]byte) ([][]byte, error) {
+	results := make([][]byte, len(keys))
+	for i, key := range keys {
+		docID := binary.LittleEndian.Uint64(key)
+		results[i] = f.objects[docID] // nil when not found
+	}
+	return results, nil
+}
+
+func (f *fakeBatchBucket) BatchGetBySecondaryWithView(_ context.Context, _ int, keys [][]byte, _ any) ([][]byte, error) {
+	return f.BatchGetBySecondary(context.Background(), 0, keys)
+}
+
+func (f *fakeBatchBucket) UsesPread() bool { return true }
+
 func BenchmarkObjectsByDocID(b *testing.B) {
-	bucket := genFakeBucket(b, 10000)
+	plain := genFakeBucket(b, 10000)
+	batch := &fakeBatchBucket{plain}
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 10000, 100)
 
-	tests := []struct {
-		concurrent bool
-		amount     int
-	}{
-		{concurrent: true, amount: 1},
-		{concurrent: false, amount: 1},
-		{concurrent: true, amount: 2},
-		{concurrent: false, amount: 2},
-		{concurrent: true, amount: 10},
-		{concurrent: false, amount: 10},
-		{concurrent: true, amount: 100},
-		{concurrent: false, amount: 100},
-	}
-	b.ResetTimer()
+	amounts := []int{1, 2, 10, 100}
 
-	for _, tt := range tests {
-		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
+	for _, amount := range amounts {
+		slice := ids[:amount]
+
+		b.Run(fmt.Sprintf("Sequential/n=%d", amount), func(b *testing.B) {
+			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				if tt.concurrent {
-					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
-					require.Nil(t, err)
+				_, err := objectsByDocIDSequential(plain, slice, additional.Properties{}, nil)
+				require.Nil(b, err)
+			}
+		})
 
-				} else {
-					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, nil)
-					require.Nil(t, err)
-				}
+		b.Run(fmt.Sprintf("Parallel/n=%d", amount), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_, err := objectsByDocIDParallelInner(plain, slice, additional.Properties{}, nil, logger, false)
+				require.Nil(b, err)
+			}
+		})
+
+		b.Run(fmt.Sprintf("Batch/n=%d", amount), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_, err := objectsByDocIDBatch(context.Background(), batch, slice, additional.Properties{}, nil)
+				require.Nil(b, err)
 			}
 		})
 	}
@@ -1764,7 +1788,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+		res, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {

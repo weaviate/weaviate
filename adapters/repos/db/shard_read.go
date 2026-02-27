@@ -278,6 +278,20 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
 }
 
+func (s *Shard) batchReadRawByIndexIDsWithView(ctx context.Context, ids []uint64, _ string, view common.BucketView) ([][]byte, error) {
+	bucketView, ok := view.(lsmkv.BucketConsistentView)
+	if !ok {
+		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+	keys := make([][]byte, len(ids))
+	for i, id := range ids {
+		key := make([]byte, 8)
+		binary.LittleEndian.PutUint64(key, id)
+		keys[i] = key
+	}
+	return bucketView.Bucket.BatchGetBySecondaryWithView(ctx, 0, keys, bucketView)
+}
+
 func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
@@ -580,7 +594,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	objs, err := storobj.ObjectsByDocID(ctx, bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -610,7 +624,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
+		return storobj.ObjectsByDocID(ctx, bucket, docIDs, additional, nil, s.index.logger)
 	}
 
 	if cursor == nil {

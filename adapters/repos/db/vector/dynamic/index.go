@@ -102,8 +102,9 @@ type dynamic struct {
 	prometheusMetrics            *monitoring.PrometheusMetrics
 	vectorForIDThunk             common.VectorForID[float32]
 	getViewThunk                 common.GetViewThunk
-	tempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
-	distanceProvider             distancer.Provider
+	tempVectorForIDWithViewThunk     common.TempVectorForIDWithView[float32]
+	batchRawDataForIDsWithViewThunk  common.BatchRawDataForIDsWithView
+	distanceProvider distancer.Provider
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
 	index                        VectorIndex
@@ -157,6 +158,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		vectorForIDThunk:             cfg.VectorForIDThunk,
 		getViewThunk:                 cfg.GetViewThunk,
 		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
+		batchRawDataForIDsWithViewThunk: cfg.BatchRawDataForIDsWithViewThunk,
 		distanceProvider:             cfg.DistanceProvider,
 		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
 		store:                        store,
@@ -191,7 +193,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				PrometheusMetrics:            index.prometheusMetrics,
 				VectorForIDThunk:             index.vectorForIDThunk,
 				GetViewThunk:                 index.getViewThunk,
-				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
+				TempVectorForIDWithViewThunk:    index.tempVectorForIDWithViewThunk,
+				BatchRawDataForIDsWithViewThunk: index.batchRawDataForIDsWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
 				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
 				DisableSnapshots:             index.hnswDisableSnapshots,
@@ -535,7 +538,8 @@ func (dynamic *dynamic) doUpgrade() error {
 			PrometheusMetrics:            dynamic.prometheusMetrics,
 			VectorForIDThunk:             dynamic.vectorForIDThunk,
 			GetViewThunk:                 dynamic.getViewThunk,
-			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
+			TempVectorForIDWithViewThunk:    dynamic.tempVectorForIDWithViewThunk,
+			BatchRawDataForIDsWithViewThunk: dynamic.batchRawDataForIDsWithViewThunk,
 			DistanceProvider:             dynamic.distanceProvider,
 			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
 			DisableSnapshots:             dynamic.hnswDisableSnapshots,
