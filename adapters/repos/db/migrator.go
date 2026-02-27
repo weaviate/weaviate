@@ -114,47 +114,88 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("async replication config: %w", err)
 	}
 
+	isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
-		multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+		isMultiTenant,
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
 	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
+	var totalShardSizeBytes uint64
+	var localActiveShardsCount int
+	if isMultiTenant {
+		// we need to calculate the local shards count if it's MT to be able to decide
+		// to enable lazy load shards
+		localActiveShardsCount, err = m.db.schemaReader.LocalActiveShardsCount(class.Class)
+		if err != nil {
+			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
+		}
+		// Only calculate shard sizes if the shard-count condition alone wouldn't
+		// already trigger lazy-loading. This avoids walking all shard directories
+		// on large MT setups where the count exceeds the threshold.
+		if localActiveShardsCount <= m.db.config.LazyLoadShardCountThreshold &&
+			m.db.config.LazyLoadShardSizeThresholdGB > 0 {
+			// we do need to calculate shard size if it's MT to be able to decide
+			// to enable lazy load shards based on total size
+			localShards, err := m.db.schemaReader.LocalShards(class.Class)
+			if err != nil {
+				return fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
+			}
+			sizeThresholdBytes := uint64(m.db.config.LazyLoadShardSizeThresholdGB * 1024 * 1024 * 1024)
+			totalShardSizeBytes = m.db.totalShardSizeBytes(schema.ClassName(class.Class), localShards, sizeThresholdBytes)
+		}
+	}
+
+	var lazyLoadShardEnabled bool
 	idx, err = NewIndex(ctx,
 		IndexConfig{
-			ClassName:                                    schema.ClassName(class.Class),
-			RootPath:                                     m.db.config.RootPath,
-			ResourceUsage:                                m.db.config.ResourceUsage,
-			QueryMaximumResults:                          m.db.config.QueryMaximumResults,
-			QueryHybridMaximumResults:                    m.db.config.QueryHybridMaximumResults,
-			QueryNestedRefLimit:                          m.db.config.QueryNestedRefLimit,
-			MemtablesFlushDirtyAfter:                     m.db.config.MemtablesFlushDirtyAfter,
-			MemtablesInitialSizeMB:                       m.db.config.MemtablesInitialSizeMB,
-			MemtablesMaxSizeMB:                           m.db.config.MemtablesMaxSizeMB,
-			MemtablesMinActiveSeconds:                    m.db.config.MemtablesMinActiveSeconds,
-			MemtablesMaxActiveSeconds:                    m.db.config.MemtablesMaxActiveSeconds,
-			MinMMapSize:                                  m.db.config.MinMMapSize,
-			LazySegmentsDisabled:                         m.db.config.LazySegmentsDisabled,
-			SegmentInfoIntoFileNameEnabled:               m.db.config.SegmentInfoIntoFileNameEnabled,
-			WriteMetadataFilesEnabled:                    m.db.config.WriteMetadataFilesEnabled,
-			MaxReuseWalSize:                              m.db.config.MaxReuseWalSize,
-			SegmentsCleanupIntervalSeconds:               m.db.config.SegmentsCleanupIntervalSeconds,
-			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
-			CycleManagerRoutinesFactor:                   m.db.config.CycleManagerRoutinesFactor,
-			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
-			ObjectsTTLBatchSize:                          m.db.config.ObjectsTTLBatchSize,
-			ObjectsTTLPauseEveryNoBatches:                m.db.config.ObjectsTTLPauseEveryNoBatches,
-			ObjectsTTLPauseDuration:                      m.db.config.ObjectsTTLPauseDuration,
-			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
-			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
-			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
-			UsageEnabled:                                 m.db.config.UsageEnabled,
-			AvoidMMap:                                    m.db.config.AvoidMMap,
-			EnableLazyLoadShards:                         m.db.config.EnableLazyLoadShards,
+			ClassName:                      schema.ClassName(class.Class),
+			RootPath:                       m.db.config.RootPath,
+			ResourceUsage:                  m.db.config.ResourceUsage,
+			QueryMaximumResults:            m.db.config.QueryMaximumResults,
+			QueryHybridMaximumResults:      m.db.config.QueryHybridMaximumResults,
+			QueryNestedRefLimit:            m.db.config.QueryNestedRefLimit,
+			MemtablesFlushDirtyAfter:       m.db.config.MemtablesFlushDirtyAfter,
+			MemtablesInitialSizeMB:         m.db.config.MemtablesInitialSizeMB,
+			MemtablesMaxSizeMB:             m.db.config.MemtablesMaxSizeMB,
+			MemtablesMinActiveSeconds:      m.db.config.MemtablesMinActiveSeconds,
+			MemtablesMaxActiveSeconds:      m.db.config.MemtablesMaxActiveSeconds,
+			MinMMapSize:                    m.db.config.MinMMapSize,
+			LazySegmentsDisabled:           m.db.config.LazySegmentsDisabled,
+			SegmentInfoIntoFileNameEnabled: m.db.config.SegmentInfoIntoFileNameEnabled,
+			WriteMetadataFilesEnabled:      m.db.config.WriteMetadataFilesEnabled,
+			MaxReuseWalSize:                m.db.config.MaxReuseWalSize,
+			SegmentsCleanupIntervalSeconds: m.db.config.SegmentsCleanupIntervalSeconds,
+			SeparateObjectsCompactions:     m.db.config.SeparateObjectsCompactions,
+			CycleManagerRoutinesFactor:     m.db.config.CycleManagerRoutinesFactor,
+			IndexRangeableInMemory:         m.db.config.IndexRangeableInMemory,
+			ObjectsTTLBatchSize:            m.db.config.ObjectsTTLBatchSize,
+			ObjectsTTLPauseEveryNoBatches:  m.db.config.ObjectsTTLPauseEveryNoBatches,
+			ObjectsTTLPauseDuration:        m.db.config.ObjectsTTLPauseDuration,
+			MaxSegmentSize:                 m.db.config.MaxSegmentSize,
+			TrackVectorDimensions:          m.db.config.TrackVectorDimensions,
+			TrackVectorDimensionsInterval:  m.db.config.TrackVectorDimensionsInterval,
+			UsageEnabled:                   m.db.config.UsageEnabled,
+			AvoidMMap:                      m.db.config.AvoidMMap,
+			EnableLazyLoadShards: func() bool {
+				// If explicitly enabled in config, override auto-detection.
+				if m.db.config.EnableLazyLoadShards {
+					return true
+				}
+
+				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
+					isMultiTenant,
+					localActiveShardsCount,
+					totalShardSizeBytes,
+					m.db.config.LazyLoadShardCountThreshold,
+					m.db.config.LazyLoadShardSizeThresholdGB,
+				)
+				return lazyLoadShardEnabled
+			}(),
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
@@ -171,16 +212,21 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			HNSWSnapshotOnStartup:                        m.db.config.HNSWSnapshotOnStartup,
 			HNSWSnapshotMinDeltaCommitlogsNumber:         m.db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
 			HNSWSnapshotMinDeltaCommitlogsSizePercentage: m.db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-			HNSWWaitForCachePrefill:                      m.db.config.HNSWWaitForCachePrefill,
-			HNSWFlatSearchConcurrency:                    m.db.config.HNSWFlatSearchConcurrency,
-			HNSWAcornFilterRatio:                         m.db.config.HNSWAcornFilterRatio,
-			VisitedListPoolMaxSize:                       m.db.config.VisitedListPoolMaxSize,
-			QuerySlowLogEnabled:                          m.db.config.QuerySlowLogEnabled,
-			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
-			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
-			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:                                m.db.config.HFreshEnabled,
-			AutoTenantActivation:                         schema.AutoTenantActivationEnabled(class),
+			HNSWWaitForCachePrefill: func() bool {
+				// don't wait if lazy load shard is enabled
+				if lazyLoadShardEnabled {
+					return false
+				}
+				return m.db.config.HNSWWaitForCachePrefill
+			}(),
+			HNSWFlatSearchConcurrency: m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:      m.db.config.HNSWAcornFilterRatio,
+			VisitedListPoolMaxSize:    m.db.config.VisitedListPoolMaxSize,
+			QuerySlowLogEnabled:       m.db.config.QuerySlowLogEnabled,
+			QuerySlowLogThreshold:     m.db.config.QuerySlowLogThreshold,
+			InvertedSorterDisabled:    m.db.config.InvertedSorterDisabled,
+			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
+			HFreshEnabled:             m.db.config.HFreshEnabled,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -198,6 +244,15 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
 
+	m.logger.WithFields(logrus.Fields{
+		"action":                  "lazy_shard_auto_detection",
+		"class":                   class.Class,
+		"enable_lazy_load_shards": lazyLoadShardEnabled,
+		"local_shard_count":       localActiveShardsCount,
+		"total_shard_size_bytes":  totalShardSizeBytes,
+		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
+		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
+	}).Info("lazy load shard auto-detection result")
 	return nil
 }
 

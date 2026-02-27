@@ -25,11 +25,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
+
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestTenantStatusChanges(t *testing.T) {
@@ -357,7 +358,6 @@ func TestRestart(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
-		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true"). // lazy shards are shown as inactive, which would break the test
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -499,7 +499,6 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
-		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true"). // lazy shards are shown as inactive, which would break the test
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		Start(ctx)
