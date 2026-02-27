@@ -244,8 +244,8 @@ type ShardDescriptor struct {
 	Name                  string                 `json:"name"`
 	Node                  string                 `json:"node"`
 	Files                 []string               `json:"files,omitempty"`
-	BigFilesChunk         map[string]BigFileInfo `json:"big_files_chunk,omitempty"`
-	IncrementalBackupInfo IncrementalBackupInfos `json:"incremental_backup_info,omitempty"`
+	BigFilesChunk         map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
+	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -408,20 +408,22 @@ func (f *FileList) GetFileSize(relPath string) int64 {
 }
 
 type IncrementalBackupInfos struct {
-	FilesPerBackup  map[string][]IncrementalBackupInfo
-	TotalSize       int64
-	NumFilesSkipped int // how many files are skipped in the current backup because they are identical to previous backups
+	FilesPerBackup map[string][]IncrementalBackupInfo `json:"filesPerBackup,omitempty"`
+	// TotalSize and NumFilesSkipped are not needed for restore, only for correct
+	// calculation of sizes during the backup process.
+	TotalSize       int64 `json:"-"`
+	NumFilesSkipped int   `json:"-"`
 }
 
 type IncrementalBackupInfo struct {
 	File      string   `json:"file"`
-	ChunkKeys []string `json:"chunk_keys"`
+	ChunkKeys []string `json:"chunkKeys"`
 }
 
 type BigFileInfo struct {
-	ChunkKeys  []string  `json:"chunk_keys"`
+	ChunkKeys  []string  `json:"chunkKeys"`
 	Size       int64     `json:"size"`
-	ModifiedAt time.Time `json:"modified_at"`
+	ModifiedAt time.Time `json:"modifiedAt"`
 }
 
 // ClassDescriptor contains everything needed to completely restore a class
