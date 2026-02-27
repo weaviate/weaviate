@@ -42,7 +42,7 @@ type BackupCreateRequest struct {
 	Include []string `json:"include"`
 
 	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.
-	IncrementalBackupBaseID *string `json:"incremental_backup_base_id,omitempty"`
+	IncrementalBaseBackupID *string `json:"incremental_base_backup_id,omitempty"`
 }
 
 // Validate validates this backup create request

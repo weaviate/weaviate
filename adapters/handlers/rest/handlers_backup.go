@@ -104,8 +104,8 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		overridePath = params.Body.Config.Path
 	}
 	baseBackupID := ""
-	if params.Body.IncrementalBackupBaseID != nil {
-		baseBackupID = *params.Body.IncrementalBackupBaseID
+	if params.Body.IncrementalBaseBackupID != nil {
+		baseBackupID = *params.Body.IncrementalBaseBackupID
 	}
 	if params.Body.ID == baseBackupID {
 		return backups.NewBackupsCreateInternalServerError().

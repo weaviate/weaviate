@@ -6095,7 +6095,7 @@ func init() {
             "type": "string"
           }
         },
-        "incremental_backup_base_id": {
+        "incremental_base_backup_id": {
           "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
           "x-nullable": true
@@ -15544,7 +15544,7 @@ func init() {
             "type": "string"
           }
         },
-        "incremental_backup_base_id": {
+        "incremental_base_backup_id": {
           "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
           "x-nullable": true

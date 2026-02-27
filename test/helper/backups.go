@@ -55,7 +55,7 @@ func CreateBackupWithBase(t *testing.T, cfg *models.BackupConfig, className, bac
 			ID:                      backupID,
 			Include:                 []string{className},
 			Config:                  cfg,
-			IncrementalBackupBaseID: &baseBackupID,
+			IncrementalBaseBackupID: &baseBackupID,
 		})
 	t.Logf("Creating backup with ID: %s, backend: %s, className: %s, config: %+v\n", backupID, backend, className, cfg)
 	return Client(t).Backups.BackupsCreate(params, nil)
