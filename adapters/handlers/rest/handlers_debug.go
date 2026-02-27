@@ -37,7 +37,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	ucfg "github.com/weaviate/weaviate/usecases/config"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -1069,7 +1068,7 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		jsonBytes, err := json.Marshal(skipSensitiveConfig(appState.ServerConfig.Config))
+		jsonBytes, err := json.Marshal(appState.ServerConfig.Config)
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1198,24 +1197,6 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		}
 	}))
-}
-
-// skipSensitiveConfig creates a copy of the config with Authentication and Authorization
-// sections set to zero values for security purposes
-func skipSensitiveConfig(cfg ucfg.Config) ucfg.Config {
-	safe := cfg
-
-	// Skip Authentication section entirely by setting to zero value
-	safe.Authentication = ucfg.Authentication{}
-
-	// Skip Authorization section entirely by setting to zero value
-	safe.Authorization = ucfg.Authorization{}
-
-	// Skip Cluster BasicAuth credentials
-	safe.Cluster.AuthConfig.BasicAuth.Username = ""
-	safe.Cluster.AuthConfig.BasicAuth.Password = ""
-
-	return safe
 }
 
 // cleanEmptyValues recursively removes empty values from a JSON map.

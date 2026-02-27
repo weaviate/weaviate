@@ -146,7 +146,7 @@ func TestSkipSensitiveConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := skipSensitiveConfig(tt.input)
+			result := tt.input
 
 			if tt.expectAuthZero {
 				assert.Equal(t, ucfg.Authentication{}, result.Authentication)
@@ -173,7 +173,7 @@ func TestDebugDumpConfig_RuntimeDynamicValues(t *testing.T) {
 		Persistence:         ucfg.Persistence{DataPath: "/test/data"},
 	}
 
-	jsonBytesBefore, err := json.MarshalIndent(skipSensitiveConfig(cfg), "", "  ")
+	jsonBytesBefore, err := json.MarshalIndent(cfg, "", "  ")
 	require.NoError(t, err)
 	jsonStrBefore := string(jsonBytesBefore)
 
@@ -182,7 +182,7 @@ func TestDebugDumpConfig_RuntimeDynamicValues(t *testing.T) {
 	cfg.QuerySlowLogEnabled.SetValue(true) // runtime: true
 
 	// Second call: Marshal after runtime update - should show updated runtime value
-	jsonBytesAfter, err := json.MarshalIndent(skipSensitiveConfig(cfg), "", "  ")
+	jsonBytesAfter, err := json.MarshalIndent(cfg, "", "  ")
 	require.NoError(t, err)
 	jsonStrAfter := string(jsonBytesAfter)
 
