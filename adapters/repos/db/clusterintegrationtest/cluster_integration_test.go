@@ -158,7 +158,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		for _, node := range nodes {
 			time.Sleep(100 * time.Millisecond)
 			node.repo.GetScheduler().Schedule(context.Background())
-			node.repo.GetScheduler().WaitAll()
+			_ = node.repo.GetScheduler().WaitAll(t.Context())
 		}
 	})
 

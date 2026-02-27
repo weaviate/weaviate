@@ -194,7 +194,7 @@ func (q *DiskQueue) Init() error {
 }
 
 // Close the queue, prevent further pushes and unregister it from the scheduler.
-func (q *DiskQueue) Close() error {
+func (q *DiskQueue) Close(ctx context.Context) error {
 	if q == nil {
 		return nil
 	}
@@ -207,7 +207,7 @@ func (q *DiskQueue) Close() error {
 	q.closed = true
 	q.m.Unlock()
 
-	q.scheduler.UnregisterQueue(q.id)
+	q.scheduler.UnregisterQueue(ctx, q.id)
 
 	q.m.Lock()
 	defer q.m.Unlock()
@@ -453,8 +453,8 @@ func (q *DiskQueue) Resume() {
 	q.metrics.Resumed(q.id)
 }
 
-func (q *DiskQueue) Wait() {
-	q.scheduler.Wait(q.id)
+func (q *DiskQueue) Wait(ctx context.Context) error {
+	return q.scheduler.Wait(ctx, q.id)
 }
 
 // ForceSwitch forces the queue to switch to a new chunk file.
@@ -478,12 +478,12 @@ func (q *DiskQueue) ForceSwitch(ctx context.Context, basePath string) ([]string,
 	return q.listFilesNoLock(ctx, basePath)
 }
 
-func (q *DiskQueue) Drop() error {
+func (q *DiskQueue) Drop(ctx context.Context) error {
 	if q == nil {
 		return nil
 	}
 
-	err := q.Close()
+	err := q.Close(ctx)
 	if err != nil {
 		q.Logger.WithError(err).Error("failed to close queue")
 	}

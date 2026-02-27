@@ -417,7 +417,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	}
 
 	// shut down the async workers
-	err := db.scheduler.Close()
+	err := db.scheduler.Close(ctx)
 	if err != nil {
 		return errors.Wrap(err, "close scheduler")
 	}

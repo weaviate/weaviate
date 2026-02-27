@@ -114,7 +114,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 		}
 
-		if err = queue.Close(); err != nil {
+		if err = queue.Close(ctx); err != nil {
 			ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 		}
 

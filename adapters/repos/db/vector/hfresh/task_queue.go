@@ -105,13 +105,13 @@ func NewTaskQueue(index *HFresh) (*TaskQueue, error) {
 	return &tq, nil
 }
 
-func (tq *TaskQueue) Close() error {
+func (tq *TaskQueue) Close(ctx context.Context) error {
 	var errs []error
-	if err := tq.q.Close(); err != nil {
+	if err := tq.q.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close main queue"))
 	}
 
-	if err := tq.qMerge.Close(); err != nil {
+	if err := tq.qMerge.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 

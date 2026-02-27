@@ -219,7 +219,7 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	err := h.taskQueue.Close()
+	err := h.taskQueue.Close(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
