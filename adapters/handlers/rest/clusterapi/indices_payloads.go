@@ -549,6 +549,7 @@ func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
 
 	dists := make([]float32, distsLength)
 	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
+	read += distsLength * 4
 
 	return dists, nil
 }
@@ -711,6 +712,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 
 	dists := make([]float32, distsLength)
 	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
+	read += distsLength * 4
 
 	return objs, dists, nil
 }

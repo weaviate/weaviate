@@ -342,6 +342,66 @@ func TestFp64SliceFromBytes(t *testing.T) {
 	})
 }
 
+func TestCopyBytesToSliceFloat32(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		dst := make([]float32, 0)
+		CopyBytesToSlice(dst, nil)
+		assert.Empty(t, dst)
+	})
+
+	t.Run("non-empty", func(t *testing.T) {
+		srcVals := []float32{0, 1.5, -2.25, 3.75}
+		data := make([]byte, len(srcVals)*4)
+		for i, v := range srcVals {
+			binary.LittleEndian.PutUint32(data[i*4:], math.Float32bits(v))
+		}
+		dst := make([]float32, len(srcVals))
+		CopyBytesToSlice(dst, data)
+		assert.Equal(t, srcVals, dst)
+	})
+}
+
+func TestCopyBytesToSliceUint64(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		dst := make([]uint64, 0)
+		CopyBytesToSlice(dst, nil)
+		assert.Empty(t, dst)
+	})
+
+	t.Run("non-empty", func(t *testing.T) {
+		srcVals := []uint64{0, 1, 0xFFFFFFFF + 1, ^uint64(0)}
+		data := make([]byte, len(srcVals)*8)
+		for i, v := range srcVals {
+			binary.LittleEndian.PutUint64(data[i*8:], v)
+		}
+		dst := make([]uint64, len(srcVals))
+		CopyBytesToSlice(dst, data)
+		assert.Equal(t, srcVals, dst)
+	})
+}
+
+func TestCopySliceToBytesFloat32(t *testing.T) {
+	srcVals := []float32{0, 1.5, -2.25, 3.75}
+	data := make([]byte, len(srcVals)*4)
+	CopySliceToBytes(data, srcVals)
+
+	for i, v := range srcVals {
+		got := math.Float32frombits(binary.LittleEndian.Uint32(data[i*4:]))
+		assert.Equal(t, v, got)
+	}
+}
+
+func TestCopySliceToBytesUint64(t *testing.T) {
+	srcVals := []uint64{0, 1, 0xFFFFFFFF + 1, ^uint64(0)}
+	data := make([]byte, len(srcVals)*8)
+	CopySliceToBytes(data, srcVals)
+
+	for i, v := range srcVals {
+		got := binary.LittleEndian.Uint64(data[i*8:])
+		assert.Equal(t, v, got)
+	}
+}
+
 // makeFloat32Bytes creates a []byte containing n little-endian float32 values.
 func makeFloat32Bytes(n int) []byte {
 	data := make([]byte, n*4)

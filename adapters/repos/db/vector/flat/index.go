@@ -323,9 +323,7 @@ func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
 }
 
 func uint64SliceFromByteSlice(vector []byte, slice []uint64) []uint64 {
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(vector[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*8])
 	return slice
 }
 
