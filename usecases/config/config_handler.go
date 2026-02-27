@@ -358,10 +358,14 @@ type QueryDefaults struct {
 	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
-const DefaultBackupChunkTargetSize = 1024 * 1024 * 1024 // 1GB
+const (
+	DefaultBackupChunkTargetSize = 1024 * 1024 * 1024      // 1GB
+	DefaultBackupSplitFileSize   = 50 * 1024 * 1024 * 1024 // 50GB
+)
 
 type Backup struct {
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
+	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

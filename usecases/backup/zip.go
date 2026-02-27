@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -43,6 +44,17 @@ const (
 	NoCompression
 )
 
+const (
+	PAXRecordSplitFileOffsetPartName = "WEAVIATE.fileOffset"
+)
+
+type SplitFile struct {
+	AbsPath        string
+	RelPath        string
+	FileInfo       fs.FileInfo
+	AlreadyWritten int64
+}
+
 type compressor interface {
 	Flush() error
 	Write(p []byte) (n int, err error)
@@ -55,9 +67,10 @@ type zip struct {
 	compressorWriter    compressor
 	pipeWriter          *io.PipeWriter
 	maxChunkSizeInBytes int64
+	splitFileSizeBytes  int64
 }
 
-func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup.ReadCloserWithError, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -92,6 +105,9 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup
 	if chunkTargetSizeInBytes == 0 {
 		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
 	}
+	if splitFileSize == 0 {
+		splitFileSize = int64(1<<63 - 1) // effectively no limit
+	}
 
 	return zip{
 		sourcePath:          sourcePath,
@@ -99,6 +115,7 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, entBackup
 		w:                   tarW,
 		pipeWriter:          pw,
 		maxChunkSizeInBytes: chunkTargetSizeInBytes,
+		splitFileSizeBytes:  splitFileSize,
 	}, reader, nil
 }
 
@@ -124,8 +141,8 @@ func (z *zip) CloseWithError(err error) error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64) (written int64, err error) {
-	var n int64 // temporary written bytes
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64) (int64, *SplitFile, error) {
+	var written int64
 
 	// write in-memory files only for the first chunk of the shard, these files are small and we can assume that they will
 	// always fit into the first chunk
@@ -140,29 +157,31 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 			{relPath: sd.ShardVersionPath, data: sd.Version},
 		} {
 			if err := ctx.Err(); err != nil {
-				return written, err
+				return written, nil, err
 			}
 			info := vFileInfo{
 				name: filepath.Base(x.relPath),
 				size: len(x.data),
 			}
 			preCompressionSize.Add(int64(len(x.data)))
-			if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
-				return written, err
+			n, err := z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data))
+			if err != nil {
+				return written, nil, err
 			}
 			written += n
 		}
 	}
 
-	n, err = z.WriteRegulars(ctx, filesInShard, preCompressionSize)
+	n, sizeExceededInfo, err := z.WriteRegulars(ctx, filesInShard, preCompressionSize)
 	written += n
 
-	return written, err
+	return written, sizeExceededInfo, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
+func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (int64, *SplitFile, error) {
 	// Process files in filesInShard and remove them as we go (pop from front).
 	firstFile := true
+	written := int64(0)
 	for filesInShard.Len() > 0 {
 		relPath := filesInShard.Peek()
 		if filepath.Base(relPath) == ".DS_Store" {
@@ -170,28 +189,34 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			return written, err
+			return written, nil, err
 		}
-		n, sizeExceeded, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
+		n, sizeExceededInfo, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
 		if err != nil {
-			return written, err
+			return written, nil, err
 		}
-		if sizeExceeded {
+		if sizeExceededInfo != nil {
 			// The file was not written because the current chunk is full.
-			// It will be processed on the next chunk.
-			return written, nil
+			if sizeExceededInfo.FileInfo == nil {
+				// File is below split threshold, it will be written whole on the next chunk.
+				return written, nil, nil
+			}
+			// File exceeds split threshold, it will be split across chunks.
+			// Pop it from the list since the split mechanism now owns it.
+			filesInShard.PopFront()
+			return written, sizeExceededInfo, nil
 		}
 		// remove processed element from slice
 		filesInShard.PopFront()
 		written += n
 		firstFile = false
 	}
-	return written, nil
+	return written, nil, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64, firstFile bool) (written int64, sizeExceeded bool, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64, firstFile bool) (written int64, sizeExceeded *SplitFile, err error) {
 	if err := ctx.Err(); err != nil {
-		return written, false, err
+		return written, nil, err
 	}
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
@@ -202,30 +227,39 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath))
 			info, err = os.Stat(absPath)
 			if err != nil {
-				return written, false, fmt.Errorf("stat for deleted files: %w", err)
+				return written, nil, fmt.Errorf("stat for deleted files: %w", err)
 			}
 		} else {
-			return written, false, fmt.Errorf("stat: %w", err)
+			return written, nil, fmt.Errorf("stat: %w", err)
 		}
 	}
 	if !info.Mode().IsRegular() {
-		return 0, false, nil // ignore directories
+		return 0, nil, nil // ignore directories
 	}
-	// always write at least one file per chunk
-	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
-		return 0, true, nil
+	// Check if the file exceeds the chunk size
+	if preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
+		if info.Size() > z.splitFileSizeBytes {
+			// file is larger than the split threshold, split it across chunks
+			// (a split part counts as "at least one file" in the chunk)
+			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
+		}
+		if !firstFile {
+			// file doesn't need splitting, but chunk is full - defer to next chunk
+			return 0, &SplitFile{}, nil
+		}
+		// firstFile and below split threshold: write it whole so the chunk is not empty
 	}
 
 	f, err := os.Open(absPath)
 	if err != nil {
-		return written, false, fmt.Errorf("open: %w", err)
+		return written, nil, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
 
 	preCompressionSize.Add(info.Size())
 
 	written, err = z.writeOne(ctx, info, relPath, f)
-	return written, false, err
+	return written, nil, err
 }
 
 func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
@@ -256,6 +290,49 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 		return written, fmt.Errorf("copy: %s with filesize %d: %w", relPath, info.Size(), err)
 	}
 	return written, err
+}
+
+func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompressionSize *atomic.Int64) (*SplitFile, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, z.splitFileSizeBytes)
+
+	header, err := tar.FileInfoHeader(splitFile.FileInfo, splitFile.FileInfo.Name())
+	if err != nil {
+		return nil, fmt.Errorf("file header: %w", err)
+	}
+	header.Name = splitFile.RelPath
+	header.ChangeTime = splitFile.FileInfo.ModTime()
+	header.PAXRecords = map[string]string{
+		PAXRecordSplitFileOffsetPartName: strconv.FormatInt(splitFile.AlreadyWritten, 10),
+	}
+	header.Size = amountToWrite
+	if err := z.w.WriteHeader(header); err != nil {
+		return nil, fmt.Errorf("write header: %w", err)
+	}
+
+	f, err := os.Open(splitFile.AbsPath)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.Seek(splitFile.AlreadyWritten, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seek to offset %d in file %s: %w", splitFile.AlreadyWritten, splitFile.RelPath, err)
+	}
+
+	if _, err := io.CopyN(z.w, f, amountToWrite); err != nil {
+		return nil, fmt.Errorf("copy %d bytes from file %s: %w", amountToWrite, splitFile.RelPath, err)
+	}
+	splitFile.AlreadyWritten += amountToWrite
+	preCompressionSize.Add(amountToWrite)
+
+	if splitFile.AlreadyWritten < splitFile.FileInfo.Size() {
+		return splitFile, nil
+	}
+	return nil, nil
 }
 
 type zstdWrapper struct {
@@ -374,16 +451,43 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 }
 
 func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err error) {
-	f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
-	if err != nil {
-		return written, fmt.Errorf("create: %w", err)
+	part, isSplitFile := h.PAXRecords[PAXRecordSplitFileOffsetPartName]
+	if isSplitFile {
+		startOffset, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid split file part %q: %w", part, err)
+		}
+
+		// open without truncating so out-of-order chunks can be written at their offsets
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(h.Mode))
+		if err != nil {
+			return 0, fmt.Errorf("open: %w", err)
+		}
+		defer f.Close()
+
+		// seek to the chunk start
+		if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
+			return 0, fmt.Errorf("seek: %w", err)
+		}
+
+		// write exactly the number of bytes this tar entry contains
+		n, err := io.CopyN(f, r, h.Size)
+		if err != nil {
+			return n, fmt.Errorf("copy split: %w", err)
+		}
+		return n, nil
+	} else {
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(h.Mode))
+		if err != nil {
+			return written, fmt.Errorf("create: %w", err)
+		}
+		defer f.Close()
+		written, err = io.Copy(f, r)
+		if err != nil {
+			return written, fmt.Errorf("copy: %w", err)
+		}
+		return written, nil
 	}
-	defer f.Close()
-	written, err = io.Copy(f, r)
-	if err != nil {
-		return written, fmt.Errorf("copy: %w", err)
-	}
-	return written, nil
 }
 
 type vFileInfo struct {
