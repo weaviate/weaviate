@@ -245,7 +245,7 @@ type ShardDescriptor struct {
 	Node                  string                 `json:"node"`
 	Files                 []string               `json:"files,omitempty"`
 	BigFilesChunk         map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
-	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo,omitempty"`
+	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`

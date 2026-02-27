@@ -1009,7 +1009,7 @@ func CancellationTestCase() BackupTestCase {
 	}
 }
 
-// CancellationTestCase returns a test case for testing backup cancellation.
+// IncrementalTestCase returns a test case for testing incremental backups.
 func IncrementalTestCase() BackupTestCase {
 	return BackupTestCase{
 		Name:            "incremental",
@@ -1164,7 +1164,7 @@ func queryGQL(t *testing.T, query string) (*gql.GraphqlPostOK, error) {
 	return helper.Client(t).Graphql.GraphqlPost(params, nil)
 }
 
-// getFolderChunks gets all the chunks for a given backupID from the specified S3 bucket
+// getTotalSize gets the total size of all objects for a given backupID from the specified S3 bucket
 func getTotalSize(t *testing.T, minioURL, bucketName, backupID string) (int64, error) {
 	t.Helper()
 
