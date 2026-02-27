@@ -28,6 +28,7 @@ import (
 //
 // swagger:model BackupCreateRequest
 type BackupCreateRequest struct {
+
 	// Custom configuration for the backup creation process
 	Config *BackupConfig `json:"config,omitempty"`
 
@@ -92,6 +93,7 @@ func (m *BackupCreateRequest) ContextValidate(ctx context.Context, formats strfm
 }
 
 func (m *BackupCreateRequest) contextValidateConfig(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Config != nil {
 		if err := m.Config.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
