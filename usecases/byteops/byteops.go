@@ -17,7 +17,6 @@ import (
 	"errors"
 	"io"
 	"math"
-	"unsafe"
 )
 
 const (
@@ -255,28 +254,6 @@ func Fp32SliceFromBytes(vector []byte) []float32 {
 	floats := make([]float32, len(vector)/Uint32Len)
 	CopyBytesToSlice(floats, vector)
 	return floats
-}
-
-// CopyBytesToSlice bulk-copies raw bytes into a typed slice using memmove
-// instead of decoding each element individually.
-// Safe on little-endian architectures (x86, ARM64).
-func CopyBytesToSlice[T float32 | uint64](dst []T, src []byte) {
-	if len(dst) == 0 {
-		return
-	}
-	dstBytes := unsafe.Slice((*byte)(unsafe.Pointer(&dst[0])), len(dst)*int(unsafe.Sizeof(dst[0])))
-	copy(dstBytes, src)
-}
-
-// CopySliceToBytes bulk-copies a typed slice into raw bytes using memmove
-// instead of encoding each element individually.
-// Safe on little-endian architectures (x86, ARM64).
-func CopySliceToBytes[T float32 | uint64](dst []byte, src []T) {
-	if len(src) == 0 {
-		return
-	}
-	srcBytes := unsafe.Slice((*byte)(unsafe.Pointer(&src[0])), len(src)*int(unsafe.Sizeof(src[0])))
-	copy(dst, srcBytes)
 }
 
 // Fp32SliceOfSlicesToBytes converts a slice of slices of float64 to a byte slice
