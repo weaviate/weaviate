@@ -51,7 +51,7 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 		s.PauseQueue("test")
 		s.ResumeQueue("test")
-		s.Wait("test")
+		_ = s.Wait(t.Context(), "test")
 	})
 
 	t.Run("paused queue should not process tasks", func(t *testing.T) {
@@ -253,7 +253,7 @@ func TestScheduler(t *testing.T) {
 
 		s.Schedule(t.Context())
 		<-started
-		s.Wait(q.ID())
+		_ = s.Wait(t.Context(), q.ID())
 		for i := 0; i < 30; i++ {
 			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)
 		}
@@ -296,7 +296,7 @@ func TestScheduler(t *testing.T) {
 
 		s.Schedule(t.Context())
 		<-started
-		s.Wait(q.ID())
+		_ = s.Wait(t.Context(), q.ID())
 
 		for i := 0; i < 30; i++ {
 			if i == 3 {
@@ -345,7 +345,7 @@ func TestScheduler(t *testing.T) {
 
 		s.Schedule(t.Context())
 		<-started
-		s.Wait(q.ID())
+		_ = s.Wait(t.Context(), q.ID())
 
 		for i := 0; i < 30; i++ {
 			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)

@@ -453,8 +453,8 @@ func (q *DiskQueue) Resume() {
 	q.metrics.Resumed(q.id)
 }
 
-func (q *DiskQueue) Wait() {
-	q.scheduler.Wait(q.id)
+func (q *DiskQueue) Wait(ctx context.Context) error {
+	return q.scheduler.Wait(ctx, q.id)
 }
 
 // ForceSwitch forces the queue to switch to a new chunk file.
