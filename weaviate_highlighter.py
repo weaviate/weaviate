@@ -129,10 +129,7 @@ class WeaviateHighlighter(BaseDocumentTransformer):
             new_metadata['_additional']['highlight']['content'] = snippet
             
             # Form return struct
-            if LANGCHAIN_AVAILABLE:
-                transformed_docs.append(Document(page_content=content, metadata=new_metadata))
-            else:
-                transformed_docs.append(Document(page_content=content, metadata=new_metadata))
+            transformed_docs.append(Document(page_content=content, metadata=new_metadata))
                 
         # Support Cross-Encoder Document Re-ranking
         if self.use_cross_encoder and self.cross_encoder and transformed_docs:
