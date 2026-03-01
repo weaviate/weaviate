@@ -289,13 +289,13 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		for i, value := range values {
 			// dates can be either a date-string or directly a time object. Try to parse both
 			if asTime, okTime := value.(time.Time); okTime {
-				in[i] = asTime.UnixNano()
+				in[i] = asTime.UnixMilli()
 			} else if asString, okString := value.(string); okString {
 				parsedTime, err := time.Parse(time.RFC3339Nano, asString)
 				if err != nil {
 					return nil, fmt.Errorf("parse time: %w", err)
 				}
-				in[i] = parsedTime.UnixNano()
+				in[i] = parsedTime.UnixMilli()
 			} else {
 				return nil, fmt.Errorf("expected property %s to be a time-string or time object, but got %T", prop.Name, value)
 			}
@@ -418,7 +418,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
 		}
 
-		items, err = a.Int(asTime.UnixNano())
+		items, err = a.Int(asTime.UnixMilli())
 		if err != nil {
 			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}

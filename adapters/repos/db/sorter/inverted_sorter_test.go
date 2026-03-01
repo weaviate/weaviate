@@ -301,7 +301,7 @@ func dummyInvertedIndex(t *testing.T, ctx context.Context, store *lsmkv.Store, p
 				key, err = inverted.LexicographicallySortableFloat64(p.number)
 				require.Nil(t, err)
 			case "date":
-				key, err = inverted.LexicographicallySortableInt64(p.date.UnixNano())
+				key, err = inverted.LexicographicallySortableInt64(p.date.UnixMilli())
 				require.Nil(t, err)
 			}
 			err = bucket.RoaringSetAddOne(key, p.docID)
