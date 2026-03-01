@@ -240,9 +240,12 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 	case OpCreate:
 		st, err := m.backupper.OnStatus(ctx, req)
 		ret.Status = st.Status
-		// mm
 		if err != nil {
-			ret.Status = backup.Failed
+			// Preserve the status if it's already a terminal status (Cancelled/Failed),
+			// otherwise set to Failed
+			if st.Status != backup.Cancelled && st.Status != backup.Failed {
+				ret.Status = backup.Failed
+			}
 			ret.Err = err.Error()
 		}
 	case OpRestore:
