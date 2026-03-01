@@ -49,10 +49,10 @@ require (
 	github.com/hashicorp/memberlist v0.5.4
 	github.com/hashicorp/raft v1.7.2
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
-	github.com/ikawaha/kagome-dict v1.1.6
+	github.com/ikawaha/kagome-dict v1.1.7
 	github.com/ikawaha/kagome-dict-ko v0.2.1
-	github.com/ikawaha/kagome-dict/ipa v1.2.5
-	github.com/ikawaha/kagome/v2 v2.10.2
+	github.com/ikawaha/kagome-dict/ipa v1.2.6
+	github.com/ikawaha/kagome/v2 v2.10.3
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/jonboulle/clockwork v0.5.0
@@ -94,9 +94,9 @@ require (
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.34.0
-	golang.org/x/sync v0.18.0
+	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.40.0
-	golang.org/x/text v0.31.0
+	golang.org/x/text v0.32.0
 	golang.org/x/time v0.14.0
 	gonum.org/v1/gonum v0.16.0
 	google.golang.org/api v0.256.0
