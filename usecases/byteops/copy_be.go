@@ -21,16 +21,25 @@ import (
 // CopyBytesToSlice copies little-endian encoded bytes into a typed slice
 // using per-element decoding. This fallback is used on big-endian architectures
 // where the in-memory representation differs from the little-endian byte layout on disk.
-func CopyBytesToSlice[T float32 | uint64](dst []T, src []byte) {
+func CopyBytesToSlice[T float32 | float64 | uint64 | int64](dst []T, src []byte) {
 	switch any(dst).(type) {
 	case []float32:
 		for i := range dst {
 			bits := binary.LittleEndian.Uint32(src[i*Uint32Len : (i+1)*Uint32Len])
 			*(*float32)(any(&dst[i]).(*float32)) = math.Float32frombits(bits)
 		}
+	case []float64:
+		for i := range dst {
+			bits := binary.LittleEndian.Uint64(src[i*Uint64Len : (i+1)*Uint64Len])
+			*(*float64)(any(&dst[i]).(*float64)) = math.Float64frombits(bits)
+		}
 	case []uint64:
 		for i := range dst {
 			*(*uint64)(any(&dst[i]).(*uint64)) = binary.LittleEndian.Uint64(src[i*Uint64Len : (i+1)*Uint64Len])
+		}
+	case []int64:
+		for i := range dst {
+			*(*int64)(any(&dst[i]).(*int64)) = int64(binary.LittleEndian.Uint64(src[i*Uint64Len : (i+1)*Uint64Len]))
 		}
 	}
 }
@@ -38,15 +47,23 @@ func CopyBytesToSlice[T float32 | uint64](dst []T, src []byte) {
 // CopySliceToBytes copies a typed slice into little-endian encoded bytes
 // using per-element encoding. This fallback is used on big-endian architectures
 // where the in-memory representation differs from the little-endian byte layout on disk.
-func CopySliceToBytes[T float32 | uint64](dst []byte, src []T) {
+func CopySliceToBytes[T float32 | float64 | uint64 | int64](dst []byte, src []T) {
 	switch any(src).(type) {
 	case []float32:
 		for i := range src {
 			binary.LittleEndian.PutUint32(dst[i*Uint32Len:(i+1)*Uint32Len], math.Float32bits(*(*float32)(any(&src[i]).(*float32))))
 		}
+	case []float64:
+		for i := range src {
+			binary.LittleEndian.PutUint64(dst[i*Uint64Len:(i+1)*Uint64Len], math.Float64bits(*(*float64)(any(&src[i]).(*float64))))
+		}
 	case []uint64:
 		for i := range src {
 			binary.LittleEndian.PutUint64(dst[i*Uint64Len:(i+1)*Uint64Len], *(*uint64)(any(&src[i]).(*uint64)))
+		}
+	case []int64:
+		for i := range src {
+			binary.LittleEndian.PutUint64(dst[i*Uint64Len:(i+1)*Uint64Len], uint64(*(*int64)(any(&src[i]).(*int64))))
 		}
 	}
 }
