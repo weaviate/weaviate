@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -309,16 +308,12 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 }
 
 func byteSliceFromUint64Slice(vector []uint64, slice []byte) []byte {
-	for i := range vector {
-		binary.LittleEndian.PutUint64(slice[i*8:], vector[i])
-	}
+	byteops.CopySliceToBytes(slice[:len(vector)*8], vector)
 	return slice
 }
 
 func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
-	for i := range vector {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vector[i]))
-	}
+	byteops.CopySliceToBytes(slice[:len(vector)*4], vector)
 	return slice
 }
 

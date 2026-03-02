@@ -212,9 +212,7 @@ func (e *MuveraEncoder) Dimensions() int {
 
 func MuveraBytesFromFloat32(vec []float32) []byte {
 	slice := make([]byte, len(vec)*4)
-	for i := range vec {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
-	}
+	byteops.CopySliceToBytes(slice, vec)
 	return slice
 }
 
