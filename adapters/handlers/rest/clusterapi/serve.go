@@ -68,7 +68,7 @@ func NewServer(appState *state.State) *Server {
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
-	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config)
+	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",

@@ -303,8 +303,12 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 	return nil
 }
 
-func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
 	start := time.Now()
 	client, err := s.getClient(ctx)
 	if err != nil {

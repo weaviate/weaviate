@@ -24,7 +24,7 @@ def delete(expiration_time: Optional[datetime.datetime] = None):
 
             params["expiration"] = expiration_time.isoformat(sep="T", timespec="microseconds")
 
-        response = client.get(
+        response = client.post(
             "http://localhost:6060/debug/ttl/deleteall", params=params, timeout=30
         )
         response.raise_for_status()

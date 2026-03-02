@@ -840,6 +840,6 @@ func CompressionTypeFromLevel(c CompressionLevel) (backup.CompressionType, error
 	case NoCompression:
 		return backup.CompressionNone, nil
 	default:
-		return "", fmt.Errorf("invalid compression level: %q", c)
+		return "", fmt.Errorf("invalid compression level: %v", c)
 	}
 }

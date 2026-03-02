@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -194,8 +195,9 @@ type hnsw struct {
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
-	allocChecker            memwatch.AllocChecker
-	tombstoneCleanupRunning atomic.Bool
+	allocChecker              memwatch.AllocChecker
+	tombstoneMemCheckInterval time.Duration
+	tombstoneCleanupRunning   atomic.Bool
 
 	visitedListPoolMaxSize int
 
@@ -384,10 +386,11 @@ func New(cfg Config, uc ent.UserConfig,
 		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
-		store:                  store,
-		allocChecker:           cfg.AllocChecker,
-		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
-		asyncIndexingEnabled:   cfg.AsyncIndexingEnabled,
+		store:                     store,
+		allocChecker:              cfg.AllocChecker,
+		tombstoneMemCheckInterval: 500 * time.Millisecond,
+		visitedListPoolMaxSize:    cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:      cfg.AsyncIndexingEnabled,
 
 		docIDVectors:      make(map[uint64][]uint64),
 		muveraEncoder:     muveraEncoder,

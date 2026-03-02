@@ -97,7 +97,6 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	})).Return(nil).Maybe()
 	mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
-	mockStream.EXPECT().Send(newBatchStreamShutdownReply()).Return(nil).Once()
 
 	numWorkers := 1
 	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
@@ -451,14 +450,6 @@ func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShuttingDown_{
 			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
-		},
-	}
-}
-
-func newBatchStreamShutdownReply() *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Shutdown_{
-			Shutdown: &pb.BatchStreamReply_Shutdown{},
 		},
 	}
 }

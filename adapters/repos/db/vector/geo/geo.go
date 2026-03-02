@@ -50,6 +50,8 @@ type vectorIndex interface {
 	Delete(id ...uint64) error
 	Dump(...string)
 	Drop(ctx context.Context, keepFiles bool) error
+	Flush() error
+	Shutdown(ctx context.Context) error
 	PostStartup(ctx context.Context)
 }
 
@@ -167,4 +169,12 @@ func (i *Index) WithinRange(ctx context.Context,
 
 func (i *Index) Delete(id uint64) error {
 	return i.vectorIndex.Delete(id)
+}
+
+func (i *Index) Flush() error {
+	return i.vectorIndex.Flush()
+}
+
+func (i *Index) Shutdown(ctx context.Context) error {
+	return i.vectorIndex.Shutdown(ctx)
 }

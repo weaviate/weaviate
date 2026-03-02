@@ -480,14 +480,12 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 
 		results, err := i.replicator.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "digest objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 
 		if err != nil {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusInternalServerError)
+			http.Error(w, "digest objects: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -839,8 +837,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 
 		resp, err := i.replicator.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -896,8 +893,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 
 		resp, err := i.replicator.FetchObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {

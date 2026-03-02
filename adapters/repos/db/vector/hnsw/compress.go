@@ -62,7 +62,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				}
 			}
 
-			if p == nil {
+			if len(p) == 0 {
 				// already deleted, ignore
 				continue
 			}

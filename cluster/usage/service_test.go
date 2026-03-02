@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -199,16 +198,19 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		},
 	})
 	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
+	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).
+		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
+	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant).
+		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
+	mockSchema.EXPECT().ShardOwner(className, hotTenant).Return(nodeName, nil).Maybe()
 
-	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class)
-	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil)
-	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, errors.New(""))
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
 		},
-	)
+	).Maybe()
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	putObjectAndFlush(t, repo, className, hotTenant, map[string][]float32{vectorName: {0.1, 0.2, 0.3}}, map[string][]float32{vectorName: {0.4, 0.5, 0.6}})

@@ -308,11 +308,13 @@ func (a *azureClient) getConcurrency(ctx context.Context) int {
 	return concurrency
 }
 
-func (a *azureClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (written int64, err error) {
+func (a *azureClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
 	path := a.makeObjectName(overridePath, []string{backupID, key})
 	reader := &reader{src: r}
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
 	defer func() {
-		r.Close()
+		r.CloseWithError(err)
 		written = int64(reader.count)
 	}()
 

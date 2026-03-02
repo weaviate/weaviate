@@ -569,6 +569,16 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			for {
 				resp, err := stream.Recv()
 				if errors.Is(err, io.EOF) {
+					if shuttingDown.Load() {
+						stream.CloseSend()
+						t.Logf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
+						grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
+						streamRestartLock.Lock()
+						stream = start(ctx, t, grpcClient, "")
+						streamRestartLock.Unlock()
+						shuttingDown.Store(false)
+						continue
+					}
 					t.Logf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
 					return // server closed the stream
 				}
@@ -585,15 +595,6 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				if resp.GetShuttingDown() != nil {
 					t.Logf("%s Shutdown triggered\n", time.Now().Format("15:04:05"))
 					shuttingDown.Store(true)
-				}
-				if resp.GetShutdown() != nil {
-					stream.CloseSend()
-					t.Logf("%s Stream closed by server due to shutdown\n", time.Now().Format("15:04:05"))
-					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
-					streamRestartLock.Lock()
-					stream = start(ctx, t, grpcClient, "")
-					streamRestartLock.Unlock()
-					shuttingDown.Store(false)
 				}
 				if resp.GetAcks() != nil {
 					acked <- struct{}{}
