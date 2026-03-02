@@ -17,29 +17,29 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/exports"
+	"github.com/weaviate/weaviate/client/export"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func CreateExport(t *testing.T, backend, exportID string, include []string) (*exports.ExportsCreateOK, error) {
+func CreateExport(t *testing.T, backend, exportID string, include []string) (*export.ExportCreateOK, error) {
 	t.Helper()
-	params := exports.NewExportsCreateParams().
+	params := export.NewExportCreateParams().
 		WithBackend(backend).
 		WithBody(&models.ExportCreateRequest{
 			ID:      &exportID,
 			Include: include,
 		})
 	t.Logf("Creating export with ID: %s, backend: %s, include: %v", exportID, backend, include)
-	return helper.Client(t).Exports.ExportsCreate(params, nil)
+	return helper.Client(t).Export.ExportCreate(params, nil)
 }
 
-func ExportStatus(t *testing.T, backend, exportID string) (*exports.ExportsStatusOK, error) {
+func ExportStatus(t *testing.T, backend, exportID string) (*export.ExportStatusOK, error) {
 	t.Helper()
-	params := exports.NewExportsStatusParams().
+	params := export.NewExportStatusParams().
 		WithBackend(backend).
 		WithID(exportID)
-	return helper.Client(t).Exports.ExportsStatus(params, nil)
+	return helper.Client(t).Export.ExportStatus(params, nil)
 }
 
 func ExpectExportEventuallySucceeded(t *testing.T, backend, exportID string) {

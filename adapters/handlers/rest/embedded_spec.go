@@ -2440,10 +2440,10 @@ func init() {
       "post": {
         "description": "Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.",
         "tags": [
-          "exports"
+          "export"
         ],
         "summary": "Start a new export",
-        "operationId": "exports.create",
+        "operationId": "export.create",
         "parameters": [
           {
             "type": "string",
@@ -2499,10 +2499,10 @@ func init() {
       "get": {
         "description": "Retrieves the current status of an export operation, including progress for each collection being exported.",
         "tags": [
-          "exports"
+          "export"
         ],
         "summary": "Get export status",
-        "operationId": "exports.status",
+        "operationId": "export.status",
         "parameters": [
           {
             "type": "string",
@@ -12235,10 +12235,10 @@ func init() {
       "post": {
         "description": "Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.",
         "tags": [
-          "exports"
+          "export"
         ],
         "summary": "Start a new export",
-        "operationId": "exports.create",
+        "operationId": "export.create",
         "parameters": [
           {
             "type": "string",
@@ -12294,10 +12294,10 @@ func init() {
       "get": {
         "description": "Retrieves the current status of an export operation, including progress for each collection being exported.",
         "tags": [
-          "exports"
+          "export"
         ],
         "summary": "Get export status",
-        "operationId": "exports.status",
+        "operationId": "export.status",
         "parameters": [
           {
             "type": "string",

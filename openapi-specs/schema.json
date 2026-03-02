@@ -9351,12 +9351,12 @@
       "post": {
         "summary": "Start a new export",
         "description": "Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.",
-        "operationId": "exports.create",
+        "operationId": "export.create",
         "x-serviceIds": [
           "weaviate.local.export.create"
         ],
         "tags": [
-          "exports"
+          "export"
         ],
         "parameters": [
           {
@@ -9410,12 +9410,12 @@
       "get": {
         "summary": "Get export status",
         "description": "Retrieves the current status of an export operation, including progress for each collection being exported.",
-        "operationId": "exports.status",
+        "operationId": "export.status",
         "x-serviceIds": [
           "weaviate.local.export.status"
         ],
         "tags": [
-          "exports"
+          "export"
         ],
         "parameters": [
           {

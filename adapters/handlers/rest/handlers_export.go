@@ -17,25 +17,25 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/exports"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/export"
+	ucexport "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type exportHandlers struct {
-	scheduler           *export.Scheduler
+	scheduler           *ucexport.Scheduler
 	metricRequestsTotal restApiRequestsTotal
 	logger              logrus.FieldLogger
 }
 
 // createExport handles POST /v1/export/{backend}
-func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
+func (h *exportHandlers) createExport(params export.ExportCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	if params.Body.ID == nil || *params.Body.ID == "" {
-		return exports.NewExportsCreateUnprocessableEntity().
+		return export.NewExportCreateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(errors.New("export ID is required")))
 	}
 
@@ -57,20 +57,20 @@ func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
 		h.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return exports.NewExportsCreateForbidden().
+			return export.NewExportCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return exports.NewExportsCreateInternalServerError().
+			return export.NewExportCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
-	return exports.NewExportsCreateOK().WithPayload(resp)
+	return export.NewExportCreateOK().WithPayload(resp)
 }
 
 // exportStatus handles GET /v1/export/{backend}/{id}
-func (h *exportHandlers) exportStatus(params exports.ExportsStatusParams,
+func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	// Extract optional bucket and path parameters
@@ -89,21 +89,21 @@ func (h *exportHandlers) exportStatus(params exports.ExportsStatusParams,
 		h.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return exports.NewExportsStatusForbidden().
+			return export.NewExportStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return exports.NewExportsStatusNotFound().
+			return export.NewExportStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
-	return exports.NewExportsStatusOK().WithPayload(status)
+	return export.NewExportStatusOK().WithPayload(status)
 }
 
 // setupExportHandlers wires up the export handlers to the API
 func setupExportHandlers(api *operations.WeaviateAPI,
-	scheduler *export.Scheduler,
+	scheduler *ucexport.Scheduler,
 	metrics *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
 ) {
@@ -113,8 +113,8 @@ func setupExportHandlers(api *operations.WeaviateAPI,
 		logger:              logger,
 	}
 
-	api.ExportsExportsCreateHandler = exports.ExportsCreateHandlerFunc(h.createExport)
-	api.ExportsExportsStatusHandler = exports.ExportsStatusHandlerFunc(h.exportStatus)
+	api.ExportExportCreateHandler = export.ExportCreateHandlerFunc(h.createExport)
+	api.ExportExportStatusHandler = export.ExportStatusHandlerFunc(h.exportStatus)
 }
 
 type exportRequestsTotal struct {
