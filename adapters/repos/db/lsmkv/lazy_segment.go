@@ -402,6 +402,11 @@ func (s *lazySegment) exists(key []byte) error {
 	return s.segment.exists(key)
 }
 
+func (s *lazySegment) getSecondaryNodePos(pos int, key []byte) (secondaryNodePos, error) {
+	s.mustLoad()
+	return s.segment.getSecondaryNodePos(pos, key)
+}
+
 func (s *lazySegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) error {
 	if err := s.load(); err != nil {
 		return fmt.Errorf("lazySegment::stripTmpExtensions: %w", err)
