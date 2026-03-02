@@ -997,6 +997,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 					Errorf("telemetry failed to start: %s", err.Error())
 			}
 		}, appState.Logger)
+		setupTelemetryDebugHandlers(telemeter)
 	}
 	if entconfig.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
