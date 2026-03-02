@@ -456,7 +456,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 		}
 	}
 
-	status.Status = string(export.Success)
+	status.Status = string(export.Started)
 
 	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
 		s.logger.WithField("action", "export").
