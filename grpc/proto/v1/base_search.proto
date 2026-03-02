@@ -74,7 +74,7 @@ message Hybrid {
   Targets targets = 10;
   optional SearchOperatorOptions bm25_search_operator = 11;
   optional float alpha_param = 12;
-  optional Selection selection = 12;
+  optional Selection selection = 13;
 
   // only vector distance, but keep it extendable
   oneof threshold {

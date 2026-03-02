@@ -486,7 +486,7 @@ type Hybrid struct {
 	Targets            *Targets               `protobuf:"bytes,10,opt,name=targets,proto3" json:"targets,omitempty"`
 	Bm25SearchOperator *SearchOperatorOptions `protobuf:"bytes,11,opt,name=bm25_search_operator,json=bm25SearchOperator,proto3,oneof" json:"bm25_search_operator,omitempty"`
 	AlphaParam         *float32               `protobuf:"fixed32,12,opt,name=alpha_param,json=alphaParam,proto3,oneof" json:"alpha_param,omitempty"`
-	Selection          *Selection             `protobuf:"bytes,12,opt,name=selection,proto3,oneof" json:"selection,omitempty"`
+	Selection          *Selection             `protobuf:"bytes,13,opt,name=selection,proto3,oneof" json:"selection,omitempty"`
 	// only vector distance, but keep it extendable
 	//
 	// Types that are valid to be assigned to Threshold:
@@ -614,6 +614,13 @@ func (x *Hybrid) GetAlphaParam() float32 {
 		return *x.AlphaParam
 	}
 	return 0
+}
+
+func (x *Hybrid) GetSelection() *Selection {
+	if x != nil {
+		return x.Selection
+	}
+	return nil
 }
 
 func (x *Hybrid) GetThreshold() isHybrid_Threshold {
@@ -1684,7 +1691,7 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vOPERATOR_OR\x10\x01\x12\x10\n" +
 	"\fOPERATOR_AND\x10\x02B\x1a\n" +
-	"\x18_minimum_or_tokens_match\"\xa0\x06\n" +
+	"\x18_minimum_or_tokens_match\"\xe9\x06\n" +
 	"\x06Hybrid\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1e\n" +
 	"\n" +
@@ -1703,7 +1710,8 @@ const file_v1_base_search_proto_rawDesc = "" +
 	" \x01(\v2\x14.weaviate.v1.TargetsR\atargets\x12Y\n" +
 	"\x14bm25_search_operator\x18\v \x01(\v2\".weaviate.v1.SearchOperatorOptionsH\x01R\x12bm25SearchOperator\x88\x01\x01\x12$\n" +
 	"\valpha_param\x18\f \x01(\x02H\x02R\n" +
-	"alphaParam\x88\x01\x01\x12)\n" +
+	"alphaParam\x88\x01\x01\x129\n" +
+	"\tselection\x18\r \x01(\v2\x16.weaviate.v1.SelectionH\x03R\tselection\x88\x01\x01\x12)\n" +
 	"\x0fvector_distance\x18\x14 \x01(\x02H\x00R\x0evectorDistance\x12.\n" +
 	"\avectors\x18\x15 \x03(\v2\x14.weaviate.v1.VectorsR\avectors\"a\n" +
 	"\n" +
@@ -1713,7 +1721,9 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x1aFUSION_TYPE_RELATIVE_SCORE\x10\x02B\v\n" +
 	"\tthresholdB\x17\n" +
 	"\x15_bm25_search_operatorB\x0e\n" +
-	"\f_alpha_param\"\xa7\x04\n" +
+	"\f_alpha_paramB\f\n" +
+	"\n" +
+	"_selection\"\xf0\x04\n" +
 	"\n" +
 	"NearVector\x12\x1a\n" +
 	"\x06vector\x18\x01 \x03(\x02B\x02\x18\x01R\x06vector\x12!\n" +
