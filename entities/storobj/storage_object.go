@@ -1085,7 +1085,7 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 	clear(resultProperties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(startPos))
+	rw := byteops.NewReadWriterWithPosition(data, startPos)
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1210,7 +1210,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.MarshallerVersion = version
 
-	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(1))
+	rw := byteops.NewReadWriterWithPosition(data, 1)
 	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
@@ -1382,12 +1382,12 @@ func unmarshalMultiVectors(
 				}
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				numVecs := rw.ReadUint32()
-				vecs := make([][]float32, 0)
+				vecs := make([][]float32, numVecs)
 				for i := 0; i < int(numVecs); i++ {
 					vecLen := rw.ReadUint16()
 					vec := make([]float32, vecLen)
 					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
-					vecs = append(vecs, vec)
+					vecs[i] = vec
 				}
 				multiVectors[name] = vecs
 			}
@@ -1411,7 +1411,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 
 	if targetVector != "" {
 		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(startPos))
+		rw := byteops.NewReadWriterWithPosition(in, startPos)
 
 		vectorLength := uint64(rw.ReadUint16())
 		rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1512,7 +1512,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	var multiVectors map[string][][]float32
 
 	if len(in) > pos {
-		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(uint64(pos)))
+		rw := byteops.NewReadWriterWithPosition(in, uint64(pos))
 		mv, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
 		if err != nil {
 			return nil, errors.Errorf("unable to unmarshal multivector for target vector: %s", targetVector)
