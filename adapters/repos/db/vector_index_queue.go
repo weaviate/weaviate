@@ -197,36 +197,12 @@ func (iq *VectorIndexQueue) DequeueBatch() (*queue.Batch, error) {
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
-	if !iq.asyncEnabled {
-		return iq.vectorIndex.Delete(ids...)
-	}
-
-	if iq.vectorIndex.Multivector() {
-		return iq.delete(vectorIndexQueueMultiDeleteOp, ids...)
-	}
-	return iq.delete(vectorIndexQueueDeleteOp, ids...)
-}
-
-func (iq *VectorIndexQueue) delete(deleteOperation uint8, ids ...uint64) error {
-	start := time.Now()
-	defer iq.metrics.Delete(start, len(ids))
-
-	var buf []byte
-
-	for _, id := range ids {
-		buf = buf[:0]
-		// write the operation
-		buf = append(buf, deleteOperation)
-		// write the id
-		buf = binary.BigEndian.AppendUint64(buf, id)
-
-		err := iq.DiskQueue.Push(buf)
-		if err != nil {
-			return errors.Wrap(err, "failed to push record to queue")
-		}
-	}
-
-	return nil
+	// Always apply tombstones directly to the vector index, bypassing the queue.
+	// This is safe because HNSW's Delete() handles nodes that don't exist yet
+	// (the tombstone is stored in a map, no bounds check needed).
+	// The insert path (AddBatch/AddMultiBatch) checks for tombstones before
+	// inserting, so queued inserts for the same ID will be skipped.
+	return iq.vectorIndex.Delete(ids...)
 }
 
 func (iq *VectorIndexQueue) Flush() error {
