@@ -262,7 +262,7 @@ func TestCalculateTop100Size(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := calculateTop100Size(tc.fileSizes, tc.numSkippedFiles)
+			result := calculateTop100Size(tc.fileSizes, tc.numSkippedFiles, mb)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
