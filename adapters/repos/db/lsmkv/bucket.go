@@ -741,8 +741,9 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	err = b.existsWithConsistentViewUpTo(k, secSegIndex+1, view)
 
 	// if it exists on a later segment, it means it was updated
+	// thus, we return lsmkv.NotFound to avoid returning stale data.
 	if err == nil {
-		return nil, nil, lsmkv.Deleted
+		return nil, nil, lsmkv.NotFound
 	}
 
 	// if there is an error other than not found, we should return it instead of potentially returning a deleted item
