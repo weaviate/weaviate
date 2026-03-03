@@ -319,6 +319,194 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 	require.Empty(t, expected, "some objects were not found in parquet export")
 }
 
+func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
+	className := t.Name()
+	exportID := strings.ToLower(t.Name())
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: false,
+			AutoTenantCreation:   false,
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	tenants := []*models.Tenant{
+		{Name: "tenantA"},
+		{Name: "tenantB"},
+		{Name: "tenantC"},
+	}
+	helper.CreateTenants(t, className, tenants)
+
+	var activeObjects []*models.Object
+	for _, tenant := range tenants {
+		objects := makeObjects(className, tenant.Name, 10)
+		helper.CreateObjectsBatch(t, objects)
+		if tenant.Name != "tenantB" {
+			activeObjects = append(activeObjects, objects...)
+		}
+	}
+
+	// Set tenantB to COLD
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+	})
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", resp.Payload.Status)
+
+	// Only tenantA and tenantC should be exported (20 objects)
+	verifyParquetExport(t, exportID, className, activeObjects)
+
+	// Verify parquet metadata
+	verifyParquetMetadata(t, exportID, className, true)
+}
+
+func TestExport_MultiTenant_AutoActivation(t *testing.T) {
+	className := t.Name()
+	exportID := strings.ToLower(t.Name())
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: true,
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	tenants := []*models.Tenant{
+		{Name: "tenantA"},
+		{Name: "tenantB"},
+		{Name: "tenantC"},
+	}
+	helper.CreateTenants(t, className, tenants)
+
+	var allObjects []*models.Object
+	for _, tenant := range tenants {
+		objects := makeObjects(className, tenant.Name, 10)
+		helper.CreateObjectsBatch(t, objects)
+		allObjects = append(allObjects, objects...)
+	}
+
+	// Set tenantB to COLD
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+	})
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", resp.Payload.Status)
+
+	// All 30 objects should be exported (auto-activation brings tenantB back)
+	verifyParquetExport(t, exportID, className, allObjects)
+
+	// Verify tenantB is COLD again after export
+	tenantsResp, err := helper.GetTenants(t, className)
+	require.NoError(t, err)
+	for _, tenant := range tenantsResp.Payload {
+		if tenant.Name == "tenantB" {
+			require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
+				"tenantB should be deactivated back to COLD after export")
+		}
+	}
+
+	// Verify parquet metadata
+	verifyParquetMetadata(t, exportID, className, true)
+}
+
+func TestExport_MultiTenant_AllInactive(t *testing.T) {
+	className := t.Name()
+	exportID := strings.ToLower(t.Name())
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: false,
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	tenants := []*models.Tenant{
+		{Name: "tenantA"},
+		{Name: "tenantB"},
+	}
+	helper.CreateTenants(t, className, tenants)
+
+	for _, tenant := range tenants {
+		objects := makeObjects(className, tenant.Name, 10)
+		helper.CreateObjectsBatch(t, objects)
+	}
+
+	// Set both tenants to COLD
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+	})
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", resp.Payload.Status)
+
+	// No objects should be exported (all tenants are COLD, autoActivation disabled)
+	keys := listParquetKeys(t, exportID, className)
+	require.Empty(t, keys, "expected no parquet files when all tenants are inactive")
+}
+
+// verifyParquetMetadata checks that all parquet files for a class contain
+// the "collection" metadata key, and optionally "tenant" for MT classes.
+func verifyParquetMetadata(t *testing.T, exportID, className string, expectTenant bool) {
+	t.Helper()
+
+	keys := listParquetKeys(t, exportID, className)
+	require.NotEmpty(t, keys, "no parquet files found for metadata check")
+
+	for _, key := range keys {
+		data := downloadS3Object(t, s3Bucket, key)
+
+		file, err := parquet.OpenFile(bytes.NewReader(data), int64(len(data)))
+		require.NoError(t, err, "failed to open parquet file %s", key)
+
+		collection, ok := file.Lookup("collection")
+		require.True(t, ok, "missing 'collection' metadata in %s", key)
+		require.Equal(t, className, collection, "collection metadata mismatch in %s", key)
+
+		if expectTenant {
+			tenant, ok := file.Lookup("tenant")
+			require.True(t, ok, "missing 'tenant' metadata in %s", key)
+			require.NotEmpty(t, tenant, "empty 'tenant' metadata in %s", key)
+		}
+	}
+}
+
 func makeObjects(className, tenant string, count int) []*models.Object {
 	objects := make([]*models.Object, count)
 	for i := range objects {

@@ -41,11 +41,14 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 		blockCh: make(chan struct{}),
 	}
 
+	participant := NewParticipant(shutdownCtx, selector, &fakeBackendProvider{backend: backend}, logger)
+
 	s := &Scheduler{
 		shutdownCtx: shutdownCtx,
 		logger:      logger,
 		selector:    selector,
 		backends:    &fakeBackendProvider{backend: backend},
+		participant: participant,
 	}
 
 	status := &models.ExportStatusResponse{
@@ -209,20 +212,7 @@ func (s *blockingSelector) initCalledCh() {
 }
 
 func (s *blockingSelector) GetShardsForClass(ctx context.Context, _ string) ([]ShardLike, error) {
-	s.initCalledCh()
-	s.calledMu.Lock()
-	if !s.called {
-		s.called = true
-		close(s.calledCh)
-	}
-	s.calledMu.Unlock()
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-s.blockCh:
-		return nil, ctx.Err()
-	}
+	return nil, nil
 }
 
 func (s *blockingSelector) waitForCall(t *testing.T) {
@@ -241,6 +231,31 @@ func (s *blockingSelector) ListClasses(_ context.Context) []string {
 
 func (s *blockingSelector) ShardOwnership(_ context.Context, _ string) (map[string][]string, error) {
 	return nil, nil
+}
+
+func (s *blockingSelector) IsMultiTenant(_ context.Context, _ string) bool {
+	return false
+}
+
+func (s *blockingSelector) ExportShardNames(_ string) ([]string, bool, error) {
+	return []string{"shard0"}, false, nil
+}
+
+func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), error) {
+	s.initCalledCh()
+	s.calledMu.Lock()
+	if !s.called {
+		s.called = true
+		close(s.calledCh)
+	}
+	s.calledMu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	case <-s.blockCh:
+		return nil, nil, ctx.Err()
+	}
 }
 
 // fakeBackend captures Write calls so tests can verify what was written.
@@ -502,14 +517,17 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// emptySelector returns no shards, so exportClass succeeds immediately
+	// emptySelector returns no shards, so export succeeds immediately
 	selector := &emptySelector{classList: []string{"TestClass"}}
+	backends := &fakeBackendProvider{backend: backend}
+	participant := NewParticipant(context.Background(), selector, backends, logger)
 
 	s := &Scheduler{
 		shutdownCtx: context.Background(),
 		logger:      logger,
 		selector:    selector,
-		backends:    &fakeBackendProvider{backend: backend},
+		backends:    backends,
+		participant: participant,
 	}
 
 	status := &models.ExportStatusResponse{
@@ -548,4 +566,16 @@ func (s *emptySelector) ListClasses(context.Context) []string {
 
 func (s *emptySelector) ShardOwnership(context.Context, string) (map[string][]string, error) {
 	return nil, nil
+}
+
+func (s *emptySelector) IsMultiTenant(_ context.Context, _ string) bool {
+	return false
+}
+
+func (s *emptySelector) ExportShardNames(_ string) ([]string, bool, error) {
+	return nil, false, nil
+}
+
+func (s *emptySelector) AcquireShardForExport(_ context.Context, _, _ string) (ShardLike, func(), error) {
+	return nil, func() {}, nil
 }

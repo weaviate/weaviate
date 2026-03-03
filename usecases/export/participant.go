@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"time"
 
@@ -253,6 +254,25 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		defer p.mu.Unlock()
 		p.clearAndRelease()
 	}()
+
+	if err := p.doExport(ctx, backend, req); err != nil {
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", req.ID).
+			WithField("node", req.NodeName).
+			Error(err)
+		return
+	}
+
+	p.logger.WithField("action", "export_participant").
+		WithField("export_id", req.ID).
+		WithField("node", req.NodeName).
+		Info("participant export completed successfully")
+}
+
+// doExport performs the actual export of all classes/shards in the request.
+// It writes per-node status files and returns an error if any class fails.
+// Used by both the multi-node participant path and the single-node scheduler.
+func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) error {
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
@@ -279,30 +299,22 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		}
 
 		if err := p.exportClassShards(ctx, backend, req, className, shardNames, nodeStatus); err != nil {
-			p.logger.WithField("action", "export").
-				WithField("export_id", req.ID).
-				WithField("node", req.NodeName).
-				WithField("class", className).
-				Error(err)
-
 			nodeStatus.Status = export.Failed
 			nodeStatus.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
 			p.writeNodeStatus(ctx, backend, req, nodeStatus)
-			return
+			return fmt.Errorf("export class %s: %w", className, err)
 		}
 	}
 
 	nodeStatus.Status = export.Success
 	nodeStatus.CompletedAt = time.Now().UTC()
 	p.writeNodeStatus(ctx, backend, req, nodeStatus)
-
-	p.logger.WithField("action", "export_participant").
-		WithField("export_id", req.ID).
-		WithField("node", req.NodeName).
-		Info("participant export completed successfully")
+	return nil
 }
 
 // exportClassShards exports specific shards of a class to individual Parquet files.
+// It uses AcquireShardForExport to handle MT tenants (activating COLD tenants if
+// auto-activation is enabled) and bounded concurrency.
 func (p *Participant) exportClassShards(
 	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
@@ -311,39 +323,55 @@ func (p *Participant) exportClassShards(
 	shardNames []string,
 	nodeStatus *NodeStatus,
 ) error {
-	// Get all shards for the class (we need the ShardLike handles)
-	// TODO: This needs to be adapted to MT
-	allShards, err := p.selector.GetShardsForClass(ctx, className)
-	if err != nil {
-		return fmt.Errorf("get shards for class %s: %w", className, err)
-	}
+	isMT := p.selector.IsMultiTenant(ctx, className)
 
-	// Build lookup map
-	shardMap := make(map[string]ShardLike, len(allShards))
-	for _, s := range allShards {
-		shardMap[s.Name()] = s
-	}
+	// Use a mutex to protect nodeStatus updates from concurrent goroutines
+	var mu sync.Mutex
+
+	eg := enterrors.NewErrorGroupWrapper(p.logger)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, shardName := range shardNames {
-		shard, ok := shardMap[shardName]
-		if !ok {
-			return fmt.Errorf("shard %s not found on this node for class %s", shardName, className)
-		}
+		eg.Go(func() error {
+			shard, release, err := p.selector.AcquireShardForExport(ctx, className, shardName)
+			if err != nil {
+				mu.Lock()
+				nodeStatus.ShardProgress[className][shardName].Status = export.Failed
+				nodeStatus.ShardProgress[className][shardName].Error = err.Error()
+				mu.Unlock()
+				return fmt.Errorf("acquire shard %s: %w", shardName, err)
+			}
+			defer release()
 
-		objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard)
-		if err != nil {
-			nodeStatus.ShardProgress[className][shardName].Status = export.Failed
-			nodeStatus.ShardProgress[className][shardName].Error = err.Error()
-			return fmt.Errorf("export shard %s: %w", shardName, err)
-		}
+			if shard == nil {
+				// Tenant is COLD and auto-activation is disabled — skip.
+				mu.Lock()
+				nodeStatus.ShardProgress[className][shardName].Status = export.Success
+				nodeStatus.ShardProgress[className][shardName].ObjectsExported = 0
+				mu.Unlock()
+				return nil
+			}
 
-		// Update incremental progress
-		nodeStatus.ShardProgress[className][shardName].Status = export.Success
-		nodeStatus.ShardProgress[className][shardName].ObjectsExported = objects
-		p.writeNodeStatus(ctx, backend, req, nodeStatus)
+			objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard, isMT)
+			if err != nil {
+				mu.Lock()
+				nodeStatus.ShardProgress[className][shardName].Status = export.Failed
+				nodeStatus.ShardProgress[className][shardName].Error = err.Error()
+				mu.Unlock()
+				return fmt.Errorf("export shard %s: %w", shardName, err)
+			}
+
+			mu.Lock()
+			nodeStatus.ShardProgress[className][shardName].Status = export.Success
+			nodeStatus.ShardProgress[className][shardName].ObjectsExported = objects
+			mu.Unlock()
+			p.writeNodeStatus(ctx, backend, req, nodeStatus)
+
+			return nil
+		}, shardName)
 	}
 
-	return nil
+	return eg.Wait()
 }
 
 // exportShardToFile exports a single shard to a Parquet file: {ClassName}_{ShardName}.parquet
@@ -353,6 +381,7 @@ func (p *Participant) exportShardToFile(
 	req *ExportRequest,
 	className, shardName string,
 	shard ShardLike,
+	isMT bool,
 ) (int64, error) {
 	pr, pw := io.Pipe()
 	errChan := make(chan error, 1)
@@ -369,6 +398,11 @@ func (p *Participant) exportShardToFile(
 		pw.CloseWithError(err)
 		<-errChan
 		return 0, fmt.Errorf("create parquet writer: %w", err)
+	}
+
+	writer.SetFileMetadata("collection", className)
+	if isMT {
+		writer.SetFileMetadata("tenant", shardName)
 	}
 
 	if err := exportShardData(ctx, shard, writer, className, p.logger); err != nil {
