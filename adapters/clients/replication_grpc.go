@@ -453,10 +453,10 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	defer cancel()
 
 	resp, err := client.HashTreeLevel(ctx, &protocol.HashTreeLevelRequest{
-		Index:         index,
-		Shard:         shard,
-		Level:         int32(level),
-		Discriminant:  discData,
+		Index:        index,
+		Shard:        shard,
+		Level:        int32(level),
+		Discriminant: discData,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gRPC HashTreeLevel: %w", err)

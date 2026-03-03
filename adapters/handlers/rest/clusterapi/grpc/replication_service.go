@@ -243,8 +243,6 @@ func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTree
 	return &pb.HashTreeLevelResponse{DigestsData: data}, nil
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse {
 	if r == nil {
 		return &pb.SimpleReplicaResponse{}
@@ -259,20 +257,6 @@ func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse 
 	return &pb.SimpleReplicaResponse{Errors: errs}
 }
 
-func protoToSimpleResponse(r *pb.SimpleReplicaResponse) replica.SimpleResponse {
-	if r == nil {
-		return replica.SimpleResponse{}
-	}
-	errs := make([]replica.Error, len(r.GetErrors()))
-	for i, e := range r.GetErrors() {
-		errs[i] = replica.Error{
-			Code: replica.StatusCode(e.GetCode()),
-			Msg:  e.GetMsg(),
-		}
-	}
-	return replica.SimpleResponse{Errors: errs}
-}
-
 func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse {
 	out := make([]*pb.RepairResponse, len(results))
 	for i, r := range results {
@@ -282,20 +266,6 @@ func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse
 			UpdateTime: r.UpdateTime,
 			Err:        r.Err,
 			Deleted:    r.Deleted,
-		}
-	}
-	return out
-}
-
-func protoToRepairResponses(results []*pb.RepairResponse) []types.RepairResponse {
-	out := make([]types.RepairResponse, len(results))
-	for i, r := range results {
-		out[i] = types.RepairResponse{
-			ID:         r.GetId(),
-			Version:    r.GetVersion(),
-			UpdateTime: r.GetUpdateTime(),
-			Err:        r.GetErr(),
-			Deleted:    r.GetDeleted(),
 		}
 	}
 	return out

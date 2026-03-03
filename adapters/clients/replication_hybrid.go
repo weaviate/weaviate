@@ -43,7 +43,7 @@ type hybridReplicationClient struct {
 	restClient *replicationClient
 	enabled    func() bool // runtime check for REPLICATION_GRPC_ENABLED
 
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 	restOnlyHosts map[string]time.Time // host -> expiry
 }
 
