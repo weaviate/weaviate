@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -201,13 +202,14 @@ type hnsw struct {
 	asyncIndexingEnabled bool
 
 	// only used for multivector mode
-	multivector       atomic.Bool
-	muvera            atomic.Bool
-	muveraEncoder     *multivector.MuveraEncoder
-	docIDVectors      map[uint64][]uint64
-	vecIDcounter      uint64
-	maxDocID          uint64
-	makeBucketOptions lsmkv.MakeBucketOptions
+	multivector        atomic.Bool
+	muvera             atomic.Bool
+	muveraEncoder      *multivector.MuveraEncoder
+	muveraRescoreLimit *configRuntime.DynamicValue[int]
+	docIDVectors       map[uint64][]uint64
+	vecIDcounter       uint64
+	maxDocID           uint64
+	makeBucketOptions  lsmkv.MakeBucketOptions
 
 	fs common.FS
 }
@@ -373,10 +375,11 @@ func New(cfg Config, uc ent.UserConfig,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 		asyncIndexingEnabled:   cfg.AsyncIndexingEnabled,
 
-		docIDVectors:      make(map[uint64][]uint64),
-		muveraEncoder:     muveraEncoder,
-		makeBucketOptions: cfg.MakeBucketOptions,
-		fs:                common.NewOSFS(),
+		docIDVectors:       make(map[uint64][]uint64),
+		muveraEncoder:      muveraEncoder,
+		muveraRescoreLimit: cfg.MuveraRescoreLimit,
+		makeBucketOptions:  cfg.MakeBucketOptions,
+		fs:                 common.NewOSFS(),
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
 		"shard":        cfg.ShardName,

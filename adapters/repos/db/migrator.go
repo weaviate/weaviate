@@ -175,6 +175,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QuerySlowLogEnabled:                          m.db.config.QuerySlowLogEnabled,
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
+			MuveraRescoreLimit:                           m.db.config.MuveraRescoreLimit,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
 			HFreshEnabled:                                m.db.config.HFreshEnabled,
 			AutoTenantActivation:                         schema.AutoTenantActivationEnabled(class),
