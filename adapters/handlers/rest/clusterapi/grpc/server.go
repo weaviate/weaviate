@@ -41,7 +41,8 @@ const (
 )
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
-func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
+// If replicationServer is non-nil, the ReplicationService will be registered.
+func NewServer(state *state.State, replicationServer ReplicationServer, options ...grpc.ServerOption) *Server {
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
 	maxSize := GetMaxMessageSize(fileCopyChunkSize)
@@ -58,14 +59,17 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 		grpc.WriteBufferSize(WRITE_BUFFER_SIZE),
 	}
 
+	// Both FileReplicationService and ReplicationService are internal cluster services
+	// that require basic auth when enabled.
+	servicePrefixes := []string{"/clusterapi.FileReplicationService", "/clusterapi.ReplicationService"}
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
 		o = append(o, grpc.UnaryInterceptor(
-			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
+			multiServiceBasicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 
 		o = append(o, grpc.StreamInterceptor(
-			basicAuthStreamInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
+			multiServiceBasicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
 
@@ -73,6 +77,11 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 
 	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
+
+	if replicationServer != nil {
+		replicationService := NewReplicationService(replicationServer)
+		pb.RegisterReplicationServiceServer(s, replicationService)
+	}
 
 	return &Server{Server: s, state: state}
 }
@@ -104,72 +113,73 @@ func (s *Server) Close(ctx context.Context) error {
 	}
 }
 
-func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
+func multiServiceBasicAuthUnaryInterceptor(servicePrefixes []string, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
-		if !strings.HasPrefix(info.FullMethod, servicePrefix) {
+		if !matchesAnyPrefix(info.FullMethod, servicePrefixes) {
 			return handler(ctx, req)
 		}
 
 		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Error(codes.Unauthenticated, "missing metadata")
-		}
-
-		authHeader := md["authorization"]
-		if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
-			return nil, status.Error(codes.Unauthenticated, "missing or invalid auth header")
-		}
-
-		// Decode and validate Basic Auth credentials
-		payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
-		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, "invalid base64 encoding")
-		}
-
-		parts := strings.SplitN(string(payload), ":", 2)
-		if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
-			return nil, status.Error(codes.Unauthenticated, "invalid username or password")
+		if err := validateBasicAuth(md, ok, expectedUsername, expectedPassword); err != nil {
+			return nil, err
 		}
 
 		return handler(ctx, req)
 	}
 }
 
-func basicAuthStreamInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.StreamServerInterceptor {
+func multiServiceBasicAuthStreamInterceptor(servicePrefixes []string, expectedUsername, expectedPassword string) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
 		ss grpc.ServerStream,
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
 	) error {
-		if !strings.HasPrefix(info.FullMethod, servicePrefix) {
-			return handler(srv, ss) // no auth needed
+		if !matchesAnyPrefix(info.FullMethod, servicePrefixes) {
+			return handler(srv, ss)
 		}
 
 		md, ok := metadata.FromIncomingContext(ss.Context())
-		if !ok {
-			return status.Error(codes.Unauthenticated, "missing metadata")
-		}
-
-		authHeader := md["authorization"]
-		if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
-			return status.Error(codes.Unauthenticated, "missing or invalid auth header")
-		}
-
-		decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
-		if err != nil {
-			return status.Error(codes.Unauthenticated, "invalid base64 encoding")
-		}
-
-		parts := strings.SplitN(string(decoded), ":", 2)
-		if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
-			return status.Error(codes.Unauthenticated, "invalid username or password")
+		if err := validateBasicAuth(md, ok, expectedUsername, expectedPassword); err != nil {
+			return err
 		}
 
 		return handler(srv, ss)
 	}
+}
+
+func matchesAnyPrefix(method string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(method, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateBasicAuth(md metadata.MD, ok bool, expectedUsername, expectedPassword string) error {
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing metadata")
+	}
+
+	authHeader := md["authorization"]
+	if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
+		return status.Error(codes.Unauthenticated, "missing or invalid auth header")
+	}
+
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
+	if err != nil {
+		return status.Error(codes.Unauthenticated, "invalid base64 encoding")
+	}
+
+	parts := strings.SplitN(string(payload), ":", 2)
+	if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
+		return status.Error(codes.Unauthenticated, "invalid username or password")
+	}
+
+	return nil
 }
 
 func GetMaxMessageSize(fileCopyChunkSize int) int {
