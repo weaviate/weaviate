@@ -705,11 +705,16 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 				// if the item is found in the flushing memtable,
 				// we need to check if it exists in the primary key of the active memtable,
 				// to avoid returning an item that was deleted and re-added with the same secondary key
-				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.Deleted
+				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.NotFound
 				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
 				// - exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
-				if !errors.Is(memtables[0].exists(k), lsmkv.NotFound) {
+				err = memtables[0].exists(k)
+				if err == nil {
 					return nil, nil, lsmkv.NotFound
+				} else if errors.Is(err, lsmkv.Deleted) {
+					return nil, nil, err
+				} else if !errors.Is(err, lsmkv.NotFound) {
+					return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[0], err)
 				}
 			}
 			// item found and no error, return and stop searching, since the strategy
