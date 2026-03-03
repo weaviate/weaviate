@@ -49,6 +49,8 @@ type Config struct {
 	WriteSegmentInfoIntoFileName      bool
 	WriteMetadataFilesEnabled         bool
 
+	IterateVectorsThunk func(ctx context.Context, fn func(id uint64, vector []float32) error) error
+
 	MinMMapSize     int64
 	MaxWalReuseSize int64
 

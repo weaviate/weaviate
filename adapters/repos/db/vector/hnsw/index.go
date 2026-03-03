@@ -192,6 +192,8 @@ type hnsw struct {
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
+	iterateVectors func(ctx context.Context, fn func(id uint64, vector []float32) error) error
+
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
 
@@ -362,6 +364,7 @@ func New(cfg Config, uc ent.UserConfig,
 		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
+		iterateVectors:         cfg.IterateVectorsThunk,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 

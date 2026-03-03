@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -132,6 +133,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.checkAndCompress()
 		return nil
 	}
+	h.markCompressionInProgress()
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
@@ -150,8 +152,42 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.compressor.PreloadPassage(index, docID, relativeID, data[index])
 			})
 	}
+	h.clearCompressionSentinel()
 
 	h.compressed.Store(true)
 	h.cache.Drop()
 	return nil
+}
+
+// compressionSentinelKey is used to track whether a compression preload completed.
+// It uses MaxUint64 as the key, which is beyond any valid node ID and is
+// skipped by PrefillCache (which filters IDs > MaxValidID).
+var compressionSentinelKey = []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+
+func (h *hnsw) markCompressionInProgress() {
+	bucket := h.store.Bucket(helpers.GetCompressedBucketName(h.getTargetVector()))
+	if bucket == nil {
+		return
+	}
+	bucket.Put(compressionSentinelKey, []byte{1})
+}
+
+func (h *hnsw) clearCompressionSentinel() {
+	bucket := h.store.Bucket(helpers.GetCompressedBucketName(h.getTargetVector()))
+	if bucket == nil {
+		return
+	}
+	bucket.Delete(compressionSentinelKey)
+}
+
+func (h *hnsw) compressionIncomplete() bool {
+	bucket := h.store.Bucket(helpers.GetCompressedBucketName(h.getTargetVector()))
+	if bucket == nil {
+		return false
+	}
+	v, err := bucket.Get(compressionSentinelKey)
+	if err != nil {
+		return false
+	}
+	return len(v) > 0
 }

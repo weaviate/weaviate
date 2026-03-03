@@ -102,6 +102,7 @@ type dynamic struct {
 	vectorForIDThunk             common.VectorForID[float32]
 	getViewThunk                 common.GetViewThunk
 	tempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
+	iterateVectorsThunk          func(ctx context.Context, fn func(id uint64, vector []float32) error) error
 	distanceProvider             distancer.Provider
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
@@ -163,6 +164,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		vectorForIDThunk:             cfg.VectorForIDThunk,
 		getViewThunk:                 cfg.GetViewThunk,
 		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
+		iterateVectorsThunk:          cfg.IterateVectorsThunk,
 		distanceProvider:             cfg.DistanceProvider,
 		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
 		store:                        store,
@@ -200,6 +202,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
 				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
+				IterateVectorsThunk:          index.iterateVectorsThunk,
 				DisableSnapshots:             index.hnswDisableSnapshots,
 				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
 				LazyLoadSegments:             index.LazyLoadSegments,
@@ -538,6 +541,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
 			DistanceProvider:             dynamic.distanceProvider,
 			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
+			IterateVectorsThunk:          dynamic.iterateVectorsThunk,
 			DisableSnapshots:             dynamic.hnswDisableSnapshots,
 			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
 			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
