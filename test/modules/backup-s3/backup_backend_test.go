@@ -127,7 +127,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 						Name: className,
 					},
 				},
-				Status:  string(backup.Started),
+				Status:  backup.Started,
 				Version: ubak.Version,
 			}
 
@@ -156,7 +156,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
-			assert.Equal(t, meta.Status, string(backup.Started))
+			assert.Equal(t, meta.Status, backup.Started)
 			assert.Empty(t, meta.Error)
 			assert.Len(t, meta.Classes, 1)
 			assert.Equal(t, meta.Classes[0].Name, className)

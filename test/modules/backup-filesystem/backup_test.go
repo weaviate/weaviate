@@ -133,3 +133,17 @@ func TestFilesystemBackup_Cancellation(t *testing.T) {
 
 	backuptest.RunFilesystemBackupTests(t, compose, backuptest.CancellationTestCase())
 }
+
+// TestFilesystemBackup_Incremental tests file-based incremental filesystem backups.
+func TestFilesystemBackup_Incremental(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunFilesystemBackupTests(t, compose, backuptest.IncrementalTestCase())
+}
