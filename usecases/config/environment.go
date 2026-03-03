@@ -628,6 +628,17 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if v := os.Getenv("BACKUP_MIN_CHUNK_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_MIN_CHUNK_SIZE: %w", err)
+		}
+
+		config.Backup.MinChunkSize = parsed
+	} else {
+		config.Backup.MinChunkSize = DefaultBackupMinChunkSize
+	}
+
 	if v := os.Getenv("BACKUP_CHUNK_TARGET_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -844,7 +855,7 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
-	if err := parseNonNegativeInt(
+	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
 		func(val int) { config.GRPC.MaxOpenConns = val },
 		DefaultGRPCMaxOpenConns,
@@ -852,7 +863,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if err := parseDuration(
+	if err := parsePositiveDuration(
 		"GRPC_IDLE_CONN_TIMEOUT",
 		func(val time.Duration) { config.GRPC.IdleConnTimeout = val },
 		DefaultGRPCIdleConnTimeout,
@@ -1425,21 +1436,6 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 	}
 
 	cb(asFloat)
-	return nil
-}
-
-func parseDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
-	var err error
-	asDuration := defaultValue
-
-	if v := os.Getenv(envName); v != "" {
-		asDuration, err = time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse %s as time.Duration: %w", envName, err)
-		}
-	}
-
-	cb(asDuration)
 	return nil
 }
 
