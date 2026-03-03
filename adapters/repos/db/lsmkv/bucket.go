@@ -709,7 +709,7 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
 				// - exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
 				if !errors.Is(memtables[0].exists(k), lsmkv.NotFound) {
-					return nil, nil, lsmkv.Deleted
+					return nil, nil, lsmkv.NotFound
 				}
 			}
 			// item found and no error, return and stop searching, since the strategy
