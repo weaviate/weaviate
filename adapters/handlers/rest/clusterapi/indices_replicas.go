@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -112,7 +113,7 @@ var (
 	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`)
+		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -512,14 +513,12 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "digest objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 
 		if err != nil {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusInternalServerError)
+			http.Error(w, "digest objects: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -594,9 +593,13 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 		}
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+
+		reqPayload, err := readRequestBodyWithOptionalCompression(
+			r.Body,
+			r.Header.Get("X-Request-Compression"),
+		)
 		if err != nil {
-			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -622,6 +625,33 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 
 		w.Write(resBytes)
 	})
+}
+
+func readRequestBodyWithOptionalCompression(
+	body io.ReadCloser,
+	compressionHeader string,
+) ([]byte, error) {
+	if compressionHeader == "" {
+		// No compression header – read raw body (backward compatibility)
+		return io.ReadAll(body)
+	}
+
+	if compressionHeader != "zstd" {
+		return nil, fmt.Errorf("compression algorithm unsupported: %s", compressionHeader)
+	}
+
+	zstdr, err := zstd.NewReader(body)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd reader: %w", err)
+	}
+	defer zstdr.Close()
+
+	b, err := io.ReadAll(zstdr)
+	if err != nil {
+		return nil, fmt.Errorf("read decompressed body: %w", err)
+	}
+
+	return b, nil
 }
 
 func (i *replicatedIndices) putOverwriteObjects() http.Handler {
@@ -839,15 +869,9 @@ func (i *replicatedIndices) getObject() http.Handler {
 
 		defer r.Body.Close()
 
-		var (
-			resp replica.Replica
-			err  error
-		)
-
-		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
+		resp, err := i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -903,8 +927,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 
 		resp, err := i.shards.FetchObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {

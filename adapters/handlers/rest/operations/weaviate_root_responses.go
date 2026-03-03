@@ -26,7 +26,7 @@ import (
 const WeaviateRootOKCode int = 200
 
 /*
-WeaviateRootOK Weaviate is alive and ready to serve content
+WeaviateRootOK Weaviate is alive and ready.
 
 swagger:response weaviateRootOK
 */

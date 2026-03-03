@@ -77,7 +77,7 @@ func NewSchemaObjectsCreateOK() *SchemaObjectsCreateOK {
 /*
 SchemaObjectsCreateOK describes a response with status code 200, with default header values.
 
-Added the new Object class to the schema.
+Collection created successfully and its definition returned.
 */
 type SchemaObjectsCreateOK struct {
 	Payload *models.Class
@@ -269,7 +269,7 @@ func NewSchemaObjectsCreateUnprocessableEntity() *SchemaObjectsCreateUnprocessab
 /*
 SchemaObjectsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid Object class
+Invalid collection definition provided. Check the definition structure and properties.
 */
 type SchemaObjectsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -337,7 +337,7 @@ func NewSchemaObjectsCreateInternalServerError() *SchemaObjectsCreateInternalSer
 /*
 SchemaObjectsCreateInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred during collection creation. Check the ErrorResponse for details.
 */
 type SchemaObjectsCreateInternalServerError struct {
 	Payload *models.ErrorResponse

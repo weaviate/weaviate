@@ -47,7 +47,7 @@ func NewCancelReplication(ctx *middleware.Context, handler CancelReplicationHand
 
 # Cancel a replication operation
 
-Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.
+Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the `CANCELLED` state (can't be resumed) and will not be automatically deleted.
 */
 type CancelReplication struct {
 	Context *middleware.Context

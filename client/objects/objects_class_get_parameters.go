@@ -72,18 +72,21 @@ ObjectsClassGetParams contains all the parameters to send to the API endpoint
 */
 type ObjectsClassGetParams struct {
 
-	// ClassName.
+	/* ClassName.
+
+	   Name of the collection (class) the object belongs to.
+	*/
 	ClassName string
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 
 	/* ID.
 
-	   Unique ID of the Object.
+	   Unique UUID of the object to be retrieved.
 
 	   Format: uuid
 	*/
@@ -91,19 +94,19 @@ type ObjectsClassGetParams struct {
 
 	/* Include.
 
-	   Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
+	   Include additional information, such as classification information. Allowed values include: `classification`, `vector` and `interpretation`.
 	*/
 	Include *string
 
 	/* NodeName.
 
-	   The target node which should fulfill the request
+	   The target node which should fulfill the request.
 	*/
 	NodeName *string
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 

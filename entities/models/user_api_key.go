@@ -30,7 +30,7 @@ import (
 // swagger:model UserApiKey
 type UserAPIKey struct {
 
-	// The apikey
+	// The API key associated with the user.
 	// Required: true
 	Apikey *string `json:"apikey"`
 }

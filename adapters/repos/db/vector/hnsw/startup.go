@@ -94,12 +94,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			Info("snapshots disabled, loading from commit log")
 	}
 
-	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)
+	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp, h.fs)
 	if err != nil {
 		return err
 	}
 
-	state, err = loadCommitLoggerState(h.logger, fileNames, state, h.metrics)
+	state, err = loadCommitLoggerState(h.fs, h.logger, fileNames, state, h.metrics)
 	if err != nil {
 		return errors.Wrap(err, "load commit logger state")
 	}
@@ -141,7 +141,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		h.cache.Drop()
 		if state.CompressionPQData != nil {
 			data := state.CompressionPQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 
 			if len(data.Encoders) > 0 {
 				// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
@@ -184,7 +184,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			}
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
@@ -237,13 +237,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
-		if len(h.nodes) > 0 {
-			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
-				h.dims = int32(len(vec))
-			}
-		}
 	} else {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
+	}
+
+	if h.dims.Load() == 0 {
+		h.setDimensionsFromEntrypoint()
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -261,7 +260,16 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	return nil
 }
 
+func (h *hnsw) setDimensionsFromEntrypoint() {
+	if len(h.nodes) > 0 {
+		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+			h.dims.Store(int32(len(vec)))
+		}
+	}
+}
+
 func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+	h.dims.Store(int32(data.InputDim))
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -305,6 +313,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 }
 
 func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+	// note we cannot restore h.dims directly from InputDim due to RQ1's min padding
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {

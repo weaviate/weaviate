@@ -347,7 +347,7 @@ func TestConfigureMemberlistSettings(t *testing.T) {
 			raftTimeoutsMultiplier:  1,
 			expectedTCPTimeout:      10 * time.Second,
 			expectedSuspicionMult:   1,               // Overridden by fast failure detection
-			expectedDeadReclaimTime: 5 * time.Second, // Overridden by fast failure detection
+			expectedDeadReclaimTime: 1 * time.Second, // Overridden by fast failure detection
 		},
 		{
 			name: "WAN with timeout multiplier",
@@ -425,7 +425,7 @@ func TestConfigSelectionAndSettingsIntegration(t *testing.T) {
 			raftTimeoutsMultiplier:  1,
 			expectedTCPTimeout:      10 * time.Second,
 			expectedSuspicionMult:   1,               // Overridden by fast failure detection
-			expectedDeadReclaimTime: 5 * time.Second, // Overridden by fast failure detection
+			expectedDeadReclaimTime: 1 * time.Second, // Overridden by fast failure detection
 			expectedConfigType:      "LAN",
 		},
 		{
@@ -437,7 +437,7 @@ func TestConfigSelectionAndSettingsIntegration(t *testing.T) {
 			raftTimeoutsMultiplier:  1,
 			expectedTCPTimeout:      30 * time.Second,
 			expectedSuspicionMult:   1,               // Overridden by fast failure detection
-			expectedDeadReclaimTime: 5 * time.Second, // Overridden by fast failure detection
+			expectedDeadReclaimTime: 1 * time.Second, // Overridden by fast failure detection
 			expectedConfigType:      "WAN",
 		},
 		{

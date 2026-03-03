@@ -41,7 +41,7 @@ type GetRolesForUserDeprecatedParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*user name
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/

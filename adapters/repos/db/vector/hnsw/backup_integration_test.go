@@ -24,10 +24,15 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+type backupIntegrationNoopBucketView struct{}
+
+func (n *backupIntegrationNoopBucketView) ReleaseView() {}
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
@@ -62,6 +67,7 @@ func TestBackup_Integration(t *testing.T) {
 		Logger:           logger,
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupIntegrationNoopBucketView{} },
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},
@@ -114,9 +120,9 @@ func TestBackup_Integration(t *testing.T) {
 		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
 		//
-		// additionally snapshot was created which consist of 2 files,
-		// so total of 3 files are expected
-		assert.Len(t, files, 3)
+		// additionally snapshot was created which consist of 1 file,
+		// so total of 2 files are expected
+		assert.Len(t, files, 2)
 
 		filesUnique := make(map[string]struct{}, len(files))
 		for i := range files {

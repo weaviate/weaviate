@@ -66,15 +66,10 @@ func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
 	return args.Error(0)
 }
 
-func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
-	args := s.Called(ctx, bakid, classes)
+	args := s.Called(ctx, bakid, classes, baseDescr)
 	return args.Get(0).(<-chan backup.ClassDescriptor)
-}
-
-func (s *fakeSourcer) ClassExists(name string) bool {
-	args := s.Called(name)
-	return args.Bool(0)
 }
 
 type fakeBackend struct {
@@ -192,7 +187,7 @@ func (fb *fakeBackend) Read(ctx context.Context, backupID, key, overrideBucket, 
 	return 0, args.Error(1)
 }
 
-func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
 	defer r.Close()

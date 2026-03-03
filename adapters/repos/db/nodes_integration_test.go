@@ -17,29 +17,29 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
-	"github.com/weaviate/weaviate/entities/replication"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestNodesAPI_Journey(t *testing.T) {
@@ -238,7 +238,15 @@ func TestLazyLoadedShards(t *testing.T) {
 			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
 			AdditionalReplicas: nil,
 		}, nil).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(className, tenantNamePopulated, tenantNamePopulated).
+		Return(types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
+		}, nil).Maybe()
 	// Create index with lazy loading disabled to test active calculation methods
+	schemaGetter := &fakeSchemaGetter{
+		schema: fakeSchema, shardState: shardState,
+	}
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
@@ -249,7 +257,7 @@ func TestLazyLoadedShards(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	// make sure that getting the node status does not trigger loading of lazy shards

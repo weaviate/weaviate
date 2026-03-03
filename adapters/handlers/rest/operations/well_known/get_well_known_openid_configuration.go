@@ -48,9 +48,9 @@ func NewGetWellKnownOpenidConfiguration(ctx *middleware.Context, handler GetWell
 /*
 	GetWellKnownOpenidConfiguration swagger:route GET /.well-known/openid-configuration well-known oidc discovery getWellKnownOpenidConfiguration
 
-# OIDC discovery information if OIDC auth is enabled
+# Get OIDC configuration
 
-OIDC Discovery page, redirects to the token issuer if one is configured
+Provides OpenID Connect (OIDC) discovery information if OIDC authentication is configured for Weaviate. Returns details like the token issuer URL, client ID, and required scopes.
 */
 type GetWellKnownOpenidConfiguration struct {
 	Context *middleware.Context
@@ -91,13 +91,13 @@ func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *h
 // swagger:model GetWellKnownOpenidConfigurationOKBody
 type GetWellKnownOpenidConfigurationOKBody struct {
 
-	// OAuth Client ID
+	// The OAuth Client ID configured for Weaviate.
 	ClientID string `json:"clientId,omitempty" yaml:"clientId,omitempty"`
 
-	// The Location to redirect to
+	// The OIDC issuer URL to redirect to for authentication.
 	Href string `json:"href,omitempty" yaml:"href,omitempty"`
 
-	// OAuth Scopes
+	// The required OAuth scopes for authentication.
 	Scopes []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 

@@ -43,12 +43,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding/gzip"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
@@ -79,6 +80,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
@@ -105,6 +107,7 @@ import (
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
@@ -403,8 +406,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
 		Replication: replication.GlobalConfig{
-			MinimumFactor:            1,
-			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			MinimumFactor:                     1,
+			AsyncReplicationDisabled:          appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			AsyncReplicationClusterMaxWorkers: appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers,
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -425,6 +429,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		SPFreshEnabled:                               appState.ServerConfig.Config.SPFreshEnabled,
+		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -489,8 +495,21 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+		maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
+		initialConnWindowSize := maxSize * appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers
 
-		clientConn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		clientConn, err := grpc.NewClient(address,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(maxSize),
+				grpc.MaxCallSendMsgSize(maxSize),
+				grpc.UseCompressor(gzip.Name),
+			),
+			grpc.WithInitialWindowSize(int32(maxSize)),
+			grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+			grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+			grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
 		}
@@ -873,8 +892,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcShutdown := batch.NewShutdown(context.Background())
-	grpcServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
+	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -900,7 +918,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
-		grpcShutdown.Drain(appState.Logger)
+		batchDrain()
 	}
 
 	api.ServerShutdown = func() {
@@ -1167,6 +1185,7 @@ func registerModules(appState *state.State) error {
 		modgenerativeanyscale.Name,
 		modgenerativeaws.Name,
 		modgenerativecohere.Name,
+		modgenerativecontextualai.Name,
 		modgenerativedatabricks.Name,
 		modgenerativefriendliai.Name,
 		modgenerativegoogle.Name,
@@ -1178,6 +1197,7 @@ func registerModules(appState *state.State) error {
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
+		modrerankercontextualai.Name,
 		modrerankervoyageai.Name,
 		modrerankerjinaai.Name,
 		modrerankernvidia.Name,
@@ -1263,6 +1283,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankercohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankercontextualai.Name]; ok {
+		appState.Modules.Register(modrerankercontextualai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankercontextualai.Name).
 			Debug("enabled module")
 	}
 
@@ -1433,6 +1461,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativecohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativecontextualai.Name]; ok {
+		appState.Modules.Register(modgenerativecontextualai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativecontextualai.Name).
 			Debug("enabled module")
 	}
 
@@ -1914,6 +1950,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered := &config.WeaviateRuntimeConfig{}
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
+		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
@@ -1927,6 +1964,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
+		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

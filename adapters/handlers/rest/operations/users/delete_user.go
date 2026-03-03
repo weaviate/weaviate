@@ -45,7 +45,9 @@ func NewDeleteUser(ctx *middleware.Context, handler DeleteUserHandler) *DeleteUs
 /*
 	DeleteUser swagger:route DELETE /users/db/{user_id} users deleteUser
 
-Delete User
+# Delete a user
+
+Delete a database user. You can't delete your current user.
 */
 type DeleteUser struct {
 	Context *middleware.Context

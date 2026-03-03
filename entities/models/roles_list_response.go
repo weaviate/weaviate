@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// RolesListResponse list of roles
+// RolesListResponse List of roles.
 //
 // swagger:model RolesListResponse
 type RolesListResponse []*Role

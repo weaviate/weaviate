@@ -44,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -52,21 +53,22 @@ import (
 )
 
 type DB struct {
-	logger            logrus.FieldLogger
-	localNodeName     string
-	schemaGetter      schemaUC.SchemaGetter
-	config            Config
-	indices           map[string]*Index
-	remoteIndex       sharding.RemoteIndexClient
-	replicaClient     replica.Client
-	nodeResolver      nodeResolver
-	remoteNode        *sharding.RemoteNode
-	promMetrics       *monitoring.PrometheusMetrics
-	indexCheckpoints  *indexcheckpoint.Checkpoints
-	shutdown          chan struct{}
-	startupComplete   atomic.Bool
-	resourceScanState *resourceScanState
-	memMonitor        *memwatch.Monitor
+	logger                         logrus.FieldLogger
+	localNodeName                  string
+	schemaGetter                   schemaUC.SchemaGetter
+	config                         Config
+	indices                        map[string]*Index
+	remoteIndex                    sharding.RemoteIndexClient
+	replicaClient                  replica.Client
+	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
+	nodeResolver                   nodeResolver
+	remoteNode                     *sharding.RemoteNode
+	promMetrics                    *monitoring.PrometheusMetrics
+	indexCheckpoints               *indexcheckpoint.Checkpoints
+	shutdown                       chan struct{}
+	startupComplete                atomic.Bool
+	resourceScanState              *resourceScanState
+	memMonitor                     *memwatch.Monitor
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -203,33 +205,47 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	asyncReplicationWorkersLimiter := dynsemaphore.NewDynamicWeighted(func() int64 {
+		return int64(config.Replication.AsyncReplicationClusterMaxWorkers.Get())
+	})
+
 	db := &DB{
-		logger:              logger,
-		localNodeName:       localNodeName,
-		config:              config,
-		indices:             map[string]*Index{},
-		remoteIndex:         remoteIndex,
-		nodeResolver:        nodeResolver,
-		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:       replicaClient,
-		promMetrics:         promMetrics,
-		shutdown:            make(chan struct{}),
-		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:   newResourceScanState(),
-		memMonitor:          memMonitor,
-		shardLoadLimiter:    loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
-		bucketLoadLimiter:   loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:           NewShardReindexerV3Noop(),
-		nodeSelector:        nodeSelector,
-		schemaReader:        schemaReader,
-		replicationFSM:      replicationFSM,
-		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
-		bitmapBufPoolClose:  func() {},
+		logger:                         logger,
+		localNodeName:                  localNodeName,
+		config:                         config,
+		indices:                        map[string]*Index{},
+		remoteIndex:                    remoteIndex,
+		nodeResolver:                   nodeResolver,
+		remoteNode:                     sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:                  replicaClient,
+		asyncReplicationWorkersLimiter: asyncReplicationWorkersLimiter,
+		promMetrics:                    promMetrics,
+		shutdown:                       make(chan struct{}),
+		maxNumberGoroutines:            int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:              newResourceScanState(),
+		memMonitor:                     memMonitor,
+		shardLoadLimiter:               loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
+		bucketLoadLimiter:              loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
+		reindexer:                      NewShardReindexerV3Noop(),
+		nodeSelector:                   nodeSelector,
+		schemaReader:                   schemaReader,
+		replicationFSM:                 replicationFSM,
+		bitmapBufPool:                  roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:             func() {},
 	}
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
+
+	// scheduler used by async indexing and spfresh background queues
+	db.shutDownWg.Add(1)
+	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		OnClose: db.shutDownWg.Done,
+	})
+	db.scheduler.Start()
+
 	if !asyncEnabled() {
 		db.jobQueueCh = make(chan job, 100000)
 		db.shutDownWg.Add(db.maxNumberGoroutines)
@@ -237,21 +253,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 			i := i
 			enterrors.GoWrapper(func() { db.batchWorker(i == 0) }, db.logger)
 		}
-		// since queues are created regardless of the async setting, we need to
-		// create a scheduler anyway, but there is no need to start it
-		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
-			Logger: logger,
-		})
-	} else {
-		logger.Info("async indexing enabled")
-
-		db.shutDownWg.Add(1)
-		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
-			Logger:  logger,
-			OnClose: db.shutDownWg.Done,
-		})
-
-		db.scheduler.Start()
 	}
 
 	return db, nil
@@ -312,6 +313,9 @@ type Config struct {
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
+
+	SPFreshEnabled  bool
+	OperationalMode *configRuntime.DynamicValue[string]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -408,12 +412,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if asyncEnabled() {
-		// shut down the async workers
-		err := db.scheduler.Close()
-		if err != nil {
-			return errors.Wrap(err, "close scheduler")
-		}
+	// shut down the async workers
+	err := db.scheduler.Close()
+	if err != nil {
+		return errors.Wrap(err, "close scheduler")
 	}
 
 	if db.metricsObserver != nil {

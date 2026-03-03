@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -48,6 +49,8 @@ type vectorIndex interface {
 	Delete(id ...uint64) error
 	Dump(...string)
 	Drop(ctx context.Context, keepFiles bool) error
+	Flush() error
+	Shutdown(ctx context.Context) error
 	PostStartup(ctx context.Context)
 }
 
@@ -86,6 +89,7 @@ func NewIndex(config Config,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		DisableSnapshots:      config.SnapshotDisabled,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
+		GetViewThunk:          func() common.BucketView { return nil },
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
@@ -162,4 +166,12 @@ func (i *Index) WithinRange(ctx context.Context,
 
 func (i *Index) Delete(id uint64) error {
 	return i.vectorIndex.Delete(id)
+}
+
+func (i *Index) Flush() error {
+	return i.vectorIndex.Flush()
+}
+
+func (i *Index) Shutdown(ctx context.Context) error {
+	return i.vectorIndex.Shutdown(ctx)
 }

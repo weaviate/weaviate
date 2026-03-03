@@ -121,6 +121,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return nil
 	})
 
+	s.propertyIndicesLock.RLock()
+	err = s.propertyIndices.ShutdownGeoIndices(ctx)
+	s.propertyIndicesLock.RUnlock()
+	ec.AddWrap(err, "shutdown geo property indices")
+
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// to ensure that all commitlog entries are written to disk.
 		// otherwise in some cases the tombstone cleanup process'

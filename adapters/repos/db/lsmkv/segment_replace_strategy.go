@@ -156,3 +156,76 @@ func (s *segment) existsKey(key []byte) (bool, error) {
 	}
 	return false, err
 }
+
+// exists checks if a key exists and is not deleted, without reading the full value.
+// Returns nil if the key exists and is not deleted, lsmkv.NotFound if not found,
+// or lsmkv.Deleted (with deletion time) if the key was tombstoned.
+//
+// This method is optimized for the HNSW rescoring use case where we need to verify
+// that objects still exist before rescoring their vectors. During rescoring, we may
+// check thousands of objects, and reading the full object payload (which can be large)
+// just to verify existence would be wasteful. Instead, this method reads only the
+// tombstone header (up to 18 bytes) to determine if the key exists and is not deleted.
+//
+// Performance: O(1) index lookup + minimal I/O (18 bytes max vs potentially KB/MB for full objects).
+func (s *segment) exists(key []byte) error {
+	if s.strategy != segmentindex.StrategyReplace {
+		return fmt.Errorf("exists only possible for strategy %q", StrategyReplace)
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return lsmkv.NotFound
+	}
+
+	node, err := s.index.Get(key)
+	if err != nil {
+		if errors.Is(err, lsmkv.NotFound) {
+			return lsmkv.NotFound
+		}
+		return err
+	}
+
+	// Read only the tombstone header instead of the full payload.
+	// Format: byte 0 = tombstone flag, bytes 1-8 = value length, bytes 9+ = value
+	// For tombstones, the value is 9 bytes (1 version + 8 timestamp).
+	const (
+		tombstoneFlagSize   = 1
+		valueLengthSize     = 8
+		maxTombstoneValSize = 9 // 1 version + 8 timestamp
+		maxHeaderSize       = tombstoneFlagSize + valueLengthSize + maxTombstoneValSize
+	)
+	nodeSize := node.End - node.Start
+	headerSize := uint64(maxHeaderSize)
+	if nodeSize < headerSize {
+		headerSize = nodeSize
+	}
+
+	// Use stack-allocated buffer to avoid heap allocation on every call
+	var headerBuf [maxHeaderSize]byte
+	header := headerBuf[:headerSize]
+	if err = s.copyNode(header, nodeOffset{node.Start, node.Start + headerSize}); err != nil {
+		return err
+	}
+
+	if len(header) == 0 {
+		return lsmkv.NotFound
+	}
+
+	// Check tombstone flag
+	if header[0] != 0x01 {
+		// Not a tombstone, key exists
+		return nil
+	}
+
+	// It's a tombstone - extract deletion time if available
+	if len(header) < 9 {
+		return lsmkv.Deleted
+	}
+
+	valueLength := binary.LittleEndian.Uint64(header[1:9])
+	if valueLength == 0 || len(header) < 9+int(valueLength) {
+		return lsmkv.Deleted
+	}
+
+	return errorFromTombstonedValue(header[9 : 9+valueLength])
+}

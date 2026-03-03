@@ -48,9 +48,10 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers      = 10
-	DefaultReplicaMovementMinimumAsyncWait  = 60 * time.Second
-	DefaultReplicationEngineFileCopyWorkers = 10
+	DefaultReplicationEngineMaxWorkers        = 10
+	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
+	DefaultReplicationEngineFileCopyWorkers   = 10
+	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -466,6 +467,10 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_SPFRESH_ENABLED")) {
+		config.SPFreshEnabled = true
+	}
+
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}
@@ -584,6 +589,17 @@ func FromEnv(config *Config) error {
 		if config.QueryDefaults.Limit == 0 {
 			config.QueryDefaults.Limit = DefaultQueryDefaultsLimit
 		}
+	}
+
+	if v := os.Getenv("BACKUP_MIN_CHUNK_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_MIN_CHUNK_SIZE: %w", err)
+		}
+
+		config.Backup.MinChunkSize = parsed
+	} else {
+		config.Backup.MinChunkSize = DefaultBackupMinChunkSize
 	}
 
 	if v := os.Getenv("BACKUP_CHUNK_TARGET_SIZE"); v != "" {
@@ -818,6 +834,16 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
+	if err := parsePositiveInt(
+		"ASYNC_REPLICATION_CLUSTER_MAX_WORKERS",
+		func(val int) {
+			config.Replication.AsyncReplicationClusterMaxWorkers = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationClusterMaxWorkers,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
@@ -959,6 +985,12 @@ func FromEnv(config *Config) error {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = configRuntime.NewDynamicValue(invertedSorterDisabled)
+
+	operationalMode := READ_WRITE
+	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
+		operationalMode = v
+	}
+	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
 	return nil
 }
@@ -1194,6 +1226,14 @@ func (c *Config) parseMemtableConfig() error {
 		return err
 	}
 
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE",
+		func(val int) { c.ReplicationEngineFileCopyChunkSize = val },
+		DefaultReplicationEngineFileCopyChunkSize,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1345,6 +1385,7 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultMinimumReplicationFactor            = 1
+	DefaultAsyncReplicationClusterMaxWorkers   = 30
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 
