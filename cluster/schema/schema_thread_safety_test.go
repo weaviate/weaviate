@@ -757,3 +757,7 @@ func (m *mockShardReader) GetShardsStatus(class, tenant string) (models.ShardSta
 		{Status: "HOT", Name: "shard1"},
 	}, nil
 }
+
+func (m *mockShardReader) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	return nil, nil
+}

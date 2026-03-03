@@ -259,6 +259,10 @@ func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatus
 	return rs.schema.GetShardsStatus(class, tenant)
 }
 
+func (rs SchemaReader) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	return rs.schema.GetVectorIndexStats(class, targetVector)
+}
+
 func (rs SchemaReader) Len() int { return rs.schema.len() }
 
 func (rs SchemaReader) retry(f func(*schema) error) error {

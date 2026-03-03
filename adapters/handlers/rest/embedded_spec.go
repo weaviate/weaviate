@@ -5700,6 +5700,63 @@ func init() {
         }
       }
     },
+    "/schema/{className}/vector/stats": {
+      "get": {
+        "description": "Returns per-shard vector index statistics including compression status and adaptive EF status for the specified collection.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get vector index statistics",
+        "operationId": "schema.objects.vector.stats.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The target vector name (for named vectors). Leave empty for the default vector.",
+            "name": "targetVector",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index statistics retrieved successfully.",
+            "schema": {
+              "$ref": "#/definitions/VectorIndexStatsList"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -6214,6 +6271,32 @@ func init() {
     }
   },
   "definitions": {
+    "AdaptiveEfStats": {
+      "description": "Adaptive EF statistics",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether adaptive EF is enabled",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "inProgress": {
+          "description": "Whether calibration is currently in progress",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "targetRecall": {
+          "description": "The target recall level",
+          "type": "number",
+          "format": "float"
+        },
+        "weightedAverageEf": {
+          "description": "The weighted average EF across score bins",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "AdditionalProperties": {
       "description": "(Response only) Additional meta information about a single object.",
       "type": "object",
@@ -7147,6 +7230,17 @@ func init() {
           }
         },
         "synchronized": {
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
+    "CompressionStats": {
+      "description": "Compression statistics",
+      "type": "object",
+      "properties": {
+        "compressed": {
+          "description": "Whether vectors are compressed",
           "type": "boolean",
           "x-omitempty": false
         }
@@ -9525,6 +9619,34 @@ func init() {
           "description": "Configuration of a specific vectorizer used by this vector",
           "type": "object"
         }
+      }
+    },
+    "VectorIndexStats": {
+      "description": "Vector index statistics for a single shard",
+      "type": "object",
+      "properties": {
+        "adaptiveEf": {
+          "$ref": "#/definitions/AdaptiveEfStats"
+        },
+        "compression": {
+          "$ref": "#/definitions/CompressionStats"
+        },
+        "shard": {
+          "description": "The shard name",
+          "type": "string"
+        },
+        "targetVector": {
+          "description": "The target vector name",
+          "type": "string",
+          "x-omitempty": false
+        }
+      }
+    },
+    "VectorIndexStatsList": {
+      "description": "Vector index statistics for all shards of a collection",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/VectorIndexStats"
       }
     },
     "VectorWeights": {
@@ -15620,6 +15742,63 @@ func init() {
         }
       }
     },
+    "/schema/{className}/vector/stats": {
+      "get": {
+        "description": "Returns per-shard vector index statistics including compression status and adaptive EF status for the specified collection.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get vector index statistics",
+        "operationId": "schema.objects.vector.stats.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The target vector name (for named vectors). Leave empty for the default vector.",
+            "name": "targetVector",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index statistics retrieved successfully.",
+            "schema": {
+              "$ref": "#/definitions/VectorIndexStatsList"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -16134,6 +16313,32 @@ func init() {
     }
   },
   "definitions": {
+    "AdaptiveEfStats": {
+      "description": "Adaptive EF statistics",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether adaptive EF is enabled",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "inProgress": {
+          "description": "Whether calibration is currently in progress",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "targetRecall": {
+          "description": "The target recall level",
+          "type": "number",
+          "format": "float"
+        },
+        "weightedAverageEf": {
+          "description": "The weighted average EF across score bins",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "AdditionalProperties": {
       "description": "(Response only) Additional meta information about a single object.",
       "type": "object",
@@ -17222,6 +17427,17 @@ func init() {
           }
         },
         "synchronized": {
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
+    "CompressionStats": {
+      "description": "Compression statistics",
+      "type": "object",
+      "properties": {
+        "compressed": {
+          "description": "Whether vectors are compressed",
           "type": "boolean",
           "x-omitempty": false
         }
@@ -19829,6 +20045,34 @@ func init() {
           "description": "Configuration of a specific vectorizer used by this vector",
           "type": "object"
         }
+      }
+    },
+    "VectorIndexStats": {
+      "description": "Vector index statistics for a single shard",
+      "type": "object",
+      "properties": {
+        "adaptiveEf": {
+          "$ref": "#/definitions/AdaptiveEfStats"
+        },
+        "compression": {
+          "$ref": "#/definitions/CompressionStats"
+        },
+        "shard": {
+          "description": "The shard name",
+          "type": "string"
+        },
+        "targetVector": {
+          "description": "The target vector name",
+          "type": "string",
+          "x-omitempty": false
+        }
+      }
+    },
+    "VectorIndexStatsList": {
+      "description": "Vector index statistics for all shards of a collection",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/VectorIndexStats"
       }
     },
     "VectorWeights": {
