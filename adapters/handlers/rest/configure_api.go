@@ -150,6 +150,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	exportUsecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -670,6 +671,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
+	// Create export participant early so the cluster API server can register it
+	appState.ExportParticipant = exportUsecase.NewParticipant(serverShutdownCtx, appState.DB, appState.Modules, appState.Logger)
+
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
@@ -967,6 +971,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
+	exportScheduler := startExportScheduler(serverShutdownCtx, appState)
+	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
@@ -1101,6 +1107,31 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		appState.SchemaManager,
 		appState.Logger)
 	return backupScheduler
+}
+
+func startExportScheduler(shutdownCtx context.Context, appState *state.State) *exportUsecase.Scheduler {
+	var client exportUsecase.ExportClient
+	var nodeResolver exportUsecase.NodeResolver
+	var localNode string
+
+	if appState.Cluster != nil && appState.ClusterHttpClient != nil {
+		client = clients.NewClusterExports(appState.ClusterHttpClient)
+		nodeResolver = appState.Cluster
+		localNode = appState.Cluster.LocalName()
+	}
+
+	exportScheduler := exportUsecase.NewScheduler(
+		shutdownCtx,
+		appState.Authorizer,
+		appState.DB,
+		appState.Modules,
+		appState.Logger,
+		client,
+		nodeResolver,
+		localNode,
+		appState.ExportParticipant,
+	)
+	return exportScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
