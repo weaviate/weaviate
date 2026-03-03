@@ -717,12 +717,12 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	priSegmentIndex, err := b.existsWithConsistentView(k, view)
+	priSegIndex, err := b.existsWithConsistentView(k, view)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if priSegmentIndex != secSegIndex {
+	if priSegIndex != secSegIndex {
 		// the primary key is present in a different segment than the secondary key, which means it was updated and we should not return it
 		return nil, nil, lsmkv.Deleted
 	}
