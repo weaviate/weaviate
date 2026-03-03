@@ -206,7 +206,7 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 				return written, nil, err
 			}
 			// First file in chunk and it's big — write it alone
-			n, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, true, chunkKey)
+			n, _, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, true, chunkKey)
 			if err != nil {
 				return written, nil, err
 			}
@@ -215,17 +215,17 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 			return written, nil, nil
 		}
 
-		n, sizeExceededInfo, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
+		n, splitFile, chunkFull, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
 		if err != nil {
 			return written, nil, err
 		}
-		if sizeExceededInfo != nil {
-			if sizeExceededInfo.FileInfo != nil {
-				// File exceeds split threshold, it will be split across chunks.
-				// Pop it from the list since the split mechanism now owns it.
-				filesInShard.PopFront()
-				return written, sizeExceededInfo, nil
-			}
+		if splitFile != nil {
+			// File exceeds split threshold, it will be split across chunks.
+			// Pop it from the list since the split mechanism now owns it.
+			filesInShard.PopFront()
+			return written, splitFile, nil
+		}
+		if chunkFull {
 			// The file at the front doesn't fit. Scan ahead for smaller files
 			// that still fit in the remaining chunk space.
 			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
@@ -274,11 +274,11 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 			continue
 		}
 
-		n, sizeExceeded, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, false, chunkKey)
+		n, _, chunkFull, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, false, chunkKey)
 		if err != nil {
 			return written, err
 		}
-		if sizeExceeded != nil {
+		if chunkFull {
 			continue
 		}
 		written += n
@@ -289,9 +289,9 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, fileSize int64, preCompressionSize *atomic.Int64, firstFile bool, chunkKey string) (written int64, sizeExceeded *SplitFile, err error) {
+func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, fileSize int64, preCompressionSize *atomic.Int64, firstFile bool, chunkKey string) (written int64, splitFile *SplitFile, chunkFull bool, err error) {
 	if err := ctx.Err(); err != nil {
-		return written, nil, err
+		return written, nil, false, err
 	}
 
 	// Use pre-collected file size for chunk size decisions if available
@@ -299,7 +299,7 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	if fileSize >= 0 {
 		// always write at least one file per chunk
 		if !firstFile && preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
-			return 0, &SplitFile{AbsPath: filepath.Join(z.sourcePath, relPath), RelPath: relPath, AlreadyWritten: 0}, nil
+			return 0, nil, true, nil
 		}
 	}
 
@@ -312,14 +312,14 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath))
 			info, err = os.Stat(absPath)
 			if err != nil {
-				return written, nil, fmt.Errorf("stat for deleted files: %w", err)
+				return written, nil, false, fmt.Errorf("stat for deleted files: %w", err)
 			}
 		} else {
-			return written, nil, fmt.Errorf("stat: %w", err)
+			return written, nil, false, fmt.Errorf("stat: %w", err)
 		}
 	}
 	if !info.Mode().IsRegular() {
-		return 0, nil, nil // ignore directories
+		return 0, nil, false, nil // ignore directories
 	}
 
 	// Use pre-collected size if available, otherwise fall back to stat
@@ -333,11 +333,11 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		if actualSize > z.splitFileSizeBytes {
 			// file is larger than the split threshold, split it across chunks
 			// (a split part counts as "at least one file" in the chunk)
-			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, nil
+			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, false, nil
 		}
 		if !firstFile {
 			// file doesn't need splitting, but chunk is full - defer to next chunk
-			return 0, &SplitFile{}, nil
+			return 0, nil, true, nil
 		}
 		// firstFile and below split threshold: write it whole so the chunk is not empty
 	}
@@ -353,14 +353,14 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 
 	f, err := os.Open(absPath)
 	if err != nil {
-		return written, nil, fmt.Errorf("open: %w", err)
+		return written, nil, false, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
 
 	preCompressionSize.Add(actualSize)
 
 	written, err = z.writeOne(ctx, info, relPath, f)
-	return written, nil, err
+	return written, nil, false, err
 }
 
 func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
@@ -398,6 +398,12 @@ func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompr
 		return nil, err
 	}
 
+	if splitFile == nil || splitFile.FileInfo == nil {
+		return nil, fmt.Errorf("WriteSplitFile called with nil splitFile or nil FileInfo")
+	}
+
+	// splitFileSizeBytes is intentionally used as the part size (not maxChunkSizeInBytes)
+	// to keep the number of split parts small and reduce tar/PAX overhead.
 	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, z.splitFileSizeBytes)
 
 	header, err := tar.FileInfoHeader(splitFile.FileInfo, splitFile.FileInfo.Name())
@@ -578,6 +584,7 @@ func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err err
 		}
 		return n, nil
 	} else {
+		// O_TRUNC is not needed: restores always write into empty directories.
 		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(h.Mode))
 		if err != nil {
 			return written, fmt.Errorf("create: %w", err)

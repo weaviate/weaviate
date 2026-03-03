@@ -586,7 +586,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 
 	// Get real backup descriptors from the database.
 	var classDescs []entBackup.ClassDescriptor
-	ch := db.BackupDescriptors(ctx, backupID, classes)
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
 	for d := range ch {
 		require.Nil(t, d.Error)
 		classDescs = append(classDescs, d)
@@ -608,13 +608,13 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	var allChunks []chunkBytes
 
 	for _, sd := range classDescs[0].Shards {
-		filesInShard := sd.CopyFilesInShard()
+		filesInShard := &entBackup.FileList{Files: append([]string{}, sd.Files...)}
 		var fileSizeExceeded *backupUC.SplitFile
 		firstChunk := true
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := backupUC.NewZip(sourceDataPath, int(backupUC.NoCompression), chunkSize, splitFileSize)
+			z, rc, err := backupUC.NewZip(sourceDataPath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
 			require.NoError(t, err)
 
 			type writeResult struct {
@@ -630,7 +630,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 				if fileSizeExceeded != nil {
 					sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
 				} else {
-					_, sr, we = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp)
+					_, sr, we = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp, "")
 				}
 				z.Close()
 				resultCh <- writeResult{split: sr, err: we}
