@@ -112,7 +112,10 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		for _, docID := range docIDs {
 			candidateSet[docID] = struct{}{}
 		}
-		return h.computeLateInteraction(vectors, k, candidateSet)
+		beforeRescore := time.Now()
+		ids, dists, err := h.computeLateInteraction(ctx, vectors, k, candidateSet)
+		helpers.AnnotateSlowQueryLog(ctx, "muvera_rescore_took", time.Since(beforeRescore))
+		return ids, dists, err
 	}
 
 	h.compressActionLock.RLock()
@@ -924,34 +927,102 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 			candidateSet[docId] = struct{}{}
 		}
 	}
-	return h.computeLateInteraction(queryVectors, k, candidateSet)
+	beforeRescore := time.Now()
+	ids, dists, err := h.computeLateInteraction(ctx, queryVectors, k, candidateSet)
+	helpers.AnnotateSlowQueryLog(ctx, "multivector_rescore_took", time.Since(beforeRescore))
+	return ids, dists, err
 }
 
-func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
-	resultsQueue := priorityqueue.NewMax[any](1)
+func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
+	// Convert map to slice for stride-based index access across workers.
+	ids := make([]uint64, 0, len(candidateSet))
 	for docID := range candidateSet {
-		sim, err := h.computeScore(queryVectors, docID)
-		if err != nil {
-			return nil, nil, err
-		}
-		resultsQueue.Insert(docID, sim)
+		ids = append(ids, docID)
+	}
+
+	// Acquire a single consistent view for all disk reads to avoid per-candidate flushLock acquisitions.
+	view := h.GetViewThunk()
+	defer view.ReleaseView()
+
+	resultsQueue := priorityqueue.NewMax[any](k)
+	mu := sync.Mutex{}
+	addResult := func(id uint64, sim float32) {
+		mu.Lock()
+		defer mu.Unlock()
+		resultsQueue.Insert(id, sim)
 		if resultsQueue.Len() > k {
 			resultsQueue.Pop()
 		}
 	}
 
-	distances := make([]float32, resultsQueue.Len())
-	ids := make([]uint64, resultsQueue.Len())
-
-	i := len(ids) - 1
-	for resultsQueue.Len() > 0 {
-		element := resultsQueue.Pop()
-		ids[i] = element.ID
-		distances[i] = element.Dist
-		i--
+	// Compute the per-candidate vector budget for strided sampling.
+	// 0 means no limit (use all vectors).
+	rescoreLimit := 0
+	vectorsPerCandidate := 0
+	if h.muvera.Load() && h.muveraRescoreLimit != nil {
+		rescoreLimit = h.muveraRescoreLimit.Get()
+		if rescoreLimit > 0 && len(ids) > 0 {
+			vectorsPerCandidate = max(1, rescoreLimit/len(ids))
+		}
 	}
 
-	return ids, distances, nil
+	beforeRescore := time.Now()
+	var totalDocVecsRead atomic.Int64
+	var totalDistanceComps atomic.Int64
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			slice := h.pools.tempVectors.Get(int(h.dims.Load()))
+			defer h.pools.tempVectors.Put(slice)
+
+			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("computeLateInteraction: %w", err)
+				}
+				docID := ids[idPos]
+				sim, nDocVecs, nDistComps, err := h.computeScoreWithView(ctx, queryVectors, docID, slice, view, vectorsPerCandidate)
+				if err != nil {
+					h.logger.
+						WithField("action", "computeLateInteraction").
+						WithError(err).
+						Warnf("could not compute score for docID %d", docID)
+					continue
+				}
+				totalDocVecsRead.Add(int64(nDocVecs))
+				totalDistanceComps.Add(int64(nDistComps))
+				addResult(docID, sim)
+			}
+			return nil
+		}, h.logger)
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	rescoreTook := time.Since(beforeRescore)
+	h.logger.
+		WithField("action", "muvera_rescore_debug").
+		WithField("candidates", len(ids)).
+		WithField("rescore_limit", rescoreLimit).
+		WithField("vectors_per_candidate", vectorsPerCandidate).
+		WithField("total_doc_vecs_read", totalDocVecsRead.Load()).
+		WithField("total_distance_computations", totalDistanceComps.Load()).
+		WithField("rescore_took_ms", rescoreTook.Milliseconds()).
+		Warn("TEMP muvera rescore stats")
+
+	distances := make([]float32, resultsQueue.Len())
+	resultIDs := make([]uint64, resultsQueue.Len())
+	i := len(resultIDs) - 1
+	for resultsQueue.Len() > 0 {
+		el := resultsQueue.Pop()
+		resultIDs[i] = el.ID
+		distances[i] = el.Dist
+		i--
+	}
+	return resultIDs, distances, nil
 }
 
 func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
@@ -1006,6 +1077,48 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	}
 
 	return similarity, nil
+}
+
+// computeScoreWithView computes the late-interaction score for a single document.
+// It returns the similarity score, the number of unique doc-vector slots read
+// (nDocVecsRead), the total number of distance computations performed
+// (nDocVecsRead * len(searchVecs)), and any error.
+func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32, docID uint64, slice *common.VectorSlice, view common.BucketView, maxDocVecs int) (float32, int, int, error) {
+	docVecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
+	if err != nil {
+		return 0, 0, 0, errors.Wrap(err, "get vectors for docID")
+	}
+
+	// Determine stride for deterministic sampling. A stride > 1 is only used
+	// when the caller imposed a per-candidate budget and the document has more
+	// vectors than that budget.
+	step := 1
+	if maxDocVecs > 0 && len(docVecs) > maxDocVecs {
+		step = len(docVecs) / maxDocVecs
+	}
+
+	nDocVecsRead := 0
+	for i := 0; i < len(docVecs); i += step {
+		nDocVecsRead++
+	}
+	nDistanceComputations := nDocVecsRead * len(searchVecs)
+
+	similarity := float32(0.0)
+	for _, searchVec := range searchVecs {
+		maxSim := float32(math.MaxFloat32)
+		dist := h.multiDistancerProvider.New(searchVec)
+		for i := 0; i < len(docVecs); i += step {
+			d, err := dist.Distance(docVecs[i])
+			if err != nil {
+				return 0, 0, 0, errors.Wrap(err, "calculate distance")
+			}
+			if d < maxSim {
+				maxSim = d
+			}
+		}
+		similarity += maxSim
+	}
+	return similarity, nDocVecsRead, nDistanceComputations, nil
 }
 
 func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
