@@ -20,7 +20,8 @@ import (
 
 // CopyBytesToSlice copies little-endian encoded bytes into a typed slice
 // using per-element decoding. This fallback is used on big-endian architectures
-// where the in-memory representation differs from the little-endian byte layout on disk.
+// where the in-memory representation of the supported numeric types differs from
+// the little-endian byte layout on disk.
 func CopyBytesToSlice[T float32 | float64 | uint64 | int64](dst []T, src []byte) {
 	switch any(dst).(type) {
 	case []float32:
