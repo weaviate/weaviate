@@ -164,7 +164,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	return &tq, nil
 }
 
-func (tq *TaskQueue) Close() error {
+func (tq *TaskQueue) Close(ctx context.Context) error {
 	var errs []error
 	if err := tq.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
@@ -174,19 +174,19 @@ func (tq *TaskQueue) Close() error {
 		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
 	}
 
-	if err := tq.analyzeQueue.Close(); err != nil {
+	if err := tq.analyzeQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close analyze queue"))
 	}
 
-	if err := tq.splitQueue.Close(); err != nil {
+	if err := tq.splitQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
 	}
 
-	if err := tq.reassignQueue.Close(); err != nil {
+	if err := tq.reassignQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close reassign queue"))
 	}
 
-	if err := tq.mergeQueue.Close(); err != nil {
+	if err := tq.mergeQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 

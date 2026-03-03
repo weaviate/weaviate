@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -215,7 +216,7 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	err := h.taskQueue.Close()
+	err := h.taskQueue.Close(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -256,17 +257,20 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) stopTaskQueues() error {
+func (h *HFresh) stopTaskQueues(ctx context.Context) error {
 	for _, queue := range []*queue.DiskQueue{
 		h.taskQueue.analyzeQueue,
 		h.taskQueue.splitQueue,
 		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
-		queue.Pause()
-		err := queue.Flush()
+		err := queue.Pause(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("pause queue: %w", err)
+		}
+		err = queue.Flush()
+		if err != nil {
+			return fmt.Errorf("flush queue: %w", err)
 		}
 	}
 	return nil
@@ -288,7 +292,7 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return h.stopTaskQueues()
+	return h.stopTaskQueues(ctx)
 }
 
 func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {

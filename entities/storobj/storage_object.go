@@ -172,11 +172,7 @@ func FromBinaryOptional(data []byte,
 	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
 		ko.Object.Vector = make([]float32, vectorLength)
-		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength) * 4)
-		for i := 0; i < int(vectorLength); i++ {
-			bits := binary.LittleEndian.Uint32(vectorBytes[i*4 : (i+1)*4])
-			ko.Object.Vector[i] = math.Float32frombits(bits)
-		}
+		byteops.CopyBytesToSlice(ko.Object.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 	} else {
 		rw.MoveBufferPositionForward(uint64(vectorLength) * 4)
 		ko.Object.Vector = nil
@@ -1000,9 +996,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	rw.WriteUint16(uint16(vectorLength))
 
 	if addProps.Vector {
-		for j := uint32(0); j < vectorLength; j++ {
-			rw.WriteUint32(math.Float32bits(ko.Vector[j]))
-		}
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vectorLength)*byteops.Uint32Len], ko.Vector)
+		rw.MoveBufferPositionForward(uint64(vectorLength) * byteops.Uint32Len)
 	}
 
 	rw.WriteUint16(uint16(classNameLength))
@@ -1045,9 +1040,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		vecLen := len(vec)
 
 		rw.WriteUint16(uint16(vecLen))
-		for j := 0; j < vecLen; j++ {
-			rw.WriteUint32(math.Float32bits(vec[j]))
-		}
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+		rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
 	}
 
 	rw.WriteUint32(multiVectorsOffsetsLength)
@@ -1065,9 +1059,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		for _, vec := range vecs {
 			vecLen := len(vec)
 			rw.WriteUint16(uint16(vecLen))
-			for j := 0; j < vecLen; j++ {
-				rw.WriteUint32(math.Float32bits(vec[j]))
-			}
+			byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+			rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
 		}
 	}
 
@@ -1237,9 +1230,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	vectorLength := rw.ReadUint16()
 	ko.VectorLen = int(vectorLength)
 	ko.Vector = make([]float32, vectorLength)
-	for j := 0; j < int(vectorLength); j++ {
-		ko.Vector[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
 	classNameLength := uint64(rw.ReadUint16())
 	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
@@ -1308,9 +1299,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				vecLen := rw.ReadUint16()
 				vec := make([]float32, vecLen)
-				for j := uint16(0); j < vecLen; j++ {
-					vec[j] = math.Float32frombits(rw.ReadUint32())
-				}
+				byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 				targetVectors[name] = vec
 			}
 
@@ -1358,9 +1347,7 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 		out = make([]float32, vecLen)
 	}
 
-	for j := uint16(0); j < vecLen; j++ {
-		out[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(out, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 
 	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
 	return out, nil
@@ -1403,9 +1390,7 @@ func unmarshalMultiVectors(
 				for i := 0; i < int(numVecs); i++ {
 					vecLen := rw.ReadUint16()
 					vec := make([]float32, vecLen)
-					for j := uint16(0); j < vecLen; j++ {
-						vec[j] = math.Float32frombits(rw.ReadUint32())
-					}
+					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 					vecs = append(vecs, vec)
 				}
 				multiVectors[name] = vecs

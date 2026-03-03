@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -1005,9 +1006,7 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 		return nil, errors.Wrap(err, "failed to read uint64 slice")
 	}
 
-	for i := range d.reusableConnectionsSlice {
-		d.reusableConnectionsSlice[i] = binary.LittleEndian.Uint64(d.reusableBuffer[i*8 : (i+1)*8])
-	}
+	byteops.CopyBytesToSlice(d.reusableConnectionsSlice, d.reusableBuffer)
 
 	return d.reusableConnectionsSlice, nil
 }
