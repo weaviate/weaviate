@@ -599,27 +599,34 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 // existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
 // Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
 // This is more efficient than getWithConsistentView() when only existence check is needed.
-func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView) (int, error) {
+func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView) error {
+	return b.existsWithConsistentViewUpTo(key, 0, view)
+}
+
+// existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
+// Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
+// This is more efficient than getWithConsistentView() when only existence check is needed.
+func (b *Bucket) existsWithConsistentViewUpTo(key []byte, segIdx int, view BucketConsistentView) error {
 	memtables, count := viewMemtables(view)
 
-	for i := range count {
+	for i := 0; i < count; i++ {
 		err := memtables[i].exists(key)
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
-			return len(view.Disk) + i, nil
+			return nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the mem-table (which is always the latest) means we don't
 			// have to check the disk segments, return now
-			return len(view.Disk) + i, err
+			return err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return len(view.Disk) + i, fmt.Errorf("Bucket::exists() %q: %w", memtableNames[i], err)
+			return fmt.Errorf("Bucket::exists() %q: %w", memtableNames[i], err)
 		}
 	}
 
-	return b.disk.existsWithSegmentList(key, view.Disk)
+	return b.disk.existsWithSegmentListUpTo(key, segIdx, view.Disk)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
@@ -728,14 +735,14 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	priSegIndex, err := b.existsWithConsistentView(k, view)
-	if err != nil {
-		return nil, nil, err
+	err = b.existsWithConsistentViewUpTo(k, secSegIndex+1, view)
+
+	if err == nil {
+		return nil, nil, lsmkv.Deleted
 	}
 
-	if priSegIndex != secSegIndex {
-		// the primary key is present in a different segment than the secondary key, which means it was updated and we should not return it
-		return nil, nil, lsmkv.Deleted
+	if !errors.Is(err, lsmkv.NotFound) {
+		return nil, nil, err
 	}
 
 	recheckTook := time.Since(beforeReCheck)

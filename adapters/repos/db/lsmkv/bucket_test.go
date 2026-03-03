@@ -2323,7 +2323,7 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, err := b.existsWithConsistentView(key, view)
+		err := b.existsWithConsistentView(key, view)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 
@@ -2334,7 +2334,7 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, err = b.existsWithConsistentView(key, view)
+		err = b.existsWithConsistentView(key, view)
 		require.NoError(t, err)
 	})
 
@@ -2342,7 +2342,7 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, existsErr := b.existsWithConsistentView(key, view)
+		existsErr := b.existsWithConsistentView(key, view)
 		_, getErr := b.getWithConsistentView(key, view)
 
 		// Both should succeed for existing key
@@ -2379,7 +2379,7 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, err := b.existsWithConsistentView(key, view)
+		err := b.existsWithConsistentView(key, view)
 		require.NoError(t, err)
 	})
 
@@ -2387,7 +2387,7 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, err := b.existsWithConsistentView([]byte("nonexistent"), view)
+		err := b.existsWithConsistentView([]byte("nonexistent"), view)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 
@@ -2395,13 +2395,13 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, existsErr := b.existsWithConsistentView(key, view)
+		existsErr := b.existsWithConsistentView(key, view)
 		_, getErr := b.getWithConsistentView(key, view)
 
 		assert.NoError(t, existsErr)
 		assert.NoError(t, getErr)
 
-		_, existsErr = b.existsWithConsistentView([]byte("nonexistent"), view)
+		existsErr = b.existsWithConsistentView([]byte("nonexistent"), view)
 		_, getErr = b.getWithConsistentView([]byte("nonexistent"), view)
 
 		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
@@ -2441,7 +2441,7 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, err := b.existsWithConsistentView(key, view)
+		err := b.existsWithConsistentView(key, view)
 		assert.True(t, errors.Is(err, lsmkv.Deleted))
 	})
 
@@ -2449,7 +2449,7 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		_, existsErr := b.existsWithConsistentView(key, view)
+		existsErr := b.existsWithConsistentView(key, view)
 		_, getErr := b.getWithConsistentView(key, view)
 
 		// Both should return Deleted
@@ -2492,20 +2492,18 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 
 	view := b2.GetConsistentView()
 	defer view.ReleaseView()
-	var priSegIndex, secSegIndex int
-	priSegIndex, err = b2.existsWithConsistentView([]byte("hello"), view)
+
+	err = b2.existsWithConsistentView([]byte("hello"), view)
 	require.Nil(t, err)
 
 	// old secondary key should not be found in the new view, and the new secondary key should not be found in the old view, since they are in different segments
 	seckey := []byte("bonjour")
 	buffer := make([]byte, 100)
-	_, _, _, secSegIndex, err = b2.getBySecondaryFromSegmentGroup(0, seckey, buffer, view.Disk)
-	require.Nil(t, err)
-	require.NotEqual(t, priSegIndex, secSegIndex)
+	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
+	require.EqualError(t, err, lsmkv.Deleted.Error())
 
 	// new secondary key should be found in the new view, and should be in the same segment as the primary key
 	seckey = []byte("olá")
-	_, _, _, secSegIndex, err = b2.getBySecondaryFromSegmentGroup(0, seckey, buffer, view.Disk)
+	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
 	require.Nil(t, err)
-	require.Equal(t, priSegIndex, secSegIndex)
 }

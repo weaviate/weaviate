@@ -634,14 +634,20 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 
 // existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
 // This is more efficient than getWithSegmentList() when only existence check is needed.
-func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) (int, error) {
+func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) error {
+	return sg.existsWithSegmentListUpTo(key, 0, segments)
+}
+
+// existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
+// This is more efficient than getWithSegmentList() when only existence check is needed.
+func (sg *SegmentGroup) existsWithSegmentListUpTo(key []byte, segIdx int, segments []Segment) error {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return -1, fmt.Errorf("SegmentGroup::existsWithSegmentList(): %w", err)
+		return fmt.Errorf("SegmentGroup::existsWithSegmentListUpTo(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := len(segments) - 1; i >= 0; i-- {
+	for i := len(segments) - 1; i >= segIdx; i-- {
 		beforeSegment := time.Now()
 		err := segments[i].exists(key)
 		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
@@ -653,17 +659,17 @@ func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) (i
 				}).Debug("waited over 100ms to check existence in individual segment")
 		}
 		if err == nil {
-			return i, nil
+			return nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			return i, err
+			return err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return i, fmt.Errorf("SegmentGroup::existsWithSegmentList() %q: %w", segments[i].getPath(), err)
+			return fmt.Errorf("SegmentGroup::existsWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
 
-	return -1, lsmkv.NotFound
+	return lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
