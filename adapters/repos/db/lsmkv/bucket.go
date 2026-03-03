@@ -715,16 +715,10 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 	segmentsTook := time.Since(beforeSegments)
 
-	var v2 []byte
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
 	if err := b.existsWithConsistentView(k, view); err != nil {
 		return nil, nil, err
-	}
-
-	// document exists, but it has been updated with a different secondary key
-	if !bytes.Equal(v, v2) {
-		return nil, nil, lsmkv.Deleted
 	}
 	recheckTook := time.Since(beforeReCheck)
 
