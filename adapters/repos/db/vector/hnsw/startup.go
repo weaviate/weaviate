@@ -489,6 +489,14 @@ func (h *hnsw) PostStartup(ctx context.Context) {
 }
 
 func (h *hnsw) prefillCache(ctx context.Context) {
+	// If compressed and preload was interrupted, recover synchronously
+	// before serving any queries, regardless of waitForCachePrefill.
+	if h.compressed.Load() && h.compressionIncomplete() {
+		h.recoverCompression(ctx)
+		h.cachePrefilled.Store(true)
+		return
+	}
+
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
@@ -533,4 +541,35 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		}).Info("not waiting for vector cache prefill, running in background")
 		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
+}
+
+func (h *hnsw) recoverCompression(ctx context.Context) {
+	h.logger.Warn("detected incomplete compression preload, recovering")
+
+	if h.iterateVectors == nil {
+		h.logger.Error("cannot recover compression: no vector iterator available")
+		return
+	}
+
+	total := 0
+	err := h.iterateVectors(ctx, func(id uint64, vector []float32) error {
+		if len(vector) == 0 {
+			return nil
+		}
+		vector = h.normalizeVec(vector)
+		h.compressor.Preload(id, vector)
+		total++
+		return nil
+	})
+	if err != nil {
+		h.logger.WithField("action", "compression_recovery").
+			WithError(err).Error("compression recovery failed")
+		return
+	}
+
+	h.clearCompressionSentinel()
+	h.logger.WithFields(logrus.Fields{
+		"action": "compression_recovery",
+		"total":  total,
+	}).Info("compression recovery complete")
 }
