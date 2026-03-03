@@ -66,7 +66,7 @@ func createHFreshIndex(t *testing.T) TestHFresh {
 
 	scheduler.Start()
 	t.Cleanup(func() {
-		scheduler.Close()
+		scheduler.Close(t.Context())
 	})
 
 	uc := ent.NewDefaultUserConfig()

@@ -109,13 +109,13 @@ func NewVectorIndexQueue(
 	return &viq, nil
 }
 
-func (iq *VectorIndexQueue) Close() error {
+func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 	if iq == nil {
 		// the queue is nil when the shard is not fully initialized
 		return nil
 	}
 
-	return iq.DiskQueue.Close()
+	return iq.DiskQueue.Close(ctx)
 }
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {

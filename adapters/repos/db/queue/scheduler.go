@@ -127,7 +127,7 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 	q.Metrics().Registered(q.ID())
 }
 
-func (s *Scheduler) UnregisterQueue(id string) {
+func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 	if s.ctx == nil {
 		// scheduler not started
 		return
@@ -143,7 +143,7 @@ func (s *Scheduler) UnregisterQueue(id string) {
 	q.cancelFn()
 
 	// wait for the workers to finish processing the queue's tasks
-	s.Wait(id)
+	_ = s.Wait(ctx, id)
 
 	// the queue is paused, so it's safe to remove it
 	s.queues.Lock()
@@ -189,7 +189,7 @@ func (s *Scheduler) Start() {
 	enterrors.GoWrapper(f, s.Logger)
 }
 
-func (s *Scheduler) Close() error {
+func (s *Scheduler) Close(ctx context.Context) error {
 	if s == nil || s.ctx == nil {
 		// scheduler not initialized. No op.
 		return nil
@@ -204,7 +204,7 @@ func (s *Scheduler) Close() error {
 	s.cancelFn()
 
 	// wait for the workers to finish processing tasks
-	s.activeTasks.Wait()
+	_ = s.activeTasks.Wait(ctx)
 
 	// wait for the spawned goroutines to stop
 	s.wg.Wait()
@@ -274,28 +274,30 @@ func (s *Scheduler) ResumeQueue(id string) {
 	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
-func (s *Scheduler) Wait(id string) {
+func (s *Scheduler) Wait(ctx context.Context, id string) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return nil
 	}
 
 	q := s.getQueue(id)
 	if q == nil {
-		return
+		return nil
 	}
 
-	q.scheduled.Wait()
-	q.activeTasks.Wait()
+	if err := q.scheduled.Wait(ctx); err != nil {
+		return err
+	}
+	return q.activeTasks.Wait(ctx)
 }
 
-func (s *Scheduler) WaitAll() {
+func (s *Scheduler) WaitAll(ctx context.Context) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return nil
 	}
 
-	s.activeTasks.Wait()
+	return s.activeTasks.Wait(ctx)
 }
 
 func (s *Scheduler) getQueue(id string) *queueState {
