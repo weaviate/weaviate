@@ -36,7 +36,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
-	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
 	s.index.logger.WithFields(logrus.Fields{
@@ -134,7 +133,10 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}
 	}
 
-	s.metrics.baseMetrics.FinishUnloadingShard()
+	// Only update metrics if the shard was properly registered
+	if s.metricsRegistered.Load() {
+		s.metrics.baseMetrics.DeleteLoadedShard()
+	}
 
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
