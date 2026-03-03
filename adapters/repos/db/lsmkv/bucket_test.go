@@ -86,6 +86,14 @@ func TestBucket(t *testing.T) {
 				WithSecondaryIndices(1),
 			},
 		},
+		{
+			name: "bucket_SecondaryPrimaryMismatch",
+			f:    bucket_SecondaryPrimaryMismatch,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+			},
+		},
 	}
 	tests.run(ctx, t)
 }
@@ -2448,4 +2456,56 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		assert.True(t, errors.Is(existsErr, lsmkv.Deleted))
 		assert.True(t, errors.Is(getErr, lsmkv.Deleted))
 	})
+}
+
+func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.Nil(t, err)
+
+	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
+		WithSecondaryKey(0, []byte("bonjour"))))
+	require.Nil(t, b.FlushMemtable())
+
+	files, err := os.ReadDir(b.GetDir())
+	require.Nil(t, err)
+
+	_, ok := findFileWithExt(files, ".bloom")
+	assert.True(t, ok)
+
+	_, ok = findFileWithExt(files, "secondary.0.bloom")
+	assert.True(t, ok)
+
+	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
+		WithSecondaryKey(0, []byte("olá"))))
+	require.Nil(t, b.FlushMemtable())
+
+	b.Shutdown(ctx)
+
+	b2, err := NewBucketCreator().NewBucket(ctx, b.GetDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
+
+	view := b2.GetConsistentView()
+	defer view.ReleaseView()
+	var priSegIndex, secSegIndex int
+	priSegIndex, err = b2.existsWithConsistentView([]byte("hello"), view)
+	require.Nil(t, err)
+
+	// old secondary key should not be found in the new view, and the new secondary key should not be found in the old view, since they are in different segments
+	seckey := []byte("bonjour")
+	buffer := make([]byte, 100)
+	_, _, _, secSegIndex, err = b2.getBySecondaryFromSegmentGroup(0, seckey, buffer, view.Disk)
+	require.Nil(t, err)
+	require.NotEqual(t, priSegIndex, secSegIndex)
+
+	// new secondary key should be found in the new view, and should be in the same segment as the primary key
+	seckey = []byte("olá")
+	_, _, _, secSegIndex, err = b2.getBySecondaryFromSegmentGroup(0, seckey, buffer, view.Disk)
+	require.Nil(t, err)
+	require.Equal(t, priSegIndex, secSegIndex)
 }
