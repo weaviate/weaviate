@@ -634,9 +634,9 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 
 // existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
 // This is more efficient than getWithSegmentList() when only existence check is needed.
-func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) error {
+func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) (int, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return fmt.Errorf("SegmentGroup::existsWithSegmentList(): %w", err)
+		return -1, fmt.Errorf("SegmentGroup::existsWithSegmentList(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
@@ -653,24 +653,24 @@ func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) er
 				}).Debug("waited over 100ms to check existence in individual segment")
 		}
 		if err == nil {
-			return nil
+			return i, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			return err
+			return i, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return fmt.Errorf("SegmentGroup::existsWithSegmentList() %q: %w", segments[i].getPath(), err)
+			return i, fmt.Errorf("SegmentGroup::existsWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
 
-	return lsmkv.NotFound
+	return -1, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
-) ([]byte, []byte, []byte, error) {
+) ([]byte, []byte, []byte, int, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return nil, nil, nil, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
+		return nil, nil, nil, -1, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
@@ -687,16 +687,16 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 				}).Debug("waited over 100ms to get result from individual segment")
 		}
 		if err == nil {
-			return k, v, allocBuf, nil
+			return k, v, allocBuf, i, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			return nil, nil, nil, err
+			return nil, nil, nil, i, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
+			return nil, nil, nil, i, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
-	return nil, nil, nil, lsmkv.NotFound
+	return nil, nil, nil, -1, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {

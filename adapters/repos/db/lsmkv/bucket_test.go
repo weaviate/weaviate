@@ -2315,7 +2315,7 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		err := b.existsWithConsistentView(key, view)
+		_, err := b.existsWithConsistentView(key, view)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 
@@ -2326,7 +2326,7 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		err = b.existsWithConsistentView(key, view)
+		_, err = b.existsWithConsistentView(key, view)
 		require.NoError(t, err)
 	})
 
@@ -2334,7 +2334,7 @@ func bucket_Exists_MemtableOnly(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		existsErr := b.existsWithConsistentView(key, view)
+		_, existsErr := b.existsWithConsistentView(key, view)
 		_, getErr := b.getWithConsistentView(key, view)
 
 		// Both should succeed for existing key
@@ -2371,7 +2371,7 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		err := b.existsWithConsistentView(key, view)
+		_, err := b.existsWithConsistentView(key, view)
 		require.NoError(t, err)
 	})
 
@@ -2379,7 +2379,7 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		err := b.existsWithConsistentView([]byte("nonexistent"), view)
+		_, err := b.existsWithConsistentView([]byte("nonexistent"), view)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 
@@ -2387,13 +2387,13 @@ func bucket_Exists_WithSegments(ctx context.Context, t *testing.T, opts []Bucket
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		existsErr := b.existsWithConsistentView(key, view)
+		_, existsErr := b.existsWithConsistentView(key, view)
 		_, getErr := b.getWithConsistentView(key, view)
 
 		assert.NoError(t, existsErr)
 		assert.NoError(t, getErr)
 
-		existsErr = b.existsWithConsistentView([]byte("nonexistent"), view)
+		_, existsErr = b.existsWithConsistentView([]byte("nonexistent"), view)
 		_, getErr = b.getWithConsistentView([]byte("nonexistent"), view)
 
 		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
@@ -2433,7 +2433,7 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		err := b.existsWithConsistentView(key, view)
+		_, err := b.existsWithConsistentView(key, view)
 		assert.True(t, errors.Is(err, lsmkv.Deleted))
 	})
 
@@ -2441,7 +2441,7 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		existsErr := b.existsWithConsistentView(key, view)
+		_, existsErr := b.existsWithConsistentView(key, view)
 		_, getErr := b.getWithConsistentView(key, view)
 
 		// Both should return Deleted

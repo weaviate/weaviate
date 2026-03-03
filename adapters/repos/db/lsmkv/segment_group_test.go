@@ -677,7 +677,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 		segments, release := sg.getConsistentViewOfSegments()
 		defer release()
 
-		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		_, err := sg.existsWithSegmentList([]byte("key1"), segments)
 		require.NoError(t, err)
 	})
 
@@ -693,7 +693,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 		segments, release := sg.getConsistentViewOfSegments()
 		defer release()
 
-		err := sg.existsWithSegmentList([]byte("nonexistent"), segments)
+		_, err := sg.existsWithSegmentList([]byte("nonexistent"), segments)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 
@@ -714,7 +714,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 		segments, release := sg.getConsistentViewOfSegments()
 		defer release()
 
-		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		_, err := sg.existsWithSegmentList([]byte("key1"), segments)
 		require.NoError(t, err)
 	})
 
@@ -731,13 +731,13 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 		defer release()
 
 		// For existing key
-		existsErr := sg.existsWithSegmentList([]byte("key1"), segments)
+		_, existsErr := sg.existsWithSegmentList([]byte("key1"), segments)
 		_, getErr := sg.getWithSegmentList([]byte("key1"), segments)
 		assert.NoError(t, existsErr)
 		assert.NoError(t, getErr)
 
 		// For non-existing key
-		existsErr = sg.existsWithSegmentList([]byte("nonexistent"), segments)
+		_, existsErr = sg.existsWithSegmentList([]byte("nonexistent"), segments)
 		_, getErr = sg.getWithSegmentList([]byte("nonexistent"), segments)
 		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
 		assert.ErrorIs(t, getErr, lsmkv.NotFound)
@@ -759,14 +759,14 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 		defer release()
 
 		// Both keys should exist
-		err := sg.existsWithSegmentList([]byte("key1"), segments)
+		_, err := sg.existsWithSegmentList([]byte("key1"), segments)
 		require.NoError(t, err)
 
-		err = sg.existsWithSegmentList([]byte("key2"), segments)
+		_, err = sg.existsWithSegmentList([]byte("key2"), segments)
 		require.NoError(t, err)
 
 		// Non-existent key should return NotFound
-		err = sg.existsWithSegmentList([]byte("key3"), segments)
+		_, err = sg.existsWithSegmentList([]byte("key3"), segments)
 		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 }

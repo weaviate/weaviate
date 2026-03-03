@@ -599,7 +599,7 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 // existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
 // Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
 // This is more efficient than getWithConsistentView() when only existence check is needed.
-func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView) error {
+func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView) (int, error) {
 	memtables, count := viewMemtables(view)
 
 	for i := range count {
@@ -607,15 +607,15 @@ func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView)
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
-			return nil
+			return len(view.Disk) + i, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the mem-table (which is always the latest) means we don't
 			// have to check the disk segments, return now
-			return err
+			return len(view.Disk) + i, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return fmt.Errorf("Bucket::exists() %q: %w", memtableNames[i], err)
+			return len(view.Disk) + i, fmt.Errorf("Bucket::exists() %q: %w", memtableNames[i], err)
 		}
 	}
 
@@ -709,7 +709,7 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 
 	beforeSegments := time.Now()
-	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	k, v, allocBuf, secSegIndex, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -717,9 +717,16 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	if err := b.existsWithConsistentView(k, view); err != nil {
+	priSegmentIndex, err := b.existsWithConsistentView(k, view)
+	if err != nil {
 		return nil, nil, err
 	}
+
+	if priSegmentIndex != secSegIndex {
+		// the primary key is present in a different segment than the secondary key, which means it was updated and we should not return it
+		return nil, nil, lsmkv.Deleted
+	}
+
 	recheckTook := time.Since(beforeReCheck)
 
 	helpers.AnnotateSlowQueryLogAppend(ctx, logKey, BucketSlowLogEntry{
@@ -808,7 +815,7 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 }
 
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
-) (k, v []byte, buf []byte, err error) {
+) (k, v []byte, buf []byte, segmentId int, err error) {
 	op := "getbysecondary"
 	component := "segment_group"
 
