@@ -1229,28 +1229,16 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
 	classNameLength := uint64(rw.ReadUint16())
-	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy class name")
-	}
+	className := rw.ReadBytesFromBuffer(classNameLength)
 
 	schemaLength := uint64(rw.ReadUint32())
-	schema, err := rw.CopyBytesFromBuffer(schemaLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy schema")
-	}
+	schema := rw.ReadBytesFromBuffer(schemaLength)
 
 	metaLength := uint64(rw.ReadUint32())
-	meta, err := rw.CopyBytesFromBuffer(metaLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy meta")
-	}
+	meta := rw.ReadBytesFromBuffer(metaLength)
 
 	vectorWeightsLength := uint64(rw.ReadUint32())
-	vectorWeights, err := rw.CopyBytesFromBuffer(vectorWeightsLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy vectorWeights")
-	}
+	vectorWeights := rw.ReadBytesFromBuffer(vectorWeightsLength)
 
 	vectors, err := unmarshalTargetVectors(&rw)
 	if err != nil {
