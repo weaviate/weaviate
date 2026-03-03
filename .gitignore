@@ -130,5 +130,7 @@ test/modules/backup-filesystem/bucketPath
 # go test coverage output files
 *.out
 
-#Claude
+# Claude
 .claude/*
+!.claude/settings.json
+!.claude/scripts/

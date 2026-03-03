@@ -49,7 +49,7 @@ type RevokeRoleFromGroupParams struct {
 	  In: body
 	*/
 	Body RevokeRoleFromGroupBody
-	/*group name
+	/*The name of the group.
 	  Required: true
 	  In: path
 	*/

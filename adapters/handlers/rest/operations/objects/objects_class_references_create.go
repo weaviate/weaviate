@@ -45,9 +45,9 @@ func NewObjectsClassReferencesCreate(ctx *middleware.Context, handler ObjectsCla
 /*
 	ObjectsClassReferencesCreate swagger:route POST /objects/{className}/{id}/references/{propertyName} objects objectsClassReferencesCreate
 
-Add a single reference to a class-property.
+# Add an object reference
 
-Add a single reference to an object. This adds a reference to the array of cross-references of the given property in the source object specified by its collection name and id
+Adds a new reference to a reference property (`propertyName`) on a source data object. The source object is identified by its collection name (`className`) and UUID (`id`). The reference to add is specified in the request body.
 */
 type ObjectsClassReferencesCreate struct {
 	Context *middleware.Context

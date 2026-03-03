@@ -74,7 +74,7 @@ type NodesGetParams struct {
 
 	/* Output.
 
-	   Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	   Controls the verbosity of the output, possible values are: `minimal`, `verbose`. Defaults to `minimal`.
 
 	   Default: "minimal"
 	*/

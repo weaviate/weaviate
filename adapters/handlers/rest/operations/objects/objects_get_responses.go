@@ -28,7 +28,7 @@ import (
 const ObjectsGetOKCode int = 200
 
 /*
-ObjectsGetOK Successful response.
+ObjectsGetOK Successful response containing the object.
 
 swagger:response objectsGetOK
 */
@@ -188,7 +188,7 @@ func (o *ObjectsGetForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const ObjectsGetNotFoundCode int = 404
 
 /*
-ObjectsGetNotFound Successful query result but no resource was found.
+ObjectsGetNotFound Object not found.
 
 swagger:response objectsGetNotFound
 */
@@ -213,7 +213,7 @@ func (o *ObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runt
 const ObjectsGetInternalServerErrorCode int = 500
 
 /*
-ObjectsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsGetInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsGetInternalServerError
 */

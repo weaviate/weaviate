@@ -30,7 +30,7 @@ import (
 // swagger:model BatchReference
 type BatchReference struct {
 
-	// Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/<kinds>/<uuid>/<className>/<propertyName>, where <kinds> must be one of 'objects', 'objects' and <className> and <propertyName> must represent the cross-ref property of source class to be used.
+	// Long-form beacon-style URI to identify the source of the cross-reference, including the property name. Should be in the form of `weaviate://localhost/objects/<uuid>/<className>/<propertyName>`, where `<className>` and `<propertyName>` must represent the cross-reference property of the source class to be used.
 	// Example: weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals
 	// Format: uri
 	From strfmt.URI `json:"from,omitempty"`
@@ -38,7 +38,7 @@ type BatchReference struct {
 	// Name of the reference tenant.
 	Tenant string `json:"tenant,omitempty"`
 
-	// Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
+	// Short-form URI to point to the cross-reference. Should be in the form of `weaviate://localhost/<uuid>` for the example of a local cross-reference to an object.
 	// Example: weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f
 	// Format: uri
 	To strfmt.URI `json:"to,omitempty"`

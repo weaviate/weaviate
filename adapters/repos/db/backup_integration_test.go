@@ -23,21 +23,20 @@ import (
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestBackup_DBLevel(t *testing.T) {
@@ -89,7 +88,11 @@ func TestBackup_DBLevel(t *testing.T) {
 			Objects.Classes[0].MarshalBinary()
 		require.Nil(t, err)
 
-		classes := db.ListBackupable()
+		classes := make([]string, 0, len(db.indices))
+		for _, idx := range db.indices {
+			cls := string(idx.Config.ClassName)
+			classes = append(classes, cls)
+		}
 
 		t.Run("doesn't fail on casing permutation of existing class", func(t *testing.T) {
 			err := db.Backupable(ctx, []string{"DBLeVELBackupClass"})
@@ -101,7 +104,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 
-			ch := db.BackupDescriptors(ctx, backupID, classes)
+			ch := db.BackupDescriptors(ctx, backupID, classes, nil)
 
 			for d := range ch {
 				assert.Equal(t, className, d.Name)
@@ -170,7 +173,11 @@ func TestBackup_DBLevel(t *testing.T) {
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {
-			classes := db.ListBackupable()
+			classes := make([]string, 0, len(db.indices))
+			for _, idx := range db.indices {
+				cls := string(idx.Config.ClassName)
+				classes = append(classes, cls)
+			}
 
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
@@ -178,7 +185,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
 			defer cancel()
 
-			ch := db.BackupDescriptors(timeoutCtx, backupID, classes)
+			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil)
 			for d := range ch {
 				require.NotNil(t, d.Error)
 				assert.Contains(t, d.Error.Error(), "context deadline exceeded")
@@ -281,6 +288,12 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, version uint64) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return nil
+	}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -491,16 +504,14 @@ func TestDB_Shards(t *testing.T) {
 		assert.Equal(t, []string{}, nodes)
 	})
 
-	t.Run("nil sharding state", func(t *testing.T) {
+	t.Run("invalid sharding state (nil)", func(t *testing.T) {
 		className := "NilStateClass"
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
-			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-				class := &models.Class{Class: className}
-				return readFunc(class, nil)
-			},
-		)
+		expectedErrorMsg := "invalid sharding state: state is nil"
+		mockSchemaReader.EXPECT().
+			Read(className, mock.Anything, mock.Anything).
+			Return(fmt.Errorf("%s", expectedErrorMsg))
 
 		db := &DB{
 			logger:       logger,
@@ -508,9 +519,9 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		nodes, err := db.Shards(ctx, className)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, nodes)
-		assert.Contains(t, err.Error(), "unable to retrieve sharding state")
+		assert.Contains(t, err.Error(), expectedErrorMsg)
 	})
 
 	t.Run("schema reader error", func(t *testing.T) {

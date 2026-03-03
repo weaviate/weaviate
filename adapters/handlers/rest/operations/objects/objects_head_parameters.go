@@ -42,7 +42,7 @@ type ObjectsHeadParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the Object.
+	/*Unique UUID of the object to check.
 	  Required: true
 	  In: path
 	*/

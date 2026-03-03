@@ -45,7 +45,7 @@ type ClassificationsPostParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*parameters to start a classification
+	/*Configuration parameters for the classification task, including type, target properties, and training data references.
 	  Required: true
 	  In: body
 	*/

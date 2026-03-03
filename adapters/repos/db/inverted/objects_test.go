@@ -29,7 +29,7 @@ import (
 )
 
 func TestAnalyzeObject(t *testing.T) {
-	a := NewAnalyzer(nil)
+	a := NewAnalyzer(nil, "")
 
 	t.Run("with multiple properties", func(t *testing.T) {
 		id1 := uuid.New()

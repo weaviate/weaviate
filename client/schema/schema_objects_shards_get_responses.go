@@ -77,7 +77,7 @@ func NewSchemaObjectsShardsGetOK() *SchemaObjectsShardsGetOK {
 /*
 SchemaObjectsShardsGetOK describes a response with status code 200, with default header values.
 
-Found the status of the shards, returned as body
+Shard statuses retrieved successfully.
 */
 type SchemaObjectsShardsGetOK struct {
 	Payload models.ShardStatusList
@@ -267,7 +267,7 @@ func NewSchemaObjectsShardsGetNotFound() *SchemaObjectsShardsGetNotFound {
 /*
 SchemaObjectsShardsGetNotFound describes a response with status code 404, with default header values.
 
-This class does not exist
+Collection not found.
 */
 type SchemaObjectsShardsGetNotFound struct {
 	Payload *models.ErrorResponse
@@ -335,7 +335,7 @@ func NewSchemaObjectsShardsGetInternalServerError() *SchemaObjectsShardsGetInter
 /*
 SchemaObjectsShardsGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while retrieving shard statuses. Check the ErrorResponse for details.
 */
 type SchemaObjectsShardsGetInternalServerError struct {
 	Payload *models.ErrorResponse

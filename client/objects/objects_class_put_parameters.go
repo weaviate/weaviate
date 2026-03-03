@@ -74,21 +74,27 @@ ObjectsClassPutParams contains all the parameters to send to the API endpoint
 */
 type ObjectsClassPutParams struct {
 
-	// Body.
+	/* Body.
+
+	   The object definition to replace the existing object with.
+	*/
 	Body *models.Object
 
-	// ClassName.
+	/* ClassName.
+
+	   Name of the collection (class) the object belongs to.
+	*/
 	ClassName string
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 
 	/* ID.
 
-	   The uuid of the data object to update.
+	   Unique UUID of the object to be replaced.
 
 	   Format: uuid
 	*/

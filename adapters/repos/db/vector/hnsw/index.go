@@ -102,14 +102,16 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID               common.VectorForID[float32]
-	TempVectorForIDThunk      common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	multiVectorForID          common.MultiVectorForID
-	trackDimensionsOnce       sync.Once
-	trackMuveraOnce           sync.Once
-	trackRQOnce               sync.Once
-	dims                      atomic.Int32
+	vectorForID                       common.VectorForID[float32]
+	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
+	GetViewThunk                      common.GetViewThunk
+	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
+	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	multiVectorForID                  common.MultiVectorForID
+	trackDimensionsOnce               sync.Once
+	trackMuveraOnce                   sync.Once
+	trackRQOnce                       sync.Once
+	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -204,6 +206,8 @@ type hnsw struct {
 	maxDocID        uint64
 	MinMMapSize     int64
 	MaxWalReuseSize int64
+
+	fs common.FS
 }
 
 type CommitLogger interface {
@@ -243,6 +247,8 @@ type BufferedLinksLogger interface {
 
 type MakeCommitLogger func() (CommitLogger, error)
 
+type HNSW = hnsw
+
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
 // opens files for writing. However, checking whether a file is present, is a
@@ -251,7 +257,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 // checks first and only then is the commit logger created
 func New(cfg Config, uc ent.UserConfig,
 	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
-) (*hnsw, error) {
+) (*HNSW, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -339,19 +345,21 @@ func New(cfg Config, uc ent.UserConfig,
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:                  rand.Float64,
-		compressActionLock:        &sync.RWMutex{},
-		className:                 cfg.ClassName,
-		VectorForIDThunk:          cfg.VectorForIDThunk,
-		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
-		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
-		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
-		pqConfig:                  uc.PQ,
-		bqConfig:                  uc.BQ,
-		sqConfig:                  uc.SQ,
-		rqConfig:                  uc.RQ,
-		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
+		randFunc:                          rand.Float64,
+		compressActionLock:                &sync.RWMutex{},
+		className:                         cfg.ClassName,
+		VectorForIDThunk:                  cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:             cfg.MultiVectorForIDThunk,
+		TempMultiVectorForIDThunk:         cfg.TempMultiVectorForIDThunk,
+		GetViewThunk:                      cfg.GetViewThunk,
+		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
+		TempMultiVectorForIDWithViewThunk: cfg.TempMultiVectorForIDWithViewThunk,
+		pqConfig:                          uc.PQ,
+		bqConfig:                          uc.BQ,
+		sqConfig:                          uc.SQ,
+		rqConfig:                          uc.RQ,
+		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
@@ -361,6 +369,7 @@ func New(cfg Config, uc ent.UserConfig,
 		muveraEncoder:   muveraEncoder,
 		MinMMapSize:     cfg.MinMMapSize,
 		MaxWalReuseSize: cfg.MaxWalReuseSize,
+		fs:              common.NewOSFS(),
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
 		"shard":        cfg.ShardName,
@@ -900,6 +909,15 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	return vec
 }
 
+// normalizeVecInPlace normalizes the vector in-place without allocating.
+// Use this only when the caller owns the vector and doesn't need to preserve
+// the original (e.g., pooled temporary vectors).
+func (h *hnsw) normalizeVecInPlace(vec []float32) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		distancer.NormalizeInPlace(vec)
+	}
+}
+
 func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		normalized := make([][]float32, len(vecs))
@@ -1030,14 +1048,15 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
 		NumTombstones:      len(h.tombstones),
-		CacheSize:          h.cache.Len(),
 		Compressed:         h.compressed.Load(),
 	}
 
 	if stats.Compressed {
 		stats.CompressorStats = h.compressor.Stats()
+		stats.CacheSize = h.compressor.Len()
 	} else {
 		stats.CompressorStats = compressionhelpers.UncompressedStats{}
+		stats.CacheSize = h.cache.Len()
 	}
 
 	stats.CompressionType = stats.CompressorStats.CompressionType()

@@ -28,7 +28,7 @@ import (
 const BatchObjectsCreateOKCode int = 200
 
 /*
-BatchObjectsCreateOK Request succeeded, see response body to get detailed information about each batched item.
+BatchObjectsCreateOK Request processed successfully. Individual object statuses are provided in the response body.
 
 swagger:response batchObjectsCreateOK
 */
@@ -191,7 +191,7 @@ func (o *BatchObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, prod
 const BatchObjectsCreateUnprocessableEntityCode int = 422
 
 /*
-BatchObjectsCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+BatchObjectsCreateUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.
 
 swagger:response batchObjectsCreateUnprocessableEntity
 */
@@ -236,7 +236,7 @@ func (o *BatchObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWr
 const BatchObjectsCreateInternalServerErrorCode int = 500
 
 /*
-BatchObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+BatchObjectsCreateInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response batchObjectsCreateInternalServerError
 */

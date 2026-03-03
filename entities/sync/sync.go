@@ -12,6 +12,8 @@
 package sync
 
 import (
+	"context"
+	"fmt"
 	"sync"
 )
 
@@ -109,4 +111,117 @@ func (s *KeyRWLocker) RUnlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
 	iLock := iLocks.(*sync.RWMutex)
 	iLock.RUnlock()
+}
+
+// KeyLockerContext is a thread safe wrapper of sync.Map
+// Usage: it's used in order to lock specific key in a map
+// to synchronize concurrent access to a code block.
+// It supports locking with a context.
+// Note KeyLockerContext has almost identical code to KeyLocker
+// but wasn't combined for performance reasons (eg don't want to
+// slow down KeyLocker by adding context support). Feel free to
+// explore DRYing them up if you want to. I looked into using
+// generics for the underlying mutex type, but the performance
+// hit was ~20% in benchmarks.
+type KeyLockerContext struct {
+	m sync.Map
+}
+
+// NewKeyLockerContext creates KeyLockerContext
+func NewKeyLockerContext() *KeyLockerContext {
+	return &KeyLockerContext{
+		m: sync.Map{},
+	}
+}
+
+// Lock locks a specific bucket by it's ID
+// to hold any concurrent access to that specific item
+//
+//	do not forget to call Unlock() after locking it.
+func (s *KeyLockerContext) Lock(ID string) {
+	iLock := newContextMutex()
+	iLocks, _ := s.m.LoadOrStore(ID, iLock)
+
+	iLock = iLocks.(*contextMutex)
+	iLock.Lock()
+}
+
+// LockWithContext tries to lock the mutex with a context.
+// If the context is canceled while waiting for the lock, the lock attempt is aborted.
+// If the context is done before the lock is acquired, the lock
+// is not acquired and an error is returned.
+// Importantly, LockWithContext does not immediately return an error if the
+// lock is not currently available, rather it will block until the lock is
+// available or the context is done. This behavior "differs" from
+// sync.Mutex.TryLock and sync.Mutex.Lock due to the context/error return value.
+// You must call Unlock if the returned error is nil to release the lock.
+// Do not call Unlock if the returned error is not nil.
+func (s *KeyLockerContext) LockWithContext(ID string, ctx context.Context) error {
+	iLock := newContextMutex()
+	iLocks, _ := s.m.LoadOrStore(ID, iLock)
+	iLock = iLocks.(*contextMutex)
+	err := iLock.LockWithContext(ctx)
+	return err
+}
+
+// Unlock unlocks a specific item by it's ID.
+// It panics if the item does not exist or exists but is not locked.
+func (s *KeyLockerContext) Unlock(ID string) {
+	iLocks, _ := s.m.Load(ID)
+	if iLocks == nil {
+		panic(fmt.Sprintf("unlock on non-existent ID: %s", ID))
+	}
+	iLock := iLocks.(*contextMutex)
+	iLock.Unlock()
+}
+
+// contextMutex is a mutex that can be locked with a context.
+// If the context is canceled while waiting for the lock, the lock attempt is aborted.
+type contextMutex struct {
+	// ch has a message on it when the mutex is locked, empty when unlocked.
+	ch chan struct{}
+}
+
+// newContextMutex creates a new contextMutex.
+func newContextMutex() *contextMutex {
+	return &contextMutex{
+		ch: make(chan struct{}, 1),
+	}
+}
+
+// Lock locks the mutex. If the lock is already in use, the calling goroutine
+// blocks until the mutex is available.
+func (m *contextMutex) Lock() {
+	m.ch <- struct{}{}
+}
+
+// Unlock unlocks the mutex. It panics if m is not locked on entry to Unlock.
+func (m *contextMutex) Unlock() {
+	select {
+	case <-m.ch:
+	default:
+		panic("unlock of unlocked contextMutex")
+	}
+}
+
+// LockWithContext locks the mutex. This call blocks until the mutex is available
+// or the context is done.
+// If the context is done before the lock is acquired, the lock
+// is not acquired and an error is returned.
+// Importantly, LockWithContext does not immediately return an error if the
+// lock is not currently available, rather it will block until the lock is
+// available or the context is done. This behavior "differs" from
+// sync.Mutex.TryLock and sync.Mutex.Lock due to the context/error return value.
+// You must call Unlock if the returned error is nil to release the lock.
+// Do not call Unlock if the returned error is not nil.
+func (m *contextMutex) LockWithContext(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case m.ch <- struct{}{}:
+		return nil
+	}
 }

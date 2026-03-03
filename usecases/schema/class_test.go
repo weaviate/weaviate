@@ -2117,6 +2117,9 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		},
 	}
 
+	fakeSchemaManager.On("ReadOnlyClass", "Class_A").Return(classes[0]).Maybe()
+	fakeSchemaManager.On("ReadOnlyClass", "Class_B").Return(classes[1]).Maybe()
+	fakeSchemaManager.On("ReadOnlyClass", "Class_C").Return(classes[2]).Maybe()
 	for _, classRaw := range classes {
 		schemaBytes, err := json.Marshal(classRaw)
 		require.Nil(t, err)

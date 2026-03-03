@@ -45,7 +45,7 @@ type GraphqlBatchParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The GraphQL queries.
+	/*An array containing multiple GraphQL query objects to execute in batch.
 	  Required: true
 	  In: body
 	*/

@@ -95,7 +95,7 @@ func NewActivateUserOK() *ActivateUserOK {
 /*
 ActivateUserOK describes a response with status code 200, with default header values.
 
-User successfully activated
+User successfully activated.
 */
 type ActivateUserOK struct {
 }
@@ -343,7 +343,7 @@ func NewActivateUserNotFound() *ActivateUserNotFound {
 /*
 ActivateUserNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type ActivateUserNotFound struct {
 }
@@ -399,7 +399,7 @@ func NewActivateUserConflict() *ActivateUserConflict {
 /*
 ActivateUserConflict describes a response with status code 409, with default header values.
 
-user already activated
+User already activated.
 */
 type ActivateUserConflict struct {
 }
@@ -455,7 +455,7 @@ func NewActivateUserUnprocessableEntity() *ActivateUserUnprocessableEntity {
 /*
 ActivateUserUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type ActivateUserUnprocessableEntity struct {
 	Payload *models.ErrorResponse

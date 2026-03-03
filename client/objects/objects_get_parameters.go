@@ -74,7 +74,7 @@ type ObjectsGetParams struct {
 
 	/* ID.
 
-	   Unique ID of the Object.
+	   Unique UUID of the object to be retrieved.
 
 	   Format: uuid
 	*/
@@ -82,7 +82,7 @@ type ObjectsGetParams struct {
 
 	/* Include.
 
-	   Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
+	   Include additional information, such as classification information. Allowed values include: `classification`, `vector` and `interpretation`.
 	*/
 	Include *string
 

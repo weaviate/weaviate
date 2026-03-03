@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // This test asserts that the *binarySearchTree.insert
@@ -221,6 +222,72 @@ func TestBSTReplace_Flatten(t *testing.T) {
 			assertFlattenedMatches(t, flatBeforeUpdate, expectedBeforeUpdate)
 			assertFlattenedMatches(t, flatAfterUpdate, expectedAfterUpdate)
 		})
+	})
+}
+
+func TestBinarySearchTree_Exists(t *testing.T) {
+	t.Run("key exists and is not tombstoned", func(t *testing.T) {
+		tree := &binarySearchTree{}
+		key := []byte("test-key")
+		value := []byte("test-value")
+
+		tree.insert(key, value, nil)
+
+		err := tree.exists(key)
+		require.NoError(t, err)
+	})
+
+	t.Run("key does not exist", func(t *testing.T) {
+		tree := &binarySearchTree{}
+
+		err := tree.exists([]byte("nonexistent"))
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("key is tombstoned", func(t *testing.T) {
+		tree := &binarySearchTree{}
+		key := []byte("test-key")
+		value := []byte("test-value")
+
+		tree.insert(key, value, nil)
+		tree.setTombstone(key, nil, nil)
+
+		err := tree.exists(key)
+		assert.True(t, lsmkv.IsDeletedOrNotFound(err))
+	})
+
+	t.Run("empty tree", func(t *testing.T) {
+		tree := &binarySearchTree{}
+
+		err := tree.exists([]byte("any-key"))
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("exists returns same error as get for all cases", func(t *testing.T) {
+		tree := &binarySearchTree{}
+
+		// Test nonexistent key
+		_, getErr := tree.get([]byte("nonexistent"))
+		existsErr := tree.exists([]byte("nonexistent"))
+		assert.ErrorIs(t, getErr, lsmkv.NotFound)
+		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
+
+		// Test existing key
+		key := []byte("test-key")
+		tree.insert(key, []byte("value"), nil)
+
+		_, getErr = tree.get(key)
+		existsErr = tree.exists(key)
+		assert.NoError(t, getErr)
+		assert.NoError(t, existsErr)
+
+		// Test tombstoned key
+		tree.setTombstone(key, nil, nil)
+
+		_, getErr = tree.get(key)
+		existsErr = tree.exists(key)
+		assert.True(t, lsmkv.IsDeletedOrNotFound(getErr))
+		assert.True(t, lsmkv.IsDeletedOrNotFound(existsErr))
 	})
 }
 

@@ -74,19 +74,19 @@ type ObjectsClassHeadParams struct {
 
 	/* ClassName.
 
-	   The class name as defined in the schema
+	   Name of the collection (class) the object belongs to.
 	*/
 	ClassName string
 
 	/* ConsistencyLevel.
 
-	   Determines how many replicas must acknowledge a request before it is considered successful
+	   Determines how many replicas must acknowledge a request before it is considered successful.
 	*/
 	ConsistencyLevel *string
 
 	/* ID.
 
-	   The uuid of the data object
+	   Unique UUID of the object to check.
 
 	   Format: uuid
 	*/
@@ -94,7 +94,7 @@ type ObjectsClassHeadParams struct {
 
 	/* Tenant.
 
-	   Specifies the tenant in a request targeting a multi-tenant class
+	   Specifies the tenant in a request targeting a multi-tenant collection (class).
 	*/
 	Tenant *string
 

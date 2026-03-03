@@ -99,7 +99,7 @@ type ShardLike interface {
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
-	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
+	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
@@ -125,7 +125,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error
+	SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
@@ -159,9 +159,9 @@ type ShardLike interface {
 	addJobToQueue(job job)
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
-	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
-	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
+	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
@@ -225,7 +225,8 @@ type Shard struct {
 
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
-	asyncReplicationConfig          asyncReplicationConfig
+	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig          AsyncReplicationConfig
 	hashtree                        hashtree.AggregatedHashTree
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
@@ -296,6 +297,8 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+
+	SPFreshEnabled bool
 }
 
 func (s *Shard) ID() string {

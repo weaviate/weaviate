@@ -16,14 +16,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/pkg/errors"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
@@ -109,13 +108,14 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 	}
 
 	status := models.NodeStatus{
-		Name:       db.schemaGetter.NodeName(),
-		Version:    db.config.ServerVersion,
-		GitHash:    db.config.GitHash,
-		Status:     &clusterHealthStatus,
-		Shards:     shards,
-		Stats:      nodeStats,
-		BatchStats: db.localNodeBatchStats(),
+		Name:            db.schemaGetter.NodeName(),
+		Version:         db.config.ServerVersion,
+		GitHash:         db.config.GitHash,
+		Status:          &clusterHealthStatus,
+		Shards:          shards,
+		Stats:           nodeStats,
+		BatchStats:      db.localNodeBatchStats(),
+		OperationalMode: db.config.OperationalMode.Get(),
 	}
 
 	return &status
@@ -253,9 +253,6 @@ func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
 	class := i.Config.ClassName.String()
 	err := i.schemaReader.Read(class, true, func(class *models.Class, state *sharding.State) error {
 		var err error
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", class.Class)
-		}
 		replicationFactor = state.ReplicationFactor
 		numberOfReplicas, err = state.NumberOfReplicas(shardName)
 		if err != nil {

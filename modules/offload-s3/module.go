@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
+
 	"github.com/weaviate/s5cmd/v2/command"
 	"github.com/weaviate/s5cmd/v2/log"
 	"github.com/weaviate/s5cmd/v2/log/stat"
@@ -260,6 +261,17 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 	defer cancel()
 
 	localPath := fmt.Sprintf("%s/%s/%s", m.DataPath, strings.ToLower(className), shardName)
+	// Skip s5cmd when path is missing or empty so "path/*" doesn't fail; treat as success.
+	entries, dirErr := os.ReadDir(localPath)
+	if dirErr != nil || len(entries) == 0 {
+		if dirErr != nil && !os.IsNotExist(dirErr) {
+			return dirErr
+		}
+		m.logger.Warn("no data to upload for shard", "className", className, "shardName", shardName)
+		m.metrics.OpsDuration.WithLabelValues("upload", "success").Observe(time.Since(start).Seconds())
+		return nil
+	}
+
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
@@ -324,7 +336,18 @@ func (m *Module) DownloadToPath(ctx context.Context, className, shardName, nodeN
 	}()
 
 	err = m.app.RunContext(ctx, cmd)
-
+	// Empty S3 prefix (cold tenant frozen with no data): treat as success; do not create empty dir.
+	if err != nil {
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "no match found") ||
+			strings.Contains(errStr, "no object found") ||
+			strings.Contains(errStr, "no objects found") {
+			m.logger.Warn("no data to download for shard", "className", className, "shardName", shardName)
+			// set error to nil for metrics
+			err = nil
+			return nil
+		}
+	}
 	return err
 }
 

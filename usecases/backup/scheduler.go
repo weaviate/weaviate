@@ -144,13 +144,14 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	breq := Request{
-		Method:      OpCreate,
-		ID:          req.ID,
-		Backend:     req.Backend,
-		Classes:     classes,
-		Compression: req.Compression,
-		Bucket:      req.Bucket,
-		Path:        req.Path,
+		Method:       OpCreate,
+		ID:           req.ID,
+		Backend:      req.Backend,
+		Classes:      classes,
+		Compression:  req.Compression,
+		Bucket:       req.Bucket,
+		Path:         req.Path,
+		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -242,7 +243,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path}
+	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -260,7 +261,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath}
+	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -412,6 +413,16 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
 		return nil, err
 	}
+
+	// validate base backup chain
+	compressionType, err := CompressionTypeFromLevel(req.Level)
+	if err != nil {
+		return nil, fmt.Errorf("get compression type: %w", err)
+	}
+	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+		return nil, fmt.Errorf("resolve base backup chain: %w", err)
+	}
+
 	return classes, nil
 }
 

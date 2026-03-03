@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -161,6 +162,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockRouter := types.NewMockRouter(t)
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			// Create index
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
@@ -171,7 +173,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, mockRouter, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -329,9 +331,15 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)
-	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantName).
-		Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
-
+	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
+		Return(types.WriteReplicaSet{
+			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}},
+		}, nil).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(className, mock.Anything, mock.Anything).
+		Return(types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}},
+		}, nil).Maybe()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,
@@ -343,7 +351,27 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, nil, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		},
+		nil,                               // vectorIndexUserConfigs
+		mockRouter,                        // router
+		shardResolver,                     // shardResolver
+		mockSchema,                        // schema getter
+		mockSchemaReader,                  // schema reader
+		nil,                               // class searcher
+		logger,                            // logger
+		nil,                               // node resolver
+		nil,                               // remote client
+		&FakeReplicationClient{},          // replica client
+		&replication.GlobalConfig{},       // global replication config
+		monitoring.GetMetrics(),           // prom metrics
+		class,                             // class
+		nil,                               // job queue
+		scheduler,                         // scheduler
+		nil,                               // checkpoints
+		nil,                               // alloc checker
+		NewShardReindexerV3Noop(),         // shard reindexer
+		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
+	)
 	require.NoError(t, err)
 
 	// Add properties
@@ -394,7 +422,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	assert.Equal(t, objectCount, activeObjectCount, "Active shard object count should match")
 	assert.Greater(t, activeObjectStorageSize, int64(objectCount*objectSize/2), "Active object storage size should be reasonable")
 
-	// Release the shard (this will flush all data to disk)
+	// ReleaseView the shard (this will flush all data to disk)
 	release()
 
 	// Explicitly shutdown all shards to ensure data is flushed to disk
@@ -411,14 +439,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 
 	// Shut down the entire index to ensure all store metadata is persisted
 	require.NoError(t, index.Shutdown(ctx))
-
-	mockSchemaReader = schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
-		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
-			return fn(nil, shardState)
-		},
-	)
-
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
 	newIndex, err := NewIndex(ctx, IndexConfig{
@@ -431,7 +451,27 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), nil, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		},
+		index.GetVectorIndexConfigs(),     // vectorIndexUserConfigs
+		mockRouter,                        // router
+		shardResolver,                     // shardResolver
+		mockSchema,                        // schema getter
+		mockSchemaReader,                  // schema reader
+		nil,                               // class searcher
+		logger,                            // logger
+		nil,                               // node resolver
+		nil,                               // remote client
+		&FakeReplicationClient{},          // replica client
+		&replication.GlobalConfig{},       // global replication config
+		monitoring.GetMetrics(),           // prom metrics
+		class,                             // class
+		nil,                               // job queue
+		scheduler,                         // scheduler
+		nil,                               // checkpoints
+		nil,                               // alloc checker
+		NewShardReindexerV3Noop(),         // shard reindexer
+		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
+	)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 

@@ -118,14 +118,26 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
-	if s.haltForTransferInactivityTimer == nil {
+	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
 		return
 	}
 
-	if !s.haltForTransferInactivityTimer.Stop() {
-		<-s.haltForTransferInactivityTimer.C // drain the channel if necessary
+	// if Stop returns false, the timer has either already fired or been stopped.
+	// in the "already fired" case, there may be a value in t.C that we need to drain.
+	if !t.Stop() {
+		select {
+		case <-t.C:
+			// drained a pending tick.
+		default:
+			// channel was already drained; nothing to do.
+		}
 	}
-	s.haltForTransferInactivityTimer.Reset(s.haltForTransferInactivityTimeout)
+
+	t.Reset(d)
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {
@@ -161,45 +173,49 @@ func (s *Shard) mayInitInactivityMonitoring() {
 }
 
 // ListBackupFiles lists all files used to backup a shard
-func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
 	if s.haltForTransferCount == 0 {
-		return fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
+		return nil, fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
 	}
 
 	s.mayResetInactivityTimer()
 
-	var err error
 	if err := s.readBackupMetadata(ret); err != nil {
-		return err
+		return nil, err
 	}
 
-	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
-		return err
+	files, err := s.store.ListFiles(ctx, s.index.Config.RootPath)
+	if err != nil {
+		return nil, err
 	}
 
 	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
-		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
+		filesIdx, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
 		}
-		ret.Files = append(ret.Files, files...)
+		files = append(files, filesIdx...)
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		files, err := queue.ListFiles(ctx, s.index.Config.RootPath)
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		filesVq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}
-		ret.Files = append(ret.Files, files...)
+		files = append(files, filesVq...)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {

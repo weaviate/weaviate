@@ -191,7 +191,7 @@ func (o *GetGroupsForbidden) WriteResponse(rw http.ResponseWriter, producer runt
 const GetGroupsUnprocessableEntityCode int = 422
 
 /*
-GetGroupsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+GetGroupsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response getGroupsUnprocessableEntity
 */

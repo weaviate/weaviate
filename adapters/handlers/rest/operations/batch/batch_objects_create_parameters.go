@@ -44,12 +44,12 @@ type BatchObjectsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
+	/*The request body containing the objects to be created.
 	  Required: true
 	  In: body
 	*/
 	Body BatchObjectsCreateBody
-	/*Determines how many replicas must acknowledge a request before it is considered successful
+	/*Determines how many replicas must acknowledge a request before it is considered successful.
 	  In: query
 	*/
 	ConsistencyLevel *string
