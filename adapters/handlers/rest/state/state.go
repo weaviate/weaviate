@@ -92,6 +92,7 @@ type State struct {
 	InternalServer types.ClusterServer
 
 	ObjectTTLCoordinator *objectttl.Coordinator
+	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator

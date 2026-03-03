@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.36.0-rc.0"
+    "version": "1.37.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -6396,8 +6396,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6445,8 +6447,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6491,8 +6495,10 @@ func init() {
               "STARTED",
               "TRANSFERRING",
               "TRANSFERRED",
+              "FINALIZING",
               "SUCCESS",
               "FAILED",
+              "CANCELLING",
               "CANCELED"
             ]
           }
@@ -6568,8 +6574,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6602,8 +6610,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -9855,7 +9865,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.36.0-rc.0"
+    "version": "1.37.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -16301,8 +16311,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -16350,8 +16362,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -16400,8 +16414,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -16476,8 +16492,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -16510,8 +16528,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }

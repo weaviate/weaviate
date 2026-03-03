@@ -25,4 +25,8 @@ pip install --upgrade pip --quiet
 pip install -r requirements.txt --quiet
 
 # run python tests in parallel
-pytest -n auto --dist loadgroup .
+# NOTE: test_readonly_recovery.py is excluded because it requires a dedicated
+# Weaviate instance started via docker-compose-readonly-recovery-test.yml.
+# Run it manually during development with:
+#   pytest test/acceptance_with_python/test_readonly_recovery.py
+pytest -n auto --dist loadgroup --ignore=test_readonly_recovery.py .

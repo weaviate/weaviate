@@ -23,18 +23,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -812,9 +811,8 @@ func (i *indices) postSearchObjects() http.Handler {
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
-		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
-			// shard is not ready means it's transient, use 503 so replication client retries
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {
@@ -922,9 +920,8 @@ func (i *indices) postAggregateObjects() http.Handler {
 
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
 
-		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
-			// shard is not ready means it's transient, use 503 so replication client retries
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {
@@ -982,9 +979,8 @@ func (i *indices) postFindUUIDs() http.Handler {
 
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
 
-		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
-			// shard is not ready means it's transient, use 503 so replication client retries
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {
@@ -1081,9 +1077,8 @@ func (i *indices) getObjectsDigest() http.Handler {
 		}).Debug("digest objects ...")
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.As(err, &enterrors.ErrShardNotReady{}) {
-			// shard is not ready means it's transient, use 503 so replication client retries
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {
@@ -1263,8 +1258,7 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			// shard is not ready means it's transient, use 503 so replication client retries
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -1303,8 +1297,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			// shard is not ready means it's transient, use 503 so replication client retries
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {

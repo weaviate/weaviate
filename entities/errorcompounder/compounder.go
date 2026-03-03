@@ -13,6 +13,7 @@ package errorcompounder
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -29,6 +30,7 @@ type ErrorCompounder interface {
 
 	First() error
 	ToError() error
+	ToErrorLimited(limit int) error
 }
 
 // ----------------------------------------------------------------------------
@@ -76,14 +78,22 @@ func (ec *errorCompounder) First() error {
 }
 
 func (ec *errorCompounder) ToError() error {
+	return ec.toError(math.MaxInt)
+}
+
+func (ec *errorCompounder) ToErrorLimited(limit int) error {
+	return ec.toError(max(limit, 1))
+}
+
+func (ec *errorCompounder) toError(limit int) error {
 	if ec.Empty() {
 		return nil
 	}
 
 	var b strings.Builder
 
-	var f func(*entry)
-	f = func(e *entry) {
+	var f func(*entry) bool
+	f = func(e *entry) bool {
 		addComma := false
 		for _, err := range e.errors {
 			if addComma {
@@ -91,6 +101,11 @@ func (ec *errorCompounder) ToError() error {
 			}
 			b.WriteString(err.Error())
 			addComma = true
+
+			limit--
+			if limit == 0 {
+				return false
+			}
 		}
 		for name, group := range e.groups {
 			if addComma {
@@ -99,10 +114,15 @@ func (ec *errorCompounder) ToError() error {
 			b.WriteString("\"")
 			b.WriteString(name)
 			b.WriteString("\": {")
-			f(group)
+			ok := f(group)
 			b.WriteString("}")
 			addComma = true
+
+			if !ok {
+				return false
+			}
 		}
+		return true
 	}
 	f(ec.top)
 	return errors.New(b.String())

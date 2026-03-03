@@ -121,6 +121,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return nil
 	})
 
+	s.propertyIndicesLock.RLock()
+	err = s.propertyIndices.ShutdownGeoIndices(ctx)
+	s.propertyIndicesLock.RUnlock()
+	ec.AddWrapf(err, "shutdown geo property indices")
+
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// to ensure that all commitlog entries are written to disk.
 		// otherwise in some cases the tombstone cleanup process'
@@ -139,7 +144,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
-		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
+		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()

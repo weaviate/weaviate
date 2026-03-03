@@ -13,7 +13,7 @@ package clients
 
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
-		"name":              "Cohere Module",
+		"name":              "Cohere Multimodal Module",
 		"documentationHref": "https://docs.cohere.ai/embedding-wiki/",
 	}, nil
 }

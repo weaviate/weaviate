@@ -55,7 +55,7 @@ type BackupCreateStatusResponse struct {
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// phase of backup creation process
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
+	// Enum: [STARTED TRANSFERRING TRANSFERRED FINALIZING SUCCESS FAILED CANCELLING CANCELED]
 	Status *string `json:"status,omitempty"`
 }
 
@@ -109,7 +109,7 @@ var backupCreateStatusResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","FINALIZING","SUCCESS","FAILED","CANCELLING","CANCELED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -128,11 +128,17 @@ const (
 	// BackupCreateStatusResponseStatusTRANSFERRED captures enum value "TRANSFERRED"
 	BackupCreateStatusResponseStatusTRANSFERRED string = "TRANSFERRED"
 
+	// BackupCreateStatusResponseStatusFINALIZING captures enum value "FINALIZING"
+	BackupCreateStatusResponseStatusFINALIZING string = "FINALIZING"
+
 	// BackupCreateStatusResponseStatusSUCCESS captures enum value "SUCCESS"
 	BackupCreateStatusResponseStatusSUCCESS string = "SUCCESS"
 
 	// BackupCreateStatusResponseStatusFAILED captures enum value "FAILED"
 	BackupCreateStatusResponseStatusFAILED string = "FAILED"
+
+	// BackupCreateStatusResponseStatusCANCELLING captures enum value "CANCELLING"
+	BackupCreateStatusResponseStatusCANCELLING string = "CANCELLING"
 
 	// BackupCreateStatusResponseStatusCANCELED captures enum value "CANCELED"
 	BackupCreateStatusResponseStatusCANCELED string = "CANCELED"
