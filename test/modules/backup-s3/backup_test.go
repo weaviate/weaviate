@@ -132,3 +132,21 @@ func TestS3Backup_Cancellation(t *testing.T) {
 
 	backuptest.RunS3BackupTests(t, compose, GetMinioURI(), GetS3Region(), backuptest.CancellationTestCase())
 }
+
+// =============================================================================
+// Incremental Backup Tests
+// =============================================================================
+
+// TestS3Backup_Incremental tests file-based incremental S3 backups.
+func TestS3Backup_Incremental(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunS3BackupTests(t, compose, GetMinioURI(), GetS3Region(), backuptest.IncrementalTestCase())
+}
