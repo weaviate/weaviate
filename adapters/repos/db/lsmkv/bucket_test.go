@@ -2500,7 +2500,7 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 	seckey := []byte("bonjour")
 	buffer := make([]byte, 100)
 	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
-	require.EqualError(t, err, lsmkv.Deleted.Error())
+	require.EqualError(t, err, lsmkv.NotFound.Error())
 
 	// new secondary key should be found in the new view, and should be in the same segment as the primary key
 	seckey = []byte("olá")
