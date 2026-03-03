@@ -735,12 +735,17 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
+
+	// only check up to the segment where the item was found,
+	// to avoid disk access for items that were deleted and re-added with the same secondary key in a later segment
 	err = b.existsWithConsistentViewUpTo(k, secSegIndex+1, view)
 
+	// if it exists on a later segment, it means it was updated
 	if err == nil {
 		return nil, nil, lsmkv.Deleted
 	}
 
+	// if there is an error other than not found, we should return it instead of potentially returning a deleted item
 	if !errors.Is(err, lsmkv.NotFound) {
 		return nil, nil, err
 	}
