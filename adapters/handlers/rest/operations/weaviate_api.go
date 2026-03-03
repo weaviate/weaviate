@@ -37,7 +37,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/exports"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
@@ -171,11 +171,11 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
 		}),
-		ExportsExportsCreateHandler: exports.ExportsCreateHandlerFunc(func(params exports.ExportsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation exports.ExportsCreate has not yet been implemented")
+		ExportExportCreateHandler: export.ExportCreateHandlerFunc(func(params export.ExportCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCreate has not yet been implemented")
 		}),
-		ExportsExportsStatusHandler: exports.ExportsStatusHandlerFunc(func(params exports.ExportsStatusParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation exports.ExportsStatus has not yet been implemented")
+		ExportExportStatusHandler: export.ExportStatusHandlerFunc(func(params export.ExportStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportStatus has not yet been implemented")
 		}),
 		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
@@ -490,10 +490,10 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
 	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
-	// ExportsExportsCreateHandler sets the operation handler for the exports create operation
-	ExportsExportsCreateHandler exports.ExportsCreateHandler
-	// ExportsExportsStatusHandler sets the operation handler for the exports status operation
-	ExportsExportsStatusHandler exports.ExportsStatusHandler
+	// ExportExportCreateHandler sets the operation handler for the export create operation
+	ExportExportCreateHandler export.ExportCreateHandler
+	// ExportExportStatusHandler sets the operation handler for the export status operation
+	ExportExportStatusHandler export.ExportStatusHandler
 	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
@@ -807,11 +807,11 @@ func (o *WeaviateAPI) Validate() error {
 	if o.DistributedTasksDistributedTasksGetHandler == nil {
 		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
 	}
-	if o.ExportsExportsCreateHandler == nil {
-		unregistered = append(unregistered, "exports.ExportsCreateHandler")
+	if o.ExportExportCreateHandler == nil {
+		unregistered = append(unregistered, "export.ExportCreateHandler")
 	}
-	if o.ExportsExportsStatusHandler == nil {
-		unregistered = append(unregistered, "exports.ExportsStatusHandler")
+	if o.ExportExportStatusHandler == nil {
+		unregistered = append(unregistered, "export.ExportStatusHandler")
 	}
 	if o.ReplicationForceDeleteReplicationsHandler == nil {
 		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
@@ -1243,11 +1243,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/export/{backend}"] = exports.NewExportsCreate(o.context, o.ExportsExportsCreateHandler)
+	o.handlers["POST"]["/export/{backend}"] = export.NewExportCreate(o.context, o.ExportExportCreateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/export/{backend}/{id}"] = exports.NewExportsStatus(o.context, o.ExportsExportsStatusHandler)
+	o.handlers["GET"]["/export/{backend}/{id}"] = export.NewExportStatus(o.context, o.ExportExportStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

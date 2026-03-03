@@ -15,33 +15,35 @@ import (
 	"errors"
 
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/exports"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/export"
+	ucexport "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type exportHandlers struct {
-	scheduler           *export.Scheduler
+	scheduler           *ucexport.Scheduler
 	metricRequestsTotal restApiRequestsTotal
 	logger              logrus.FieldLogger
 }
 
 // createExport handles POST /v1/export/{backend}
-func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
+func (h *exportHandlers) createExport(params export.ExportCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// Extract parameters
+	if params.Body.ID == nil || *params.Body.ID == "" {
+		return export.NewExportCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(errors.New("export ID is required")))
+	}
+
 	id := *params.Body.ID
 	backend := params.Backend
 	include := params.Body.Include
 	exclude := params.Body.Exclude
 
-	// Extract bucket and path from config
 	bucket := ""
 	path := ""
 	if params.Body.Config != nil {
@@ -50,25 +52,25 @@ func (h *exportHandlers) createExport(params exports.ExportsCreateParams,
 	}
 
 	// Start export
-	status, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude, bucket, path)
+	resp, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude, bucket, path)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return exports.NewExportsCreateForbidden().
+			return export.NewExportCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return exports.NewExportsCreateInternalServerError().
+			return export.NewExportCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
-	return exports.NewExportsCreateOK().WithPayload(convertToExportCreateResponse(status))
+	return export.NewExportCreateOK().WithPayload(resp)
 }
 
 // exportStatus handles GET /v1/export/{backend}/{id}
-func (h *exportHandlers) exportStatus(params exports.ExportsStatusParams,
+func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	// Extract optional bucket and path parameters
@@ -87,90 +89,21 @@ func (h *exportHandlers) exportStatus(params exports.ExportsStatusParams,
 		h.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return exports.NewExportsStatusForbidden().
+			return export.NewExportStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return exports.NewExportsStatusNotFound().
+			return export.NewExportStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
-	return exports.NewExportsStatusOK().WithPayload(convertToExportStatusResponse(status))
-}
-
-// convertToExportCreateResponse converts internal status to API response
-func convertToExportCreateResponse(status *export.ExportStatus) *models.ExportCreateResponse {
-	resp := &models.ExportCreateResponse{
-		ID:      status.ID,
-		Backend: status.Backend,
-		Path:    status.Path,
-		Status:  string(status.Status),
-		Classes: status.Classes,
-	}
-
-	if !status.StartedAt.IsZero() {
-		resp.StartedAt = strfmt.DateTime(status.StartedAt)
-	}
-
-	if status.Error != "" {
-		resp.Error = status.Error
-	}
-
-	if status.Progress != nil {
-		resp.Progress = convertProgress(status.Progress)
-	}
-
-	return resp
-}
-
-// convertToExportStatusResponse converts internal status to API status response
-func convertToExportStatusResponse(status *export.ExportStatus) *models.ExportStatusResponse {
-	resp := &models.ExportStatusResponse{
-		ID:      status.ID,
-		Backend: status.Backend,
-		Path:    status.Path,
-		Status:  string(status.Status),
-		Classes: status.Classes,
-	}
-
-	if !status.StartedAt.IsZero() {
-		resp.StartedAt = strfmt.DateTime(status.StartedAt)
-	}
-
-	if status.Error != "" {
-		resp.Error = status.Error
-	}
-
-	if status.Progress != nil {
-		resp.Progress = convertProgress(status.Progress)
-	}
-
-	return resp
-}
-
-// convertProgress converts internal progress map to API progress map
-func convertProgress(progress map[string]*export.ClassProgress) map[string]models.ClassProgress {
-	result := make(map[string]models.ClassProgress)
-	for className, p := range progress {
-		cp := models.ClassProgress{
-			Status:          string(p.Status),
-			ObjectsExported: p.ObjectsExported,
-		}
-		if p.FileSizeBytes > 0 {
-			cp.FileSizeBytes = p.FileSizeBytes
-		}
-		if p.Error != "" {
-			cp.Error = p.Error
-		}
-		result[className] = cp
-	}
-	return result
+	return export.NewExportStatusOK().WithPayload(status)
 }
 
 // setupExportHandlers wires up the export handlers to the API
 func setupExportHandlers(api *operations.WeaviateAPI,
-	scheduler *export.Scheduler,
+	scheduler *ucexport.Scheduler,
 	metrics *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
 ) {
@@ -180,8 +113,8 @@ func setupExportHandlers(api *operations.WeaviateAPI,
 		logger:              logger,
 	}
 
-	api.ExportsExportsCreateHandler = exports.ExportsCreateHandlerFunc(h.createExport)
-	api.ExportsExportsStatusHandler = exports.ExportsStatusHandlerFunc(h.exportStatus)
+	api.ExportExportCreateHandler = export.ExportCreateHandlerFunc(h.createExport)
+	api.ExportExportStatusHandler = export.ExportStatusHandlerFunc(h.exportStatus)
 }
 
 type exportRequestsTotal struct {
@@ -209,5 +142,5 @@ func (e *exportRequestsTotal) logError(className string, err error) {
 }
 
 func (e *exportRequestsTotal) logOk(className string) {
-	e.logUserError(className)
+	e.restApiRequestsTotalImpl.logOk(className)
 }
