@@ -691,9 +691,20 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	var memtablesTook [2]time.Duration
 	for i := range count {
 		beforeMemtable := time.Now()
-		v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
+		k, v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
 		memtablesTook[i] = time.Since(beforeMemtable)
 		if err == nil {
+			if i == 1 {
+				// if the item is found in the flushing memtable,
+				// we need to check if it exists in the primary key of the active memtable,
+				// to avoid returning an item that was deleted and re-added with the same secondary key
+				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.Deleted
+				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
+				// - exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
+				if !errors.Is(memtables[0].exists(k), lsmkv.NotFound) {
+					return nil, nil, lsmkv.Deleted
+				}
+			}
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
 			return v, buffer, nil
@@ -768,7 +779,7 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 }
 
 func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable memtable, component string,
-) (v []byte, err error) {
+) (k []byte, v []byte, err error) {
 	op := "getbysecondary"
 
 	start := time.Now()
