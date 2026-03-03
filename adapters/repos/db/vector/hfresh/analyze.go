@@ -59,6 +59,12 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 		return errors.Wrapf(err, "failed to set vector IDs for posting %d", postingID)
 	}
 
+	// ensure the vector versions are up to date on-disk
+	err = h.VersionMap.FlushPosting(ctx, postingID, p)
+	if err != nil {
+		return errors.Wrapf(err, "failed to flush versions for posting %d", postingID)
+	}
+
 	markedAsDone = true
 	h.postingLocks.Unlock(postingID)
 	h.taskQueue.AnalyzeDone(postingID)
