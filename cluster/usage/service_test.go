@@ -84,7 +84,9 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
 		},
-	)
+	).Maybe()
+	// Single-tenant writes use UUID-based shard resolution via schema reader.
+	mockSchemaReader.EXPECT().ShardFromUUID(className, mock.Anything).Return(shardName).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -93,11 +95,12 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 		},
 	})
 	mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
-	mockSchemaGetter.EXPECT().ShardFromUUID(class.Class, mock.Anything).Return(shardName)
+	mockSchemaGetter.EXPECT().ShardFromUUID(class.Class, mock.Anything).Return(shardName).Maybe()
 	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
-	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+	// Usage may or may not query enabled backup backends; make this optional.
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{}).Maybe()
 	repo := createTestDb(t, mockSchemaGetter, shardingState, class, nodeName)
 
 	// adding objects with the schemareader triggers some replication code paths that we do not care about here and are
@@ -219,7 +222,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
-	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{}).Maybe()
 
 	logger, _ := logrus.NewNullLogger()
 	service := NewService(mockSchema, repo, mockBackupProvider, logger)
@@ -604,6 +607,24 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	// Writes in tests may use UUID-based sharding or tenant-based validation; make both paths succeed.
+	// Default shard: first physical shard (if any).
+	defaultShard := ""
+	if shards := shardingState.AllPhysicalShards(); len(shards) > 0 {
+		defaultShard = shards[0]
+	}
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).Return(defaultShard).Maybe()
+	mockSchemaReader.EXPECT().
+		TenantsShardsWithVersion(mock.Anything, uint64(0), mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ uint64, _ string, tenants ...string) (map[string]string, error) {
+			result := make(map[string]string, len(tenants))
+			for _, tn := range tenants {
+				if phys, ok := shardingState.Physical[tn]; ok {
+					result[tn] = phys.ActivityStatus()
+				}
+			}
+			return result, nil
+		}).Maybe()
 	logger, _ := logrus.NewNullLogger()
 	repo, err := db.New(logger, nodeName, db.Config{
 		MemtablesFlushDirtyAfter:  0,

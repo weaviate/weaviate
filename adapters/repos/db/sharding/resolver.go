@@ -21,9 +21,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // ShardTarget represents the computed shard destination for a single object.
@@ -87,32 +88,13 @@ func (t ShardTargets) Shards() []string {
 // Returns the number of target shards.
 func (t ShardTargets) Len() int { return len(t) }
 
-// schemaReader provides access to schema operations required by shard resolvers.
-// It abstracts the underlying schema storage to enable testing and provides a
-// minimal interface focused on shard resolution needs.
-type schemaReader interface {
-	// ShardFromUUID returns the target shard name for a class and UUID bytes
-	// using consistent hashing. This enables deterministic shard assignment
-	// based on object UUIDs.
-	ShardFromUUID(className string, uuidBytes []byte) string
-
-	// TenantsShards returns tenant status information keyed by the tenant name.
-	// The tenant names match shard names in multi-tenant configurations.
-	// This method supports bulk tenant lookups for performance optimization.
-	TenantsShards(ctx context.Context, className string, tenantNames ...string) (map[string]string, error)
-
-	// ReadOnlyClass returns the class metadata for the specified class name.
-	// Returns nil if the class does not exist in the schema.
-	ReadOnlyClass(className string) *models.Class
-}
-
 // byUUIDShardResolver implements shard resolution using consistent hashing of object UUIDs.
 // This strategy is used for single-tenant collections where objects are distributed
 // across shards based on their UUID to achieve balanced data distribution and
 // consistent routing for the same object across requests.
 type byUUIDShardResolver struct {
 	className       string
-	schemaReader    schemaReader
+	schemaReader    schema.SchemaReader
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -129,8 +111,13 @@ type byUUIDShardResolver struct {
 //   - tenant: tenant name (must be empty for single-tenant collections)
 //
 // Returns the target shard name, or an error if validation fails or UUID parsing fails.
-func (r *byUUIDShardResolver) ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error) {
-	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
+func (r *byUUIDShardResolver) ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string, schemaVersion uint64) (string, error) {
+	if schemaVersion > 0 {
+		if err := r.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return "", fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
+	if err := r.tenantValidator.ValidateTenants(ctx, schemaVersion, tenant); err != nil {
 		return "", err
 	}
 
@@ -157,7 +144,7 @@ func (r *byUUIDShardResolver) ResolveShardByObjectID(ctx context.Context, object
 //   - schemaReader: provides access to schema operations for UUID-to-shard mapping
 //
 // Returns a configured byUUIDShardResolver.
-func newByUUIDShardResolver(className string, schemaReader schemaReader) *byUUIDShardResolver {
+func newByUUIDShardResolver(className string, schemaReader schema.SchemaReader) *byUUIDShardResolver {
 	return &byUUIDShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
@@ -179,9 +166,14 @@ func newByUUIDShardResolver(className string, schemaReader schemaReader) *byUUID
 //
 // Returns the ShardTarget containing the shard name and object, or an error
 // if validation fails or UUID parsing fails.
-func (r *byUUIDShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error) {
+func (r *byUUIDShardResolver) ResolveShard(ctx context.Context, object *storobj.Object, schemaVersion uint64) (*ShardTarget, error) {
+	if schemaVersion > 0 {
+		if err := r.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return nil, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
 	tenant := object.Object.Tenant
-	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
+	if err := r.tenantValidator.ValidateTenants(ctx, schemaVersion, tenant); err != nil {
 		return nil, err
 	}
 
@@ -214,10 +206,10 @@ func (r *byUUIDShardResolver) ResolveShard(ctx context.Context, object *storobj.
 //
 // Returns ShardTargets containing all successfully resolved targets, or an error
 // if any object fails validation or parsing.
-func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error) {
+func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Object, schemaVersion uint64) (ShardTargets, error) {
 	targets := make(ShardTargets, 0, len(objects))
 	for _, object := range objects {
-		targetShard, err := r.ResolveShard(ctx, object)
+		targetShard, err := r.ResolveShard(ctx, object, schemaVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -231,7 +223,7 @@ func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*stor
 // isolated in its own shard, with the tenant name directly mapping to the shard name.
 type byTenantShardResolver struct {
 	className       string
-	schemaReader    schemaReader
+	schemaReader    schema.SchemaReader
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -249,8 +241,13 @@ type byTenantShardResolver struct {
 //   - tenant: tenant name which becomes the shard name
 //
 // Returns the target shard name (tenant name), or an error if validation fails.
-func (r *byTenantShardResolver) ResolveShardByObjectID(ctx context.Context, _ strfmt.UUID, tenant string) (string, error) {
-	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
+func (r *byTenantShardResolver) ResolveShardByObjectID(ctx context.Context, _ strfmt.UUID, tenant string, schemaVersion uint64) (string, error) {
+	if schemaVersion > 0 {
+		if err := r.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return "", fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
+	if err := r.tenantValidator.ValidateTenants(ctx, schemaVersion, tenant); err != nil {
 		return "", err
 	}
 
@@ -268,7 +265,7 @@ func (r *byTenantShardResolver) ResolveShardByObjectID(ctx context.Context, _ st
 //   - schemaReader: provides access to schema operations for tenant validation
 //
 // Returns a configured byTenantShardResolver.
-func newByTenantShardResolver(className string, schemaReader schemaReader) *byTenantShardResolver {
+func newByTenantShardResolver(className string, schemaReader schema.SchemaReader) *byTenantShardResolver {
 	return &byTenantShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
@@ -289,9 +286,9 @@ func newByTenantShardResolver(className string, schemaReader schemaReader) *byTe
 //
 // Returns the ShardTarget with tenant name as shard name, or an error if
 // validation fails.
-func (r *byTenantShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error) {
+func (r *byTenantShardResolver) ResolveShard(ctx context.Context, object *storobj.Object, schemaVersion uint64) (*ShardTarget, error) {
 	tenant := object.Object.Tenant
-	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
+	if err := r.tenantValidator.ValidateTenants(ctx, schemaVersion, tenant); err != nil {
 		return nil, err
 	}
 	return &ShardTarget{Shard: tenant, Object: object}, nil
@@ -314,13 +311,19 @@ func (r *byTenantShardResolver) ResolveShard(ctx context.Context, object *storob
 //
 // Returns ShardTargets containing all resolved targets, or an error if validation
 // or schema operations fail.
-func (r *byTenantShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error) {
+func (r *byTenantShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Object, schemaVersion uint64) (ShardTargets, error) {
 	if len(objects) == 0 {
 		return ShardTargets{}, nil
 	}
 
+	if schemaVersion > 0 {
+		if err := r.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return nil, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+		}
+	}
+
 	tenants := r.extractUniqueTenants(objects)
-	if err := r.tenantValidator.ValidateTenants(ctx, tenants...); err != nil {
+	if err := r.tenantValidator.ValidateTenants(ctx, schemaVersion, tenants...); err != nil {
 		return nil, err
 	}
 
@@ -360,9 +363,9 @@ func (r *byTenantShardResolver) extractUniqueTenants(objects []*storobj.Object) 
 // the collection's multi-tenancy configuration. It delegates to the appropriate
 // resolution strategy (UUID-based or tenant-based) selected at construction time.
 type ShardResolver struct {
-	resolveShard           func(ctx context.Context, object *storobj.Object) (*ShardTarget, error)
-	resolveShards          func(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
-	resolveShardByObjectID func(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
+	resolveShard           func(ctx context.Context, object *storobj.Object, schemaVersion uint64) (*ShardTarget, error)
+	resolveShards          func(ctx context.Context, objects []*storobj.Object, schemaVersion uint64) (ShardTargets, error)
+	resolveShardByObjectID func(ctx context.Context, objectID strfmt.UUID, tenant string, schemaVersion uint64) (string, error)
 }
 
 // ResolveShardByObjectID resolves the target shard for an object using its UUID and tenant information.
@@ -382,8 +385,8 @@ type ShardResolver struct {
 //   - tenant: tenant name (empty for single-tenant, required for multi-tenant)
 //
 // Returns the target shard name, or an error if resolution fails.
-func (r *ShardResolver) ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error) {
-	return r.resolveShardByObjectID(ctx, objectID, tenant)
+func (r *ShardResolver) ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string, schemaVersion uint64) (string, error) {
+	return r.resolveShardByObjectID(ctx, objectID, tenant, schemaVersion)
 }
 
 // ResolveShard resolves the target shard for a single object.
@@ -403,8 +406,8 @@ func (r *ShardResolver) ResolveShardByObjectID(ctx context.Context, objectID str
 //
 // Returns the ShardTarget containing the resolved shard name and object,
 // or an error if resolution fails.
-func (r *ShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error) {
-	return r.resolveShard(ctx, object)
+func (r *ShardResolver) ResolveShard(ctx context.Context, object *storobj.Object, schemaVersion uint64) (*ShardTarget, error) {
+	return r.resolveShard(ctx, object, schemaVersion)
 }
 
 // ResolveShards resolves target shards for multiple objects efficiently.
@@ -420,8 +423,8 @@ func (r *ShardResolver) ResolveShard(ctx context.Context, object *storobj.Object
 //
 // Returns ShardTargets containing all resolved shard targets, or an error
 // if resolution fails for any object.
-func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error) {
-	return r.resolveShards(ctx, objects)
+func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Object, schemaVersion uint64) (ShardTargets, error) {
+	return r.resolveShards(ctx, objects, schemaVersion)
 }
 
 // NewShardResolver constructs a ShardResolver with the appropriate resolution strategy
@@ -438,7 +441,7 @@ func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Ob
 //   - schemaReader: provides access to schema operations
 //
 // Returns a configured ShardResolver that uses the appropriate strategy.
-func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schemaReader) *ShardResolver {
+func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schema.SchemaReader) *ShardResolver {
 	if multiTenancyEnabled {
 		resolver := newByTenantShardResolver(className, schemaReader)
 		return &ShardResolver{
@@ -459,9 +462,9 @@ func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader s
 // This interface ensures consistency across different resolution approaches and enables
 // compile-time verification of strategy implementations.
 type resolverStrategy interface {
-	ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error)
-	ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
-	ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
+	ResolveShard(ctx context.Context, object *storobj.Object, schemaVersion uint64) (*ShardTarget, error)
+	ResolveShards(ctx context.Context, objects []*storobj.Object, schemaVersion uint64) (ShardTargets, error)
+	ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string, schemaVersion uint64) (string, error)
 }
 
 // Interface compliance checks at compile time.

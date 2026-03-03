@@ -21,20 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
-
-// schemaReader abstracts schema operations required for tenant validation.
-// It provides access to tenant status information and class metadata
-// needed to validate tenant requests against the current schema state.
-type schemaReader interface {
-	// TenantsShards returns a map of tenant names to their activity status
-	// for the specified class. Used for bulk tenant validation.
-	TenantsShards(ctx context.Context, className string, tenants ...string) (map[string]string, error)
-
-	// ReadOnlyClass returns the class definition for the given class name.
-	// Returns nil if the class does not exist in the schema.
-	ReadOnlyClass(className string) *models.Class
-}
 
 // singleTenantValidator validates requests for collections with multi-tenancy disabled.
 // It ensures that no tenant parameters are provided in requests to single-tenant
@@ -67,7 +55,7 @@ func newSingleTenantValidator(className string) *singleTenantValidator {
 //   - tenants: variadic tenant names to validate
 //
 // Returns an error if any tenant is non-empty, nil if all tenants are empty.
-func (v *singleTenantValidator) ValidateTenants(ctx context.Context, tenants ...string) error {
+func (v *singleTenantValidator) ValidateTenants(ctx context.Context, _ uint64, tenants ...string) error {
 	for _, tenant := range tenants {
 		if tenant != "" {
 			return objects.NewErrMultiTenancy(
@@ -84,7 +72,7 @@ func (v *singleTenantValidator) ValidateTenants(ctx context.Context, tenants ...
 // operations on cold or frozen tenant data.
 type multiTenantValidator struct {
 	className    string
-	schemaReader schemaReader
+	schemaReader schema.SchemaReader
 }
 
 // newMultiTenantValidator creates a validator for multi-tenant collections.
@@ -95,7 +83,7 @@ type multiTenantValidator struct {
 //   - schemaReader: provides access to schema and tenant status information
 //
 // Returns a configured multiTenantValidator.
-func newMultiTenantValidator(className string, schemaReader schemaReader) *multiTenantValidator {
+func newMultiTenantValidator(className string, schemaReader schema.SchemaReader) *multiTenantValidator {
 	return &multiTenantValidator{
 		className:    className,
 		schemaReader: schemaReader,
@@ -117,7 +105,7 @@ func newMultiTenantValidator(className string, schemaReader schemaReader) *multi
 //   - tenants: variadic tenant names to validate
 //
 // Returns an error on the first validation failure, nil if all tenants are valid.
-func (v *multiTenantValidator) ValidateTenants(ctx context.Context, tenants ...string) error {
+func (v *multiTenantValidator) ValidateTenants(ctx context.Context, version uint64, tenants ...string) error {
 	if len(tenants) == 0 {
 		return objects.NewErrMultiTenancy(fmt.Errorf(
 			"class %s has multi-tenancy enabled, but request was without tenant", v.className,
@@ -133,7 +121,7 @@ func (v *multiTenantValidator) ValidateTenants(ctx context.Context, tenants ...s
 
 	tenants = deduplicateTenants(tenants)
 
-	statusMap, err := v.schemaReader.TenantsShards(ctx, v.className, tenants...)
+	statusMap, err := v.schemaReader.TenantsShardsWithVersion(ctx, version, v.className, tenants...)
 	if err != nil {
 		return fmt.Errorf("fetch tenant status for class %q: %w", v.className, err)
 	}
@@ -201,7 +189,7 @@ func deduplicateTenants(tenants []string) []string {
 // of the collection's multi-tenancy configuration. It delegates to the appropriate
 // validation strategy based on the collection's settings.
 type TenantValidator struct {
-	validateTenants func(ctx context.Context, tenants ...string) error
+	validateTenants func(ctx context.Context, version uint64, tenants ...string) error
 }
 
 // ValidateTenants validates the provided tenant parameters according to the
@@ -213,8 +201,8 @@ type TenantValidator struct {
 //   - tenants: variadic tenant names to validate
 //
 // Returns an error if validation fails, nil if all tenants are valid.
-func (v *TenantValidator) ValidateTenants(ctx context.Context, tenants ...string) error {
-	return v.validateTenants(ctx, tenants...)
+func (v *TenantValidator) ValidateTenants(ctx context.Context, version uint64, tenants ...string) error {
+	return v.validateTenants(ctx, version, tenants...)
 }
 
 // NewTenantValidator constructs a TenantValidator with the appropriate validation strategy
@@ -230,7 +218,7 @@ func (v *TenantValidator) ValidateTenants(ctx context.Context, tenants ...string
 //   - schemaReader: provides access to schema operations for tenant validation
 //
 // Returns a configured TenantValidator that uses the appropriate validation strategy.
-func NewTenantValidator(className string, multiTenancyEnabled bool, schemaReader schemaReader) *TenantValidator {
+func NewTenantValidator(className string, multiTenancyEnabled bool, schemaReader schema.SchemaReader) *TenantValidator {
 	if multiTenancyEnabled {
 		validator := newMultiTenantValidator(className, schemaReader)
 		return &TenantValidator{
@@ -246,7 +234,7 @@ func NewTenantValidator(className string, multiTenancyEnabled bool, schemaReader
 // validatorStrategy defines the interface that all tenant validation strategies must implement.
 // This interface ensures consistency across different validation approaches.
 type validatorStrategy interface {
-	ValidateTenants(ctx context.Context, tenants ...string) error
+	ValidateTenants(ctx context.Context, version uint64, tenants ...string) error
 }
 
 // Interface compliance checks at compile time.

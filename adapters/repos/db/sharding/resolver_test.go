@@ -21,59 +21,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
-
-// fakeSchemaReader is a single test fake that satisfies sharding.schemaReader
-// (and multitenancy.schemaReader). It can behave as:
-//   - A fixed-shard mapper: set shards = []string{"shard1"} to always return "shard1" for all UUIDs.
-//   - A hashing mapper: set shards = []string{...} to distribute UUIDs across shard using a simple hash on the first byte of the UUID.
-//   - A tenant mapper: set tenantShards = map[string]string{"tenantA": models.TenantActivityStatusHOT} to
-//     distribute UUIDs across tenants based on the tenant name.
-//
-// Example configs:
-//
-//	&fakeSchemaReader{shards: []string{"shard1"}} // UUID-hashing distribution with fixed shard (always "shard1")
-//	&fakeSchemaReader{shards: []string{"shard1","shard2","shard3"}} // UUID-hashing distribution
-//	&fakeSchemaReader{tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT}} // tenant sharding distribution
-type fakeSchemaReader struct {
-	shards          []string
-	tenantShards    map[string]string
-	tenantsShardErr error
-}
-
-// ShardFromUUID assigns a shard by hashing the first byte of the UUID and
-// modding it by the number of configured shards. If exactly one shard is
-// configured, all UUIDs resolve to that shard (X mod 1 is always 0, resolving
-// always to the first and only available shard).
-//
-// If no shards are configured, the empty string is returned.
-func (f *fakeSchemaReader) ShardFromUUID(_ string, uuidBytes []byte) string {
-	if len(f.shards) == 0 || len(uuidBytes) == 0 {
-		return ""
-	}
-	return f.shards[int(uuidBytes[0])%len(f.shards)]
-}
-
-// TenantsShards returns a copy of tenantShards or the configured error.
-func (f *fakeSchemaReader) TenantsShards(_ context.Context, _ string, _ ...string) (map[string]string, error) {
-	if f.tenantsShardErr != nil {
-		return nil, f.tenantsShardErr
-	}
-	out := make(map[string]string, len(f.tenantShards))
-	for tenant, status := range f.tenantShards {
-		out[tenant] = status
-	}
-	return out, nil
-}
-
-// ReadOnlyClass returns a minimal class stub for the given name.
-func (f *fakeSchemaReader) ReadOnlyClass(class string) *models.Class {
-	return &models.Class{Class: class}
-}
 
 // newTestObject builds a storobj.Object with the provided ID and tenant.
 func newTestObject(id strfmt.UUID, tenant string) *storobj.Object {
@@ -210,7 +165,19 @@ func Test_ShardResolution_SingleTenant(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{shards: tc.shards}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			for i, id := range tc.objectIDs {
+				parsed, err := uuid.Parse(strfmt.UUID(id).String())
+				if err != nil {
+					break // will fail in resolver before ShardFromUUID
+				}
+				uuidBytes, _ := parsed.MarshalBinary()
+				expShard := ""
+				if i < len(tc.expectedShards) {
+					expShard = tc.expectedShards[i]
+				}
+				schemaReader.EXPECT().ShardFromUUID("TestClass", uuidBytes).Return(expShard)
+			}
 			r := resolver.NewShardResolver("TestClass", false, schemaReader)
 
 			objects := make([]*storobj.Object, len(tc.objectIDs))
@@ -220,7 +187,7 @@ func Test_ShardResolution_SingleTenant(t *testing.T) {
 
 			if len(objects) == 1 {
 				// WHEN (single object)
-				target, err := r.ResolveShard(context.Background(), objects[0])
+				target, err := r.ResolveShard(context.Background(), objects[0], 0)
 
 				// THEN
 				if tc.expectError {
@@ -235,7 +202,7 @@ func Test_ShardResolution_SingleTenant(t *testing.T) {
 				}
 			} else {
 				// WHEN (batch)
-				batch, err := r.ResolveShards(context.Background(), objects)
+				batch, err := r.ResolveShards(context.Background(), objects, 0)
 
 				// THEN
 				if tc.expectError {
@@ -317,7 +284,29 @@ func Test_ShardResolution_MultiTenant(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{tenantShards: tc.tenantShards}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			uniqueTenants := make([]string, 0)
+			seen := make(map[string]struct{})
+			hasEmpty := false
+			for _, tn := range tc.tenants {
+				if tn == "" {
+					hasEmpty = true
+					continue
+				}
+				if _, ok := seen[tn]; ok {
+					continue
+				}
+				seen[tn] = struct{}{}
+				uniqueTenants = append(uniqueTenants, tn)
+			}
+			// Validator returns early if any tenant is ""; do not expect TenantsShardsWithVersion then.
+			if len(uniqueTenants) > 0 && !hasEmpty {
+				tenantArgs := make([]interface{}, len(uniqueTenants))
+				for i, tn := range uniqueTenants {
+					tenantArgs[i] = tn
+				}
+				schemaReader.EXPECT().TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", tenantArgs...).Return(tc.tenantShards, nil)
+			}
 			r := resolver.NewShardResolver("TestClass", true, schemaReader)
 
 			objects := make([]*storobj.Object, len(tc.objectIDs))
@@ -326,7 +315,7 @@ func Test_ShardResolution_MultiTenant(t *testing.T) {
 			}
 			if len(objects) == 1 {
 				// WHEN (single object)
-				target, err := r.ResolveShard(context.Background(), objects[0])
+				target, err := r.ResolveShard(context.Background(), objects[0], 0)
 
 				// THEN
 				if tc.expectError {
@@ -338,7 +327,7 @@ func Test_ShardResolution_MultiTenant(t *testing.T) {
 				}
 			} else {
 				// WHEN (batch)
-				batch, err := r.ResolveShards(context.Background(), objects)
+				batch, err := r.ResolveShards(context.Background(), objects, 0)
 
 				// THEN
 				if tc.expectError {
@@ -390,16 +379,17 @@ func Test_ShardResolution_MultiTenant(t *testing.T) {
 
 func Test_ShardResolution_SchemaReaderError(t *testing.T) {
 	// GIVEN
-	schemaReader := &fakeSchemaReader{
-		tenantsShardErr: fmt.Errorf("schema reader error"),
-	}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", "tenantA").
+		Return(nil, fmt.Errorf("schema reader error"))
 	r := resolver.NewShardResolver("TestClass", true, schemaReader)
 	objects := []*storobj.Object{
 		newTestObject(strfmt.UUID(uuid.NewString()), "tenantA"),
 	}
 
 	// WHEN
-	targets, err := r.ResolveShards(context.Background(), objects)
+	targets, err := r.ResolveShards(context.Background(), objects, 0)
 
 	// THEN
 	require.Error(t, err)
@@ -410,18 +400,17 @@ func Test_ShardResolution_SchemaReaderError(t *testing.T) {
 
 func Test_ShardResolution_TenantValidationError(t *testing.T) {
 	// GIVEN
-	schemaReader := &fakeSchemaReader{
-		tenantShards: map[string]string{
-			"tenantA": models.TenantActivityStatusCOLD,
-		},
-	}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", "tenantA").
+		Return(map[string]string{"tenantA": models.TenantActivityStatusCOLD}, nil)
 	r := resolver.NewShardResolver("TestClass", true, schemaReader)
 	objects := []*storobj.Object{
 		newTestObject(strfmt.UUID(uuid.NewString()), "tenantA"),
 	}
 
 	// WHEN
-	targets, err := r.ResolveShards(context.Background(), objects)
+	targets, err := r.ResolveShards(context.Background(), objects, 0)
 
 	// THEN
 	require.Error(t, err)
@@ -454,14 +443,11 @@ func Test_ShardResolution_EmptyInputs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{
-				shards:       tc.shards,
-				tenantShards: tc.tenantShards,
-			}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
 			r := resolver.NewShardResolver("TestClass", tc.multiTenancyEnabled, schemaReader)
 
 			// WHEN
-			targets, err := r.ResolveShards(context.Background(), []*storobj.Object{})
+			targets, err := r.ResolveShards(context.Background(), []*storobj.Object{}, 0)
 
 			// THEN
 			require.NoError(t, err)
@@ -480,7 +466,8 @@ func TestResolver_SingleTenant_RandomObjects_RandomShards(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		shards[i] = fmt.Sprintf("shard-%d", i)
 	}
-	schemaReader := &fakeSchemaReader{shards: shards}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().ShardFromUUID("RandClassST", mock.Anything).Return(shards[0]).Maybe()
 	r := resolver.NewShardResolver("RandClassST", false, schemaReader)
 
 	objects := make([]*storobj.Object, 0, numObjects)
@@ -489,7 +476,7 @@ func TestResolver_SingleTenant_RandomObjects_RandomShards(t *testing.T) {
 	}
 
 	// WHEN
-	targets, err := r.ResolveShards(context.Background(), objects)
+	targets, err := r.ResolveShards(context.Background(), objects, 0)
 	require.NoError(t, err)
 	grouped := targets.GroupByShard()
 	names := targets.Shards()
@@ -520,12 +507,12 @@ func TestResolver_SingleTenant_RandomObjects_RandomShards(t *testing.T) {
 
 func Test_ShardResolution_SingleTenant_WithTenant(t *testing.T) {
 	// GIVEN
-	schemaReader := &fakeSchemaReader{shards: []string{"shard1"}}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
 	r := resolver.NewShardResolver("TestClass", false, schemaReader)
 	object := newTestObject(strfmt.UUID(uuid.NewString()), "sometenant")
 
 	// WHEN
-	_, err := r.ResolveShard(context.Background(), object)
+	_, err := r.ResolveShard(context.Background(), object, 0)
 
 	// THEN
 	require.Error(t, err)
@@ -543,7 +530,19 @@ func TestResolver_MultiTenant_RandomObjects_RandomShards(t *testing.T) {
 		tenants[i] = fmt.Sprintf("tenant-%c", i)
 		tenantStatus[tenants[i]] = models.TenantActivityStatusHOT
 	}
-	schemaReader := &fakeSchemaReader{tenantShards: tenantStatus}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	// Resolver may call with 1 to numTenants unique tenants; set up expectations for each count.
+	for n := 1; n <= 5; n++ {
+		tenantArgs := make([]interface{}, n)
+		for i := 0; i < n; i++ {
+			tenantArgs[i] = mock.Anything
+		}
+		schemaReader.EXPECT().
+			TenantsShardsWithVersion(mock.Anything, uint64(0), "RandClassMT", tenantArgs...).
+			RunAndReturn(func(_ context.Context, _ uint64, _ string, _ ...string) (map[string]string, error) {
+				return tenantStatus, nil
+			}).Maybe()
+	}
 	res := resolver.NewShardResolver("RandClassMT", true, schemaReader)
 
 	objects := make([]*storobj.Object, 0, numObjects)
@@ -553,7 +552,7 @@ func TestResolver_MultiTenant_RandomObjects_RandomShards(t *testing.T) {
 	}
 
 	// WHEN
-	targets, err := res.ResolveShards(context.Background(), objects)
+	targets, err := res.ResolveShards(context.Background(), objects, 0)
 	require.NoError(t, err)
 	grouped := targets.GroupByShard()
 	names := targets.Shards()
@@ -587,7 +586,11 @@ func Test_ShardResolution_MultiTenant_MixedValidInvalid(t *testing.T) {
 	tenantShards := map[string]string{
 		"validTenant": models.TenantActivityStatusHOT,
 	}
-	schemaReader := &fakeSchemaReader{tenantShards: tenantShards}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", "validTenant", "invalidTenant").
+		Return(tenantShards, nil)
+	schemaReader.EXPECT().ReadOnlyClass("TestClass").Return(&models.Class{Class: "TestClass"})
 	r := resolver.NewShardResolver("TestClass", true, schemaReader)
 
 	objects := []*storobj.Object{
@@ -596,7 +599,7 @@ func Test_ShardResolution_MultiTenant_MixedValidInvalid(t *testing.T) {
 	}
 
 	// WHEN
-	_, err := r.ResolveShards(context.Background(), objects)
+	_, err := r.ResolveShards(context.Background(), objects, 0)
 
 	// THEN
 	require.Error(t, err)
@@ -608,7 +611,10 @@ func Test_ShardResolution_MultiTenant_DuplicateTenants(t *testing.T) {
 	tenantShards := map[string]string{
 		"tenantA": models.TenantActivityStatusHOT,
 	}
-	schemaReader := &fakeSchemaReader{tenantShards: tenantShards}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", "tenantA").
+		Return(tenantShards, nil)
 	r := resolver.NewShardResolver("TestClass", true, schemaReader)
 
 	objects := []*storobj.Object{
@@ -618,7 +624,7 @@ func Test_ShardResolution_MultiTenant_DuplicateTenants(t *testing.T) {
 	}
 
 	// WHEN
-	targets, err := r.ResolveShards(context.Background(), objects)
+	targets, err := r.ResolveShards(context.Background(), objects, 0)
 
 	// THEN
 	require.NoError(t, err)
@@ -697,11 +703,18 @@ func Test_ResolveShardByObjectID_SingleTenant(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{shards: tc.shards}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			if !tc.expectError && tc.tenant == "" {
+				parsed, err := uuid.Parse(strfmt.UUID(tc.objectID).String())
+				if err == nil {
+					uuidBytes, _ := parsed.MarshalBinary()
+					schemaReader.EXPECT().ShardFromUUID("TestClass", uuidBytes).Return(tc.expectedShard)
+				}
+			}
 			r := resolver.NewShardResolver("TestClass", false, schemaReader)
 
 			// WHEN
-			shard, err := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant)
+			shard, err := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant, 0)
 
 			// THEN
 			if tc.expectError {
@@ -791,11 +804,19 @@ func Test_ResolveShardByObjectID_MultiTenant(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{tenantShards: tc.tenantShards}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			if tc.tenant != "" {
+				schemaReader.EXPECT().
+					TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", tc.tenant).
+					Return(tc.tenantShards, nil)
+			}
+			if tc.expectError && tc.errorContains == "tenant not found" {
+				schemaReader.EXPECT().ReadOnlyClass("TestClass").Return(&models.Class{Class: "TestClass"})
+			}
 			r := resolver.NewShardResolver("TestClass", true, schemaReader)
 
 			// WHEN
-			shard, err := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant)
+			shard, err := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant, 0)
 
 			// THEN
 			if tc.expectError {
@@ -815,7 +836,19 @@ func Test_ResolveShardByObjectID_ConsistencyWithResolveShard(t *testing.T) {
 	t.Run("single tenant consistency", func(t *testing.T) {
 		t.Parallel()
 		// GIVEN
-		schemaReader := &fakeSchemaReader{shards: []string{"shard1", "shard2", "shard3"}}
+		shards := []string{"shard1", "shard2", "shard3"}
+		schemaReader := schemaUC.NewMockSchemaReader(t)
+		schemaReader.EXPECT().ShardFromUUID("TestClass", mock.Anything).
+			RunAndReturn(func(_ string, uuid []byte) string {
+				idx := 0
+				for _, b := range uuid {
+					idx += int(b)
+				}
+				if idx < 0 {
+					idx = -idx
+				}
+				return shards[idx%len(shards)]
+			}).Maybe()
 		r := resolver.NewShardResolver("TestClass", false, schemaReader)
 
 		testUUIDs := []strfmt.UUID{
@@ -829,11 +862,11 @@ func Test_ResolveShardByObjectID_ConsistencyWithResolveShard(t *testing.T) {
 		for _, testUUID := range testUUIDs {
 			// WHEN - using ResolveShard
 			object := newTestObject(testUUID, "")
-			targetFromResolveShard, err1 := r.ResolveShard(context.Background(), object)
+			targetFromResolveShard, err1 := r.ResolveShard(context.Background(), object, 0)
 			require.NoError(t, err1)
 
 			// WHEN - using ResolveShardByObjectID
-			shardFromResolveByID, err2 := r.ResolveShardByObjectID(context.Background(), testUUID, "")
+			shardFromResolveByID, err2 := r.ResolveShardByObjectID(context.Background(), testUUID, "", 0)
 			require.NoError(t, err2)
 
 			// THEN
@@ -849,7 +882,12 @@ func Test_ResolveShardByObjectID_ConsistencyWithResolveShard(t *testing.T) {
 			"tenantA": models.TenantActivityStatusHOT,
 			"tenantB": models.TenantActivityStatusHOT,
 		}
-		schemaReader := &fakeSchemaReader{tenantShards: tenantShards}
+		schemaReader := schemaUC.NewMockSchemaReader(t)
+		schemaReader.EXPECT().
+			TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", mock.Anything).
+			RunAndReturn(func(_ context.Context, _ uint64, _ string, _ ...string) (map[string]string, error) {
+				return tenantShards, nil
+			}).Maybe()
 		r := resolver.NewShardResolver("TestClass", true, schemaReader)
 
 		testCases := []struct {
@@ -865,11 +903,11 @@ func Test_ResolveShardByObjectID_ConsistencyWithResolveShard(t *testing.T) {
 		for _, tc := range testCases {
 			// WHEN - using ResolveShard
 			object := newTestObject(tc.objectID, tc.tenant)
-			targetFromResolveShard, err1 := r.ResolveShard(context.Background(), object)
+			targetFromResolveShard, err1 := r.ResolveShard(context.Background(), object, 0)
 			require.NoError(t, err1)
 
 			// WHEN - using ResolveShardByObjectID
-			shardFromResolveByID, err2 := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant)
+			shardFromResolveByID, err2 := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant, 0)
 			require.NoError(t, err2)
 
 			// THEN
@@ -886,7 +924,12 @@ func Test_ResolveShardByObjectID_ObjectIDCollisionAcrossTenants(t *testing.T) {
 		"company-b": models.TenantActivityStatusHOT,
 		"company-c": models.TenantActivityStatusHOT,
 	}
-	schemaReader := &fakeSchemaReader{tenantShards: tenantShards}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		TenantsShardsWithVersion(mock.Anything, uint64(0), "Products", mock.Anything).
+		RunAndReturn(func(_ context.Context, _ uint64, _ string, tenants ...string) (map[string]string, error) {
+			return tenantShards, nil
+		}).Maybe()
 	r := resolver.NewShardResolver("Products", true, schemaReader)
 
 	objectID := strfmt.UUID("12345678-1234-4123-8123-123456789012") // Same ID for all tenants
@@ -896,7 +939,7 @@ func Test_ResolveShardByObjectID_ObjectIDCollisionAcrossTenants(t *testing.T) {
 
 	// WHEN
 	for _, tenant := range testTenants {
-		shard, err := r.ResolveShardByObjectID(context.Background(), objectID, tenant)
+		shard, err := r.ResolveShardByObjectID(context.Background(), objectID, tenant, 0)
 		require.NoError(t, err)
 		resolvedShards[tenant] = shard
 	}
@@ -915,14 +958,13 @@ func Test_ResolveShardByObjectID_ObjectIDCollisionAcrossTenants(t *testing.T) {
 
 func Test_ResolveShard_MultiTenant_EmptyTenant_SingleObject(t *testing.T) {
 	// GIVEN
-	schemaReader := &fakeSchemaReader{
-		tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT},
-	}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	// No TenantsShardsWithVersion: validator returns early on empty tenant
 	r := resolver.NewShardResolver("TestClass", true, schemaReader)
 	obj := newTestObject(strfmt.UUID(uuid.NewString()), "")
 
 	// WHEN
-	_, err := r.ResolveShard(context.Background(), obj)
+	_, err := r.ResolveShard(context.Background(), obj, 0)
 
 	// THEN
 	require.Error(t, err)
@@ -931,14 +973,16 @@ func Test_ResolveShard_MultiTenant_EmptyTenant_SingleObject(t *testing.T) {
 
 func Test_ResolveShard_MultiTenant_NonexistentTenant_SingleObject(t *testing.T) {
 	// GIVEN
-	schemaReader := &fakeSchemaReader{
-		tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT},
-	}
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", "tenantB").
+		Return(map[string]string{"tenantA": models.TenantActivityStatusHOT}, nil)
+	schemaReader.EXPECT().ReadOnlyClass("TestClass").Return(&models.Class{Class: "TestClass"})
 	r := resolver.NewShardResolver("TestClass", true, schemaReader)
 	obj := newTestObject(strfmt.UUID(uuid.NewString()), "tenantB")
 
 	// WHEN
-	_, err := r.ResolveShard(context.Background(), obj)
+	_, err := r.ResolveShard(context.Background(), obj, 0)
 
 	// THEN
 	require.Error(t, err)

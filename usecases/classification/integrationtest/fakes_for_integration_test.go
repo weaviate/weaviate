@@ -50,6 +50,10 @@ type fakeSchemaGetter struct {
 	shardState *sharding.State
 }
 
+func (f *fakeSchemaGetter) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
+}
+
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }

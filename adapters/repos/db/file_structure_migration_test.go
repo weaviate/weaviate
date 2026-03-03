@@ -20,15 +20,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
-	schema2 "github.com/weaviate/weaviate/usecases/schema"
-
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schema2 "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -280,6 +280,10 @@ func (c shardContents) assert(t *testing.T) {
 type fakeMigrationSchemaGetter struct {
 	sch    schema.Schema
 	states map[string]*sharding.State
+}
+
+func (sg *fakeMigrationSchemaGetter) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
 }
 
 func (sg *fakeMigrationSchemaGetter) GetSchemaSkipAuth() schema.Schema {
