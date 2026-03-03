@@ -45,7 +45,7 @@ const (
 )
 
 const (
-	PAXRecordSplitFileOffsetPartName = "WEAVIATE.fileOffset"
+	PAXRecordSplitFileOffsetName = "WEAVIATE.fileOffset"
 )
 
 type SplitFile struct {
@@ -182,7 +182,9 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 
 func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64, chunkKey string) (int64, *SplitFile, error) {
 	// Process files in sd.Files and remove them as we go (pop from front).
-	firstFile := true
+	// If data was already written to this chunk (e.g. in-memory shard files),
+	// we must not force-write the first regular file when the chunk is full.
+	firstFile := preCompressionSize.Load() == 0
 	written := int64(0)
 	for filesInShard.Len() > 0 {
 		relPath := filesInShard.Peek()
@@ -206,7 +208,7 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 				return written, nil, err
 			}
 			// First file in chunk and it's big — write it alone
-			n, _, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, true, chunkKey)
+			n, _, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
 			if err != nil {
 				return written, nil, err
 			}
@@ -413,7 +415,7 @@ func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompr
 	header.Name = splitFile.RelPath
 	header.ChangeTime = splitFile.FileInfo.ModTime()
 	header.PAXRecords = map[string]string{
-		PAXRecordSplitFileOffsetPartName: strconv.FormatInt(splitFile.AlreadyWritten, 10),
+		PAXRecordSplitFileOffsetName: strconv.FormatInt(splitFile.AlreadyWritten, 10),
 	}
 	header.Size = amountToWrite
 	if err := z.w.WriteHeader(header); err != nil {
@@ -558,7 +560,7 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 }
 
 func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err error) {
-	part, isSplitFile := h.PAXRecords[PAXRecordSplitFileOffsetPartName]
+	part, isSplitFile := h.PAXRecords[PAXRecordSplitFileOffsetName]
 	if isSplitFile {
 		startOffset, err := strconv.ParseInt(part, 10, 64)
 		if err != nil {

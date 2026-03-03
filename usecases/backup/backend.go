@@ -445,7 +445,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 							return fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
 						}
 						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
-						var fileSizeExceeded *SplitFile
+						var fileSizeExceeded *SplitFile // if single file exceeds chunk size, it will be split and the remaining part will be written in the next chunk(s)
 						for {
 							chunk := atomic.AddInt32(&lastChunk, 1)
 							fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath)

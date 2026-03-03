@@ -401,6 +401,80 @@ func TestWriteRegularsFillsChunkWithSmallFiles(t *testing.T) {
 	require.ElementsMatch(t, []string{"shard/small1.db", "shard/small2.db", "shard/small3.db"}, tarFiles)
 }
 
+// TestWriteShardFirstChunkRespectsInMemoryFiles verifies that when WriteShard
+// writes in-memory shard files (firstChunkForShard=true), the first regular
+// file is NOT force-written if the chunk is already full from those in-memory
+// files. Before the fix, WriteRegulars always started with firstFile=true,
+// ignoring the pre-existing data in the chunk.
+func TestWriteShardFirstChunkRespectsInMemoryFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "source")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+
+	// Create a regular file that is larger than the chunk size on its own.
+	fileData := bytes.Repeat([]byte("D"), 300)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "data.db"), fileData, 0o644))
+
+	// In-memory shard files (~100 bytes each = 300 total).
+	inMemData := bytes.Repeat([]byte("M"), 100)
+	sd := backup.ShardDescriptor{
+		Name:                  "shard",
+		Node:                  "node1",
+		DocIDCounterPath:      "shard/counter.bin",
+		DocIDCounter:          inMemData,
+		PropLengthTrackerPath: "shard/proplength.bin",
+		PropLengthTracker:     inMemData,
+		ShardVersionPath:      "shard/version.bin",
+		Version:               inMemData,
+	}
+
+	fileList := &backup.FileList{
+		Files:     []string{"shard/data.db"},
+		FileSizes: map[string]int64{"shard/data.db": 300},
+	}
+
+	// Chunk size = 400 bytes. The 3 in-memory files (300 bytes) nearly fill it.
+	// data.db (300 bytes) should NOT be force-written because the chunk already
+	// has content (300 + 300 = 600 > 400).
+	z, rc, err := NewZip(dir, int(NoCompression), 400, 0, 0)
+	require.NoError(t, err)
+
+	var splitFile *SplitFile
+	var writeErr error
+	go func() {
+		preComp := &atomic.Int64{}
+		_, splitFile, writeErr = z.WriteShard(context.Background(), &sd, fileList, true, preComp, "chunk1")
+		z.Close()
+	}()
+
+	buf := bytes.NewBuffer(nil)
+	_, err = io.Copy(buf, rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+	require.NoError(t, writeErr)
+
+	// The regular file should NOT have been written — it should remain in the list.
+	require.Equal(t, 1, fileList.Len(), "regular file should still be pending")
+	require.Equal(t, "shard/data.db", fileList.Peek())
+	require.Nil(t, splitFile, "no split file expected, just a full chunk")
+
+	// The tar should contain only the 3 in-memory files.
+	tr := tar.NewReader(buf)
+	var tarFiles []string
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		tarFiles = append(tarFiles, hdr.Name)
+	}
+	require.ElementsMatch(t, []string{
+		"shard/counter.bin",
+		"shard/proplength.bin",
+		"shard/version.bin",
+	}, tarFiles)
+}
+
 // TestBigFileGetsOwnChunk verifies that files >= minIndividualFileSize get their own chunk
 // and are tracked in BigFilesChunk for incremental dedup.
 func TestBigFileGetsOwnChunk(t *testing.T) {
@@ -1065,7 +1139,7 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 			Size: int64(len(data1)),
 			Mode: 0o644,
 			PAXRecords: map[string]string{
-				PAXRecordSplitFileOffsetPartName: "0",
+				PAXRecordSplitFileOffsetName: "0",
 			},
 		}
 		n, err := copyFile(target, h1, bytes.NewReader(data1))
@@ -1079,7 +1153,7 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 			Size: int64(len(data2)),
 			Mode: 0o644,
 			PAXRecords: map[string]string{
-				PAXRecordSplitFileOffsetPartName: "10",
+				PAXRecordSplitFileOffsetName: "10",
 			},
 		}
 		n, err = copyFile(target, h2, bytes.NewReader(data2))
@@ -1102,7 +1176,7 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 			Size: int64(len(data2)),
 			Mode: 0o644,
 			PAXRecords: map[string]string{
-				PAXRecordSplitFileOffsetPartName: "10",
+				PAXRecordSplitFileOffsetName: "10",
 			},
 		}
 		_, err := copyFile(target, h2, bytes.NewReader(data2))
@@ -1115,7 +1189,7 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 			Size: int64(len(data1)),
 			Mode: 0o644,
 			PAXRecords: map[string]string{
-				PAXRecordSplitFileOffsetPartName: "0",
+				PAXRecordSplitFileOffsetName: "0",
 			},
 		}
 		_, err = copyFile(target, h1, bytes.NewReader(data1))
@@ -1135,7 +1209,7 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 			Size: 5,
 			Mode: 0o644,
 			PAXRecords: map[string]string{
-				PAXRecordSplitFileOffsetPartName: "not_a_number",
+				PAXRecordSplitFileOffsetName: "not_a_number",
 			},
 		}
 		_, err := copyFile(target, h, bytes.NewReader([]byte("hello")))
@@ -1153,7 +1227,7 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 			Size: 10,
 			Mode: 0o644,
 			PAXRecords: map[string]string{
-				PAXRecordSplitFileOffsetPartName: "0",
+				PAXRecordSplitFileOffsetName: "0",
 			},
 		}
 		_, err := copyFile(target, h, bytes.NewReader([]byte("abc")))
@@ -1241,9 +1315,10 @@ func TestFirstFileBelowSplitThresholdWrittenWhole(t *testing.T) {
 		}
 	}
 
-	// The file is below splitFileSize, so it must be written whole in a single chunk
-	// (not split). Since it's the first file, it should NOT be deferred either.
-	require.Equal(t, 1, len(chunks), "file below split threshold should be written whole in one chunk")
+	// The in-memory shard files are written first, filling the chunk. The regular
+	// file (500 bytes, below splitFileSize=1000) is deferred to a second chunk where
+	// it IS the first file and is written whole (not split).
+	require.Equal(t, 2, len(chunks), "in-memory files in chunk 1, regular file written whole in chunk 2")
 	require.Nil(t, fileSizeExceeded)
 
 	// Restore and verify
