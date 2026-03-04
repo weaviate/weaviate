@@ -36,7 +36,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 	backend := &fakeBackend{}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
-	// blockingSelector blocks in GetShardsForClass until released
+	// blockingSelector blocks in AcquireShardForExport until released
 	selector := &blockingSelector{
 		blockCh: make(chan struct{}),
 	}
@@ -64,7 +64,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for GetShardsForClass to be called
+	// Wait for AcquireShardForExport to be called
 	selector.waitForCall(t)
 
 	// Simulate shutdown
@@ -121,7 +121,7 @@ func TestParticipant_ShutdownWritesFailedNodeStatus(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for GetShardsForClass to be called
+	// Wait for AcquireShardForExport to be called
 	selector.waitForCall(t)
 
 	// Simulate shutdown
@@ -195,7 +195,7 @@ func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-// blockingSelector blocks GetShardsForClass until blockCh is closed.
+// blockingSelector blocks AcquireShardForExport until blockCh is closed.
 type blockingSelector struct {
 	blockCh   chan struct{}
 	classList []string
@@ -211,17 +211,13 @@ func (s *blockingSelector) initCalledCh() {
 	})
 }
 
-func (s *blockingSelector) GetShardsForClass(ctx context.Context, _ string) ([]ShardLike, error) {
-	return nil, nil
-}
-
 func (s *blockingSelector) waitForCall(t *testing.T) {
 	t.Helper()
 	s.initCalledCh()
 	select {
 	case <-s.calledCh:
 	case <-time.After(5 * time.Second):
-		t.Fatal("GetShardsForClass was not called")
+		t.Fatal("AcquireShardForExport was not called")
 	}
 }
 
@@ -554,10 +550,6 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 // complete immediately without needing real store/parquet infrastructure.
 type emptySelector struct {
 	classList []string
-}
-
-func (s *emptySelector) GetShardsForClass(context.Context, string) ([]ShardLike, error) {
-	return nil, nil
 }
 
 func (s *emptySelector) ListClasses(context.Context) []string {

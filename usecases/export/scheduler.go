@@ -46,7 +46,6 @@ type BackendProvider interface {
 
 // Selector selects shards and classes for export
 type Selector interface {
-	GetShardsForClass(ctx context.Context, className string) ([]ShardLike, error)
 	ListClasses(ctx context.Context) []string
 	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
 	ExportShardNames(className string) ([]string, bool, error)

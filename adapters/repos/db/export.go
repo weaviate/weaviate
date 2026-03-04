@@ -29,25 +29,6 @@ type ExportShardLike = interface {
 	Name() string
 }
 
-// GetShardsForClass returns all local shards for a class.
-func (db *DB) GetShardsForClass(ctx context.Context, className string) ([]ExportShardLike, error) {
-	idx := db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return nil, fmt.Errorf("index not found for class %s", className)
-	}
-
-	var shards []ExportShardLike
-	err := idx.ForEachShard(func(name string, shard ShardLike) error {
-		shards = append(shards, shard)
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("iterate shards: %w", err)
-	}
-
-	return shards, nil
-}
-
 // ShardOwnership returns a map of node name to shard names for a given class.
 // Only the primary owner (BelongsToNodes[0]) is included for each shard,
 // ensuring replicated shards are never exported twice.
