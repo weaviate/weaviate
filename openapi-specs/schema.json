@@ -621,11 +621,16 @@
     "ExportCreateRequest": {
       "description": "Request to create a new export operation",
       "type": "object",
-      "required": ["id"],
+      "required": ["id", "file_format"],
       "properties": {
         "id": {
           "type": "string",
           "description": "Unique identifier for this export. Must be URL-safe."
+        },
+        "file_format": {
+          "type": "string",
+          "description": "Output file format for the export.",
+          "enum": ["parquet"]
         },
         "include": {
           "type": "array",

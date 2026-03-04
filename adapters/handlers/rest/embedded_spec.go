@@ -7341,7 +7341,8 @@ func init() {
       "description": "Request to create a new export operation",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "file_format"
       ],
       "properties": {
         "config": {
@@ -7364,6 +7365,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
         },
         "id": {
           "description": "Unique identifier for this export. Must be URL-safe.",
@@ -17419,7 +17427,8 @@ func init() {
       "description": "Request to create a new export operation",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "file_format"
       ],
       "properties": {
         "config": {
@@ -17442,6 +17451,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
         },
         "id": {
           "description": "Unique identifier for this export. Must be URL-safe.",

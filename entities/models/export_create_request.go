@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -36,6 +37,11 @@ type ExportCreateRequest struct {
 	// List of collection names to exclude from the export. Cannot be used with 'include'.
 	Exclude []string `json:"exclude"`
 
+	// Output file format for the export.
+	// Required: true
+	// Enum: [parquet]
+	FileFormat *string `json:"file_format"`
+
 	// Unique identifier for this export. Must be URL-safe.
 	// Required: true
 	ID *string `json:"id"`
@@ -49,6 +55,10 @@ func (m *ExportCreateRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateFileFormat(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -76,6 +86,46 @@ func (m *ExportCreateRequest) validateConfig(formats strfmt.Registry) error {
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+var exportCreateRequestTypeFileFormatPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["parquet"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		exportCreateRequestTypeFileFormatPropEnum = append(exportCreateRequestTypeFileFormatPropEnum, v)
+	}
+}
+
+const (
+
+	// ExportCreateRequestFileFormatParquet captures enum value "parquet"
+	ExportCreateRequestFileFormatParquet string = "parquet"
+)
+
+// prop value enum
+func (m *ExportCreateRequest) validateFileFormatEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, exportCreateRequestTypeFileFormatPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ExportCreateRequest) validateFileFormat(formats strfmt.Registry) error {
+
+	if err := validate.Required("file_format", "body", m.FileFormat); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateFileFormatEnum("file_format", "body", *m.FileFormat); err != nil {
+		return err
 	}
 
 	return nil
