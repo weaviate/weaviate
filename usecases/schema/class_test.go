@@ -2781,6 +2781,100 @@ func Test_SetClassDefaults(t *testing.T) {
 	}
 }
 
+func Test_SetClassDefaults_AsyncReplication(t *testing.T) {
+	tests := []struct {
+		name          string
+		globalCfg     replication.GlobalConfig
+		class         *models.Class
+		expectedAsync bool
+	}{
+		{
+			name:          "DEFAULT=false, config nil: async remains false",
+			globalCfg:     replication.GlobalConfig{MinimumFactor: 1},
+			class:         &models.Class{},
+			expectedAsync: false,
+		},
+		{
+			name:          "DEFAULT=true, config nil: async defaults to true",
+			globalCfg:     replication.GlobalConfig{MinimumFactor: 1, AsyncDefault: true},
+			class:         &models.Class{},
+			expectedAsync: true,
+		},
+		{
+			name:      "DEFAULT=true, explicit async_enabled=false: false is respected",
+			globalCfg: replication.GlobalConfig{MinimumFactor: 1, AsyncDefault: true},
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			},
+			expectedAsync: false,
+		},
+		{
+			name:      "DEFAULT=true, explicit async_enabled=true: true remains true",
+			globalCfg: replication.GlobalConfig{MinimumFactor: 1, AsyncDefault: true},
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: true},
+			},
+			expectedAsync: true,
+		},
+		{
+			name:          "ENFORCED=true, config nil: async upgraded to true",
+			globalCfg:     replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true},
+			class:         &models.Class{},
+			expectedAsync: true,
+		},
+		{
+			name:      "ENFORCED=true, explicit async_enabled=false: upgraded to true",
+			globalCfg: replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true},
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			},
+			expectedAsync: true,
+		},
+		{
+			name:      "ENFORCED=true, explicit async_enabled=true: remains true",
+			globalCfg: replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true},
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: true},
+			},
+			expectedAsync: true,
+		},
+		{
+			// When both flags are set, async=true (OR logic in nil-init, ENFORCED in non-nil)
+			name:          "ENFORCED=true + DEFAULT=true, config nil: async=true",
+			globalCfg:     replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true, AsyncDefault: true},
+			class:         &models.Class{},
+			expectedAsync: true,
+		},
+		{
+			// ENFORCED wins over explicit false even when DEFAULT is also set
+			name:      "ENFORCED=true + DEFAULT=true, explicit async_enabled=false: upgraded to true",
+			globalCfg: replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true, AsyncDefault: true},
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			},
+			expectedAsync: true,
+		},
+		{
+			// DEFAULT does not override explicit false — only ENFORCED does
+			name:      "ENFORCED=false + DEFAULT=true, explicit async_enabled=false: false is respected",
+			globalCfg: replication.GlobalConfig{MinimumFactor: 1, AsyncDefault: true},
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			},
+			expectedAsync: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			err := handler.setClassDefaults(tt.class, tt.globalCfg)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedAsync, tt.class.ReplicationConfig.AsyncEnabled)
+		})
+	}
+}
+
 func Test_GetConsistentClass_WithAlias(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

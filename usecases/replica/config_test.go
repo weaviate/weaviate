@@ -67,6 +67,38 @@ func Test_ValidateConfig(t *testing.T) {
 			globalConfig:  replication.GlobalConfig{MinimumFactor: 2},
 			expectedErr:   fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of 2: got 1"),
 		},
+		{
+			name:          "ENFORCED: config nil, async upgraded to true",
+			initialconfig: nil,
+			resultConfig:  &models.ReplicationConfig{Factor: 1, AsyncEnabled: true},
+			globalConfig:  replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true},
+		},
+		{
+			name:          "ENFORCED: async_enabled=false is upgraded to true",
+			initialconfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			resultConfig:  &models.ReplicationConfig{Factor: 1, AsyncEnabled: true},
+			globalConfig:  replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true},
+		},
+		{
+			name:          "ENFORCED: async_enabled=true remains true",
+			initialconfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: true},
+			resultConfig:  &models.ReplicationConfig{Factor: 1, AsyncEnabled: true},
+			globalConfig:  replication.GlobalConfig{MinimumFactor: 1, AsyncEnforced: true},
+		},
+		{
+			name:          "ENFORCED=false: async_enabled=false remains false",
+			initialconfig: &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			resultConfig:  &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			globalConfig:  replication.GlobalConfig{MinimumFactor: 1},
+		},
+		{
+			// AsyncDefault must NOT be applied in ValidateConfig — it is a schema-layer
+			// concern handled in setClassDefaults. ValidateConfig only applies AsyncEnforced.
+			name:          "DEFAULT=true, config nil: async remains false (DEFAULT does not apply here)",
+			initialconfig: nil,
+			resultConfig:  &models.ReplicationConfig{Factor: 1, AsyncEnabled: false},
+			globalConfig:  replication.GlobalConfig{MinimumFactor: 1, AsyncDefault: true},
+		},
 	}
 
 	for _, test := range tests {
