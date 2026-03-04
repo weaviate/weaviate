@@ -205,6 +205,7 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogEnabled:          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:       db.config.InvertedSorterDisabled,
+				QueryHedgedTimeout:           db.config.QueryHedgedTimeout,
 				QueryBatchedContainsEnabled:  db.config.QueryBatchedContainsEnabled,
 				LazyPropertyLengthsEnabled:   db.config.LazyPropertyLengthsEnabled,
 				MaintenanceModeEnabled:       db.config.MaintenanceModeEnabled,
