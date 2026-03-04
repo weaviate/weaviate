@@ -104,22 +104,24 @@ func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName st
 	isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 	autoActivationEnabled := schema.AutoTenantActivationEnabled(class)
 
-	// Following the objectTTL pattern: only check tenant status when
-	// auto-activation is enabled, to know whether to deactivate after export.
-	// getOptInitLocalShard will implicitly load/activate the shard.
-	// When auto-activation is disabled, COLD tenants are skipped.
+	// For MT classes, check the tenant's activity status up front.
+	// If the tenant is COLD and auto-activation is disabled, skip it.
+	// If the tenant is COLD and auto-activation is enabled, we'll
+	// deactivate it again after export.
 	deactivateAfter := false
 	if isMT {
-		if autoActivationEnabled {
-			statuses, err := idx.tenantsManager.TenantsStatus(class.Class, shardName)
-			if err != nil {
-				return nil, nil, fmt.Errorf("get tenant status for %s/%s: %w", className, shardName, err)
-			}
-			deactivateAfter = statuses[shardName] == models.TenantActivityStatusCOLD
+		statuses, err := idx.tenantsManager.TenantsStatus(class.Class, shardName)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get tenant status for %s/%s: %w", className, shardName, err)
 		}
+		isCold := statuses[shardName] == models.TenantActivityStatusCOLD
+		if isCold && !autoActivationEnabled {
+			return nil, nil, nil
+		}
+		deactivateAfter = isCold
 	}
 
-	shard, shardRelease, err := idx.getOptInitLocalShard(ctx, shardName, autoActivationEnabled)
+	shard, shardRelease, err := idx.getOptInitLocalShard(ctx, shardName, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get shard %s for class %s: %w", shardName, className, err)
 	}
