@@ -273,6 +273,8 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 // It writes per-node status files and returns an error if any class fails.
 // Used by both the multi-node participant path and the single-node scheduler.
 func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) error {
+	var mu sync.Mutex
+
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
@@ -292,23 +294,28 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		}
 	}
 
+	stopWriter := p.startNodeStatusWriter(backend, req, &mu, nodeStatus)
+	defer stopWriter()
+
 	for _, className := range req.Classes {
 		shardNames, ok := req.Shards[className]
 		if !ok || len(shardNames) == 0 {
 			continue
 		}
 
-		if err := p.exportClassShards(ctx, backend, req, className, shardNames, nodeStatus); err != nil {
+		if err := p.exportClassShards(ctx, backend, req, className, shardNames, &mu, nodeStatus); err != nil {
+			mu.Lock()
 			nodeStatus.Status = export.Failed
 			nodeStatus.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
-			p.writeNodeStatus(ctx, backend, req, nodeStatus)
+			mu.Unlock()
 			return fmt.Errorf("export class %s: %w", className, err)
 		}
 	}
 
+	mu.Lock()
 	nodeStatus.Status = export.Success
 	nodeStatus.CompletedAt = time.Now().UTC()
-	p.writeNodeStatus(ctx, backend, req, nodeStatus)
+	mu.Unlock()
 	return nil
 }
 
@@ -321,12 +328,10 @@ func (p *Participant) exportClassShards(
 	req *ExportRequest,
 	className string,
 	shardNames []string,
+	mu *sync.Mutex,
 	nodeStatus *NodeStatus,
 ) error {
 	isMT := p.selector.IsMultiTenant(ctx, className)
-
-	// Use a mutex to protect nodeStatus updates from concurrent goroutines
-	var mu sync.Mutex
 
 	eg := enterrors.NewErrorGroupWrapper(p.logger)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
@@ -365,7 +370,6 @@ func (p *Participant) exportClassShards(
 			nodeStatus.ShardProgress[className][shardName].Status = export.Success
 			nodeStatus.ShardProgress[className][shardName].ObjectsExported = objects
 			mu.Unlock()
-			p.writeNodeStatus(ctx, backend, req, nodeStatus)
 
 			return nil
 		}, shardName)
@@ -435,20 +439,53 @@ func (p *Participant) exportShardToFile(
 	return writer.ObjectsWritten(), nil
 }
 
-// writeNodeStatus writes the node status file to S3.
-// It uses a fresh context with a timeout so the write succeeds even if the
-// original context was cancelled (e.g. during graceful shutdown).
-func (p *Participant) writeNodeStatus(_ context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, status *NodeStatus) {
-	ctx := context.Background()
+// startNodeStatusWriter launches a background goroutine that periodically
+// snapshots nodeStatus under mu and writes it to S3. The returned stop function
+// triggers one final flush and blocks until the write completes.
+func (p *Participant) startNodeStatusWriter(
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+	mu *sync.Mutex,
+	nodeStatus *NodeStatus,
+) (stop func()) {
+	done := make(chan struct{}) // closed when the goroutine exits. Blocks until status is fully flushed on stop.
+	quit := make(chan struct{})
+	var once sync.Once
 
-	key := fmt.Sprintf("node_%s_status.json", status.NodeName)
-	data, err := json.MarshalIndent(status, "", "  ")
-	if err != nil {
-		p.logger.WithField("action", "export").WithField("node", status.NodeName).Error(err)
-		return
+	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
+
+	flush := func() {
+		mu.Lock()
+		data, err := json.Marshal(nodeStatus)
+		mu.Unlock()
+		if err != nil {
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
+			return
+		}
+		if _, err := backend.Write(context.Background(), req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
+		}
 	}
 
-	if _, err := backend.Write(ctx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
-		p.logger.WithField("action", "export").WithField("node", status.NodeName).Error(err)
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				flush()
+			case <-quit:
+				flush()
+				return
+			}
+		}
+	}, p.logger)
+
+	return func() {
+		once.Do(func() {
+			close(quit)
+			<-done
+		})
 	}
 }
