@@ -94,6 +94,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: "query cannot be empty",
+					Code:    422,
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -111,6 +112,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: "no graphql provider present, this is most likely because no schema is present. Import a schema first!",
+					Code:    422,
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -128,6 +130,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: fmt.Sprintf("couldn't marshal json: %s", jsonErr),
+					Code:    500,
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
@@ -143,6 +146,7 @@ func setupGraphQLHandlers(
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
 					Message: fmt.Sprintf("couldn't unmarshal json: %s\noriginal result was %#v", marshallErr, result),
+					Code:    500,
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
