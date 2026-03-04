@@ -430,10 +430,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 	appState.GRPCConnManager = grpcConnManager
 
-	// Create hybrid replication client (gRPC + REST fallback)
+	// Create switchable replication client (gRPC or REST based on runtime config)
 	grpcReplicationClient := clients.NewGRPCReplicationClient(grpcConnManager)
 	replicationGRPCEnabled := appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
-	replicationClient := clients.NewHybridReplicationClient(
+	replicationClient := clients.NewSwitchableReplicationClient(
 		grpcReplicationClient,
 		restReplicationClient,
 		replicationGRPCEnabled.Get,
