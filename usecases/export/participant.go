@@ -350,7 +350,7 @@ func (p *Participant) exportClassShards(
 			if shard == nil {
 				// Tenant is COLD and auto-activation is disabled — skip.
 				mu.Lock()
-				nodeStatus.ShardProgress[className][shardName].Status = export.Success
+				nodeStatus.ShardProgress[className][shardName].Status = export.Skipped
 				nodeStatus.ShardProgress[className][shardName].ObjectsExported = 0
 				mu.Unlock()
 				return nil

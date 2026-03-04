@@ -7472,7 +7472,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         },
         "tookInMs": {
@@ -9255,7 +9256,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         }
       }
@@ -17572,7 +17574,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         },
         "tookInMs": {
@@ -19564,7 +19567,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         }
       }

@@ -546,6 +546,70 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 	assert.Empty(t, meta.Error)
 }
 
+func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	// Node completed export: shard0 succeeded, shard1 was cold and skipped.
+	nodeStatus := &NodeStatus{
+		NodeName: "node1",
+		Status:   export.Success,
+		ShardProgress: map[string]map[string]*ShardProgress{
+			"TestClass": {
+				"shard0": {Status: export.Success, ObjectsExported: 500},
+				"shard1": {Status: export.Skipped, ObjectsExported: 0},
+			},
+		},
+	}
+	data, err := json.Marshal(nodeStatus)
+	require.NoError(t, err)
+	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+
+	resolver := &fakeNodeResolver{
+		nodes: map[string]string{
+			"node1": "host1:8080",
+		},
+	}
+
+	client := &fakeExportClient{
+		isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+			return false, nil // finished
+		},
+	}
+
+	s := &Scheduler{
+		shutdownCtx:  context.Background(),
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		client:       client,
+		nodeResolver: resolver,
+	}
+
+	plan := &ExportPlan{
+		ID:      "test-export",
+		Backend: "s3",
+		Classes: []string{"TestClass"},
+		NodeAssignments: map[string]map[string][]string{
+			"node1": {"TestClass": {"shard0", "shard1"}},
+		},
+		StartedAt: time.Now().UTC(),
+	}
+
+	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	require.NoError(t, err)
+
+	// Overall status is Success — skipped shards don't block completion
+	assert.Equal(t, string(export.Success), status.Status)
+	assert.Empty(t, status.Error)
+
+	// Per-shard status is correctly reported
+	require.NotNil(t, status.ShardStatus["TestClass"])
+	assert.Equal(t, string(export.Success), status.ShardStatus["TestClass"]["shard0"].Status)
+	assert.Equal(t, int64(500), status.ShardStatus["TestClass"]["shard0"].ObjectsExported)
+	assert.Equal(t, string(export.Skipped), status.ShardStatus["TestClass"]["shard1"].Status)
+	assert.Equal(t, int64(0), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
+}
+
 // emptySelector returns no shards for any class, allowing exportClass to
 // complete immediately without needing real store/parquet infrastructure.
 type emptySelector struct {

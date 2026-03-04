@@ -21,6 +21,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-openapi/strfmt"
@@ -479,6 +481,17 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 	// No objects should be exported (all tenants are COLD, autoActivation disabled)
 	keys := listParquetKeys(t, exportID, className)
 	require.Empty(t, keys, "expected no parquet files when all tenants are inactive")
+
+	// Cold tenants should be reported as SKIPPED at the shard level
+	require.NotNil(t, resp.Payload.ShardStatus)
+	shardStatus := resp.Payload.ShardStatus[className]
+	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
+	for _, tenant := range tenants {
+		progress, ok := shardStatus[tenant.Name]
+		require.True(t, ok, "expected shard status for tenant %s", tenant.Name)
+		assert.Equal(t, "SKIPPED", progress.Status, "cold tenant %s should be SKIPPED", tenant.Name)
+		assert.Equal(t, int64(0), progress.ObjectsExported, "cold tenant %s should have 0 objects exported", tenant.Name)
+	}
 }
 
 // verifyParquetMetadata checks that all parquet files for a class contain

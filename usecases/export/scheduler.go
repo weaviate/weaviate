@@ -330,7 +330,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 				sp := nodeStatus.ShardProgress[className][shardName]
 				if sp == nil {
 					sp = &ShardProgress{Status: effectiveStatus}
-				} else if sp.Status != export.Success && sp.Status != export.Failed {
+				} else if sp.Status != export.Success && sp.Status != export.Failed && sp.Status != export.Skipped {
 					sp.Status = effectiveStatus
 				}
 				status.ShardStatus[className][shardName] = models.ShardProgress{

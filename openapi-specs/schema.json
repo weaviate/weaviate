@@ -716,7 +716,7 @@
         "status": {
           "type": "string",
           "description": "Current status of the export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED"]
+          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "SKIPPED"]
         },
         "startedAt": {
           "type": "string",
@@ -758,7 +758,7 @@
         "status": {
           "type": "string",
           "description": "Status of this shard's export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED"]
+          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "SKIPPED"]
         },
         "objectsExported": {
           "type": "integer",
