@@ -1439,3 +1439,44 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentAsyncReplicationBoolVars(t *testing.T) {
+	boolValues := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: 0", []string{"0"}, false},
+		{"Valid: on", []string{"on"}, true},
+		{"Valid: off", []string{"off"}, false},
+		{"not given", []string{}, false},
+	}
+
+	vars := []struct {
+		envKey string
+		getVal func(Config) bool
+	}{
+		{"ASYNC_REPLICATION_ENFORCED", func(c Config) bool { return c.Replication.AsyncEnforced }},
+		{"ASYNC_REPLICATION_DEFAULT", func(c Config) bool { return c.Replication.AsyncDefault }},
+	}
+
+	for _, v := range vars {
+		t.Run(v.envKey, func(t *testing.T) {
+			for _, tt := range boolValues {
+				t.Run(tt.name, func(t *testing.T) {
+					if len(tt.value) == 1 {
+						t.Setenv(v.envKey, tt.value[0])
+					}
+					conf := Config{}
+					err := FromEnv(&conf)
+
+					require.Nil(t, err)
+					require.Equal(t, tt.expected, v.getVal(conf))
+				})
+			}
+		})
+	}
+}

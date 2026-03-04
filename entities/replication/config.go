@@ -25,4 +25,13 @@ type GlobalConfig struct {
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
 
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
+
+	// AsyncEnforced enforces async replication on all collections.
+	// When set, creating or updating a collection with async_enabled=false will
+	// have it silently upgraded to true.
+	AsyncEnforced bool `json:"async_enforced" yaml:"async_enforced"`
+
+	// AsyncDefault, when true, sets async_enabled=true by default on new
+	// collections that don't specify any ReplicationConfig.
+	AsyncDefault bool `json:"async_default" yaml:"async_default"`
 }
