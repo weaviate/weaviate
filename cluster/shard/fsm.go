@@ -250,6 +250,7 @@ func isRetryableInFSM(err error) bool {
 		switch errno {
 		case syscall.EIO, syscall.ENOSPC, syscall.EROFS:
 			return true
+		default:
 		}
 	}
 	msg := err.Error()

@@ -47,8 +47,8 @@ type Server struct {
 	shardproto.UnimplementedShardReplicationServiceServer
 	registry    *Registry
 	logger      logrus.FieldLogger
-	snapshots   sync.Map       // snapshotID → *activeSnapshot
-	snapshotSem chan struct{}   // semaphore limiting concurrent snapshot creations
+	snapshots   sync.Map      // snapshotID → *activeSnapshot
+	snapshotSem chan struct{} // semaphore limiting concurrent snapshot creations
 }
 
 // activeSnapshot tracks a transfer snapshot that has been created but not yet released.
