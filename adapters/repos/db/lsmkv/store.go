@@ -464,44 +464,18 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	return nil
 }
 
-func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
-	replacementBucket.disk.maintenanceLock.Lock()
-	defer replacementBucket.disk.maintenanceLock.Unlock()
-
-	currBucketDir := bucket.dir
-	newBucketDir := bucket.dir + "___del"
-	currReplacementBucketDir := replacementBucket.dir
-	newReplacementBucketDir := currBucketDir
-
-	if err := bucket.Shutdown(ctx); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
-	}
-
-	s.logger.WithField("action", "lsm_replace_bucket").
-		WithField("bucket", bucketName).
-		WithField("replacement_bucket", replacementBucketName).
-		WithField("dir", s.dir).
-		Info("replacing bucket")
-
-	replacementBucket.flushLock.Lock()
-	defer replacementBucket.flushLock.Unlock()
-	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
-	}
-	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
-	}
-
-	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
-}
-
-// Replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
-// 2nd bucket swaps the 1st one in bucketsByName using 1st one's name, 2nd one's name is deleted.
-// Dir path of 2nd bucket is changed to dir of 1st bucket as well as all other related paths of
-// bucket resources (segment group, memtables, commit log).
-// Dir path of 1st bucket is temporarily suffixed with "___del", later on bucket is shutdown and
-// its files deleted.
-// 2nd bucket becomes 1st bucket
+// ReplaceBuckets atomically replaces bucketName with replacementBucketName.
+// After the call, replacementBucketName's data is served under bucketName, and
+// replacementBucketName is removed from the store. The old bucket is shut down
+// and its directory deleted.
+//
+// IMPORTANT: Both buckets must be fully flushed to disk segments before calling
+// this method. Any data that exists only in the active memtable will be lost,
+// because the method creates a fresh memtable (with a commit log path matching
+// the new directory) and discards the old one. Callers must call
+// Bucket.FlushAndSwitch (or equivalent) on the replacement bucket before
+// invoking ReplaceBuckets. The method checks that no flush is in progress, but
+// does not verify that a flush has already completed.
 func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -522,34 +496,72 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	if replacementBucket == nil {
 		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
 	}
-	s.bucketsByName[bucketName] = replacementBucket
-	delete(s.bucketsByName, replacementBucketName)
 
-	var currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir string
-	var err error
-	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err = s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
-	if err != nil {
-		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
+	currBucketDir := bucket.dir
+	newBucketDir := bucket.dir + "___del"
+	currReplacementBucketDir := replacementBucket.dir
+	newReplacementBucketDir := currBucketDir
+
+	// Shut down the old bucket before any filesystem changes.
+	if err := bucket.Shutdown(ctx); err != nil {
+		return errors.Wrapf(err, "failed shutting down old bucket '%s'", bucketName)
 	}
 
+	s.logger.WithField("action", "lsm_replace_bucket").
+		WithField("bucket", bucketName).
+		WithField("replacement_bucket", replacementBucketName).
+		WithField("dir", s.dir).
+		Info("replacing bucket")
+
+	// Hold flushLock for the entire sequence: flushing check, directory renames,
+	// in-memory state updates, and map swap. This eliminates the gap where a
+	// flush could start between replaceBucket and the caller re-acquiring the lock.
 	replacementBucket.flushLock.Lock()
 	defer replacementBucket.flushLock.Unlock()
 
 	if replacementBucket.flushing != nil {
-		return fmt.Errorf("bucket '%s' can not be renamed before flushing", replacementBucketName)
+		return fmt.Errorf("bucket '%s' can not be replaced before flushing completes", replacementBucketName)
 	}
 
+	// Hold maintenanceLock during filesystem renames to prevent compaction from
+	// modifying segments while directories are being moved. Released before
+	// updateBucketDir which needs to acquire maintenanceLock.RLock().
+	replacementBucket.disk.maintenanceLock.Lock()
+
+	// Rename directories: old → old___del, replacement → old's original path.
+	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
+		replacementBucket.disk.maintenanceLock.Unlock()
+		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
+	}
+	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
+		// Best-effort rollback: move old bucket dir back.
+		_ = os.Rename(newBucketDir, currBucketDir)
+		replacementBucket.disk.maintenanceLock.Unlock()
+		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
+	}
+
+	replacementBucket.disk.maintenanceLock.Unlock()
+
+	// Update replacement bucket's in-memory state to reflect its new directory.
 	replacementBucket.dir = newReplacementBucketDir
 
 	mt, err := replacementBucket.createNewActiveMemtable()
 	if err != nil {
+		// Rollback filesystem changes.
+		_ = os.Rename(newReplacementBucketDir, currReplacementBucketDir)
+		_ = os.Rename(newBucketDir, currBucketDir)
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
 	replacementBucket.active = mt
 
-	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
 
+	// Map swap is last — if anything above failed, the map still has the
+	// original buckets and all state is consistent.
+	s.bucketsByName[bucketName] = replacementBucket
+	delete(s.bucketsByName, replacementBucketName)
+
+	// Clean up old bucket's directory (now at newBucketDir = old___del).
 	if err := os.RemoveAll(newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
 	}
@@ -557,6 +569,16 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	return nil
 }
 
+// RenameBucket renames bucketName to newBucketName. The bucket must be in
+// ReadOnly mode and newBucketName must not already exist.
+//
+// IMPORTANT: The bucket must be fully flushed to disk segments before calling
+// this method. Any data that exists only in the active memtable will be lost,
+// because the method creates a fresh memtable (with a commit log path matching
+// the new directory) and discards the old one. Callers must call
+// Bucket.FlushAndSwitch (or equivalent) before invoking RenameBucket. The
+// method checks that no flush is in progress, but does not verify that a flush
+// has already completed.
 func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -591,22 +613,28 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 		return fmt.Errorf("bucket '%s' can not be renamed before flushing", bucketName)
 	}
 
-	currBucket.dir = newBucketDir
-
-	mt, err := currBucket.createNewActiveMemtable()
-	if err != nil {
-		return fmt.Errorf("switch active memtable: %w", err)
-	}
-	currBucket.active = mt
-
-	s.bucketsByName[newBucketName] = currBucket
-	delete(s.bucketsByName, bucketName)
-
+	// Filesystem rename first — if this fails, nothing has changed in memory.
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
 
+	// Update in-memory state after successful filesystem rename.
+	currBucket.dir = newBucketDir
+
+	mt, err := currBucket.createNewActiveMemtable()
+	if err != nil {
+		// Rollback: move directory back since in-memory state is partially updated.
+		currBucket.dir = currBucketDir
+		_ = os.Rename(newBucketDir, currBucketDir)
+		return fmt.Errorf("switch active memtable: %w", err)
+	}
+	currBucket.active = mt
+
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
+
+	// Map swap is last — only after all filesystem and state updates succeed.
+	s.bucketsByName[newBucketName] = currBucket
+	delete(s.bucketsByName, bucketName)
 
 	return nil
 }
