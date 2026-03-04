@@ -2781,7 +2781,7 @@ func Test_SetClassDefaults(t *testing.T) {
 	}
 }
 
-func Test_SetClassDefaults_AsyncReplication(t *testing.T) {
+func TestSetClassDefaultsAsyncReplication(t *testing.T) {
 	tests := []struct {
 		name          string
 		globalCfg     replication.GlobalConfig
