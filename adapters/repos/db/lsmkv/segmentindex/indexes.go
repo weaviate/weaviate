@@ -300,20 +300,5 @@ func (s *Indexes) buildAndMarshalSecondary(w io.Writer, pos int,
 
 // assumes sorted keys and does NOT sort them again
 func (s *Indexes) buildAndMarshalPrimary(w io.Writer, keys []Key) (int64, error) {
-	keyNodes := make([]Node, len(keys))
-	for i, key := range keys {
-		keyNodes[i] = Node{
-			Key:   key.Key,
-			Start: uint64(key.ValueStart),
-			End:   uint64(key.ValueEnd),
-		}
-	}
-	index := NewBalanced(keyNodes)
-
-	n, err := index.MarshalBinaryInto(w)
-	if err != nil {
-		return -1, err
-	}
-
-	return n, nil
+	return MarshalSortedKeysFromKeys(w, keys)
 }
