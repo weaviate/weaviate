@@ -121,9 +121,9 @@ func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName st
 		deactivateAfter = isCold
 	}
 
-	shard, shardRelease, err := idx.getOptInitLocalShard(ctx, shardName, true)
+	shard, shardRelease, err := idx.acquireShardWithLock(ctx, shardName, class)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get shard %s for class %s: %w", shardName, className, err)
+		return nil, nil, fmt.Errorf("acquire shard %s for class %s: %w", shardName, className, err)
 	}
 
 	release := shardRelease
@@ -140,6 +140,77 @@ func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName st
 		}
 	}
 
+	return shard, release, nil
+}
+
+// acquireShardWithLock loads (or initializes) a shard and returns it with
+// shardCreateLocks.RLock held. The returned release function releases both
+// preventShutdown and the RLock. Holding RLock blocks the migrator from
+// deactivating the shard (it acquires shardCreateLocks.Lock).
+func (i *Index) acquireShardWithLock(ctx context.Context, shardName string, class *models.Class) (ShardLike, func(), error) {
+	i.closeLock.RLock()
+	if i.closed {
+		i.closeLock.RUnlock()
+		return nil, nil, errAlreadyShutdown
+	}
+
+	i.shardCreateLocks.RLock(shardName)
+	shard := i.shards.Load(shardName)
+
+	if shard != nil {
+		// Hot path: shard already loaded. RLock is held continuously from
+		// load through preventShutdown — no gap for the migrator.
+		shardRelease, err := shard.preventShutdown()
+		i.closeLock.RUnlock()
+		if err != nil {
+			i.shardCreateLocks.RUnlock(shardName)
+			return nil, nil, err
+		}
+		release := func() {
+			shardRelease()
+			i.shardCreateLocks.RUnlock(shardName)
+		}
+		return shard, release, nil
+	}
+
+	// Cold path: shard not loaded — upgrade to exclusive Lock for init.
+	// Go's RWMutex does not support upgrade, so release RLock first.
+	i.shardCreateLocks.RUnlock(shardName)
+
+	i.shardCreateLocks.Lock(shardName)
+	// Double-check: another goroutine may have initialized it.
+	shard = i.shards.Load(shardName)
+	if shard == nil {
+		var err error
+		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+		if err != nil {
+			i.shardCreateLocks.Unlock(shardName)
+			i.closeLock.RUnlock()
+			return nil, nil, err
+		}
+		i.shards.Store(shardName, shard)
+	}
+
+	// Call preventShutdown while still holding exclusive Lock, so no
+	// deactivation can start between init and the ref being acquired.
+	shardRelease, err := shard.preventShutdown()
+	if err != nil {
+		i.shardCreateLocks.Unlock(shardName)
+		i.closeLock.RUnlock()
+		return nil, nil, err
+	}
+
+	// Downgrade to RLock: release exclusive Lock, then acquire RLock.
+	// The migrator could slip in during this gap, but preventShutdown
+	// is already held so it cannot shut the shard down.
+	i.shardCreateLocks.Unlock(shardName)
+	i.shardCreateLocks.RLock(shardName)
+	i.closeLock.RUnlock()
+
+	release := func() {
+		shardRelease()
+		i.shardCreateLocks.RUnlock(shardName)
+	}
 	return shard, release, nil
 }
 
