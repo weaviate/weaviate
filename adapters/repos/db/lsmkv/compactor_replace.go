@@ -56,6 +56,11 @@ type compactorReplace struct {
 	arena keyArena
 
 	writeBuf [9]byte // reused by writeIndividualNode to avoid per-key allocation
+
+	// primaryIndexSize and secIndexSizes are accumulated during writeKeys so
+	// that writeDirectly does not need a second O(N) scan over the keys.
+	primaryIndexSize int64
+	secIndexSizes    []int64
 }
 
 func newCompactorReplace(w io.WriteSeeker,
@@ -73,6 +78,11 @@ func newCompactorReplace(w io.WriteSeeker,
 	meteredW := diskio.NewMeteredWriter(w, writeCB)
 	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
 
+	var secIndexSizes []int64
+	if secondaryIndexCount > 0 {
+		secIndexSizes = make([]int64, secondaryIndexCount)
+	}
+
 	return &compactorReplace{
 		c1:                       c1,
 		c2:                       c2,
@@ -86,6 +96,7 @@ func newCompactorReplace(w io.WriteSeeker,
 		enableChecksumValidation: enableChecksumValidation,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,
+		secIndexSizes:            secIndexSizes,
 	}
 }
 
@@ -175,6 +186,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				}
 
 				offset = ki.ValueEnd
+				c.accumulateIndexSizes(ki)
 				kis = append(kis, ki)
 			}
 			// advance both!
@@ -193,6 +205,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				}
 
 				offset = ki.ValueEnd
+				c.accumulateIndexSizes(ki)
 				kis = append(kis, ki)
 			}
 			res1, err1 = c.c1.next()
@@ -206,6 +219,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				}
 
 				offset = ki.ValueEnd
+				c.accumulateIndexSizes(ki)
 				kis = append(kis, ki)
 			}
 			res2, err2 = c.c2.next()
@@ -213,6 +227,13 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 	}
 
 	return kis, nil
+}
+
+func (c *compactorReplace) accumulateIndexSizes(ki segmentindex.Key) {
+	c.primaryIndexSize += int64(36 + len(ki.Key))
+	for pos, sk := range ki.SecondaryKeys {
+		c.secIndexSizes[pos] += int64(36 + len(sk))
+	}
 }
 
 func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
@@ -253,7 +274,10 @@ func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 			"strategy":  StrategyReplace,
 			"operation": "writeIndices",
 		}),
-		AllocChecker: c.allocChecker,
+		AllocChecker:                   c.allocChecker,
+		SizesPrecomputed:               true,
+		PrecomputedPrimaryIndexSize:    c.primaryIndexSize,
+		PrecomputedSecondaryIndexSizes: c.secIndexSizes,
 	}
 	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
 	return err
