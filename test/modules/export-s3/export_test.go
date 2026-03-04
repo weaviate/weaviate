@@ -173,6 +173,162 @@ func TestExport_MultiTenant_MultiShard(t *testing.T) {
 	verifyParquetExport(t, exportID, className, allObjects)
 }
 
+func TestExport_NamedVectorAndMultiVector(t *testing.T) {
+	className := t.Name()
+	exportID := strings.ToLower(t.Name())
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"regular": {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexType: "hnsw",
+			},
+			"colbert": {
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexConfig: map[string]interface{}{
+					"multivector": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": float64(1),
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	objects := makeNamedVectorObjects(className, 10)
+	helper.CreateObjectsBatch(t, objects)
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", resp.Payload.Status)
+
+	verifyNamedVectorParquetExport(t, exportID, className, objects)
+}
+
+func makeNamedVectorObjects(className string, count int) []*models.Object {
+	objects := make([]*models.Object, count)
+	for i := range objects {
+		objects[i] = &models.Object{
+			Class: className,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"text": fmt.Sprintf("object %d", i),
+			},
+			Vectors: models.Vectors{
+				"regular": []float32{float32(i) * 0.1, float32(i) * 0.2, float32(i) * 0.3},
+				"colbert": [][]float32{
+					{float32(i) * 0.01, float32(i) * 0.02},
+					{float32(i) * 0.03, float32(i) * 0.04},
+				},
+			},
+		}
+	}
+	return objects
+}
+
+func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, expectedObjects []*models.Object) {
+	t.Helper()
+
+	keys := listParquetKeys(t, exportID, className)
+	require.NotEmpty(t, keys, "no parquet files found for class %s", className)
+
+	var allRows []pqexport.ParquetRow
+	for _, key := range keys {
+		data := downloadS3Object(t, s3Bucket, key)
+		rows := readParquetRows(t, data)
+		allRows = append(allRows, rows...)
+	}
+
+	require.Len(t, allRows, len(expectedObjects), "parquet row count mismatch")
+
+	type expectedObj struct {
+		text         string
+		namedVectors map[string][]float32
+		multiVectors map[string][][]float32
+	}
+
+	expected := make(map[string]expectedObj, len(expectedObjects))
+	for _, obj := range expectedObjects {
+		props := obj.Properties.(map[string]interface{})
+		eo := expectedObj{
+			text:         props["text"].(string),
+			namedVectors: make(map[string][]float32),
+			multiVectors: make(map[string][][]float32),
+		}
+		for name, vec := range obj.Vectors {
+			switch v := vec.(type) {
+			case []float32:
+				eo.namedVectors[name] = v
+			case [][]float32:
+				eo.multiVectors[name] = v
+			}
+		}
+		expected[string(obj.ID)] = eo
+	}
+
+	for _, row := range allRows {
+		require.Equal(t, className, row.ClassName)
+
+		eo, ok := expected[row.ID]
+		require.True(t, ok, "unexpected object ID in parquet: %s", row.ID)
+
+		// Verify properties
+		if row.Properties != nil {
+			var props map[string]interface{}
+			require.NoError(t, json.Unmarshal(row.Properties, &props))
+			require.Equal(t, eo.text, props["text"])
+		}
+
+		// Verify named vectors (single vectors)
+		if len(eo.namedVectors) > 0 {
+			require.NotNil(t, row.NamedVectors, "expected named_vectors for object %s", row.ID)
+			var namedVecs map[string][]float32
+			require.NoError(t, json.Unmarshal(row.NamedVectors, &namedVecs))
+			for name, expectedVec := range eo.namedVectors {
+				actualVec, ok := namedVecs[name]
+				require.True(t, ok, "missing named vector %s for object %s", name, row.ID)
+				require.InDeltaSlice(t, expectedVec, actualVec, 1e-6, "named vector %s mismatch for object %s", name, row.ID)
+			}
+		}
+
+		// Verify multi vectors
+		if len(eo.multiVectors) > 0 {
+			require.NotNil(t, row.MultiVectors, "expected multi_vectors for object %s", row.ID)
+			var multiVecs map[string][][]float32
+			require.NoError(t, json.Unmarshal(row.MultiVectors, &multiVecs))
+			for name, expectedMV := range eo.multiVectors {
+				actualMV, ok := multiVecs[name]
+				require.True(t, ok, "missing multi vector %s for object %s", name, row.ID)
+				require.Len(t, actualMV, len(expectedMV), "multi vector %s length mismatch for object %s", name, row.ID)
+				for j := range expectedMV {
+					require.InDeltaSlice(t, expectedMV[j], actualMV[j], 1e-6, "multi vector %s[%d] mismatch for object %s", name, j, row.ID)
+				}
+			}
+		}
+
+		delete(expected, row.ID)
+	}
+
+	require.Empty(t, expected, "some objects were not found in parquet export")
+}
+
 func makeObjects(className, tenant string, count int) []*models.Object {
 	objects := make([]*models.Object, count)
 	for i := range objects {
