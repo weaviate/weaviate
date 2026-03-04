@@ -141,6 +141,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
+	// Clean up any orphaned transfer snapshot directories left from a previous crash.
+	s.cleanupOrphanedTransferSnapshots()
+
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
 	if err := s.initNonVector(ctx, class); err != nil {

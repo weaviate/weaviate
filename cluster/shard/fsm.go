@@ -14,10 +14,13 @@ package shard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -29,6 +32,17 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"google.golang.org/protobuf/proto"
+)
+
+const (
+	// fsmRetryAttempts is the number of retry attempts for transient errors
+	// in FSM.Apply() handlers. Combined with fsmRetryInterval, the maximum
+	// added latency is fsmRetryAttempts * fsmRetryInterval (300ms), well
+	// within RAFT's default 10s apply timeout.
+	fsmRetryAttempts = 3
+
+	// fsmRetryInterval is the constant backoff between retry attempts.
+	fsmRetryInterval = 100 * time.Millisecond
 )
 
 // shard defines the operations that can be performed on a shard.
@@ -212,41 +226,98 @@ func (f *FSM) Apply(l *raft.Log) any {
 	f.indexCond.Broadcast()
 
 	if applyErr != nil {
-		f.log.WithError(applyErr).WithField("index", l.Index).Error("failed to apply command")
-		return Response{Version: l.Index, Error: applyErr}
+		// This should not happen after the retry changes — all handlers now
+		// swallow errors to maintain FSM consistency. Log as defense-in-depth.
+		f.log.WithError(applyErr).WithField("index", l.Index).
+			Error("unexpected error from FSM handler (should have been swallowed)")
 	}
 
 	return Response{Version: l.Index}
+}
+
+// isRetryableInFSM returns true if the error is a transient infrastructure
+// error that may resolve on retry (memory pressure, disk I/O, etc).
+// Non-retryable errors (bad data, unknown formats) return false.
+func isRetryableInFSM(err error) bool {
+	if err == nil {
+		return false
+	}
+	if enterrors.IsTransient(err) {
+		return true
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case syscall.EIO, syscall.ENOSPC, syscall.EROFS:
+			return true
+		default:
+		}
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no space left") ||
+		strings.Contains(msg, "read-only file system") ||
+		strings.Contains(msg, "input/output error")
+}
+
+// retryApplyOp retries a shard operation within FSM.Apply() if the error
+// is classified as transient. Non-retryable errors are swallowed immediately.
+// If retries exhaust, the error is logged and nil is returned to keep all
+// nodes' state machines consistent. The async replication hashbeater will
+// detect and repair the divergence.
+func (f *FSM) retryApplyOp(opName string, op func() error) error {
+	var lastErr error
+	for attempt := 0; attempt <= fsmRetryAttempts; attempt++ {
+		err := op()
+		if err == nil {
+			return nil
+		}
+		if !isRetryableInFSM(err) {
+			f.log.WithError(err).WithField("op", opName).
+				Error("FSM apply: permanent error, swallowing to maintain consistency")
+			return nil
+		}
+		lastErr = err
+		if attempt < fsmRetryAttempts {
+			f.log.WithError(err).WithFields(logrus.Fields{
+				"op":      opName,
+				"attempt": attempt + 1,
+			}).Warn("FSM apply: transient error, retrying")
+			time.Sleep(fsmRetryInterval)
+		}
+	}
+	f.log.WithError(lastErr).WithFields(logrus.Fields{
+		"op":       opName,
+		"attempts": fsmRetryAttempts + 1,
+	}).Error("FSM apply: retries exhausted, swallowing error to maintain consistency; async replication will repair")
+	return nil
 }
 
 // putObject applies a PUT_OBJECT command to the shard.
 func (f *FSM) putObject(shard shard, req *shardproto.ApplyRequest) error {
 	var subreq shardproto.PutObjectRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		return fmt.Errorf("unmarshal PutObject subcommand: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in putObject, swallowing")
+		return nil
 	}
 
 	obj, err := storobj.FromBinary(subreq.Object)
 	if err != nil {
-		return fmt.Errorf("get object from command: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent deserialize error in putObject, swallowing")
+		return nil
 	}
 
-	// Use a background context since FSM.Apply should complete regardless
-	// of the original request context.
 	ctx := context.Background()
-
-	if err := shard.PutObject(ctx, obj); err != nil {
-		return fmt.Errorf("put object: %w", err)
-	}
-
-	return nil
+	return f.retryApplyOp("put_object", func() error {
+		return shard.PutObject(ctx, obj)
+	})
 }
 
 // deleteObject applies a DELETE_OBJECT command to the shard.
 func (f *FSM) deleteObject(shard shard, req *shardproto.ApplyRequest) error {
 	var subreq shardproto.DeleteObjectRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		return fmt.Errorf("unmarshal DeleteObject subcommand: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in deleteObject, swallowing")
+		return nil
 	}
 
 	id := strfmt.UUID(subreq.Id)
@@ -257,57 +328,60 @@ func (f *FSM) deleteObject(shard shard, req *shardproto.ApplyRequest) error {
 	}
 
 	ctx := context.Background()
-	if err := shard.DeleteObject(ctx, id, deletionTime); err != nil {
-		return fmt.Errorf("delete object: %w", err)
-	}
-
-	return nil
+	return f.retryApplyOp("delete_object", func() error {
+		return shard.DeleteObject(ctx, id, deletionTime)
+	})
 }
 
 // mergeObject applies a MERGE_OBJECT command to the shard.
 func (f *FSM) mergeObject(shard shard, req *shardproto.ApplyRequest) error {
 	var subreq shardproto.MergeObjectRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		return fmt.Errorf("unmarshal MergeObject subcommand: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in mergeObject, swallowing")
+		return nil
 	}
 
 	var doc objects.MergeDocument
 	if err := json.Unmarshal(subreq.MergeDocumentJson, &doc); err != nil {
-		return fmt.Errorf("unmarshal merge document: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in mergeObject, swallowing")
+		return nil
 	}
 
 	ctx := context.Background()
-	if err := shard.MergeObject(ctx, doc); err != nil {
-		return fmt.Errorf("merge object: %w", err)
-	}
-
-	return nil
+	return f.retryApplyOp("merge_object", func() error {
+		return shard.MergeObject(ctx, doc)
+	})
 }
 
 // putObjectsBatch applies a PUT_OBJECTS_BATCH command to the shard.
 func (f *FSM) putObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
 	var subreq shardproto.PutObjectsBatchRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		return fmt.Errorf("unmarshal PutObjectsBatch subcommand: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in putObjectsBatch, swallowing")
+		return nil
 	}
 
 	objs := make([]*storobj.Object, len(subreq.Objects))
 	for i, raw := range subreq.Objects {
 		obj, err := storobj.FromBinary(raw)
 		if err != nil {
-			return fmt.Errorf("deserialize object %d: %w", i, err)
+			f.log.WithError(err).WithField("index", i).Error("FSM apply: permanent deserialize error in putObjectsBatch, swallowing")
+			return nil
 		}
 		objs[i] = obj
 	}
 
 	ctx := context.Background()
 	errs := shard.PutObjectBatch(ctx, objs)
-	for _, err := range errs {
+	for i, err := range errs {
 		if err != nil {
-			return fmt.Errorf("put objects batch: %w", err)
+			f.log.WithError(err).WithField("index", i).Warn("batch put: item failed")
 		}
 	}
 
+	// Return nil even on per-item errors: the RAFT log entry is already
+	// committed, and partial success is acceptable since replay is idempotent.
+	// Failed items can be retried by the client.
 	return nil
 }
 
@@ -315,7 +389,8 @@ func (f *FSM) putObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
 func (f *FSM) deleteObjectsBatch(shard shard, req *shardproto.ApplyRequest) error {
 	var subreq shardproto.DeleteObjectsBatchRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		return fmt.Errorf("unmarshal DeleteObjectsBatch subcommand: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in deleteObjectsBatch, swallowing")
+		return nil
 	}
 
 	uuids := make([]strfmt.UUID, len(subreq.Uuids))
@@ -330,12 +405,14 @@ func (f *FSM) deleteObjectsBatch(shard shard, req *shardproto.ApplyRequest) erro
 
 	ctx := context.Background()
 	results := shard.DeleteObjectBatch(ctx, uuids, deletionTime, subreq.DryRun)
-	for _, r := range results {
+	for i, r := range results {
 		if r.Err != nil {
-			return fmt.Errorf("delete objects batch: %w", r.Err)
+			f.log.WithError(r.Err).WithField("index", i).Warn("batch delete: item failed")
 		}
 	}
 
+	// Return nil even on per-item errors: the RAFT log entry is already
+	// committed, and partial success is acceptable since replay is idempotent.
 	return nil
 }
 
@@ -343,22 +420,26 @@ func (f *FSM) deleteObjectsBatch(shard shard, req *shardproto.ApplyRequest) erro
 func (f *FSM) addReferences(shard shard, req *shardproto.ApplyRequest) error {
 	var subreq shardproto.AddReferencesRequest
 	if err := proto.Unmarshal(req.SubCommand, &subreq); err != nil {
-		return fmt.Errorf("unmarshal AddReferences subcommand: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in addReferences, swallowing")
+		return nil
 	}
 
 	var refs objects.BatchReferences
 	if err := json.Unmarshal(subreq.ReferencesJson, &refs); err != nil {
-		return fmt.Errorf("unmarshal references: %w", err)
+		f.log.WithError(err).Error("FSM apply: permanent unmarshal error in addReferences, swallowing")
+		return nil
 	}
 
 	ctx := context.Background()
 	errs := shard.AddReferencesBatch(ctx, refs)
-	for _, err := range errs {
+	for i, err := range errs {
 		if err != nil {
-			return fmt.Errorf("add references: %w", err)
+			f.log.WithError(err).WithField("index", i).Warn("add references: item failed")
 		}
 	}
 
+	// Return nil even on per-item errors: the RAFT log entry is already
+	// committed, and partial success is acceptable since replay is idempotent.
 	return nil
 }
 

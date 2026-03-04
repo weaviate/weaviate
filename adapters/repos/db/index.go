@@ -966,6 +966,9 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	}
 	if i.shardHasMultipleReplicasWrite(tenantName, targetShard.Shard) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.validateConsistencyLevel(cl); err != nil {
+			return fmt.Errorf("validate consistency level: %w", err)
+		}
 		if err := i.replicator.PutObject(ctx, targetShard.Shard, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", targetShard.Shard, err)
 		}
@@ -1294,8 +1297,14 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			tenantName := group.objects[0].Object.Tenant
 			var errs []error
 			if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
-					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+				cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+				if err := i.validateConsistencyLevel(cl); err != nil {
+					for _, pos := range group.pos {
+						out[pos] = fmt.Errorf("validate consistency level: %w", err)
+					}
+					return
+				}
+				errs = i.replicator.PutObjects(ctx, shardName, group.objects, cl, schemaVersion)
 			} else {
 				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
 				defer release()
@@ -1399,7 +1408,15 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		tenantName := group.refs[0].Tenant
 		var errs []error
 		if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+			cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+			if err := i.validateConsistencyLevel(cl); err != nil {
+				errs = duplicateErr(fmt.Errorf("validate consistency level: %w", err), len(group.refs))
+				for j, e := range errs {
+					out[group.pos[j]] = e
+				}
+				continue
+			}
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, cl, schemaVersion)
 		} else {
 			shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
 			if err != nil {
@@ -2283,6 +2300,9 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 			replProps = i.defaultConsistency()
 		}
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.validateConsistencyLevel(cl); err != nil {
+			return fmt.Errorf("validate consistency level: %w", err)
+		}
 		if err := i.replicator.DeleteObject(ctx, shardName, id, deletionTime, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
@@ -2746,6 +2766,9 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 			replProps = i.defaultConsistency()
 		}
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.validateConsistencyLevel(cl); err != nil {
+			return fmt.Errorf("validate consistency level: %w", err)
+		}
 		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate single update: %w", err)
 		}
@@ -3295,8 +3318,15 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 
 			var objs objects.BatchSimpleObjects
 			if i.shardHasMultipleReplicasWrite(tenant, shardName) {
+				cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+				if err := i.validateConsistencyLevel(cl); err != nil {
+					ch <- result{objs: objects.BatchSimpleObjects{
+						objects.BatchSimpleObject{Err: fmt.Errorf("validate consistency level: %w", err)},
+					}}
+					return
+				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
-					dryRun, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+					dryRun, cl, schemaVersion)
 			} else {
 				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationWrite)
 				defer release()

@@ -37,13 +37,18 @@ const NotLeaderRPCCode = codes.ResourceExhausted
 // snapshot files to followers (64KB).
 const defaultFileChunkSize = 64 * 1024
 
+// maxConcurrentSnapshots limits the number of concurrent transfer snapshot
+// creations to prevent overwhelming the leader.
+const maxConcurrentSnapshots = 3
+
 // Server implements the ShardReplicationService gRPC server.
 // It receives forwarded requests from followers and applies them to the local RAFT cluster.
 type Server struct {
 	shardproto.UnimplementedShardReplicationServiceServer
-	registry  *Registry
-	logger    logrus.FieldLogger
-	snapshots sync.Map // snapshotID → *activeSnapshot
+	registry    *Registry
+	logger      logrus.FieldLogger
+	snapshots   sync.Map      // snapshotID → *activeSnapshot
+	snapshotSem chan struct{} // semaphore limiting concurrent snapshot creations
 }
 
 // activeSnapshot tracks a transfer snapshot that has been created but not yet released.
@@ -56,8 +61,9 @@ type activeSnapshot struct {
 // NewServer creates a new gRPC server for shard replication.
 func NewServer(registry *Registry, logger logrus.FieldLogger) *Server {
 	return &Server{
-		registry: registry,
-		logger:   logger.WithField("component", "shard_rpc_server"),
+		registry:    registry,
+		logger:      logger.WithField("component", "shard_rpc_server"),
+		snapshotSem: make(chan struct{}, maxConcurrentSnapshots),
 	}
 }
 
@@ -78,6 +84,14 @@ func (s *Server) Apply(ctx context.Context, req *shardproto.ApplyRequest) (*shar
 // CreateTransferSnapshot creates a hardlink snapshot of a shard's files
 // for out-of-band state transfer.
 func (s *Server) CreateTransferSnapshot(ctx context.Context, req *shardproto.CreateTransferSnapshotRequest) (*shardproto.CreateTransferSnapshotResponse, error) {
+	// Rate-limit concurrent snapshot creations to prevent overwhelming the leader.
+	select {
+	case s.snapshotSem <- struct{}{}:
+		defer func() { <-s.snapshotSem }()
+	default:
+		return nil, status.Errorf(codes.ResourceExhausted, "too many concurrent snapshot transfers")
+	}
+
 	store := s.registry.GetStore(req.Class, req.Shard)
 	if store == nil {
 		return nil, status.Errorf(codes.NotFound, "store not found for %s/%s", req.Class, req.Shard)
@@ -173,7 +187,7 @@ func (s *Server) GetSnapshotFile(req *shardproto.GetSnapshotFileRequest, stream 
 
 // ReleaseTransferSnapshot cleans up the staging directory for a transfer snapshot.
 func (s *Server) ReleaseTransferSnapshot(ctx context.Context, req *shardproto.ReleaseTransferSnapshotRequest) (*shardproto.ReleaseTransferSnapshotResponse, error) {
-	val, ok := s.snapshots.LoadAndDelete(req.SnapshotId)
+	val, ok := s.snapshots.Load(req.SnapshotId)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "snapshot %s not found", req.SnapshotId)
 	}
@@ -185,9 +199,12 @@ func (s *Server) ReleaseTransferSnapshot(ctx context.Context, req *shardproto.Re
 	}
 
 	if err := store.ReleaseTransferSnapshot(req.SnapshotId); err != nil {
+		// Don't remove from map on failure — allows retry cleanup.
 		return nil, status.Errorf(codes.Internal, "release transfer snapshot: %v", err)
 	}
 
+	// Only remove from tracking after successful cleanup.
+	s.snapshots.Delete(req.SnapshotId)
 	return &shardproto.ReleaseTransferSnapshotResponse{}, nil
 }
 
