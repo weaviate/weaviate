@@ -47,7 +47,7 @@ func NewExportCreate(ctx *middleware.Context, handler ExportCreateHandler) *Expo
 
 # Start a new export
 
-Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.
+Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.
 */
 type ExportCreate struct {
 	Context *middleware.Context

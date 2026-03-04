@@ -51,7 +51,7 @@ type ClientService interface {
 /*
 ExportCreate starts a new export
 
-Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.
+Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.
 */
 func (a *Client) ExportCreate(params *ExportCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ExportCreateOK, error) {
 	// TODO: Validate the params before sending

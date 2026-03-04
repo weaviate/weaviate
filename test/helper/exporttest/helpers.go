@@ -24,11 +24,13 @@ import (
 
 func CreateExport(t *testing.T, backend, exportID string, include []string) (*export.ExportCreateOK, error) {
 	t.Helper()
+	fileFormat := models.ExportCreateRequestFileFormatParquet
 	params := export.NewExportCreateParams().
 		WithBackend(backend).
 		WithBody(&models.ExportCreateRequest{
-			ID:      &exportID,
-			Include: include,
+			ID:         &exportID,
+			Include:    include,
+			FileFormat: &fileFormat,
 		})
 	t.Logf("Creating export with ID: %s, backend: %s, include: %v", exportID, backend, include)
 	return helper.Client(t).Export.ExportCreate(params, nil)
