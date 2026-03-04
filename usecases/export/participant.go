@@ -341,7 +341,6 @@ func (p *Participant) exportClassShards(
 				mu.Unlock()
 				return fmt.Errorf("acquire shard %s: %w", shardName, err)
 			}
-			defer release()
 
 			if shard == nil {
 				// Tenant is COLD and auto-activation is disabled — skip.
@@ -351,6 +350,7 @@ func (p *Participant) exportClassShards(
 				mu.Unlock()
 				return nil
 			}
+			defer release()
 
 			objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard, isMT)
 			if err != nil {
