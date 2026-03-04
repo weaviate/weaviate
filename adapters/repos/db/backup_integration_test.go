@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -584,7 +585,6 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	classes := []string{className}
 	require.Nil(t, db.Backupable(ctx, classes))
 
-	// Get real backup descriptors from the database.
 	var classDescs []entBackup.ClassDescriptor
 	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
 	for d := range ch {
@@ -597,18 +597,49 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	sourceDataPath := db.config.RootPath
 
 	// Use very small chunk/split sizes to force file splitting even on small test data.
-	// This ensures the splitting logic is exercised.
 	const chunkSize = 512     // 512 bytes
 	const splitFileSize = 256 // 256 bytes
 
-	// --- Backup phase: compress each shard into chunks, mimicking backend.go ---
-	type chunkBytes struct {
-		data []byte
+	result := backupWithSizes(t, ctx, sourceDataPath, classDescs, chunkSize, splitFileSize)
+	t.Logf("backup produced %d chunks from %d shards", len(result.chunks), len(classDescs[0].Shards))
+	require.Greater(t, len(result.chunks), 1, "expected multiple chunks due to small chunk/split sizes")
+
+	restoreAndVerify(t, sourceDataPath, classDescs, result.chunks)
+
+	for _, class := range classes {
+		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
 	}
-	var allChunks []chunkBytes
+}
+
+// backupChunkResult holds the result of a single backup pass.
+type backupChunkResult struct {
+	chunks    [][]byte // raw chunk data
+	fileSizes []int64  // per-file sizes (from stat) across all shards
+}
+
+// backupWithSizes performs a backup using the given chunk/split sizes and returns the chunks and file sizes.
+func backupWithSizes(
+	t *testing.T,
+	ctx context.Context,
+	sourceDataPath string,
+	classDescs []entBackup.ClassDescriptor,
+	chunkSize, splitFileSize int64,
+) backupChunkResult {
+	t.Helper()
+
+	var result backupChunkResult
 
 	for _, sd := range classDescs[0].Shards {
 		filesInShard := &entBackup.FileList{Files: append([]string{}, sd.Files...)}
+
+		// Collect actual file sizes for reporting.
+		for _, relPath := range sd.Files {
+			info, err := os.Stat(filepath.Join(sourceDataPath, relPath))
+			if err == nil && info.Mode().IsRegular() {
+				result.fileSizes = append(result.fileSizes, info.Size())
+			}
+		}
+
 		var fileSizeExceeded *backupUC.SplitFile
 		firstChunk := true
 
@@ -642,7 +673,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 			res := <-resultCh
 			require.NoError(t, res.err)
 
-			allChunks = append(allChunks, chunkBytes{data: buf.Bytes()})
+			result.chunks = append(result.chunks, buf.Bytes())
 			fileSizeExceeded = res.split
 			firstChunk = false
 
@@ -651,16 +682,23 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 			}
 		}
 	}
+	return result
+}
 
-	t.Logf("backup produced %d chunks from %d shards", len(allChunks), len(classDescs[0].Shards))
-	require.Greater(t, len(allChunks), 1, "expected multiple chunks due to small chunk/split sizes")
+// restoreAndVerify restores all chunks into a temp dir and verifies every shard file matches the original.
+func restoreAndVerify(
+	t *testing.T,
+	sourceDataPath string,
+	classDescs []entBackup.ClassDescriptor,
+	chunks [][]byte,
+) {
+	t.Helper()
 
-	// --- Restore phase: decompress all chunks concurrently ---
 	restoreDir := t.TempDir()
 
 	var wg sync.WaitGroup
-	errs := make([]error, len(allChunks))
-	for i, c := range allChunks {
+	errs := make([]error, len(chunks))
+	for i, c := range chunks {
 		wg.Add(1)
 		go func(idx int, chunk []byte) {
 			defer wg.Done()
@@ -671,14 +709,13 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 			}()
 			_, errs[idx] = uz.ReadChunk()
 			uz.Close()
-		}(i, c.data)
+		}(i, c)
 	}
 	wg.Wait()
 	for i, err := range errs {
 		require.NoError(t, err, "chunk %d restore failed", i)
 	}
 
-	// --- Verify every shard file was restored correctly ---
 	for _, sd := range classDescs[0].Shards {
 		for _, relPath := range sd.Files {
 			originalPath := filepath.Join(sourceDataPath, relPath)
@@ -686,14 +723,11 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 
 			original, err := os.ReadFile(originalPath)
 			require.NoError(t, err, "read original %s", relPath)
-
 			restored, err := os.ReadFile(restoredPath)
 			require.NoError(t, err, "read restored %s", relPath)
-
 			require.Equal(t, original, restored, "file content mismatch for %s", relPath)
 		}
 
-		// Verify in-memory metadata files.
 		restoredCounter, err := os.ReadFile(filepath.Join(restoreDir, sd.DocIDCounterPath))
 		require.NoError(t, err)
 		require.Equal(t, sd.DocIDCounter, restoredCounter, "DocIDCounter mismatch")
@@ -706,10 +740,103 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, sd.Version, restoredVersion, "Version mismatch")
 	}
+}
 
-	// Release backup hold.
+// TestBackup_SplitSizeReducesChunkSize starts with a large split file size (no splitting),
+// measures chunk sizes, then sets the split size below the biggest files and verifies that
+// more chunks are produced while the restore still succeeds.
+func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
+	ctx := testCtx()
+	dirName := t.TempDir()
+	className := "SplitSizeChunkClass"
+	backupID := "backup-split-size"
+	now := time.Now()
+
+	db := setupTestDB(t, dirName, makeTestClass(className))
+	defer func() {
+		require.Nil(t, db.Shutdown(context.Background()))
+	}()
+
+	// Insert enough objects so shard files are non-trivial.
+	for i := 0; i < 50; i++ {
+		vec := []float32{float32(i), float32(i + 1), float32(i + 2)}
+		require.Nil(t, db.PutObject(ctx, &models.Object{
+			Class:              className,
+			CreationTimeUnix:   now.UnixNano(),
+			ID:                 strfmt.UUID(fmt.Sprintf("ff9fcae5-57b8-431c-b8e2-%012d", i)),
+			LastUpdateTimeUnix: now.UnixNano(),
+			Vector:             vec,
+			VectorWeights:      nil,
+		}, vec, nil, nil, nil, 0))
+	}
+
+	classes := []string{className}
+	require.Nil(t, db.Backupable(ctx, classes))
+
+	var classDescs []entBackup.ClassDescriptor
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	for d := range ch {
+		require.Nil(t, d.Error)
+		classDescs = append(classDescs, d)
+	}
+	require.Len(t, classDescs, 1)
+	require.NotEmpty(t, classDescs[0].Shards)
+
+	sourceDataPath := db.config.RootPath
+
+	// --- Pass 1: backup with a large split file size (effectively no splitting) ---
+	const largeChunkSize = 512               // small chunk target to get multiple chunks
+	const largeSplitSize = 100 * 1024 * 1024 // 100 MB — no file will be this big
+
+	pass1 := backupWithSizes(t, ctx, sourceDataPath, classDescs, largeChunkSize, largeSplitSize)
+	t.Logf("pass 1 (no splitting): %d chunks", len(pass1.chunks))
+	require.Greater(t, len(pass1.chunks), 1, "expected multiple chunks with small chunk target")
+
+	// Verify pass 1 restore works.
+	restoreAndVerify(t, sourceDataPath, classDescs, pass1.chunks)
+
+	// Find the sizes of the 3 biggest files and set splitFileSize below the biggest.
+	sortedSizes := append([]int64{}, pass1.fileSizes...)
+	sort.Slice(sortedSizes, func(i, j int) bool { return sortedSizes[i] > sortedSizes[j] })
+
+	// We need at least 3 files bigger than our intended split size for this test to be meaningful.
+	require.GreaterOrEqual(t, len(sortedSizes), 3, "need at least 3 files")
+	// Set split size to half the size of the 3rd biggest file so that at least the top 3 files
+	// get split, producing extra chunks.
+	splitSize := sortedSizes[2] / 2
+	require.Greater(t, splitSize, int64(0), "3rd biggest file must be > 0 bytes")
+
+	t.Logf("top 3 file sizes: %d, %d, %d; using splitFileSize=%d",
+		sortedSizes[0], sortedSizes[1], sortedSizes[2], splitSize)
+
+	// --- Pass 2: backup with the reduced split file size ---
+	// Release pass 1 backup and re-acquire so we can create a new descriptor.
 	for _, class := range classes {
 		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
+	}
+	require.Nil(t, db.Backupable(ctx, classes))
+
+	var classDescs2 []entBackup.ClassDescriptor
+	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil)
+	for d := range ch2 {
+		require.Nil(t, d.Error)
+		classDescs2 = append(classDescs2, d)
+	}
+
+	pass2 := backupWithSizes(t, ctx, sourceDataPath, classDescs2, largeChunkSize, splitSize)
+	t.Logf("pass 2 (splitFileSize=%d): %d chunks", splitSize, len(pass2.chunks))
+
+	// The smaller split size should produce more chunks because large files are now split.
+	require.Greater(t, len(pass2.chunks), len(pass1.chunks),
+		"expected more chunks when split file size is reduced (pass1=%d, pass2=%d)",
+		len(pass1.chunks), len(pass2.chunks))
+
+	// Verify pass 2 restore produces identical files.
+	restoreAndVerify(t, sourceDataPath, classDescs2, pass2.chunks)
+
+	// Release pass 2 backup hold (pass 1 was already released above).
+	for _, class := range classes {
+		require.Nil(t, db.ReleaseBackup(ctx, backupID+"-2", class))
 	}
 }
 
