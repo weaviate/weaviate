@@ -128,6 +128,18 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return nil
 	})
 
+	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
+		}
+
+		if err = queue.Close(ctx); err != nil {
+			ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
+		}
+
+		return nil
+	})
+
 	s.propertyIndicesLock.RLock()
 	err = s.propertyIndices.ShutdownGeoIndices(ctx)
 	s.propertyIndicesLock.RUnlock()

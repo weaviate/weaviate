@@ -232,6 +232,15 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		}
 		return nil
 	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), pos)
+			}
+		}
+		return nil
+	})
 }
 
 // storeAdditionalStorageWithWorkers stores the object in all non-key-value
@@ -467,6 +476,15 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		if err := queue.Flush(); err != nil {
 			for i := range ob.objects {
 				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+		return nil
+	})
+
+	_ = ob.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			for i := range ob.objects {
+				ob.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), i)
 			}
 		}
 		return nil
