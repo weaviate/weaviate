@@ -284,6 +284,10 @@ func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
 	}
 }
 
+func (s *segmentCursorReplaceReusable) keyCount() int {
+	return s.segment.index.KeyCount()
+}
+
 func (s *segmentCursorReplaceReusable) first() (*segmentReplaceNode, error) {
 	if s.segment.dataStartPos == s.segment.dataEndPos {
 		return nil, lsmkv.NotFound

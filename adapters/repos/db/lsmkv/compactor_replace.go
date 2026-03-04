@@ -54,6 +54,8 @@ type compactorReplace struct {
 	// arena holds stable copies of key bytes so that ki.Key / ki.SecondaryKeys
 	// stored in the kis slice remain valid after the reusable cursor advances.
 	arena keyArena
+
+	writeBuf [9]byte // reused by writeIndividualNode to avoid per-key allocation
 }
 
 func newCompactorReplace(w io.WriteSeeker,
@@ -150,7 +152,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 	// the (dummy) header was already written, this is our initial offset
 	offset := segmentindex.HeaderSize
 
-	var kis []segmentindex.Key
+	kis := make([]segmentindex.Key, 0, c.c1.keyCount()+c.c2.keyCount())
 
 	for {
 		var key1, key2 []byte
@@ -237,7 +239,7 @@ func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 		secondaryIndexCount: c.secondaryIndexCount,
 		secondaryKeys:       secKeysCopy,
 	}
-	return segNode.KeyIndexAndWriteTo(f.BodyWriter())
+	return segNode.KeyIndexAndWriteToWithBuf(f.BodyWriter(), c.writeBuf[:])
 }
 
 func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,

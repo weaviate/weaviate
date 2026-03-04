@@ -32,10 +32,20 @@ type segmentReplaceNode struct {
 }
 
 func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	var buf [9]byte
+	return s.keyIndexAndWriteToWithBuf(w, buf[:])
+}
+
+// KeyIndexAndWriteToWithBuf is like KeyIndexAndWriteTo but accepts a caller-
+// supplied buffer (must be at least 9 bytes) to avoid a per-call allocation.
+func (s *segmentReplaceNode) KeyIndexAndWriteToWithBuf(w io.Writer, buf []byte) (segmentindex.Key, error) {
+	return s.keyIndexAndWriteToWithBuf(w, buf)
+}
+
+func (s *segmentReplaceNode) keyIndexAndWriteToWithBuf(w io.Writer, buf []byte) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
 	written := 0
 
-	buf := make([]byte, 9)
 	if s.tombstone {
 		buf[0] = 1
 	} else {
