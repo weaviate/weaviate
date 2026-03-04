@@ -142,6 +142,25 @@ func TestObjects_SyncIndexing(t *testing.T) {
 	testObjects(t)
 }
 
+func TestObjects_SyncIndexing_GrpcReplication(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().
+		WithText2VecContextionary().
+		WithWeaviateEnv("REPLICATION_GRPC_ENABLED", "true").
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	testObjects(t)
+}
+
 func testObjects(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class: "TestObject",
