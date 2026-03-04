@@ -12,21 +12,11 @@
 package clients
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"io"
-	"math/rand"
-	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/klauspost/compress/zstd"
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -37,415 +27,160 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-// ReplicationClient is to coordinate operations among replicas
+// switchableReplicationClient delegates to either a gRPC or REST client
+// based on a runtime config check. No fallback, no caching — the useGRPC
+// closure reads a DynamicValue[bool] per call, enabling runtime switching.
+type switchableReplicationClient struct {
+	grpcClient *grpcReplicationClient
+	restClient *replicationClient
+	useGRPC    func() bool
+}
 
-const (
-	ABORT_TIMEOUT_VALUE  = 5
-	COMMIT_TIMEOUT_VALUE = 90
-	QUERY_TIMEOUT_VALUE  = 20
-)
-
-const (
-	NO_RETRIES  = 0
-	MAX_RETRIES = 9
-)
-
-type replicationClient retryClient
-
-func NewReplicationClient(httpClient *http.Client) *replicationClient {
-	return &replicationClient{
-		client:  httpClient,
-		retryer: newRetryer(),
+// NewSwitchableReplicationClient creates a client that delegates to gRPC
+// when useGRPC() returns true, otherwise to REST.
+func NewSwitchableReplicationClient(
+	grpcClient *grpcReplicationClient,
+	restClient *replicationClient,
+	useGRPC func() bool,
+) *switchableReplicationClient {
+	return &switchableReplicationClient{
+		grpcClient: grpcClient,
+		restClient: restClient,
+		useGRPC:    useGRPC,
 	}
 }
 
-// FetchObject fetches one object it exits
-func (c *replicationClient) FetchObject(ctx context.Context, host, index,
-	shard string, id strfmt.UUID, selectProps search.SelectProperties,
-	additional additional.Properties, numRetries int,
-) (replica.Replica, error) {
-	resp := replica.Replica{}
-	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil, 0)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-	err = c.doCustomUnmarshal(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, resp.UnmarshalBinary, numRetries)
-	return resp, err
-}
+// ── Write operations (WClient) ───────────────────────────────────────────────
 
-func (c *replicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID, numRetries int,
-) (result []types.RepairResponse, err error) {
-	var resp []types.RepairResponse
-	body, err := json.Marshal(ids)
-	if err != nil {
-		return nil, fmt.Errorf("marshal digest objects input: %w", err)
-	}
-	req, err := newHttpReplicaRequest(
-		ctx, http.MethodGet, host, index, shard,
-		"", "_digest", bytes.NewReader(body), 0)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, &resp, numRetries)
-	return resp, err
-}
-
-func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
-	host, index, shard string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []types.RepairResponse, err error) {
-	body, err := json.Marshal(replica.DigestObjectsInRangeReq{
-		InitialUUID: initialUUID,
-		FinalUUID:   finalUUID,
-		Limit:       limit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal digest objects in range input: %w", err)
-	}
-
-	req, err := newHttpReplicaRequest(
-		ctx, http.MethodPost, host, index, shard,
-		"", "digestsInRange", bytes.NewReader(body), 0)
-	if err != nil {
-		return nil, fmt.Errorf("create http request: %w", err)
-	}
-
-	var resp replica.DigestObjectsInRangeResp
-	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
-	return resp.Digests, err
-}
-
-// HashTreeLevel fetches hash tree level digests
-func (c *replicationClient) HashTreeLevel(ctx context.Context,
-	host, index, shard string, level int, discriminant *hashtree.Bitset,
-) (digests []hashtree.Digest, err error) {
-	var resp []hashtree.Digest
-	body, err := discriminant.Marshal()
-	if err != nil {
-		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
-	}
-
-	// Compress the body
-	var buf bytes.Buffer
-
-	zstdw, err := zstd.NewWriter(&buf, zstd.WithEncoderLevel(zstd.SpeedDefault))
-	if err != nil {
-		return nil, fmt.Errorf("create zstd writer: %w", err)
-	}
-	if _, err := zstdw.Write(body); err != nil {
-		return nil, fmt.Errorf("compress body: %w", err)
-	}
-	if err := zstdw.Close(); err != nil {
-		return nil, fmt.Errorf("close zstd writer: %w", err)
-	}
-
-	bodyBytes := buf.Bytes()
-	bodyReader := bytes.NewReader(bodyBytes)
-
-	req, err := newHttpReplicaRequest(
-		ctx, http.MethodPost, host, index, shard,
-		"", fmt.Sprintf("hashtree/level/%d", level), bodyReader, 0)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	// Add compression header
-	req.Header.Set("X-Request-Compression", "zstd")
-
-	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, bodyBytes, &resp, MAX_RETRIES)
-	return resp, err
-}
-
-func (c *replicationClient) OverwriteObjects(ctx context.Context,
-	host, index, shard string, vobjects []*objects.VObject,
-) ([]types.RepairResponse, error) {
-	var resp []types.RepairResponse
-	body, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
-	if err != nil {
-		return nil, fmt.Errorf("encode request: %w", err)
-	}
-	req, err := newHttpReplicaRequest(
-		ctx, http.MethodPut, host, index, shard,
-		"", "_overwrite", bytes.NewReader(body), 0)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	err = c.doRetry(req, body, &resp, MAX_RETRIES)
-
-	return resp, err
-}
-
-func (c *replicationClient) FetchObjects(ctx context.Context, host,
-	index, shard string, ids []strfmt.UUID,
-) ([]replica.Replica, error) {
-	resp := make(replica.Replicas, len(ids))
-	idsBytes, err := json.Marshal(ids)
-	if err != nil {
-		return nil, fmt.Errorf("marshal ids: %w", err)
-	}
-
-	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
-
-	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", "", nil, 0)
-	if err != nil {
-		return nil, fmt.Errorf("create http request: %w", err)
-	}
-
-	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomUnmarshal(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, nil, resp.UnmarshalBinary, MAX_RETRIES)
-	return resp, err
-}
-
-func (c *replicationClient) PutObject(ctx context.Context, host, index,
-	shard, requestID string, obj *storobj.Object, schemaVersion uint64,
+func (s *switchableReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
+	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
-	var resp replica.SimpleResponse
-	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj, clusterapi.MethodPut)
-	if err != nil {
-		return resp, fmt.Errorf("encode request: %w", err)
+	if s.useGRPC() {
+		return s.grpcClient.PutObject(ctx, host, index, shard, requestID, obj, schemaVersion)
 	}
-
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil, schemaVersion)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
-	return resp, err
+	return s.restClient.PutObject(ctx, host, index, shard, requestID, obj, schemaVersion)
 }
 
-func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
-	shard, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
+func (s *switchableReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
+	objs []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
-	var resp replica.SimpleResponse
-	uuidTs := fmt.Sprintf("%s/%d", uuid.String(), deletionTime.UnixMilli())
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuidTs, nil, schemaVersion)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
+	if s.useGRPC() {
+		return s.grpcClient.PutObjects(ctx, host, index, shard, requestID, objs, schemaVersion)
 	}
-
-	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, nil, &resp, MAX_RETRIES)
-	return resp, err
+	return s.restClient.PutObjects(ctx, host, index, shard, requestID, objs, schemaVersion)
 }
 
-func (c *replicationClient) PutObjects(ctx context.Context, host, index,
-	shard, requestID string, objects []*storobj.Object, schemaVersion uint64,
-) (replica.SimpleResponse, error) {
-	var resp replica.SimpleResponse
-	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objects, clusterapi.MethodPut)
-	if err != nil {
-		return resp, fmt.Errorf("encode request: %w", err)
-	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil, schemaVersion)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
-	return resp, err
-}
-
-func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
+func (s *switchableReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
 	doc *objects.MergeDocument, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
-	var resp replica.SimpleResponse
-	body, err := clusterapi.IndicesPayloads.MergeDoc.Marshal(*doc)
-	if err != nil {
-		return resp, fmt.Errorf("encode request: %w", err)
+	if s.useGRPC() {
+		return s.grpcClient.MergeObject(ctx, host, index, shard, requestID, doc, schemaVersion)
 	}
-
-	req, err := newHttpReplicaRequest(ctx, http.MethodPatch, host, index, shard,
-		requestID, doc.ID.String(), nil, schemaVersion)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	clusterapi.IndicesPayloads.MergeDoc.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
-	return resp, err
+	return s.restClient.MergeObject(ctx, host, index, shard, requestID, doc, schemaVersion)
 }
 
-func (c *replicationClient) AddReferences(ctx context.Context, host, index,
-	shard, requestID string, refs []objects.BatchReference, schemaVersion uint64,
+func (s *switchableReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
+	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
-	var resp replica.SimpleResponse
-	body, err := clusterapi.IndicesPayloads.ReferenceList.Marshal(refs)
-	if err != nil {
-		return resp, fmt.Errorf("encode request: %w", err)
+	if s.useGRPC() {
+		return s.grpcClient.DeleteObject(ctx, host, index, shard, requestID, id, deletionTime, schemaVersion)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard,
-		requestID, "references", nil, schemaVersion)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	clusterapi.IndicesPayloads.ReferenceList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
-	return resp, err
+	return s.restClient.DeleteObject(ctx, host, index, shard, requestID, id, deletionTime, schemaVersion)
 }
 
-func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+func (s *switchableReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
-) (resp replica.SimpleResponse, err error) {
-	body, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, deletionTime, dryRun)
-	if err != nil {
-		return resp, fmt.Errorf("encode request: %w", err)
+) (replica.SimpleResponse, error) {
+	if s.useGRPC() {
+		return s.grpcClient.DeleteObjects(ctx, host, index, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, "", nil, schemaVersion)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
-	return resp, err
+	return s.restClient.DeleteObjects(ctx, host, index, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 }
 
-func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
-	shardName string, filters *filters.LocalFilter, limit int,
+func (s *switchableReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
+	refs []objects.BatchReference, schemaVersion uint64,
+) (replica.SimpleResponse, error) {
+	if s.useGRPC() {
+		return s.grpcClient.AddReferences(ctx, host, index, shard, requestID, refs, schemaVersion)
+	}
+	return s.restClient.AddReferences(ctx, host, index, shard, requestID, refs, schemaVersion)
+}
+
+func (s *switchableReplicationClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
+	if s.useGRPC() {
+		return s.grpcClient.Commit(ctx, host, index, shard, requestID, resp)
+	}
+	return s.restClient.Commit(ctx, host, index, shard, requestID, resp)
+}
+
+func (s *switchableReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
+	if s.useGRPC() {
+		return s.grpcClient.Abort(ctx, host, index, shard, requestID)
+	}
+	return s.restClient.Abort(ctx, host, index, shard, requestID)
+}
+
+// ── Read operations (RClient) ────────────────────────────────────────────────
+
+func (s *switchableReplicationClient) FetchObject(ctx context.Context, host, index, shard string,
+	id strfmt.UUID, props search.SelectProperties, additional additional.Properties, numRetries int,
+) (replica.Replica, error) {
+	if s.useGRPC() {
+		return s.grpcClient.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
+	}
+	return s.restClient.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
+}
+
+func (s *switchableReplicationClient) FetchObjects(ctx context.Context, host, index, shard string,
+	ids []strfmt.UUID,
+) ([]replica.Replica, error) {
+	if s.useGRPC() {
+		return s.grpcClient.FetchObjects(ctx, host, index, shard, ids)
+	}
+	return s.restClient.FetchObjects(ctx, host, index, shard, ids)
+}
+
+func (s *switchableReplicationClient) DigestObjects(ctx context.Context, host, index, shard string,
+	ids []strfmt.UUID, numRetries int,
+) ([]types.RepairResponse, error) {
+	if s.useGRPC() {
+		return s.grpcClient.DigestObjects(ctx, host, index, shard, ids, numRetries)
+	}
+	return s.restClient.DigestObjects(ctx, host, index, shard, ids, numRetries)
+}
+
+func (s *switchableReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]types.RepairResponse, error) {
+	if s.useGRPC() {
+		return s.grpcClient.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
+	}
+	return s.restClient.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
+}
+
+func (s *switchableReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,
+	vobjects []*objects.VObject,
+) ([]types.RepairResponse, error) {
+	if s.useGRPC() {
+		return s.grpcClient.OverwriteObjects(ctx, host, index, shard, vobjects)
+	}
+	return s.restClient.OverwriteObjects(ctx, host, index, shard, vobjects)
+}
+
+func (s *switchableReplicationClient) FindUUIDs(ctx context.Context, host, index, shard string,
+	filter *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit)
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal request payload")
+	if s.useGRPC() {
+		return s.grpcClient.FindUUIDs(ctx, host, index, shard, filter, limit)
 	}
-
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName)
-	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(),
-		bytes.NewReader(paramsBytes))
-	if err != nil {
-		return nil, errors.Wrap(err, "open http request")
-	}
-
-	clusterapi.IndicesPayloads.FindUUIDsParams.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	resBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "read body")
-	}
-
-	ct, ok := clusterapi.IndicesPayloads.FindUUIDsResults.CheckContentTypeHeader(res)
-	if !ok {
-		return nil, errors.Errorf("unexpected content type: %s", ct)
-	}
-
-	uuids, err := clusterapi.IndicesPayloads.FindUUIDsResults.Unmarshal(resBytes)
-	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal body")
-	}
-	return uuids, nil
+	return s.restClient.FindUUIDs(ctx, host, index, shard, filter, limit)
 }
 
-// Commit asks a host to commit and stores the response in the value pointed to by resp
-func (c *replicationClient) Commit(ctx context.Context, host, index, shard string, requestID string, resp interface{}) error {
-	req, err := newHttpReplicaCMD(ctx, host, "commit", index, shard, requestID, nil)
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
+func (s *switchableReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
+	level int, discriminant *hashtree.Bitset,
+) ([]hashtree.Digest, error) {
+	if s.useGRPC() {
+		return s.grpcClient.HashTreeLevel(ctx, host, index, shard, level, discriminant)
 	}
-
-	return c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, nil, resp, MAX_RETRIES)
-}
-
-func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
-	resp replica.SimpleResponse, err error,
-) {
-	req, err := newHttpReplicaCMD(ctx, host, "abort", index, shard, requestID, nil)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
-	}
-
-	err = c.do(c.timeoutUnit*ABORT_TIMEOUT_VALUE, req, nil, &resp, MAX_RETRIES)
-	return resp, err
-}
-
-func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader, schemaVersion uint64) (*http.Request, error) {
-	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", index, shard)
-	if suffix != "" {
-		path = fmt.Sprintf("%s/%s", path, suffix)
-	}
-	u := url.URL{
-		Scheme: "http",
-		Host:   host,
-		Path:   path,
-	}
-
-	urlValues := url.Values{}
-	urlValues[replica.SchemaVersionKey] = []string{fmt.Sprint(schemaVersion)}
-	if requestId != "" {
-		urlValues[replica.RequestKey] = []string{requestId}
-	}
-	u.RawQuery = urlValues.Encode()
-
-	return http.NewRequestWithContext(ctx, method, u.String(), body)
-}
-
-func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
-	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
-	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
-	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
-	return http.NewRequest(http.MethodPost, url.String(), body)
-}
-
-func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
-	defer cancel()
-
-	return c.doRetry(req.WithContext(ctx), body, resp, numRetries)
-}
-
-func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
-	try := func(ctx context.Context) (bool, error) {
-		if body != nil {
-			req.Body = io.NopCloser(bytes.NewReader(body))
-		}
-		res, err := c.client.Do(req)
-		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
-		}
-		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-			return false, fmt.Errorf("decode response: %w", err)
-		}
-		return false, nil
-	}
-	return c.retry(req.Context(), numRetries, try)
-}
-
-func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
-	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
-) (err error) {
-	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
-}
-
-// backOff return a new random duration in the interval [d, 3d].
-// It implements truncated exponential back-off with introduced jitter.
-func backOff(d time.Duration) time.Duration {
-	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
-}
-
-func shouldRetry(code int) bool {
-	return code == http.StatusInternalServerError ||
-		code == http.StatusTooManyRequests ||
-		code == http.StatusServiceUnavailable
+	return s.restClient.HashTreeLevel(ctx, host, index, shard, level, discriminant)
 }
