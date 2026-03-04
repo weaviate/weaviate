@@ -246,16 +246,7 @@ func makeNamedVectorObjects(className string, count int) []*models.Object {
 func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, expectedObjects []*models.Object) {
 	t.Helper()
 
-	keys := listParquetKeys(t, exportID, className)
-	require.NotEmpty(t, keys, "no parquet files found for class %s", className)
-
-	var allRows []pqexport.ParquetRow
-	for _, key := range keys {
-		data := downloadS3Object(t, s3Bucket, key)
-		rows := readParquetRows(t, data)
-		allRows = append(allRows, rows...)
-	}
-
+	allRows := fetchParquetRows(t, exportID, className)
 	require.Len(t, allRows, len(expectedObjects), "parquet row count mismatch")
 
 	type expectedObj struct {
@@ -290,11 +281,10 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 		require.True(t, ok, "unexpected object ID in parquet: %s", row.ID)
 
 		// Verify properties
-		if row.Properties != nil {
-			var props map[string]interface{}
-			require.NoError(t, json.Unmarshal(row.Properties, &props))
-			require.Equal(t, eo.text, props["text"])
-		}
+		require.NotNil(t, row.Properties, "expected properties for object %s", row.ID)
+		var props map[string]interface{}
+		require.NoError(t, json.Unmarshal(row.Properties, &props))
+		require.Equal(t, eo.text, props["text"], "text property mismatch for object %s", row.ID)
 
 		// Verify named vectors (single vectors)
 		if len(eo.namedVectors) > 0 {
@@ -354,17 +344,8 @@ func makeObjects(className, tenant string, count int) []*models.Object {
 func verifyParquetExport(t *testing.T, exportID, className string, expectedObjects []*models.Object) {
 	t.Helper()
 
-	keys := listParquetKeys(t, exportID, className)
-	require.NotEmpty(t, keys, "no parquet files found for class %s", className)
-
-	var allRows []pqexport.ParquetRow
-	for _, key := range keys {
-		data := downloadS3Object(t, s3Bucket, key)
-		rows := readParquetRows(t, data)
-		allRows = append(allRows, rows...)
-	}
-
-	require.Len(t, allRows, len(expectedObjects), "parquet row count mismatch (across %d files)", len(keys))
+	allRows := fetchParquetRows(t, exportID, className)
+	require.Len(t, allRows, len(expectedObjects), "parquet row count mismatch")
 
 	// Build a set of expected UUIDs
 	expectedIDs := make(map[string]string, len(expectedObjects)) // id -> text
@@ -381,16 +362,32 @@ func verifyParquetExport(t *testing.T, exportID, className string, expectedObjec
 		require.True(t, ok, "unexpected object ID in parquet: %s", row.ID)
 
 		// Verify properties contain the expected text
-		if row.Properties != nil {
-			var props map[string]interface{}
-			require.NoError(t, json.Unmarshal(row.Properties, &props))
-			require.Equal(t, text, props["text"], "text property mismatch for object %s", row.ID)
-		}
+		require.NotNil(t, row.Properties, "expected properties for object %s", row.ID)
+		var props map[string]interface{}
+		require.NoError(t, json.Unmarshal(row.Properties, &props))
+		require.Equal(t, text, props["text"], "text property mismatch for object %s", row.ID)
 
 		delete(expectedIDs, row.ID)
 	}
 
 	require.Empty(t, expectedIDs, "some objects were not found in parquet export")
+}
+
+// fetchParquetRows downloads all parquet files for a class from S3 and returns
+// the aggregated rows. Shared by all verify* functions.
+func fetchParquetRows(t *testing.T, exportID, className string) []pqexport.ParquetRow {
+	t.Helper()
+
+	keys := listParquetKeys(t, exportID, className)
+	require.NotEmpty(t, keys, "no parquet files found for class %s", className)
+
+	var allRows []pqexport.ParquetRow
+	for _, key := range keys {
+		data := downloadS3Object(t, s3Bucket, key)
+		rows := readParquetRows(t, data)
+		allRows = append(allRows, rows...)
+	}
+	return allRows
 }
 
 // listParquetKeys lists all S3 keys under the export that match the class name.
