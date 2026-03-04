@@ -45,19 +45,19 @@ func TestNewDiskQueue(t *testing.T) {
 func TestQueuePush(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close()
+	defer s.Close(t.Context())
 
 	t.Run("a few tasks", func(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
-		q.Close()
+		q.Close(t.Context())
 	})
 
 	t.Run("push when closed", func(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
 
-		err := q.Close()
+		err := q.Close(t.Context())
 		require.NoError(t, err)
 
 		err = q.Push(makeRecord(1, 100))
@@ -99,7 +99,7 @@ func TestQueuePush(t *testing.T) {
 
 		pushMany(t, q, 1, 100, 200, 300)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 
 		q, err = NewDiskQueue(DiskQueueOptions{
@@ -144,7 +144,7 @@ func TestQueuePush(t *testing.T) {
 		q := makeQueueSize(t, s, discardExecutor(), 1000)
 
 		// ensure the queue doesn't get processed
-		q.Pause()
+		q.Pause(t.Context())
 
 		for i := 0; i < 100; i++ {
 			pushMany(t, q, 1, 100, 200, 300)
@@ -196,7 +196,7 @@ func TestQueuePush(t *testing.T) {
 func TestQueueDecodeTask(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close()
+	defer s.Close(t.Context())
 
 	t.Run("a few tasks", func(t *testing.T) {
 		exec := discardExecutor()
@@ -231,14 +231,14 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, batch)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 
 	t.Run("many tasks", func(t *testing.T) {
 		exec := discardExecutor()
 		q := makeQueueSize(t, s, exec, 660)
-		q.Pause()
+		q.Pause(t.Context())
 
 		// encode 120 records
 		for i := 0; i < 120; i++ {
@@ -344,7 +344,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 2)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 
 		q, err = NewDiskQueue(DiskQueueOptions{
@@ -380,7 +380,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, batch)
 
-		err = q.Close()
+		err = q.Close(t.Context())
 		require.NoError(t, err)
 	})
 }
@@ -442,7 +442,7 @@ func TestPartialChunkRecovery(t *testing.T) {
 			}
 
 			// close the queue to ensure all records are flushed
-			err := q.Close()
+			err := q.Close(t.Context())
 			require.NoError(t, err)
 
 			// ensure there is a chunk file
@@ -471,7 +471,7 @@ func TestPartialChunkRecovery(t *testing.T) {
 			require.NoError(t, err)
 
 			s.RegisterQueue(q)
-			q.Pause()
+			q.Pause(t.Context())
 
 			// manually promote a partial chunk to a full chunk
 			err = q.w.Promote()
@@ -497,10 +497,10 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		s := makeScheduler(t)
 		s.Start()
-		defer s.Close()
+		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
-		q.Pause() // prevent scheduler from processing the queue
+		q.Pause(t.Context()) // prevent scheduler from processing the queue
 		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
@@ -540,10 +540,10 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 
 		s := makeScheduler(t)
 		s.Start()
-		defer s.Close()
+		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
-		q.Pause() // prevent scheduler from processing the queue
+		q.Pause(t.Context()) // prevent scheduler from processing the queue
 		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
@@ -587,7 +587,7 @@ func TestQueueListFiles(t *testing.T) {
 	}
 
 	// close the queue to ensure all records are flushed
-	err = q.Close()
+	err = q.Close(t.Context())
 	require.NoError(t, err)
 
 	// ensure there is a chunk file
@@ -647,8 +647,8 @@ func TestQueueForceSwitch(t *testing.T) {
 	require.Len(t, entries, 8)
 
 	// pause the queue
-	q.Pause()
-	q.Wait()
+	q.Pause(t.Context())
+	require.NoError(t, q.Wait(ctx))
 
 	// call ForceSwitch to promote the last chunk
 	got, err := q.ForceSwitch(ctx, q.dir)
