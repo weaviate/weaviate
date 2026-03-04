@@ -2438,7 +2438,7 @@ func init() {
     },
     "/export/{backend}": {
       "post": {
-        "description": "Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.",
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
         "tags": [
           "export"
         ],
@@ -7341,7 +7341,8 @@ func init() {
       "description": "Request to create a new export operation",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "file_format"
       ],
       "properties": {
         "config": {
@@ -7364,6 +7365,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
         },
         "id": {
           "description": "Unique identifier for this export. Must be URL-safe.",
@@ -9830,7 +9838,7 @@ func init() {
       "name": "backups"
     },
     {
-      "description": "Operations for exporting Weaviate data to Parquet format on external storage backends (S3, GCS, Azure, or filesystem). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate Parquet file containing object IDs, vectors, properties, and metadata.",
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata.",
       "name": "exports"
     },
     {
@@ -12248,7 +12256,7 @@ func init() {
     },
     "/export/{backend}": {
       "post": {
-        "description": "Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.",
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
         "tags": [
           "export"
         ],
@@ -17419,7 +17427,8 @@ func init() {
       "description": "Request to create a new export operation",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "file_format"
       ],
       "properties": {
         "config": {
@@ -17442,6 +17451,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
         },
         "id": {
           "description": "Unique identifier for this export. Must be URL-safe.",
@@ -20143,7 +20159,7 @@ func init() {
       "name": "backups"
     },
     {
-      "description": "Operations for exporting Weaviate data to Parquet format on external storage backends (S3, GCS, Azure, or filesystem). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate Parquet file containing object IDs, vectors, properties, and metadata.",
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata.",
       "name": "exports"
     },
     {
