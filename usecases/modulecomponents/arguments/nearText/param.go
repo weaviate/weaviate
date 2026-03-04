@@ -13,7 +13,6 @@ package nearText
 
 import (
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 type ObjectMove struct {
@@ -39,7 +38,6 @@ type NearTextParams struct {
 	Network       bool
 	Autocorrect   bool
 	TargetVectors []string
-	Selection     *searchparams.Selection
 }
 
 func (n NearTextParams) GetCertainty() float64 {

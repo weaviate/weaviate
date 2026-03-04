@@ -408,7 +408,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selector *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -474,7 +474,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
 					ids, dists, err = vidx.SearchByVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, selector)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -485,7 +485,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					}
 				case [][]float32:
 					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, selector)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -500,7 +500,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList, selector)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -512,7 +512,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
+					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList, selector)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

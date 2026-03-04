@@ -36,7 +36,6 @@ type NearVector struct {
 	WithDistance  bool            `json:"-"`
 	Vectors       []models.Vector `json:"vectors"`
 	TargetVectors []string        `json:"targetVectors"`
-	Selection     *Selection      `json:"selection,omitempty"`
 }
 
 type KeywordRanking struct {
@@ -124,17 +123,15 @@ type HybridSearch struct {
 	SearchOperator       string        `json:"searchOperator"`
 	NearTextParams       *NearTextParams
 	NearVectorParams     *NearVector
-	Selection            *Selection `json:"selection,omitempty"`
 }
 
 type NearObject struct {
-	ID            string     `json:"id"`
-	Beacon        string     `json:"beacon"`
-	Certainty     float64    `json:"certainty"`
-	Distance      float64    `json:"distance"`
-	WithDistance  bool       `json:"-"`
-	TargetVectors []string   `json:"targetVectors"`
-	Selection     *Selection `json:"selection,omitempty"`
+	ID            string   `json:"id"`
+	Beacon        string   `json:"beacon"`
+	Certainty     float64  `json:"certainty"`
+	Distance      float64  `json:"distance"`
+	WithDistance  bool     `json:"-"`
+	TargetVectors []string `json:"targetVectors"`
 }
 
 type ObjectMove struct {
@@ -160,7 +157,6 @@ type NearTextParams struct {
 	Network       bool
 	Autocorrect   bool
 	TargetVectors []string
-	Selection     *Selection
 }
 
 type GroupBy struct {

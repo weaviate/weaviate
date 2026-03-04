@@ -37,7 +37,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 
 	// search on empty index returns 0 results and no error
-	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	ids, dists, err := index.SearchByVector(t.Context(), vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	require.Empty(t, dists)
@@ -45,7 +45,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	err = index.Add(t.Context(), 0, vectors[0])
 	require.NoError(t, err)
 
-	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ids, 1)
 	require.Len(t, dists, 1)
@@ -54,7 +54,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	err = index.Delete(0)
 	require.NoError(t, err)
 
-	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil)
+	ids, dists, err = index.SearchByVector(t.Context(), vectors[0], 10, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	require.Empty(t, dists)

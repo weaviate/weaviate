@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -38,7 +37,7 @@ type Params struct {
 	NearVector       *searchparams.NearVector   `json:"nearVector"`
 	NearObject       *searchparams.NearObject   `json:"nearObject"`
 	Hybrid           *searchparams.HybridSearch `json:"hybrid"`
-	Selection        *selection.Selector        `json:"selection"`
+	Selection        *searchparams.Selection    `json:"selection"`
 }
 
 func (p *Params) UnmarshalJSON(data []byte) error {

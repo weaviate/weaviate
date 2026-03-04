@@ -160,7 +160,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	err = nil
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		before := time.Now()
-		results, _, _ := index.SearchByVector(ctx, queries[i], k, allowList)
+		results, _, _ := index.SearchByVector(ctx, queries[i], k, allowList, nil)
 
 		since := time.Since(before)
 		len := len(results)
@@ -1227,7 +1227,7 @@ func Test_NoRace_QuantizedSearchFunctionality(t *testing.T) {
 			}
 
 			// Search
-			results, distances, err := index.SearchByVector(ctx, queryVector, 2, nil)
+			results, distances, err := index.SearchByVector(ctx, queryVector, 2, nil, nil)
 			require.Nil(t, err)
 			require.Len(t, results, 2)
 			require.Len(t, distances, 2)
@@ -1296,7 +1296,7 @@ func Test_NoRace_EdgeCases(t *testing.T) {
 		require.Nil(t, err)
 
 		// Search should work
-		results, distances, err := index.SearchByVector(ctx, []float32{1.0}, 1, nil)
+		results, distances, err := index.SearchByVector(ctx, []float32{1.0}, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1332,7 +1332,7 @@ func Test_NoRace_EdgeCases(t *testing.T) {
 		require.Nil(t, err)
 
 		// Search should work
-		results, distances, err := index.SearchByVector(ctx, largeVector, 1, nil)
+		results, distances, err := index.SearchByVector(ctx, largeVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1363,7 +1363,7 @@ func Test_NoRace_EdgeCases(t *testing.T) {
 		require.Nil(t, err)
 
 		// Search should work
-		results, distances, err := index.SearchByVector(ctx, zeroVector, 1, nil)
+		results, distances, err := index.SearchByVector(ctx, zeroVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1394,7 +1394,7 @@ func Test_NoRace_EdgeCases(t *testing.T) {
 		require.Nil(t, err)
 
 		// Search should work
-		results, distances, err := index.SearchByVector(ctx, negativeVector, 1, nil)
+		results, distances, err := index.SearchByVector(ctx, negativeVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1449,7 +1449,7 @@ func Test_NoRace_EmptyIndexRestoration(t *testing.T) {
 		require.Nil(t, err)
 
 		// Search should work
-		results, distances, err := index2.SearchByVector(ctx, testVector, 1, nil)
+		results, distances, err := index2.SearchByVector(ctx, testVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1542,7 +1542,7 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.Equal(t, originalDistance, distance2, "Distance calculation should be consistent after restart")
 
 		// Test that search still works with restored quantizer
-		results, distances, err := index2.SearchByVector(ctx, testVector, 1, nil)
+		results, distances, err := index2.SearchByVector(ctx, testVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1630,7 +1630,7 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.Equal(t, originalDistance, distance2, "Distance calculation should be consistent after restart")
 
 		// Test that search still works with restored quantizer
-		results, distances, err := index2.SearchByVector(ctx, testVector, 1, nil)
+		results, distances, err := index2.SearchByVector(ctx, testVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1672,7 +1672,7 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.NotNil(t, index.quantizer)
 
 		// Test search before persistence
-		results, distances, err := index.SearchByVector(ctx, testVectors[0], 2, nil)
+		results, distances, err := index.SearchByVector(ctx, testVectors[0], 2, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 2)
 		require.Len(t, distances, 2)
@@ -1706,7 +1706,7 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.NotNil(t, index2.quantizer)
 
 		// Test search after restoration
-		results2, distances2, err := index2.SearchByVector(ctx, testVectors[0], 2, nil)
+		results2, distances2, err := index2.SearchByVector(ctx, testVectors[0], 2, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results2, 2)
 		require.Len(t, distances2, 2)
@@ -1745,7 +1745,7 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.True(t, index.Cached())
 
 		// Test search with cache
-		results, distances, err := index.SearchByVector(ctx, testVector, 1, nil)
+		results, distances, err := index.SearchByVector(ctx, testVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results, 1)
 		require.Len(t, distances, 1)
@@ -1776,7 +1776,7 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.NotNil(t, index2.cache)
 
 		// Test search after restoration
-		results2, distances2, err := index2.SearchByVector(ctx, testVector, 1, nil)
+		results2, distances2, err := index2.SearchByVector(ctx, testVector, 1, nil, nil)
 		require.Nil(t, err)
 		require.Len(t, results2, 1)
 		require.Len(t, distances2, 1)
