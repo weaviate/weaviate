@@ -12,9 +12,29 @@
 package lsmkv
 
 import (
+	"bufio"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+// offsetReader adapts an io.ReaderAt into a sequential io.Reader by tracking
+// the current read position. Used by segmentCursorReplaceReusable to avoid
+// allocating a new SectionReader on every node read.
+type offsetReader struct {
+	ra  readerAt
+	off int64
+}
+
+type readerAt interface {
+	ReadAt(p []byte, off int64) (n int, err error)
+}
+
+func (r *offsetReader) Read(p []byte) (int, error) {
+	n, err := r.ra.ReadAt(p, r.off)
+	r.off += int64(n)
+	return n, err
+}
 
 type segmentCursorReplace struct {
 	segment       *segment
@@ -270,10 +290,14 @@ type segmentCursorReplaceReusable struct {
 	currOffset   uint64
 	reusableNode segmentReplaceNode
 	reusableBORW byteops.ReadWriter
+	// pread-path: pre-allocated reader chain reused across all node reads to
+	// avoid allocating a MeteredReader+SectionReader+nodeReader per iteration.
+	preadOffset *offsetReader
+	preadReader *bufio.Reader
 }
 
 func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
-	return &segmentCursorReplaceReusable{
+	c := &segmentCursorReplaceReusable{
 		segment:    s,
 		currOffset: s.dataStartPos,
 		reusableNode: segmentReplaceNode{
@@ -282,6 +306,12 @@ func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
 		},
 		reusableBORW: byteops.NewReadWriter(nil),
 	}
+	if !s.readFromMemory && s.contentFile != nil {
+		or := &offsetReader{ra: s.contentFile}
+		c.preadOffset = or
+		c.preadReader = bufio.NewReader(or)
+	}
+	return c
 }
 
 func (s *segmentCursorReplaceReusable) keyCount() int {
@@ -316,13 +346,9 @@ func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) 
 			return &s.reusableNode, err
 		}
 	} else {
-		r, err := s.segment.newNodeReader(nodeOffset{start: s.currOffset}, "segmentCursorReplaceReusable")
-		if err != nil {
-			return nil, err
-		}
-		err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, &s.reusableNode)
-		r.Release()
-		if err != nil {
+		s.preadOffset.off = int64(s.currOffset)
+		s.preadReader.Reset(s.preadOffset)
+		if err := ParseReplaceNodeIntoPread(s.preadReader, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
 			return &s.reusableNode, err
 		}
 	}
