@@ -422,6 +422,74 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux) (int64, error) {
 	return totalSize, nil
 }
 
+// MarshalSortedKeysFromKeys serializes a balanced BST index directly from
+// sorted Key entries, without constructing intermediate Tree or Node
+// structures. Keys must already be in sorted order (as produced by the replace
+// compactor's merge loop). ValueStart and ValueEnd are read directly from each
+// Key, so no derivation is needed.
+func MarshalSortedKeysFromKeys(w io.Writer, keys []Key) (int64, error) {
+	n := len(keys)
+	if n == 0 {
+		return 0, nil
+	}
+
+	capacity := balancedTreeCapacity(n)
+
+	bfsToSorted := make([]int32, capacity)
+	for i := range bfsToSorted {
+		bfsToSorted[i] = -1
+	}
+	fillBFS(bfsToSorted, 0, 0, n-1)
+
+	diskOffsets := make([]int64, capacity)
+	var currentOffset int64
+	for i := 0; i < capacity; i++ {
+		diskOffsets[i] = currentOffset
+		if si := bfsToSorted[i]; si >= 0 {
+			currentOffset += int64(36 + len(keys[si].Key))
+		}
+	}
+	totalSize := currentOffset
+
+	buf := make([]byte, 36)
+
+	for i := 0; i < capacity; i++ {
+		si := bfsToSorted[i]
+		if si < 0 {
+			continue
+		}
+
+		key := keys[si]
+
+		leftChild := int64(-1)
+		if leftPos := 2*i + 1; leftPos < capacity && bfsToSorted[leftPos] >= 0 {
+			leftChild = diskOffsets[leftPos]
+		}
+		rightChild := int64(-1)
+		if rightPos := 2*i + 2; rightPos < capacity && bfsToSorted[rightPos] >= 0 {
+			rightChild = diskOffsets[rightPos]
+		}
+
+		binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key.Key)))
+		binary.LittleEndian.PutUint64(buf[4:12], uint64(key.ValueStart))
+		binary.LittleEndian.PutUint64(buf[12:20], uint64(key.ValueEnd))
+		binary.LittleEndian.PutUint64(buf[20:28], uint64(leftChild))
+		binary.LittleEndian.PutUint64(buf[28:36], uint64(rightChild))
+
+		if _, err := w.Write(buf[:4]); err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(key.Key); err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(buf[4:36]); err != nil {
+			return 0, err
+		}
+	}
+
+	return totalSize, nil
+}
+
 // fillBFS recursively maps heap-indexed BFS positions to sorted key indices.
 func fillBFS(bfsToSorted []int32, targetPos, leftBound, rightBound int) {
 	if leftBound > rightBound || targetPos >= len(bfsToSorted) {
