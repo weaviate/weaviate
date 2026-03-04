@@ -1440,7 +1440,7 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 	}
 }
 
-func TestEnvironmentReplicationAsyncEnforced(t *testing.T) {
+func TestEnvironmentAsyncReplicationEnforced(t *testing.T) {
 	factors := []struct {
 		name     string
 		value    []string
@@ -1457,7 +1457,7 @@ func TestEnvironmentReplicationAsyncEnforced(t *testing.T) {
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
 			if len(tt.value) == 1 {
-				t.Setenv("REPLICATION_ASYNC_ENFORCED", tt.value[0])
+				t.Setenv("ASYNC_REPLICATION_ENFORCED", tt.value[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -1468,7 +1468,7 @@ func TestEnvironmentReplicationAsyncEnforced(t *testing.T) {
 	}
 }
 
-func TestEnvironmentReplicationAsyncDefault(t *testing.T) {
+func TestEnvironmentAsyncReplicationDefault(t *testing.T) {
 	factors := []struct {
 		name     string
 		value    []string
@@ -1485,7 +1485,7 @@ func TestEnvironmentReplicationAsyncDefault(t *testing.T) {
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
 			if len(tt.value) == 1 {
-				t.Setenv("REPLICATION_ASYNC_DEFAULT", tt.value[0])
+				t.Setenv("ASYNC_REPLICATION_DEFAULT", tt.value[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
