@@ -575,6 +575,11 @@ func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *Ve
 	return l.shard.ForEachVectorQueue(f)
 }
 
+func (l *LazyLoadShard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
+	l.mustLoad()
+	return l.shard.ForEachGeoQueue(f)
+}
+
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

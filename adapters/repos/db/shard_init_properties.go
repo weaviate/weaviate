@@ -31,6 +31,7 @@ func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Cl
 	ctx := context.TODO()
 
 	s.propertyIndices = propertyspecific.Indices{}
+	s.geoQueues = make(map[string]*VectorIndexQueue)
 	if class == nil {
 		return
 	}

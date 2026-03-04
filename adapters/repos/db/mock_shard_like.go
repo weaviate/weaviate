@@ -921,6 +921,52 @@ func (_c *MockShardLike_ForEachVectorQueue_Call) RunAndReturn(run func(func(stri
 	return _c
 }
 
+// ForEachGeoQueue provides a mock function with given fields: f
+func (_m *MockShardLike) ForEachGeoQueue(f func(string, *VectorIndexQueue) error) error {
+	ret := _m.Called(f)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForEachGeoQueue")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(func(string, *VectorIndexQueue) error) error); ok {
+		r0 = rf(f)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_ForEachGeoQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForEachGeoQueue'
+type MockShardLike_ForEachGeoQueue_Call struct {
+	*mock.Call
+}
+
+// ForEachGeoQueue is a helper method to define mock.On call
+//   - f func(string , *VectorIndexQueue) error
+func (_e *MockShardLike_Expecter) ForEachGeoQueue(f interface{}) *MockShardLike_ForEachGeoQueue_Call {
+	return &MockShardLike_ForEachGeoQueue_Call{Call: _e.mock.On("ForEachGeoQueue", f)}
+}
+
+func (_c *MockShardLike_ForEachGeoQueue_Call) Run(run func(f func(string, *VectorIndexQueue) error)) *MockShardLike_ForEachGeoQueue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(func(string, *VectorIndexQueue) error))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_ForEachGeoQueue_Call) Return(_a0 error) *MockShardLike_ForEachGeoQueue_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_ForEachGeoQueue_Call) RunAndReturn(run func(func(string, *VectorIndexQueue) error) error) *MockShardLike_ForEachGeoQueue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetFile provides a mock function with given fields: ctx, relativeFilePath
 func (_m *MockShardLike) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error) {
 	ret := _m.Called(ctx, relativeFilePath)
@@ -5045,7 +5091,8 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

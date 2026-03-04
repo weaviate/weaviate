@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -61,6 +62,15 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.propertyIndicesLock.Unlock()
 
 	idx.PostStartup(s.shutCtx)
+
+	// Create a geo queue wrapping the underlying HNSW for async indexing
+	if underlyingVI, ok := idx.UnderlyingVectorIndex().(VectorIndex); ok {
+		geoQueue, err := NewGeoIndexQueue(s, prop.Name, underlyingVI)
+		if err != nil {
+			return errors.Wrapf(err, "create geo index queue for prop %q", prop.Name)
+		}
+		s.geoQueues[prop.Name] = geoQueue
+	}
 
 	return nil
 }
@@ -142,7 +152,7 @@ func (s *Shard) updateGeoIndex(ctx context.Context, propName string,
 	}
 
 	if status.docIDChanged {
-		if err := s.deleteFromGeoIndex(index, status.oldDocID); err != nil {
+		if err := s.deleteFromGeoIndex(propName, index, status.oldDocID); err != nil {
 			return errors.Wrap(err, "delete old doc id from geo index")
 		}
 	}
@@ -188,6 +198,16 @@ func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
 			&models.GeoCoordinates{}, propValue)
 	}
 
+	if s.index.AsyncIndexingEnabled {
+		if geoQueue, ok := s.geoQueues[propName]; ok {
+			vec, err := geo.GeoCoordinatesToVector(asGeo)
+			if err != nil {
+				return errors.Wrapf(err, "convert geo coordinates to vector")
+			}
+			return geoQueue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vec})
+		}
+	}
+
 	if err := index.GeoIndex.Add(ctx, status.docID, asGeo); err != nil {
 		return errors.Wrapf(err, "insert into geo index")
 	}
@@ -195,11 +215,17 @@ func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
 	return nil
 }
 
-func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
+func (s *Shard) deleteFromGeoIndex(propName string, index propertyspecific.Index,
 	docID uint64,
 ) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
+	}
+
+	if s.index.AsyncIndexingEnabled {
+		if geoQueue, ok := s.geoQueues[propName]; ok {
+			return geoQueue.Delete(docID)
+		}
 	}
 
 	if err := index.GeoIndex.Delete(docID); err != nil {

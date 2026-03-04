@@ -79,12 +79,21 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		return q.Pause(ctx)
 	})
-	// flush all the queue
+	_ = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Pause(ctx)
+	})
+	// flush all the queues
 	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		return q.Flush()
 	})
 	if err != nil {
 		return fmt.Errorf("flush vector index queues: %w", err)
+	}
+	err = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("flush geo index queues: %w", err)
 	}
 
 	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
@@ -209,6 +218,18 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if err != nil {
 		return nil, err
 	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		filesGq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of geo queue %q: %w", propName, err)
+		}
+		files = append(files, filesGq...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
@@ -255,6 +276,12 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	g.Go(func() error {
 		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+			q.Resume()
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
 			q.Resume()
 			return nil
 		})

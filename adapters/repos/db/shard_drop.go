@@ -71,6 +71,16 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Drop(ctx); err != nil {
+			return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.Drop(ctx, keepFiles); err != nil {
 			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
