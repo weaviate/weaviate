@@ -1040,3 +1040,11 @@ func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
 }
+
+func TestBuildRegisteredRuntimeConfig_RegistersQueryHedgedTimeout(t *testing.T) {
+	cfg := &Config{QueryHedgedTimeout: runtime.NewDynamicValue(100 * time.Millisecond)}
+
+	registered := BuildRegisteredRuntimeConfig(cfg)
+
+	require.Same(t, cfg.QueryHedgedTimeout, registered.QueryHedgedTimeout)
+}
