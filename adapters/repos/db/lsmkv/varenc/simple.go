@@ -89,6 +89,14 @@ func (e *SimpleEncoder[T]) Encode(values []T) []byte {
 	return e.buf
 }
 
+func (e *SimpleEncoder[T]) EncodeAppend(values []T, arena []byte) ([]byte, []byte) {
+	e.EncodeReusable(values, e.buf)
+	n := 8 + len(values)*e.elementSize
+	start := len(arena)
+	arena = append(arena, e.buf[:n]...)
+	return arena[start:], arena
+}
+
 func (e *SimpleEncoder[T]) Decode(data []byte) []T {
 	e.DecodeReusable(data, e.values)
 	return e.values
