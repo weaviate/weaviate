@@ -31,7 +31,7 @@ import (
 type compactorReplace struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1, c2 innerCursorReplaceAllKeys
+	c1, c2 *segmentCursorReplaceReusable
 
 	// the level matching those of the cursors
 	currentLevel uint16
@@ -50,10 +50,14 @@ type compactorReplace struct {
 	maxNewFileSize int64
 
 	enableChecksumValidation bool
+
+	// arena holds stable copies of key bytes so that ki.Key / ki.SecondaryKeys
+	// stored in the kis slice remain valid after the reusable cursor advances.
+	arena keyArena
 }
 
 func newCompactorReplace(w io.WriteSeeker,
-	c1, c2 innerCursorReplaceAllKeys, level, secondaryIndexCount uint16,
+	c1, c2 *segmentCursorReplaceReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorReplace {
@@ -140,8 +144,8 @@ func (c *compactorReplace) init() error {
 }
 
 func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	res1, err1 := c.c1.firstWithAllKeys()
-	res2, err2 := c.c2.firstWithAllKeys()
+	res1, err1 := c.c1.first()
+	res2, err2 := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := segmentindex.HeaderSize
@@ -149,10 +153,18 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 	var kis []segmentindex.Key
 
 	for {
-		if res1.primaryKey == nil && res2.primaryKey == nil {
+		var key1, key2 []byte
+		if res1 != nil {
+			key1 = res1.primaryKey
+		}
+		if res2 != nil {
+			key2 = res2.primaryKey
+		}
+
+		if key1 == nil && key2 == nil {
 			break
 		}
-		if bytes.Equal(res1.primaryKey, res2.primaryKey) {
+		if bytes.Equal(key1, key2) {
 			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(f, offset, res2.primaryKey, res2.value,
 					res2.secondaryKeys, errors.Is(err2, lsmkv.Deleted))
@@ -164,12 +176,12 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				kis = append(kis, ki)
 			}
 			// advance both!
-			res1, err1 = c.c1.nextWithAllKeys()
-			res2, err2 = c.c2.nextWithAllKeys()
+			res1, err1 = c.c1.next()
+			res2, err2 = c.c2.next()
 			continue
 		}
 
-		if (res1.primaryKey != nil && bytes.Compare(res1.primaryKey, res2.primaryKey) == -1) || res2.primaryKey == nil {
+		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
 			if !(c.cleanupTombstones && errors.Is(err1, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(f, offset, res1.primaryKey, res1.value,
@@ -181,7 +193,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				offset = ki.ValueEnd
 				kis = append(kis, ki)
 			}
-			res1, err1 = c.c1.nextWithAllKeys()
+			res1, err1 = c.c1.next()
 		} else {
 			// key 2 is smaller
 			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
@@ -194,7 +206,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				offset = ki.ValueEnd
 				kis = append(kis, ki)
 			}
-			res2, err2 = c.c2.nextWithAllKeys()
+			res2, err2 = c.c2.next()
 		}
 	}
 
@@ -204,13 +216,26 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 	offset int, key, value []byte, secondaryKeys [][]byte, tombstone bool,
 ) (segmentindex.Key, error) {
+	// Copy key bytes into stable arena memory. The reusable cursor reuses its
+	// internal buffers on every next() call, so ki.Key / ki.SecondaryKeys stored
+	// in the kis slice would otherwise be corrupted on the next iteration.
+	keyCopy := c.arena.CopyKey(key)
+
+	var secKeysCopy [][]byte
+	if len(secondaryKeys) > 0 {
+		secKeysCopy = make([][]byte, len(secondaryKeys))
+		for i, sk := range secondaryKeys {
+			secKeysCopy[i] = c.arena.CopyKey(sk)
+		}
+	}
+
 	segNode := segmentReplaceNode{
 		offset:              offset,
 		tombstone:           tombstone,
 		value:               value,
-		primaryKey:          key,
+		primaryKey:          keyCopy,
 		secondaryIndexCount: c.secondaryIndexCount,
-		secondaryKeys:       secondaryKeys,
+		secondaryKeys:       secKeysCopy,
 	}
 	return segNode.KeyIndexAndWriteTo(f.BodyWriter())
 }

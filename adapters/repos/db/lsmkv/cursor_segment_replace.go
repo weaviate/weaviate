@@ -255,3 +255,76 @@ func (s *segmentCursorReplace) parse(in []byte) error {
 
 	return nil
 }
+
+// segmentCursorReplaceReusable is a sequential cursor for the replace strategy
+// that reuses internal buffers across iterations to minimise per-key allocations
+// during compaction. It is the replace-strategy analogue of
+// segmentCursorCollectionReusable.
+//
+// Ownership contract: the *segmentReplaceNode returned by first()/next() is
+// valid only until the next call on the same cursor. Callers must not retain
+// the pointer across iterations. This is safe in compactorReplace because c1
+// and c2 are independent cursors with separate reusableNode fields.
+type segmentCursorReplaceReusable struct {
+	segment      *segment
+	currOffset   uint64
+	reusableNode segmentReplaceNode
+	reusableBORW byteops.ReadWriter
+}
+
+func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
+	return &segmentCursorReplaceReusable{
+		segment:    s,
+		currOffset: s.dataStartPos,
+		reusableNode: segmentReplaceNode{
+			secondaryIndexCount: s.secondaryIndexCount,
+			secondaryKeys:       make([][]byte, s.secondaryIndexCount),
+		},
+		reusableBORW: byteops.NewReadWriter(nil),
+	}
+}
+
+func (s *segmentCursorReplaceReusable) first() (*segmentReplaceNode, error) {
+	if s.segment.dataStartPos == s.segment.dataEndPos {
+		return nil, lsmkv.NotFound
+	}
+	s.currOffset = s.segment.dataStartPos
+	return s.parseInto()
+}
+
+func (s *segmentCursorReplaceReusable) next() (*segmentReplaceNode, error) {
+	nextOffset := s.currOffset + uint64(s.reusableNode.offset)
+	if nextOffset >= s.segment.dataEndPos {
+		return nil, lsmkv.NotFound
+	}
+	s.currOffset = nextOffset
+	return s.parseInto()
+}
+
+func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) {
+	if s.segment.readFromMemory {
+		buf := s.segment.contents[s.currOffset:]
+		if len(buf) == 0 {
+			return nil, lsmkv.NotFound
+		}
+		s.reusableBORW.ResetBuffer(buf)
+		if err := ParseReplaceNodeIntoMMAP(&s.reusableBORW, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
+			return &s.reusableNode, err
+		}
+	} else {
+		r, err := s.segment.newNodeReader(nodeOffset{start: s.currOffset}, "segmentCursorReplaceReusable")
+		if err != nil {
+			return nil, err
+		}
+		err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, &s.reusableNode)
+		r.Release()
+		if err != nil {
+			return &s.reusableNode, err
+		}
+	}
+
+	if s.reusableNode.tombstone {
+		return &s.reusableNode, lsmkv.Deleted
+	}
+	return &s.reusableNode, nil
+}
