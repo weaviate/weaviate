@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/cluster/shard"
@@ -35,17 +36,19 @@ func (s *Shard) CreateTransferSnapshot(ctx context.Context) (shard.TransferSnaps
 	allFiles := []string{}
 
 	if err := func() error {
-		// 1. Flush memtables to ensure all in-memory data is in segments.
-		if err := s.store.FlushMemtables(ctx); err != nil {
-			return fmt.Errorf("flush memtables: %w", err)
-		}
-
-		// 2. Pause compaction for the duration of file listing + hardlink creation.
-		//    Writes continue uninterrupted; only compaction is paused.
+		// 1. Pause compaction first to prevent segment merging/deletion during
+		//    flush and hardlink creation. Writes continue uninterrupted.
 		if err := s.store.PauseCompaction(ctx); err != nil {
 			return fmt.Errorf("pause compaction: %w", err)
 		}
 		defer s.store.ResumeCompaction(ctx)
+
+		// 2. Flush memtables to ensure all in-memory data is in segments.
+		//    Compaction is already paused, so flushed segments won't be
+		//    merged or deleted before we hardlink them.
+		if err := s.store.FlushMemtables(ctx); err != nil {
+			return fmt.Errorf("flush memtables: %w", err)
+		}
 
 		// 3. List all shard files (LSM segments).
 		lsmFiles, err := s.store.ListFiles(ctx, rootPath)
@@ -172,4 +175,26 @@ func (s *Shard) CreateTransferSnapshot(ctx context.Context) (shard.TransferSnaps
 func (s *Shard) ReleaseTransferSnapshot(snapshotID string) error {
 	stagingDir := filepath.Join(s.path(), ".transfer-snapshot-"+snapshotID)
 	return os.RemoveAll(stagingDir)
+}
+
+// cleanupOrphanedTransferSnapshots removes any leftover .transfer-snapshot-*
+// directories from the shard's data directory. These can be left behind if
+// a node crashes during state transfer.
+func (s *Shard) cleanupOrphanedTransferSnapshots() {
+	entries, err := os.ReadDir(s.path())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), ".transfer-snapshot-") {
+			fullPath := filepath.Join(s.path(), e.Name())
+			if err := os.RemoveAll(fullPath); err != nil {
+				s.index.logger.WithError(err).WithField("path", fullPath).
+					Warn("failed to cleanup orphaned transfer snapshot directory")
+			} else {
+				s.index.logger.WithField("path", fullPath).
+					Info("cleaned up orphaned transfer snapshot directory")
+			}
+		}
+	}
 }

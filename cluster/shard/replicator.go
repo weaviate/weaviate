@@ -38,6 +38,10 @@ import (
 // ErrNoLeaderFound is returned when no leader can be found for a shard.
 var ErrNoLeaderFound = errors.New("no leader found for shard")
 
+// ErrNotLeaderForRead is returned when a DIRECT consistency read is attempted
+// on a non-leader node. The caller should forward the read to the leader.
+var ErrNotLeaderForRead = errors.New("not leader: forward read to leader")
+
 type Replicator interface {
 	AddReferences(ctx context.Context, shard string, refs []objects.BatchReference, l routerTypes.ConsistencyLevel, schemaVersion uint64) []error
 	CheckConsistency(ctx context.Context, l routerTypes.ConsistencyLevel, xs []*storobj.Object) error
@@ -581,7 +585,6 @@ func (r *replicator) FindUUIDs(ctx context.Context, className string, shard stri
 		return r.findUUIDsLocal(ctx, shard, f, limit)
 
 	case routerTypes.ConsistencyLevelDirect:
-		// For DIRECT FindUUIDs, ensure we're on leader or fall back to backing replicator
 		store := r.raft.GetStore(shard)
 		if store.IsLeader() {
 			if err := store.VerifyLeader(); err != nil {
@@ -589,8 +592,8 @@ func (r *replicator) FindUUIDs(ctx context.Context, className string, shard stri
 			}
 			return r.findUUIDsLocal(ctx, shard, f, limit)
 		}
-		// Forward via backing replicator mapped to ALL (leader-read)
-		return r.Replicator.FindUUIDs(ctx, className, shard, f, routerTypes.ConsistencyLevelAll, limit)
+		// No direct leader-forwarding RPC for FindUUIDs; signal caller to forward.
+		return nil, ErrNotLeaderForRead
 
 	default:
 		return nil, fmt.Errorf("unsupported consistency level: %s", l)
@@ -692,9 +695,16 @@ func (r *replicator) existsFromLeader(ctx context.Context, shard string, id strf
 		return r.existsLocal(ctx, shard, id)
 	}
 
-	// For Exists, there's no direct NodeObject equivalent — fall back to backing replicator
-	// with ALL consistency level which reads from all replicas (including leader).
-	return r.Replicator.Exists(ctx, routerTypes.ConsistencyLevelAll, shard, id)
+	// Forward to leader via NodeObject — a nil result means the object doesn't exist.
+	leaderID := store.LeaderID()
+	if leaderID == "" {
+		return false, ErrNoLeaderFound
+	}
+	obj, err := r.NodeObject(ctx, leaderID, shard, id, search.SelectProperties{}, additional.Properties{})
+	if err != nil {
+		return false, err
+	}
+	return obj != nil, nil
 }
 
 // EnsureReadConsistency ensures a shard is ready for a consistent read under RAFT CLs.
@@ -725,7 +735,7 @@ func (r *replicator) EnsureReadConsistency(ctx context.Context, shardName string
 			}
 			return true, nil
 		}
-		return false, nil // Caller should forward search to leader
+		return false, nil // Caller checks localReady and forwards to leader
 
 	default:
 		return true, nil

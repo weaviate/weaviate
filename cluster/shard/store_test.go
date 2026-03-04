@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/shard"
 	"github.com/weaviate/weaviate/cluster/shard/mocks"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -208,19 +209,20 @@ func TestStore_Apply_PutObject(t *testing.T) {
 	mockShard.AssertCalled(t, "PutObject", mock.Anything, mock.Anything)
 }
 
-func TestStore_Apply_PutObject_ShardError(t *testing.T) {
+func TestStore_Apply_PutObject_ShardError_Swallowed(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
-	shardErr := fmt.Errorf("disk full")
+	// Non-transient errors are swallowed to maintain FSM consistency.
+	shardErr := fmt.Errorf("some permanent error")
 	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(shardErr)
 
 	obj := makeTestObject()
 	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
 
-	_, err := store.Apply(context.Background(), req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disk full")
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err, "FSM should swallow errors to maintain consistency")
+	assert.Greater(t, version, uint64(0))
 }
 
 func TestStore_Apply_NotStarted(t *testing.T) {
@@ -621,7 +623,7 @@ func TestStore_Apply_DeleteObject(t *testing.T) {
 	assert.Greater(t, version, uint64(0))
 }
 
-func TestStore_Apply_DeleteObject_ShardError(t *testing.T) {
+func TestStore_Apply_DeleteObject_ShardError_Swallowed(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
@@ -630,9 +632,9 @@ func TestStore_Apply_DeleteObject_ShardError(t *testing.T) {
 	mockShard.EXPECT().DeleteObject(mock.Anything, mock.Anything, mock.Anything).Return(shardErr)
 
 	req := buildDeleteObjectApplyRequest(t, testClassName, testShardName, id, time.Now())
-	_, err := store.Apply(context.Background(), req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "object not found")
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err, "FSM should swallow errors to maintain consistency")
+	assert.Greater(t, version, uint64(0))
 }
 
 func TestStore_Apply_MergeObject(t *testing.T) {
@@ -656,7 +658,7 @@ func TestStore_Apply_MergeObject(t *testing.T) {
 	assert.Greater(t, version, uint64(0))
 }
 
-func TestStore_Apply_MergeObject_ShardError(t *testing.T) {
+func TestStore_Apply_MergeObject_ShardError_Swallowed(t *testing.T) {
 	store, mockShard := newTestStore(t)
 	startAndWaitForLeader(t, store)
 
@@ -669,9 +671,9 @@ func TestStore_Apply_MergeObject_ShardError(t *testing.T) {
 	mockShard.EXPECT().MergeObject(mock.Anything, mock.Anything).Return(shardErr)
 
 	req := buildMergeObjectApplyRequest(t, testClassName, testShardName, doc)
-	_, err := store.Apply(context.Background(), req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "merge conflict")
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err, "FSM should swallow errors to maintain consistency")
+	assert.Greater(t, version, uint64(0))
 }
 
 func TestStore_Apply_PutObjectsBatch(t *testing.T) {
@@ -711,10 +713,12 @@ func TestStore_Apply_PutObjectsBatch_PartialError(t *testing.T) {
 	batchErr := fmt.Errorf("disk full on object 1")
 	mockShard.EXPECT().PutObjectBatch(mock.Anything, mock.Anything).Return([]error{nil, batchErr})
 
+	// Batch handlers now return nil on per-item errors (partial success is OK
+	// since RAFT replay is idempotent). Failed items are logged for observability.
 	req := buildPutObjectsBatchApplyRequest(t, testClassName, testShardName, []*storobj.Object{obj, obj})
-	_, err := store.Apply(context.Background(), req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disk full on object 1")
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err)
+	assert.Greater(t, version, uint64(0))
 }
 
 func TestStore_Apply_DeleteObjectsBatch(t *testing.T) {
@@ -753,10 +757,12 @@ func TestStore_Apply_DeleteObjectsBatch_ShardError(t *testing.T) {
 		{UUID: uuids[0], Err: shardErr},
 	})
 
+	// Batch handlers now return nil on per-item errors (partial success is OK
+	// since RAFT replay is idempotent). Failed items are logged for observability.
 	req := buildDeleteObjectsBatchApplyRequest(t, testClassName, testShardName, uuids, time.Now(), false)
-	_, err := store.Apply(context.Background(), req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "permission denied")
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err)
+	assert.Greater(t, version, uint64(0))
 }
 
 func TestStore_Apply_AddReferences(t *testing.T) {
@@ -789,10 +795,85 @@ func TestStore_Apply_AddReferences_ShardError(t *testing.T) {
 	refErr := fmt.Errorf("reference target not found")
 	mockShard.EXPECT().AddReferencesBatch(mock.Anything, mock.Anything).Return([]error{refErr})
 
+	// Batch handlers now return nil on per-item errors (partial success is OK
+	// since RAFT replay is idempotent). Failed items are logged for observability.
 	req := buildAddReferencesApplyRequest(t, testClassName, testShardName, refs)
-	_, err := store.Apply(context.Background(), req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reference target not found")
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err)
+	assert.Greater(t, version, uint64(0))
+}
+
+// ---------------------------------------------------------------------------
+// FSM Retry Behavior Tests
+// ---------------------------------------------------------------------------
+
+func TestStore_Apply_PutObject_TransientRetrySucceeds(t *testing.T) {
+	store, mockShard := newTestStore(t)
+	startAndWaitForLeader(t, store)
+
+	// Fail twice with transient error, succeed on 3rd attempt.
+	transientErr := enterrors.NewNotEnoughMemory("shard write")
+	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(transientErr).Times(2)
+	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(nil).Once()
+
+	obj := makeTestObject()
+	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
+
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err)
+	assert.Greater(t, version, uint64(0))
+}
+
+func TestStore_Apply_PutObject_TransientRetryExhausted(t *testing.T) {
+	store, mockShard := newTestStore(t)
+	startAndWaitForLeader(t, store)
+
+	// Always fail with transient error — retries exhaust, error is swallowed.
+	transientErr := enterrors.NewNotEnoughMemory("shard write")
+	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(transientErr)
+
+	obj := makeTestObject()
+	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
+
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err, "FSM should swallow error after retries exhaust")
+	assert.Greater(t, version, uint64(0))
+}
+
+func TestStore_Apply_PutObject_PermanentError_NoRetry(t *testing.T) {
+	store, mockShard := newTestStore(t)
+	startAndWaitForLeader(t, store)
+
+	// Permanent error — should be swallowed immediately without retries.
+	permanentErr := fmt.Errorf("some non-transient error")
+	mockShard.EXPECT().PutObject(mock.Anything, mock.Anything).Return(permanentErr).Once()
+
+	obj := makeTestObject()
+	req := buildPutObjectApplyRequest(t, testClassName, testShardName, obj)
+
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err, "FSM should swallow permanent errors")
+	assert.Greater(t, version, uint64(0))
+
+	// Verify PutObject was called exactly once (no retries for permanent errors).
+	mockShard.AssertNumberOfCalls(t, "PutObject", 1)
+}
+
+func TestStore_Apply_PutObject_UnmarshalError_Swallowed(t *testing.T) {
+	store, _ := newTestStore(t)
+	startAndWaitForLeader(t, store)
+
+	// Provide malformed SubCommand bytes — unmarshal will fail.
+	req := &shardproto.ApplyRequest{
+		Type:       shardproto.ApplyRequest_TYPE_PUT_OBJECT,
+		Class:      testClassName,
+		Shard:      testShardName,
+		SubCommand: []byte("invalid protobuf data"),
+	}
+
+	version, err := store.Apply(context.Background(), req)
+	require.NoError(t, err, "FSM should swallow unmarshal errors")
+	assert.Greater(t, version, uint64(0))
 }
 
 // ---------------------------------------------------------------------------
