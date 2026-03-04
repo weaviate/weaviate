@@ -764,13 +764,11 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	for k := range desc.Chunks {
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
-			uz, w := NewUnzip(classTempDir, compressionType)
-
-			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
-			}, fw.logger)
-			_, err := uz.ReadChunk()
-			return err
+			return fw.readAndUnzipChunk(classTempDir, compressionType, chunk,
+				func(w io.WriteCloser) error {
+					_, err := fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+					return err
+				})
 		})
 	}
 
@@ -780,22 +778,11 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
 				for _, chunkId := range incrementalBackupInfo.ChunkKeys { // chunks for file
 					eg.Go(func() error {
-						uz, w := NewUnzip(classTempDir, compressionType)
-
-						errCh := enterrors.GoWrapperWithErrorCh(func() {
-							_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
-							if err != nil {
-								fw.logger.WithField("backup_id", backupId).Warnf("failed to read chunk from base backup: %v", err)
-							}
-						}, fw.logger)
-						_, err := uz.ReadChunk()
-						if err != nil {
-							return err
-						}
-						if readErr := <-errCh; readErr != nil {
-							return readErr
-						}
-						return nil
+						return fw.readAndUnzipChunk(classTempDir, compressionType, chunkId,
+							func(w io.WriteCloser) error {
+								_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+								return err
+							})
 					})
 				}
 			}
@@ -826,6 +813,31 @@ func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescri
 	destPath = path.Join(classTempDir, sd.ShardVersionPath)
 	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
 		return fmt.Errorf("write version file %s: %w", destPath, err)
+	}
+	return nil
+}
+
+// readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.
+// It propagates errors from both the download and the unzip so that partial
+// downloads are never silently accepted.
+func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType backup.CompressionType, chunkName string, readFn func(w io.WriteCloser) error) error {
+	uz, w := NewUnzip(classTempDir, compressionType)
+
+	readErrCh := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		err := readFn(w)
+		if err != nil {
+			fw.logger.WithField("chunk", chunkName).Errorf("failed to read chunk from backend: %v", err)
+		}
+		readErrCh <- err
+	}, fw.logger)
+
+	_, unzipErr := uz.ReadChunk()
+	if unzipErr != nil {
+		return fmt.Errorf("unzip chunk %s: %w", chunkName, unzipErr)
+	}
+	if readErr := <-readErrCh; readErr != nil {
+		return fmt.Errorf("read chunk %s from backend: %w", chunkName, readErr)
 	}
 	return nil
 }
