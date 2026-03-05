@@ -388,7 +388,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 
-	// Determine source path: use staging dir (hardlinked snapshot) if available,
+	// Determine source path: use staging dir (hard-linked snapshot) if available,
 	// otherwise fall back to live data path for backward compatibility.
 	sourcePath := u.backend.SourceDataPath()
 	if desc.StagingDir != "" {
