@@ -518,11 +518,11 @@ func (u *uploader) compress(ctx context.Context,
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 
-	// minIndividualFileSize determines which files are "big" and get their own chunk (tracked for incremental dedup).
-	// chunkTargetSize controls the max size when packing small files together; it must be at least minIndividualFileSize.
-	minIndividualFileSize := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
-	chunkTargetSize := max(u.cfg.ChunkTargetSize, minIndividualFileSize)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, minIndividualFileSize, u.cfg.SplitFileSize)
+	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
+	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}

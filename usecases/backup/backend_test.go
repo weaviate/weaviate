@@ -189,9 +189,9 @@ func TestCreateFileList(t *testing.T) {
 // + createFileList logic runs end-to-end.
 //
 // Sizing note: with fewer than 100 files, Top100Size equals the smallest file size
-// (clamped to MinChunkSize). minIndividualFileSize = max(MinChunkSize, Top100Size).
-// Files >= minIndividualFileSize are "big" and get their own chunk.
-// chunkTargetSize = max(ChunkTargetSize, minIndividualFileSize).
+// (clamped to MinChunkSize). bigFileThreshold = max(MinChunkSize, Top100Size).
+// Files >= bigFileThreshold are "big" and get their own chunk.
+// chunkTargetSize = max(ChunkTargetSize, bigFileThreshold).
 // To have small files pack together, set MinChunkSize above the file sizes.
 func TestProcessShard(t *testing.T) {
 	type testFile struct {
@@ -250,7 +250,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/c.db", 200},
 				{"shard1/d.db", 200},
 			},
-			// MinChunkSize=500 → minIndividualFileSize=500, chunkTargetSize=500.
+			// MinChunkSize=500 → bigFileThreshold=500, chunkTargetSize=500.
 			// Files (200 each) < 500 → pack together.
 			// Chunk 1: in-mem(150) + a(200) = 350. b: 550 > 500 → full.
 			// Chunk 2: b(200) + c(200) = 400. d: 600 > 500 → full.
@@ -329,7 +329,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/huge.db", 1000},
 			},
 			// With a single file, Top100Size = max(fileSize, MinChunkSize) >= fileSize.
-			// So chunkTargetSize >= minIndividualFileSize >= fileSize, and
+			// So chunkTargetSize >= bigFileThreshold >= fileSize, and
 			// 0+fileSize > chunkTargetSize is always false → file is written whole.
 			minChunkSize:    200,
 			chunkTargetSize: 300,

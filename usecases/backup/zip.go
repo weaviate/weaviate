@@ -62,16 +62,16 @@ type compressor interface {
 }
 
 type zip struct {
-	sourcePath            string
-	w                     *tar.Writer
-	compressorWriter      compressor
-	pipeWriter            *io.PipeWriter
-	maxChunkSizeInBytes   int64
-	minIndividualFileSize int64
-	splitFileSizeBytes    int64
+	sourcePath          string
+	w                   *tar.Writer
+	compressorWriter    compressor
+	pipeWriter          *io.PipeWriter
+	maxChunkSizeInBytes int64
+	bigFileThreshold    int64
+	splitFileSizeBytes  int64
 }
 
-func NewZip(sourcePath string, level int, chunkTargetSize int64, minIndividualFileSize int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -109,15 +109,19 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, minIndividualFi
 	if splitFileSize == 0 {
 		splitFileSize = int64(1<<63 - 1) // effectively no limit
 	}
+	// splitFileSize must be at least chunkTargetSize, otherwise the split logic would never kick in.
+	if splitFileSize < chunkTargetSizeInBytes {
+		splitFileSize = chunkTargetSizeInBytes
+	}
 
 	return zip{
-		sourcePath:            sourcePath,
-		compressorWriter:      gzw,
-		w:                     tarW,
-		pipeWriter:            pw,
-		maxChunkSizeInBytes:   chunkTargetSizeInBytes,
-		minIndividualFileSize: minIndividualFileSize,
-		splitFileSizeBytes:    splitFileSize,
+		sourcePath:          sourcePath,
+		compressorWriter:    gzw,
+		w:                   tarW,
+		pipeWriter:          pw,
+		maxChunkSizeInBytes: chunkTargetSizeInBytes,
+		bigFileThreshold:    bigFileThreshold,
+		splitFileSizeBytes:  splitFileSize,
 	}, reader, nil
 }
 
@@ -202,8 +206,8 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 			return written, nil, err
 		}
 
-		// Big files (>= minIndividualFileSize) get their own chunk
-		if z.minIndividualFileSize > 0 && fileSize >= z.minIndividualFileSize {
+		// Big files (>= bigFileThreshold) get their own chunk
+		if z.bigFileThreshold > 0 && fileSize >= z.bigFileThreshold {
 			if !firstFile {
 				// Current chunk already has data; fill remaining space with small files, then return.
 				// The big file stays at the front for the next chunk.
@@ -271,7 +275,7 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 			return written, err
 		}
 		// Skip big files — they get their own chunk
-		if z.minIndividualFileSize > 0 && fileSize >= z.minIndividualFileSize {
+		if z.bigFileThreshold > 0 && fileSize >= z.bigFileThreshold {
 			continue
 		}
 		if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
@@ -327,7 +331,7 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, false, nil
 	}
 
-	if z.minIndividualFileSize > 0 && fileSize >= z.minIndividualFileSize {
+	if z.bigFileThreshold > 0 && fileSize >= z.bigFileThreshold {
 		if sd.BigFilesChunk == nil {
 			sd.BigFilesChunk = make(map[string]entBackup.BigFileInfo)
 		}

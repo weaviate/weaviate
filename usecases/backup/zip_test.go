@@ -328,6 +328,47 @@ func TestRenaming(t *testing.T) {
 	wg.Wait()
 }
 
+func TestNewZipClampsSplitFileSize(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name                  string
+		chunkTargetSize       int64
+		splitFileSize         int64
+		expectedSplitFileSize int64
+	}{
+		{
+			name:                  "splitFileSize already above chunkTargetSize",
+			chunkTargetSize:       500,
+			splitFileSize:         1000,
+			expectedSplitFileSize: 1000,
+		},
+		{
+			name:                  "splitFileSize equals chunkTargetSize",
+			chunkTargetSize:       1000,
+			splitFileSize:         1000,
+			expectedSplitFileSize: 1000,
+		},
+		{
+			name:                  "splitFileSize below chunkTargetSize gets clamped up",
+			chunkTargetSize:       1000,
+			splitFileSize:         500,
+			expectedSplitFileSize: 1000,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, 0, tc.splitFileSize)
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedSplitFileSize, z.splitFileSizeBytes)
+			go func() { io.Copy(io.Discard, rc) }()
+			z.Close()
+			rc.Close()
+		})
+	}
+}
+
 // TestWriteRegulars is a table-driven test covering the main WriteRegulars behaviors:
 // chunk filling with small files, big file isolation, and big file split propagation.
 func TestWriteRegulars(t *testing.T) {
@@ -1784,7 +1825,7 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 }
 
 // TestWriteRegularsBigFileReturnsSplitFile verifies that when a "big" file
-// (>= minIndividualFileSize) also exceeds splitFileSizeBytes, WriteRegulars
+// (>= bigFileThreshold) also exceeds splitFileSizeBytes, WriteRegulars
 // returns the SplitFile so the caller can split it across chunks instead of
 // silently dropping it.
 // makeTestData creates deterministic test data of the given size.
