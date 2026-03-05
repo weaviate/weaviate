@@ -70,7 +70,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
 		// Prepend source segments into target.
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Verify all source data is readable via target.
 		assertRoaringSetContains(t, tgtBucket, []byte("key-a"), []uint64{1, 2, 3})
@@ -105,7 +105,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.RoaringSetAddList([]byte("key-x"), []uint64{3, 4, 5}))
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Roaring set merges additions: result should contain union.
 		assertRoaringSetContains(t, tgtBucket, []byte("key-x"), []uint64{1, 2, 3, 4, 5})
@@ -131,7 +131,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.RoaringSetAddList([]byte("key-x"), []uint64{2, 4}))
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Target's add of 2 is in a newer segment, so it should still be present.
 		// Source segments (older) have: add {1,2,3}, then delete {2} => net {1,3}.
@@ -155,7 +155,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		tgtBucket := createTestBucketRoaringSet(t, ctx, tgtDir)
 		defer tgtBucket.Shutdown(ctx)
 
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Source data should be readable.
 		assertRoaringSetContains(t, tgtBucket, []byte("key-a"), []uint64{1, 2, 3})
@@ -182,7 +182,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
 		segCountBefore := tgtBucket.disk.Len()
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Segment count unchanged.
 		assert.Equal(t, segCountBefore, tgtBucket.disk.Len())
@@ -239,7 +239,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 
 		// Run prepend while readers are active.
 		time.Sleep(5 * time.Millisecond) // let readers start
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		close(stop)
 		wg.Wait()
@@ -277,7 +277,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		segCountBefore := tgtBucket.disk.Len()
 
 		// Prepend source segments (internally pauses compaction).
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 		assert.Equal(t, segCountBefore+1, tgtBucket.disk.Len())
 
 		// Now run compaction — it should work correctly with the new
@@ -315,7 +315,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.RoaringSetAddList([]byte("key-tgt"), []uint64{42}))
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Verify before shutdown.
 		assertRoaringSetContains(t, tgtBucket, []byte("key-src"), []uint64{7, 8, 9})
@@ -346,7 +346,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, err)
 		defer b.Shutdown(ctx)
 
-		err = b.disk.PrependSegmentsFromBucket(ctx, t.TempDir())
+		err = b.PrependSegmentsFromBucket(ctx, t.TempDir())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "replace")
 		assert.Contains(t, err.Error(), "countNetAdditions")
@@ -399,10 +399,10 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
 		// Prepend first source.
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir1))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir1))
 		// Prepend second source (dynamic shift must place these before the
 		// first prepend's segments, which are already shifted).
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir2))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir2))
 
 		assertRoaringSetContains(t, tgtBucket, []byte("key-1"), []uint64{1})
 		assertRoaringSetContains(t, tgtBucket, []byte("key-2"), []uint64{2})
@@ -438,7 +438,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.SetAdd([]byte("key-b"), [][]byte{[]byte("val3")}))
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Verify source data is readable via target.
 		vals, err := tgtBucket.SetList([]byte("key-a"))
@@ -479,7 +479,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		require.NoError(t, tgtBucket.MapSet([]byte("row-b"), MapPair{Key: []byte("k3"), Value: []byte("v3")}))
 		require.NoError(t, tgtBucket.FlushAndSwitch())
 
-		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
 
 		// Verify source data.
 		pairs, err := tgtBucket.MapList(ctx, []byte("row-a"))
