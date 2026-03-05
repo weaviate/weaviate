@@ -1491,21 +1491,33 @@ func (_c *MockShardLike_Index_Call) RunAndReturn(run func() *Index) *MockShardLi
 }
 
 // ListBackupFiles provides a mock function with given fields: ctx, ret
-func (_m *MockShardLike) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (_m *MockShardLike) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	ret_2 := _m.Called(ctx, ret)
 
 	if len(ret_2) == 0 {
 		panic("no return value specified for ListBackupFiles")
 	}
 
-	var r0 error
-	if rf, ok := ret_2.Get(0).(func(context.Context, *backup.ShardDescriptor) error); ok {
+	var r0 []string
+	var r1 error
+	if rf, ok := ret_2.Get(0).(func(context.Context, *backup.ShardDescriptor) ([]string, error)); ok {
+		return rf(ctx, ret)
+	}
+	if rf, ok := ret_2.Get(0).(func(context.Context, *backup.ShardDescriptor) []string); ok {
 		r0 = rf(ctx, ret)
 	} else {
-		r0 = ret_2.Error(0)
+		if ret_2.Get(0) != nil {
+			r0 = ret_2.Get(0).([]string)
+		}
 	}
 
-	return r0
+	if rf, ok := ret_2.Get(1).(func(context.Context, *backup.ShardDescriptor) error); ok {
+		r1 = rf(ctx, ret)
+	} else {
+		r1 = ret_2.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_ListBackupFiles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListBackupFiles'
@@ -1527,12 +1539,12 @@ func (_c *MockShardLike_ListBackupFiles_Call) Run(run func(ctx context.Context, 
 	return _c
 }
 
-func (_c *MockShardLike_ListBackupFiles_Call) Return(_a0 error) *MockShardLike_ListBackupFiles_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_ListBackupFiles_Call) Return(_a0 []string, _a1 error) *MockShardLike_ListBackupFiles_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_ListBackupFiles_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor) error) *MockShardLike_ListBackupFiles_Call {
+func (_c *MockShardLike_ListBackupFiles_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor) ([]string, error)) *MockShardLike_ListBackupFiles_Call {
 	_c.Call.Return(run)
 	return _c
 }
