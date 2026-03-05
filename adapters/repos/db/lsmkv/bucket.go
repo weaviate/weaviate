@@ -707,7 +707,8 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 				// to avoid returning an item that was deleted and re-added with the same secondary key
 				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.NotFound
 				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
-				// - exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
+				// - exists(k) == any other error != lsmkv.NotFound: return the error, since we can't be sure about the state of the doc
+				// - "default" exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
 				err = memtables[0].exists(k)
 				if err == nil {
 					return nil, nil, lsmkv.NotFound
@@ -732,7 +733,7 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 
 	beforeSegments := time.Now()
-	k, v, allocBuf, secSegIndex, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	priKey, v, allocBuf, secSegIndex, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -741,17 +742,18 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
 
-	// only check up to the segment where the item was found,
+	// Check if a later version of the document is accesible by primary key.
+	// Only check up to, not including, the segment (secSegIndex+1) where the item was found,
 	// to avoid disk access for items that were deleted and re-added with the same secondary key in a later segment
-	err = b.existsWithConsistentViewUpTo(k, secSegIndex+1, view)
+	err = b.existsWithConsistentViewUpTo(priKey, secSegIndex+1, view)
 
-	// if it exists on a later segment, it means it was updated
+	// if it exists on a later segment for priKey (err == nil), it means it was updated
 	// thus, we return lsmkv.NotFound to avoid returning stale data.
 	if err == nil {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	// if there is an error other than not found, we should return it instead of potentially returning a deleted item
+	// if there is an error other than not found, we propagate the err
 	if !errors.Is(err, lsmkv.NotFound) {
 		return nil, nil, err
 	}
