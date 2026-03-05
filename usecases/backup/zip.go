@@ -106,6 +106,9 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshol
 	if chunkTargetSizeInBytes == 0 {
 		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
 	}
+	if bigFileThreshold == 0 {
+		bigFileThreshold = int64(1<<63 - 1) // effectively no big files
+	}
 	if splitFileSize == 0 {
 		splitFileSize = int64(1<<63 - 1) // effectively no limit
 	}
@@ -207,7 +210,7 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 		}
 
 		// Big files (>= bigFileThreshold) get their own chunk
-		if z.bigFileThreshold > 0 && fileSize >= z.bigFileThreshold {
+		if fileSize >= z.bigFileThreshold {
 			if !firstFile {
 				// Current chunk already has data; fill remaining space with small files, then return.
 				// The big file stays at the front for the next chunk.
@@ -275,7 +278,7 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 			return written, err
 		}
 		// Skip big files — they get their own chunk
-		if z.bigFileThreshold > 0 && fileSize >= z.bigFileThreshold {
+		if fileSize >= z.bigFileThreshold {
 			continue
 		}
 		if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
@@ -331,7 +334,7 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, false, nil
 	}
 
-	if z.bigFileThreshold > 0 && fileSize >= z.bigFileThreshold {
+	if fileSize >= z.bigFileThreshold {
 		if sd.BigFilesChunk == nil {
 			sd.BigFilesChunk = make(map[string]entBackup.BigFileInfo)
 		}
