@@ -151,8 +151,8 @@ func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName st
 // deactivating the shard (it acquires shardCreateLocks.Lock).
 func (i *Index) acquireShardWithLock(ctx context.Context, shardName string, class *models.Class) (ShardLike, func(), error) {
 	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
 	if i.closed {
-		i.closeLock.RUnlock()
 		return nil, nil, errAlreadyShutdown
 	}
 
@@ -163,7 +163,6 @@ func (i *Index) acquireShardWithLock(ctx context.Context, shardName string, clas
 		// Hot path: shard already loaded. RLock is held continuously from
 		// load through preventShutdown — no gap for the migrator.
 		shardRelease, err := shard.preventShutdown()
-		i.closeLock.RUnlock()
 		if err != nil {
 			i.shardCreateLocks.RUnlock(shardName)
 			return nil, nil, err
@@ -187,7 +186,6 @@ func (i *Index) acquireShardWithLock(ctx context.Context, shardName string, clas
 		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 		if err != nil {
 			i.shardCreateLocks.Unlock(shardName)
-			i.closeLock.RUnlock()
 			return nil, nil, err
 		}
 		i.shards.Store(shardName, shard)
@@ -198,7 +196,6 @@ func (i *Index) acquireShardWithLock(ctx context.Context, shardName string, clas
 	shardRelease, err := shard.preventShutdown()
 	if err != nil {
 		i.shardCreateLocks.Unlock(shardName)
-		i.closeLock.RUnlock()
 		return nil, nil, err
 	}
 
@@ -207,7 +204,6 @@ func (i *Index) acquireShardWithLock(ctx context.Context, shardName string, clas
 	// is already held so it cannot shut the shard down.
 	i.shardCreateLocks.Unlock(shardName)
 	i.shardCreateLocks.RLock(shardName)
-	i.closeLock.RUnlock()
 
 	release := func() {
 		shardRelease()
