@@ -12,11 +12,9 @@
 package segmentindex
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"sort"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -112,8 +110,5 @@ func (s *Indexes) writeDirectly(w io.Writer) (written int64, err error) {
 }
 
 func (s *Indexes) buildAndMarshalPrimary(w io.Writer, keys []Key) (int64, error) {
-	sort.Slice(keys, func(i, j int) bool {
-		return bytes.Compare(keys[i].Key, keys[j].Key) < 0
-	})
 	return MarshalSortedKeysFromKeys(w, keys)
 }
