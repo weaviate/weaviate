@@ -25,7 +25,7 @@ import (
 const DeleteMarker = "__DELETE_ME_AFTER_BACKUP__"
 
 // BackupStagingPrefix is the prefix for staging directories used during backup.
-// These directories contain hardlinked snapshot files and are cleaned up after backup completion.
+// These directories contain hard-linked snapshot files and are cleaned up after backup completion.
 const BackupStagingPrefix = ".backup-staging-"
 
 func DeleteMarkerAdd(filename string) string {
@@ -444,7 +444,7 @@ type ClassDescriptor struct {
 	// aliases
 	AliasesIncluded         bool               `json:"aliasesIncluded"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
-	StagingDir              string             `json:"-"` // non-serialized; staging dir for hardlinked snapshot files
+	StagingDir              string             `json:"-"` // non-serialized; staging dir for hard-linked snapshot files
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }

@@ -190,7 +190,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		return err
 	}
 
-	// Create staging dir for hardlinked snapshot files
+	// Create staging dir for hard-linked snapshot files
 	stagingRoot := i.backupStagingDir(backupID)
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return fmt.Errorf("create backup staging dir: %w", err)
