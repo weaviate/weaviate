@@ -298,8 +298,8 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return written, nil, false, err
 	}
 
-	// always write at least one file per chunk
 	if !firstFile && preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
+		// chunk is full - defer to next chunk
 		return 0, nil, true, nil
 	}
 
@@ -322,18 +322,9 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, nil, false, nil // ignore directories
 	}
 
-	// Check if the file exceeds the chunk size
-	if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
-		if fileSize > z.splitFileSizeBytes {
-			// file is larger than the split threshold, split it across chunks
-			// (a split part counts as "at least one file" in the chunk)
-			return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, false, nil
-		}
-		if !firstFile {
-			// file doesn't need splitting, but chunk is full - defer to next chunk
-			return 0, nil, true, nil
-		}
-		// firstFile and below split threshold: write it whole so the chunk is not empty
+	// Check if the first file exceeds the chunk and needs splitting
+	if firstFile && preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes && fileSize > z.splitFileSizeBytes {
+		return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, false, nil
 	}
 
 	if z.minIndividualFileSize > 0 && fileSize >= z.minIndividualFileSize {
