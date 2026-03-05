@@ -328,77 +328,210 @@ func TestRenaming(t *testing.T) {
 	wg.Wait()
 }
 
-// TestWriteRegularsFillsChunkWithSmallFiles verifies that when a large file doesn't fit,
-// WriteRegulars scans ahead and fills the chunk with smaller files that do fit.
-func TestWriteRegularsFillsChunkWithSmallFiles(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "source")
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
-
-	// Create files: one big (5000 bytes) and three small (100 bytes each)
-	bigData := bytes.Repeat([]byte("X"), 5000)
-	smallData := bytes.Repeat([]byte("s"), 100)
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small1.db"), smallData, 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "big.db"), bigData, 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small2.db"), smallData, 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small3.db"), smallData, 0o644))
-
-	sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
-	files := []string{
-		"shard/small1.db",
-		"shard/big.db",
-		"shard/small2.db",
-		"shard/small3.db",
-	}
-	fileSizes := map[string]int64{
-		"shard/small1.db": 100,
-		"shard/big.db":    5000,
-		"shard/small2.db": 100,
-		"shard/small3.db": 100,
+// TestWriteRegulars is a table-driven test covering the main WriteRegulars behaviors:
+// chunk filling with small files, big file isolation, and big file split propagation.
+func TestWriteRegulars(t *testing.T) {
+	type testFile struct {
+		relPath string
+		size    int
 	}
 
-	// Chunk size = 1000 bytes. small1 fits (100), big doesn't (5000).
-	// Scan ahead should pick up small2 and small3.
-	z, rc, err := NewZip(dir, int(NoCompression), 1000, 0, 0)
-	require.NoError(t, err)
-
-	fileList := &backup.FileList{
-		Files:     append([]string{}, files...),
-		FileSizes: fileSizes,
+	tests := []struct {
+		name                 string
+		files                []testFile
+		chunkTargetSize      int64
+		minIndividualSize    int64
+		splitFileSize        int64
+		expectTarFiles       []string // files expected in the produced tar chunk
+		expectRemainingFiles []string // files expected to remain in the file list after the call
+		expectSplitFile      string   // if non-empty, expect a SplitFile with this RelPath
+		expectBigFileChunk   string   // if non-empty, expect this file tracked in BigFilesChunk
+	}{
+		{
+			name: "fills chunk with small files when big file does not fit",
+			files: []testFile{
+				{"shard/small1.db", 100},
+				{"shard/big.db", 5000},
+				{"shard/small2.db", 100},
+				{"shard/small3.db", 100},
+			},
+			chunkTargetSize:      1000,
+			minIndividualSize:    0,
+			splitFileSize:        0,
+			expectTarFiles:       []string{"shard/small1.db", "shard/small2.db", "shard/small3.db"},
+			expectRemainingFiles: []string{"shard/big.db"},
+		},
+		{
+			name: "big file gets own chunk and is tracked in BigFilesChunk",
+			files: []testFile{
+				{"shard/small1.db", 100},
+				{"shard/big.db", 2000},
+				{"shard/small2.db", 100},
+			},
+			chunkTargetSize:      10000,
+			minIndividualSize:    500,
+			splitFileSize:        0,
+			expectTarFiles:       []string{"shard/small1.db", "shard/small2.db"},
+			expectRemainingFiles: []string{"shard/big.db"},
+			expectBigFileChunk:   "", // big file is NOT written in this chunk, only small files
+		},
+		{
+			name: "big file exceeding split threshold returns SplitFile",
+			files: []testFile{
+				{"shard/huge.db", 5000},
+			},
+			chunkTargetSize:      1000,
+			minIndividualSize:    1000,
+			splitFileSize:        500,
+			expectTarFiles:       nil,
+			expectRemainingFiles: nil,
+			expectSplitFile:      "shard/huge.db",
+		},
 	}
-	preCompSize := &atomic.Int64{}
 
-	var writeErr error
-	var written int64
-	go func() {
-		written, _, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
-		z.Close()
-	}()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "source")
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
 
-	buf := bytes.NewBuffer(nil)
-	_, err = io.Copy(buf, rc)
-	require.NoError(t, err)
-	require.NoError(t, rc.Close())
-	require.NoError(t, writeErr)
-	require.Greater(t, written, int64(0))
+			var fileNames []string
+			fileSizes := make(map[string]int64, len(tt.files))
+			for _, f := range tt.files {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, f.relPath),
+					bytes.Repeat([]byte("X"), f.size), 0o644))
+				fileNames = append(fileNames, f.relPath)
+				fileSizes[f.relPath] = int64(f.size)
+			}
 
-	// After chunk 1: small1, small2, small3 should have been written.
-	// Only big.db should remain in the file list.
-	require.Equal(t, 1, fileList.Len(), "only big file should remain")
-	require.Equal(t, "shard/big.db", fileList.Peek())
+			sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
+			fileList := &backup.FileList{
+				Files:     append([]string{}, fileNames...),
+				FileSizes: fileSizes,
+			}
 
-	// Verify the tar contains exactly 3 files
-	tr := tar.NewReader(buf)
-	var tarFiles []string
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
+			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, tt.minIndividualSize, tt.splitFileSize)
+			require.NoError(t, err)
+
+			preCompSize := &atomic.Int64{}
+			var splitFile *SplitFile
+			var writeErr error
+
+			go func() {
+				_, splitFile, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
+				z.Close()
+			}()
+
+			buf := bytes.NewBuffer(nil)
+			_, err = io.Copy(buf, rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+			require.NoError(t, writeErr)
+
+			// Check remaining files.
+			require.Equal(t, len(tt.expectRemainingFiles), fileList.Len(), "remaining file count")
+			for i, expected := range tt.expectRemainingFiles {
+				require.Equal(t, expected, fileList.PeekAt(i), "remaining file at index %d", i)
+			}
+
+			// Check tar contents.
+			tr := tar.NewReader(buf)
+			var tarFiles []string
+			for {
+				hdr, err := tr.Next()
+				if err == io.EOF {
+					break
+				}
+				require.NoError(t, err)
+				tarFiles = append(tarFiles, hdr.Name)
+			}
+			require.ElementsMatch(t, tt.expectTarFiles, tarFiles)
+
+			// Check split file.
+			if tt.expectSplitFile != "" {
+				require.NotNil(t, splitFile, "expected a SplitFile")
+				require.Equal(t, tt.expectSplitFile, splitFile.RelPath)
+				require.Equal(t, int64(0), splitFile.AlreadyWritten)
+			} else {
+				require.Nil(t, splitFile, "did not expect a SplitFile")
+			}
+		})
+	}
+
+	// Separate sub-test for the two-chunk big-file flow that verifies BigFilesChunk tracking.
+	t.Run("big file written alone in second chunk with BigFilesChunk tracking", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "source")
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small1.db"), bytes.Repeat([]byte("s"), 100), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "big.db"), bytes.Repeat([]byte("B"), 2000), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small2.db"), bytes.Repeat([]byte("s"), 100), 0o644))
+
+		sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
+		fileList := &backup.FileList{
+			Files: []string{"shard/small1.db", "shard/big.db", "shard/small2.db"},
+			FileSizes: map[string]int64{
+				"shard/small1.db": 100,
+				"shard/big.db":    2000,
+				"shard/small2.db": 100,
+			},
 		}
+
+		// Chunk 1: small files written, big file deferred.
+		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
 		require.NoError(t, err)
-		tarFiles = append(tarFiles, hdr.Name)
-	}
-	require.ElementsMatch(t, []string{"shard/small1.db", "shard/small2.db", "shard/small3.db"}, tarFiles)
+		preComp := &atomic.Int64{}
+		var writeErr error
+		go func() {
+			_, _, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preComp, "chunk1")
+			z.Close()
+		}()
+
+		buf := bytes.NewBuffer(nil)
+		_, err = io.Copy(buf, rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		require.NoError(t, writeErr)
+
+		require.Equal(t, 1, fileList.Len(), "only big file should remain")
+
+		// Chunk 2: big file is first and gets its own chunk.
+		z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		require.NoError(t, err)
+		preComp2 := &atomic.Int64{}
+		go func() {
+			_, _, writeErr = z2.WriteRegulars(context.Background(), &sd, fileList, preComp2, "chunk2")
+			z2.Close()
+		}()
+
+		buf2 := bytes.NewBuffer(nil)
+		_, err = io.Copy(buf2, rc2)
+		require.NoError(t, err)
+		require.NoError(t, rc2.Close())
+		require.NoError(t, writeErr)
+
+		require.Equal(t, 0, fileList.Len(), "all files should be written")
+
+		// Verify chunk 2 tar contains only big.db.
+		tr := tar.NewReader(buf2)
+		var tarFiles []string
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			tarFiles = append(tarFiles, hdr.Name)
+		}
+		require.Equal(t, []string{"shard/big.db"}, tarFiles)
+
+		// Verify BigFilesChunk tracking.
+		require.NotNil(t, sd.BigFilesChunk)
+		bigInfo, ok := sd.BigFilesChunk["shard/big.db"]
+		require.True(t, ok, "big.db should be tracked in BigFilesChunk")
+		require.Equal(t, int64(2000), bigInfo.Size)
+		require.Equal(t, []string{"chunk2"}, bigInfo.ChunkKeys)
+	})
 }
 
 // TestWriteShardFirstChunkRespectsInMemoryFiles verifies that when WriteShard
@@ -473,105 +606,6 @@ func TestWriteShardFirstChunkRespectsInMemoryFiles(t *testing.T) {
 		"shard/proplength.bin",
 		"shard/version.bin",
 	}, tarFiles)
-}
-
-// TestBigFileGetsOwnChunk verifies that files >= minIndividualFileSize get their own chunk
-// and are tracked in BigFilesChunk for incremental dedup.
-func TestBigFileGetsOwnChunk(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "source")
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
-
-	smallData := bytes.Repeat([]byte("s"), 100)
-	bigData := bytes.Repeat([]byte("B"), 2000)
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small1.db"), smallData, 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "big.db"), bigData, 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "small2.db"), smallData, 0o644))
-
-	sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
-	fileSizes := map[string]int64{
-		"shard/small1.db": 100,
-		"shard/big.db":    2000,
-		"shard/small2.db": 100,
-	}
-
-	// chunkTargetSize=10000 (plenty of room), minIndividualFileSize=500 (big.db qualifies)
-	fileList := &backup.FileList{
-		Files:     []string{"shard/small1.db", "shard/big.db", "shard/small2.db"},
-		FileSizes: fileSizes,
-	}
-
-	// Chunk 1: small1 is written, then big.db is at front but firstFile=false,
-	// so fillChunkWithSmallFiles runs and picks up small2. big.db remains.
-	z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
-	require.NoError(t, err)
-
-	preCompSize := &atomic.Int64{}
-	var writeErr error
-	go func() {
-		_, _, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preCompSize, "chunk1")
-		z.Close()
-	}()
-
-	buf := bytes.NewBuffer(nil)
-	_, err = io.Copy(buf, rc)
-	require.NoError(t, err)
-	require.NoError(t, rc.Close())
-	require.NoError(t, writeErr)
-
-	// After chunk 1: small1 and small2 written, only big.db remains
-	require.Equal(t, 1, fileList.Len(), "only big file should remain")
-	require.Equal(t, "shard/big.db", fileList.Peek())
-
-	// Verify chunk 1 tar contains the two small files
-	tr := tar.NewReader(buf)
-	var tarFiles []string
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-		tarFiles = append(tarFiles, hdr.Name)
-	}
-	require.ElementsMatch(t, []string{"shard/small1.db", "shard/small2.db"}, tarFiles)
-
-	// Chunk 2: big.db is first file and big — gets its own chunk
-	z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
-	require.NoError(t, err)
-	preCompSize2 := &atomic.Int64{}
-	go func() {
-		_, _, writeErr = z2.WriteRegulars(context.Background(), &sd, fileList, preCompSize2, "chunk2")
-		z2.Close()
-	}()
-
-	buf2 := bytes.NewBuffer(nil)
-	_, err = io.Copy(buf2, rc2)
-	require.NoError(t, err)
-	require.NoError(t, rc2.Close())
-	require.NoError(t, writeErr)
-
-	require.Equal(t, 0, fileList.Len(), "all files should be written")
-
-	// Verify chunk 2 tar contains only big.db
-	tr2 := tar.NewReader(buf2)
-	var tarFiles2 []string
-	for {
-		hdr, err := tr2.Next()
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-		tarFiles2 = append(tarFiles2, hdr.Name)
-	}
-	require.Equal(t, []string{"shard/big.db"}, tarFiles2)
-
-	// Verify big.db is tracked in BigFilesChunk
-	require.NotNil(t, sd.BigFilesChunk)
-	bigInfo, ok := sd.BigFilesChunk["shard/big.db"]
-	require.True(t, ok, "big.db should be tracked in BigFilesChunk")
-	require.Equal(t, int64(2000), bigInfo.Size)
-	require.Equal(t, []string{"chunk2"}, bigInfo.ChunkKeys)
 }
 
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
@@ -1631,6 +1665,10 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 	require.Equal(t, []byte("2"), restored, "shard2 Version mismatch")
 }
 
+// TestWriteRegularsBigFileReturnsSplitFile verifies that when a "big" file
+// (>= minIndividualFileSize) also exceeds splitFileSizeBytes, WriteRegulars
+// returns the SplitFile so the caller can split it across chunks instead of
+// silently dropping it.
 // makeTestData creates deterministic test data of the given size.
 func makeTestData(size int, seed byte) []byte {
 	data := make([]byte, size)

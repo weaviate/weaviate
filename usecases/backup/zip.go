@@ -208,13 +208,13 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 				return written, nil, err
 			}
 			// First file in chunk and it's big — write it alone
-			n, _, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
+			n, splitFile, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
 			if err != nil {
 				return written, nil, err
 			}
 			filesInShard.PopFront()
 			written += n
-			return written, nil, nil
+			return written, splitFile, nil
 		}
 
 		n, splitFile, chunkFull, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
