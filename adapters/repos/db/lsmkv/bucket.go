@@ -609,7 +609,7 @@ func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView)
 func (b *Bucket) existsWithConsistentViewUpTo(key []byte, segIdx int, view BucketConsistentView) error {
 	memtables, count := viewMemtables(view)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		err := memtables[i].exists(key)
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
