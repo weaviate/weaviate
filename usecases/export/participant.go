@@ -273,8 +273,6 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 // It writes per-node status files and returns an error if any class fails.
 // Used by both the multi-node participant path and the single-node scheduler.
 func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) error {
-	var mu sync.Mutex
-
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
@@ -294,7 +292,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		}
 	}
 
-	stopWriter := p.startNodeStatusWriter(backend, req, &mu, nodeStatus)
+	stopWriter := p.startNodeStatusWriter(backend, req, nodeStatus)
 	defer stopWriter()
 
 	for _, className := range req.Classes {
@@ -303,19 +301,13 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 			continue
 		}
 
-		if err := p.exportClassShards(ctx, backend, req, className, shardNames, &mu, nodeStatus); err != nil {
-			mu.Lock()
-			nodeStatus.Status = export.Failed
-			nodeStatus.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
-			mu.Unlock()
+		if err := p.exportClassShards(ctx, backend, req, className, shardNames, nodeStatus); err != nil {
+			nodeStatus.SetFailed(className, err)
 			return fmt.Errorf("export class %s: %w", className, err)
 		}
 	}
 
-	mu.Lock()
-	nodeStatus.Status = export.Success
-	nodeStatus.CompletedAt = time.Now().UTC()
-	mu.Unlock()
+	nodeStatus.SetSuccess()
 	return nil
 }
 
@@ -328,7 +320,6 @@ func (p *Participant) exportClassShards(
 	req *ExportRequest,
 	className string,
 	shardNames []string,
-	mu *sync.Mutex,
 	nodeStatus *NodeStatus,
 ) error {
 	isMT := p.selector.IsMultiTenant(ctx, className)
@@ -340,37 +331,24 @@ func (p *Participant) exportClassShards(
 		eg.Go(func() error {
 			shard, release, err := p.selector.AcquireShardForExport(ctx, className, shardName)
 			if err != nil {
-				mu.Lock()
-				nodeStatus.ShardProgress[className][shardName].Status = export.Failed
-				nodeStatus.ShardProgress[className][shardName].Error = err.Error()
-				mu.Unlock()
+				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error())
 				return fmt.Errorf("acquire shard %s: %w", shardName, err)
 			}
 
 			if shard == nil {
 				// Tenant is COLD and auto-activation is disabled — skip.
-				mu.Lock()
-				nodeStatus.ShardProgress[className][shardName].Status = export.Skipped
-				nodeStatus.ShardProgress[className][shardName].ObjectsExported = 0
-				mu.Unlock()
+				nodeStatus.SetShardProgress(className, shardName, export.Skipped, 0, "")
 				return nil
 			}
 			defer release()
 
 			objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard, isMT)
 			if err != nil {
-				mu.Lock()
-				nodeStatus.ShardProgress[className][shardName].Status = export.Failed
-				nodeStatus.ShardProgress[className][shardName].Error = err.Error()
-				mu.Unlock()
+				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error())
 				return fmt.Errorf("export shard %s: %w", shardName, err)
 			}
 
-			mu.Lock()
-			nodeStatus.ShardProgress[className][shardName].Status = export.Success
-			nodeStatus.ShardProgress[className][shardName].ObjectsExported = objects
-			mu.Unlock()
-
+			nodeStatus.SetShardProgress(className, shardName, export.Success, objects, "")
 			return nil
 		}, shardName)
 	}
@@ -445,7 +423,6 @@ func (p *Participant) exportShardToFile(
 func (p *Participant) startNodeStatusWriter(
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
-	mu *sync.Mutex,
 	nodeStatus *NodeStatus,
 ) (stop func()) {
 	done := make(chan struct{}) // closed when the goroutine exits. Blocks until status is fully flushed on stop.
@@ -455,9 +432,9 @@ func (p *Participant) startNodeStatusWriter(
 	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
 
 	flush := func() {
-		mu.Lock()
+		nodeStatus.mu.Lock()
 		data, err := json.Marshal(nodeStatus)
-		mu.Unlock()
+		nodeStatus.mu.Unlock()
 		if err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
 			return

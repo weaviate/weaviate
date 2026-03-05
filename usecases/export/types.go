@@ -13,6 +13,8 @@ package export
 
 import (
 	"bytes"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -69,13 +71,40 @@ type ExportRequest struct {
 	NodeName string              `json:"nodeName"`
 }
 
-// NodeStatus is written to S3 by each participant node
+// NodeStatus is written to S3 by each participant node.
+// The embedded mutex protects all fields from concurrent access.
 type NodeStatus struct {
+	mu            sync.Mutex                           `json:"-"`
 	NodeName      string                               `json:"nodeName"`
 	Status        export.Status                        `json:"status"`
 	ShardProgress map[string]map[string]*ShardProgress `json:"shardProgress,omitempty"` // className → shardName → progress
 	Error         string                               `json:"error,omitempty"`
 	CompletedAt   time.Time                            `json:"completedAt,omitempty"`
+}
+
+// SetShardProgress updates a shard's export progress in a thread-safe manner.
+func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.Status, objects int64, errMsg string) {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	ns.ShardProgress[className][shardName].Status = status
+	ns.ShardProgress[className][shardName].ObjectsExported = objects
+	ns.ShardProgress[className][shardName].Error = errMsg
+}
+
+// SetFailed marks the node export as failed in a thread-safe manner.
+func (ns *NodeStatus) SetFailed(className string, err error) {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	ns.Status = export.Failed
+	ns.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
+}
+
+// SetSuccess marks the node export as succeeded in a thread-safe manner.
+func (ns *NodeStatus) SetSuccess() {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	ns.Status = export.Success
+	ns.CompletedAt = time.Now().UTC()
 }
 
 // ExportPlan is written to S3 by the coordinator
