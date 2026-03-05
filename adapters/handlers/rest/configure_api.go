@@ -430,13 +430,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 	appState.GRPCConnManager = grpcConnManager
 
-	// Create switchable replication client (gRPC or REST based on runtime config)
+	// Create hybrid replication client (gRPC first, REST fallback on Unimplemented)
 	grpcReplicationClient := clients.NewGRPCReplicationClient(grpcConnManager)
-	replicationGRPCEnabled := appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
-	replicationClient := clients.NewSwitchableReplicationClient(
+	replicationClient := clients.NewHybridReplicationClient(
 		grpcReplicationClient,
 		restReplicationClient,
-		replicationGRPCEnabled.Get,
 	)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
@@ -2117,7 +2115,6 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
-		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
