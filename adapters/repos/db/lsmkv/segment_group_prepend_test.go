@@ -15,6 +15,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -137,6 +138,34 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		// Target segment (newer): add {2,4}.
 		// Merge: {1,2,3,4} — target's newer add of 2 takes precedence over source's delete.
 		assertRoaringSetContains(t, tgtBucket, []byte("key-x"), []uint64{1, 2, 3, 4})
+	})
+
+	t.Run("empty target (no timestamp shift needed)", func(t *testing.T) {
+		ctx := context.Background()
+
+		// Create source with data.
+		srcDir := t.TempDir()
+		srcBucket := createTestBucketRoaringSet(t, ctx, srcDir)
+		require.NoError(t, srcBucket.RoaringSetAddList([]byte("key-a"), []uint64{1, 2, 3}))
+		require.NoError(t, srcBucket.FlushAndSwitch())
+		require.NoError(t, srcBucket.Shutdown(ctx))
+
+		// Create empty target (no flushes, no segments on disk).
+		tgtDir := t.TempDir()
+		tgtBucket := createTestBucketRoaringSet(t, ctx, tgtDir)
+		defer tgtBucket.Shutdown(ctx)
+
+		require.NoError(t, tgtBucket.disk.PrependSegmentsFromBucket(ctx, srcDir))
+
+		// Source data should be readable.
+		assertRoaringSetContains(t, tgtBucket, []byte("key-a"), []uint64{1, 2, 3})
+
+		// Verify it survives reload.
+		require.NoError(t, tgtBucket.Shutdown(ctx))
+		tgtBucket2 := createTestBucketRoaringSet(t, ctx, tgtDir)
+		defer tgtBucket2.Shutdown(ctx)
+
+		assertRoaringSetContains(t, tgtBucket2, []byte("key-a"), []uint64{1, 2, 3})
 	})
 
 	t.Run("empty source (no-op)", func(t *testing.T) {
@@ -470,6 +499,204 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		pairs, err = tgtBucket2.MapList(ctx, []byte("row-a"))
 		require.NoError(t, err)
 		assert.Len(t, pairs, 2)
+	})
+}
+
+func TestParseSegmentTimestamp(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int64
+	}{
+		{
+			name:     "legacy format",
+			input:    "segment-1771258130098421000.db",
+			expected: 1771258130098421000,
+		},
+		{
+			name:     "new format with level and strategy",
+			input:    "segment-1771258130098421000.l0.s5.db",
+			expected: 1771258130098421000,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, err := parseSegmentTimestamp(tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, ts)
+		})
+	}
+}
+
+func TestComputeTimestampShift(t *testing.T) {
+	t.Run("empty target returns zero shift", func(t *testing.T) {
+		shift, err := computeTimestampShift(
+			[]string{"segment-1000000000.db"},
+			nil,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), shift)
+	})
+
+	t.Run("source already before target", func(t *testing.T) {
+		shift, err := computeTimestampShift(
+			[]string{"segment-100.db"},
+			[]string{"segment-999999999999999999.db"},
+		)
+		require.NoError(t, err)
+		// Should return -1s gap (source already sorts before target).
+		assert.Equal(t, int64(-1e9), shift)
+	})
+
+	t.Run("source after target requires negative shift", func(t *testing.T) {
+		shift, err := computeTimestampShift(
+			[]string{"segment-2000000000000000000.db"},
+			[]string{"segment-1000000000000000000.db"},
+		)
+		require.NoError(t, err)
+		assert.Less(t, shift, int64(0))
+		// Verify: srcMax + shift < tgtMin
+		assert.Less(t, int64(2000000000000000000)+shift, int64(1000000000000000000))
+	})
+
+	t.Run("works with new filename format", func(t *testing.T) {
+		shift, err := computeTimestampShift(
+			[]string{"segment-2000000000000000000.l0.s5.db"},
+			[]string{"segment-1000000000000000000.l0.s5.db"},
+		)
+		require.NoError(t, err)
+		assert.Less(t, shift, int64(0))
+	})
+}
+
+func TestDiscoverDBFiles(t *testing.T) {
+	t.Run("filters out non-db files and tmp files", func(t *testing.T) {
+		dir := t.TempDir()
+		// Create various files.
+		for _, name := range []string{
+			"segment-100.db",
+			"segment-200.l0.s5.db",
+			"segment-300.bloom",
+			"segment-400_500.db.tmp",
+			"segment-600.cna",
+			"not-a-segment.txt",
+		} {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644))
+		}
+
+		files, err := discoverDBFiles(dir)
+		require.NoError(t, err)
+		assert.Equal(t, []string{
+			"segment-100.db",
+			"segment-200.l0.s5.db",
+		}, files)
+	})
+}
+
+func TestCopySegmentFiles_ConsistentRename(t *testing.T) {
+	// Verify that copySegmentFiles renames both .db and auxiliary files
+	// (e.g., .bloom) with the same shifted prefix. This matters because
+	// newSegment with overwriteDerived=false will silently regenerate
+	// missing auxiliaries, masking a rename mismatch bug.
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	dstDir := filepath.Join(dir, "dst")
+	require.NoError(t, os.MkdirAll(srcDir, 0o755))
+	require.NoError(t, os.MkdirAll(dstDir, 0o755))
+
+	// Create fake source segment files.
+	for _, name := range []string{
+		"segment-2000000000000000000.db",
+		"segment-2000000000000000000.bloom",
+		"segment-2000000000000000000.cna",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, name), []byte("data"), 0o644))
+	}
+
+	dbFiles := []string{"segment-2000000000000000000.db"}
+	shift := int64(-1000000000000000000) // shift by -1e18
+
+	copiedDB, err := copySegmentFiles(srcDir, dstDir, dbFiles, shift)
+	require.NoError(t, err)
+	require.Len(t, copiedDB, 1)
+
+	// The .db file should have the shifted timestamp.
+	assert.Equal(t, "segment-1000000000000000000.db", copiedDB[0])
+
+	// All auxiliary files must share the same shifted prefix.
+	entries, err := os.ReadDir(dstDir)
+	require.NoError(t, err)
+
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	slices.Sort(names)
+
+	assert.Equal(t, []string{
+		"segment-1000000000000000000.bloom",
+		"segment-1000000000000000000.cna",
+		"segment-1000000000000000000.db",
+	}, names)
+}
+
+func TestCopySegmentFiles_NewFormatWithLevelAndStrategy(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	dstDir := filepath.Join(dir, "dst")
+	require.NoError(t, os.MkdirAll(srcDir, 0o755))
+	require.NoError(t, os.MkdirAll(dstDir, 0o755))
+
+	// New format: segment-<ts>.l0.s5.db and matching auxiliaries.
+	for _, name := range []string{
+		"segment-2000000000000000000.l0.s5.db",
+		"segment-2000000000000000000.l0.s5.bloom",
+		"segment-2000000000000000000.l0.s5.metadata",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, name), []byte("data"), 0o644))
+	}
+
+	dbFiles := []string{"segment-2000000000000000000.l0.s5.db"}
+	shift := int64(-500000000000000000)
+
+	copiedDB, err := copySegmentFiles(srcDir, dstDir, dbFiles, shift)
+	require.NoError(t, err)
+	require.Len(t, copiedDB, 1)
+	assert.Equal(t, "segment-1500000000000000000.l0.s5.db", copiedDB[0])
+
+	entries, err := os.ReadDir(dstDir)
+	require.NoError(t, err)
+
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	slices.Sort(names)
+
+	assert.Equal(t, []string{
+		"segment-1500000000000000000.l0.s5.bloom",
+		"segment-1500000000000000000.l0.s5.db",
+		"segment-1500000000000000000.l0.s5.metadata",
+	}, names)
+}
+
+func TestApplyTimestampShift(t *testing.T) {
+	t.Run("positive shift", func(t *testing.T) {
+		result, err := applyTimestampShift("segment-1000", 500)
+		require.NoError(t, err)
+		assert.Equal(t, "segment-1500", result)
+	})
+
+	t.Run("negative shift", func(t *testing.T) {
+		result, err := applyTimestampShift("segment-1000", -300)
+		require.NoError(t, err)
+		assert.Equal(t, "segment-700", result)
+	})
+
+	t.Run("zero shift", func(t *testing.T) {
+		result, err := applyTimestampShift("segment-1000", 0)
+		require.NoError(t, err)
+		assert.Equal(t, "segment-1000", result)
 	})
 }
 
