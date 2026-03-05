@@ -125,7 +125,16 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 			return err
 		}
 		if exists {
-			return os.RemoveAll(path)
+			if err := os.RemoveAll(path); err != nil {
+				return err
+			}
+		}
+
+		// Clean up staging directory that may have been created by CreateBackupSnapshot
+		stagingDir := filepath.Join(db.config.RootPath,
+			backup.BackupStagingPrefix+bakID+"-"+indexID(schema.ClassName(class)))
+		if err := os.RemoveAll(stagingDir); err != nil {
+			db.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
 		}
 	}
 	return nil
@@ -255,7 +264,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 }
 
 func (i *Index) backupStagingDir(backupID string) string {
-	return filepath.Join(i.Config.RootPath, backup.BackupStagingPrefix+backupID+"-"+string(i.Config.ClassName))
+	return filepath.Join(i.Config.RootPath, backup.BackupStagingPrefix+backupID+"-"+indexID(i.Config.ClassName))
 }
 
 // ReleaseBackup marks the specified backup as inactive and restarts all
