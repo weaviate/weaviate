@@ -189,18 +189,24 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
+
+	// Create staging dir for hardlinked snapshot files
+	stagingRoot := i.backupStagingDir(backupID)
+	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
+		return fmt.Errorf("create backup staging dir: %w", err)
+	}
+
 	defer func() {
 		if err != nil {
+			os.RemoveAll(stagingRoot)
 			// closelock is hold by the caller
 			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
 
-	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
-			return fmt.Errorf("pause compaction and flush: %w", err)
-		}
+	desc.StagingDir = stagingRoot
 
+	if err = i.ForEachShard(func(name string, s ShardLike) error {
 		var shardBaseDescr []backup.ShardAndID
 		for _, classBaseDescr := range classBaseDescrs {
 			shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(name)
@@ -212,17 +218,16 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 				BackupID:  classBaseDescr.BackupID,
 			})
 		}
-		// prevent writing into the index during collection of metadata
-		i.backupLock.Lock(name)
-		defer i.backupLock.Unlock(name)
-		var sd backup.ShardDescriptor
 
-		files, err := s.ListBackupFiles(ctx, &sd)
+		i.backupLock.Lock(name)
+		var sd backup.ShardDescriptor
+		files, err := s.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+		i.backupLock.Unlock(name)
 		if err != nil {
-			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
+			return fmt.Errorf("snapshot shard %v: %w", name, err)
 		}
 
-		if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+		if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
 			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
 		}
 
@@ -249,12 +254,26 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	return ctx.Err()
 }
 
+func (i *Index) backupStagingDir(backupID string) string {
+	return filepath.Join(i.Config.RootPath, backup.BackupStagingPrefix+backupID+"-"+string(i.Config.ClassName))
+}
+
 // ReleaseBackup marks the specified backup as inactive and restarts all
 // async background and maintenance processes. It errors if the backup does not exist
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
+
+	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
+	stagingDir := i.backupStagingDir(id)
+	if err := os.RemoveAll(stagingDir); err != nil {
+		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+	}
+
 	i.resetBackupState()
+	// resumeMaintenanceCycles is still called for safety, but is a no-op since
+	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
+	// a snapshot creation failed mid-way.
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err
 	}

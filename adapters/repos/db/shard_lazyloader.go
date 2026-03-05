@@ -435,6 +435,13 @@ func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDe
 	return l.shard.ListBackupFiles(ctx, ret)
 }
 
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+}
+
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
 	if err := l.Load(ctx); err != nil {
 		return err
