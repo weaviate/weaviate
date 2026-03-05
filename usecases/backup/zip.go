@@ -210,16 +210,15 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 			return written, nil, err
 		}
 
-		// File doesn't fit in current chunk: either it's a big file that needs
-		// its own chunk, or it would exceed the chunk target size.
-		// Fill remaining space with small files and return.
+		// File doesn't fit in current chunk: either it's a big file that needs its own chunk, or it would exceed the
+		// chunk target size. Fill remaining space with small files and return.
 		if !firstFile && (fileSize >= z.bigFileThreshold || preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes) {
 			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
 			written += n
 			return written, nil, err
 		}
 
-		n, splitFile, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
+		n, splitFile, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, chunkKey)
 		if err != nil {
 			return written, nil, err
 		}
@@ -269,12 +268,9 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 			continue
 		}
 
-		n, _, chunkFull, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, false, chunkKey)
+		n, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, chunkKey)
 		if err != nil {
 			return written, err
-		}
-		if chunkFull {
-			continue
 		}
 		written += n
 		writtenIndices = append(writtenIndices, i)
@@ -284,14 +280,9 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, fileSize int64, preCompressionSize *atomic.Int64, firstFile bool, chunkKey string) (written int64, splitFile *SplitFile, chunkFull bool, err error) {
+func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, fileSize int64, preCompressionSize *atomic.Int64, chunkKey string) (written int64, splitFile *SplitFile, err error) {
 	if err := ctx.Err(); err != nil {
-		return written, nil, false, err
-	}
-
-	if !firstFile && preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
-		// chunk is full - defer to next chunk
-		return 0, nil, true, nil
+		return 0, nil, err
 	}
 
 	// open file for read
@@ -303,14 +294,14 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 			absPath = filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath))
 			info, err = os.Stat(absPath)
 			if err != nil {
-				return written, nil, false, fmt.Errorf("stat for deleted files: %w", err)
+				return 0, nil, fmt.Errorf("stat for deleted files: %w", err)
 			}
 		} else {
-			return written, nil, false, fmt.Errorf("stat: %w", err)
+			return 0, nil, fmt.Errorf("stat: %w", err)
 		}
 	}
 	if !info.Mode().IsRegular() {
-		return 0, nil, false, nil // ignore directories
+		return 0, nil, nil // ignore directories
 	}
 
 	// Check if the first file exceeds the chunk and needs splitting.
@@ -322,9 +313,9 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0, PartSize: partSize}
 		remainingSplitFile, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
 		if err != nil {
-			return 0, nil, false, err
+			return 0, nil, err
 		}
-		return 0, remainingSplitFile, false, nil
+		return 0, remainingSplitFile, nil
 	}
 
 	if fileSize >= z.bigFileThreshold {
@@ -333,14 +324,14 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 
 	f, err := os.Open(absPath)
 	if err != nil {
-		return written, nil, false, fmt.Errorf("open: %w", err)
+		return 0, nil, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
 
 	preCompressionSize.Add(fileSize)
 
 	written, err = z.writeOne(ctx, info, relPath, f)
-	return written, nil, false, err
+	return written, nil, err
 }
 
 func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
