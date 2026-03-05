@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -298,18 +299,42 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		assert.Less(t, tgtBucket.disk.Len(), segCountBefore+1)
 	})
 
-	t.Run("compaction with mixed levels after prepend", func(t *testing.T) {
+	t.Run("compaction merges src and dest segments across mixed levels", func(t *testing.T) {
+		// Verifies that after prepending compacted source segments into a
+		// compacted target bucket, further compaction merges src segments
+		// into dest segments (not just compacting each side independently).
+		//
+		// Setup (per reviewer request):
+		//   7 src segments → compact → 3 segments at levels [2, 1, 0]
+		//   9 dest segments → compact → 2 segments at levels [3, 0]
+		//   prepend → 5 segments: [2, 1, 0, 3, 0]
+		//
+		// After compaction, the unordered-levels fix merges src segments
+		// into dest segments step by step:
+		//   [2, 1, 0, 3, 0] → [2, 1, 3, 0] → [3, 3, 0] → [4, 0]
+		// Final: 2 segments at levels [4, 0].
 		ctx := context.Background()
 
-		// Create source with multiple segments, then compact them so they
-		// reach higher levels than fresh (level 0) target segments.
+		segmentLevels := func(sg *SegmentGroup) []uint16 {
+			sg.maintenanceLock.RLock()
+			defer sg.maintenanceLock.RUnlock()
+			levels := make([]uint16, len(sg.segments))
+			for i, seg := range sg.segments {
+				levels[i] = seg.getLevel()
+			}
+			return levels
+		}
+
+		// --- Source: 7 segments → compact to [2, 1, 0] ---
 		srcDir := t.TempDir()
 		srcBucket := createTestBucketRoaringSet(t, ctx, srcDir)
-		for i := range 4 {
-			require.NoError(t, srcBucket.RoaringSetAddList([]byte("key-src"), []uint64{uint64(i)}))
+		for i := range 7 {
+			require.NoError(t, srcBucket.RoaringSetAddList(
+				[]byte(fmt.Sprintf("src-key-%d", i)), []uint64{uint64(i)}))
 			require.NoError(t, srcBucket.FlushAndSwitch())
 		}
-		// Compact source to raise segment levels.
+		assert.Equal(t, 7, srcBucket.disk.Len())
+
 		for {
 			compacted, err := srcBucket.disk.compactOnce()
 			require.NoError(t, err)
@@ -317,23 +342,22 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 				break
 			}
 		}
+		assert.Equal(t, 3, srcBucket.disk.Len())
+		assert.Equal(t, []uint16{2, 1, 0}, segmentLevels(srcBucket.disk))
 		require.NoError(t, srcBucket.Shutdown(ctx))
 
-		// Create target with fresh (level 0) segments.
+		// --- Dest: 9 segments → compact to [3, 0] ---
 		tgtDir := t.TempDir()
 		tgtBucket := createTestBucketRoaringSet(t, ctx, tgtDir)
 		defer tgtBucket.Shutdown(ctx)
 
-		for i := range 4 {
-			require.NoError(t, tgtBucket.RoaringSetAddList([]byte("key-tgt"), []uint64{uint64(100 + i)}))
+		for i := range 9 {
+			require.NoError(t, tgtBucket.RoaringSetAddList(
+				[]byte(fmt.Sprintf("tgt-key-%d", i)), []uint64{uint64(100 + i)}))
 			require.NoError(t, tgtBucket.FlushAndSwitch())
 		}
+		assert.Equal(t, 9, tgtBucket.disk.Len())
 
-		// Prepend: high-level source segments are now before low-level target
-		// segments, creating a mixed-level ordering.
-		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
-
-		// Compaction must handle the mixed levels without error.
 		for {
 			compacted, err := tgtBucket.disk.compactOnce()
 			require.NoError(t, err)
@@ -341,18 +365,49 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 				break
 			}
 		}
+		assert.Equal(t, 2, tgtBucket.disk.Len())
+		assert.Equal(t, []uint16{3, 0}, segmentLevels(tgtBucket.disk))
 
-		// All data intact after compaction.
-		assertRoaringSetContains(t, tgtBucket, []byte("key-src"), []uint64{0, 1, 2, 3})
-		assertRoaringSetContains(t, tgtBucket, []byte("key-tgt"), []uint64{100, 101, 102, 103})
+		// --- Prepend: 5 segments [2, 1, 0, 3, 0] ---
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
+		assert.Equal(t, 5, tgtBucket.disk.Len())
+		assert.Equal(t, []uint16{2, 1, 0, 3, 0}, segmentLevels(tgtBucket.disk))
 
-		// Verify survives reload (on-disk level info is correct).
+		// --- Compact after prepend ---
+		// The unordered-levels fix should merge src into dest segments:
+		//   step 1: src(1) + src(0) → merged(1)   → [2, 1, 3, 0]
+		//   step 2: src(2) + merged(1) → merged(3) → [3, 3, 0]
+		//   step 3: merged(3) + dest(3) → merged(4) → [4, 0]
+		for {
+			compacted, err := tgtBucket.disk.compactOnce()
+			require.NoError(t, err)
+			if !compacted {
+				break
+			}
+		}
+		assert.Equal(t, 2, tgtBucket.disk.Len(),
+			"src segments should be merged into dest, leaving 2 segments")
+		assert.Equal(t, []uint16{4, 0}, segmentLevels(tgtBucket.disk))
+
+		// All data from both src and dest must be present.
+		for i := range 7 {
+			assertRoaringSetContains(t, tgtBucket, []byte(fmt.Sprintf("src-key-%d", i)), []uint64{uint64(i)})
+		}
+		for i := range 9 {
+			assertRoaringSetContains(t, tgtBucket, []byte(fmt.Sprintf("tgt-key-%d", i)), []uint64{uint64(100 + i)})
+		}
+
+		// Verify survives reload.
 		require.NoError(t, tgtBucket.Shutdown(ctx))
 		tgtBucket2 := createTestBucketRoaringSet(t, ctx, tgtDir)
 		defer tgtBucket2.Shutdown(ctx)
 
-		assertRoaringSetContains(t, tgtBucket2, []byte("key-src"), []uint64{0, 1, 2, 3})
-		assertRoaringSetContains(t, tgtBucket2, []byte("key-tgt"), []uint64{100, 101, 102, 103})
+		for i := range 7 {
+			assertRoaringSetContains(t, tgtBucket2, []byte(fmt.Sprintf("src-key-%d", i)), []uint64{uint64(i)})
+		}
+		for i := range 9 {
+			assertRoaringSetContains(t, tgtBucket2, []byte(fmt.Sprintf("tgt-key-%d", i)), []uint64{uint64(100 + i)})
+		}
 	})
 
 	t.Run("overlapping keys prove source segments are older", func(t *testing.T) {
