@@ -573,11 +573,11 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
 
-func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, properties []string) ([]*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.ObjectList(ctx, limit, sort, cursor, additional, className)
+	return l.shard.ObjectList(ctx, limit, sort, cursor, additional, className, properties)
 }
 
 func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
