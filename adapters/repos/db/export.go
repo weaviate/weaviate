@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -130,7 +131,8 @@ func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName st
 	if deactivateAfter {
 		release = func() {
 			shardRelease()
-			deactivateCtx := context.Background()
+			deactivateCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 			if err := idx.tenantsManager.DeactivateTenants(deactivateCtx, class.Class, shardName); err != nil {
 				idx.logger.WithField("action", "export").
 					WithField("class", className).

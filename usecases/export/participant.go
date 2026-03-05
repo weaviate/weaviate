@@ -462,7 +462,9 @@ func (p *Participant) startNodeStatusWriter(
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
 			return
 		}
-		if _, err := backend.Write(context.Background(), req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
+		writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := backend.Write(writeCtx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
 		}
 	}

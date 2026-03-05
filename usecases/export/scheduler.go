@@ -88,8 +88,8 @@ func NewScheduler(
 	localNode string,
 	participant *Participant,
 ) *Scheduler {
-	if client != nil && nodeResolver != nil && participant == nil {
-		panic("export: multi-node scheduler requires a non-nil participant")
+	if participant == nil {
+		panic("export: scheduler requires a non-nil participant")
 	}
 	return &Scheduler{
 		shutdownCtx:  shutdownCtx,
