@@ -439,25 +439,13 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 						return err
 					}
 					for shard := range sender {
-						firstChunk := true
-						filesInShard, err := u.createFileList(shard)
-						if err != nil {
-							return fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
-						}
 						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
-						var fileSizeExceeded *SplitFile // if single file exceeds chunk size, it will be split and the remaining part will be written in the next chunk(s)
-						for {
-							chunk := atomic.AddInt32(&lastChunk, 1)
-							fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath)
-							if err != nil {
-								return err
-							}
-							fileSizeExceeded = fileSizeExceededTmp
-							recvCh <- chunkShards{chunk, []string{shard.Name}, preCompressionSize}
-							firstChunk = false
-							if filesInShard.Len() == 0 && fileSizeExceeded == nil {
-								break
-							}
+						chunks, err := u.processShard(ctx, shard, desc.Name, &lastChunk, overrideBucket, overridePath)
+						if err != nil {
+							return err
+						}
+						for _, c := range chunks {
+							recvCh <- c
 						}
 					}
 					return nil
@@ -481,6 +469,38 @@ type chunkShards struct {
 	chunk              int32
 	shards             []string
 	preCompressionSize int64
+}
+
+// processShard compresses a single shard into one or more chunks, handling split files
+// that span multiple chunks. It returns the produced chunks and any error.
+func (u *uploader) processShard(
+	ctx context.Context,
+	shard *backup.ShardDescriptor,
+	className string,
+	lastChunk *int32,
+	overrideBucket, overridePath string,
+) ([]chunkShards, error) {
+	filesInShard, err := u.createFileList(shard)
+	if err != nil {
+		return nil, fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
+	}
+	var results []chunkShards
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+	for {
+		chunk := atomic.AddInt32(lastChunk, 1)
+		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath)
+		if err != nil {
+			return results, err
+		}
+		fileSizeExceeded = fileSizeExceededTmp
+		results = append(results, chunkShards{chunk, []string{shard.Name}, preCompressionSize})
+		firstChunk = false
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+	return results, nil
 }
 
 func (u *uploader) compress(ctx context.Context,

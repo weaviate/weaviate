@@ -55,8 +55,8 @@ func TestZip(t *testing.T) {
 			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0, 0)
 			require.NoError(t, err)
 			var zInputLen int64
+			fileList := newFileList(t, pathDest, sd.Files)
 			go func() {
-				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
 				zInputLen, _, err = z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				if err != nil {
 					t.Errorf("compress: %v", err)
@@ -387,6 +387,39 @@ func TestWriteRegulars(t *testing.T) {
 			expectRemainingFiles: nil,
 			expectSplitFile:      "shard/huge.db",
 		},
+		{
+			name: "small file exceeding split threshold returns SplitFile",
+			files: []testFile{
+				{"shard/b.db", 800},
+				{"shard/a.db", 100},
+			},
+			// b.db is the first file. chunkTarget=500, so 800 > 500 triggers the size check.
+			// splitFileSize=200, and 800 > 200, so WriteRegular returns a SplitFile for b.db.
+			// minIndividualSize=0 means the "big file" path in WriteRegulars is not taken.
+			chunkTargetSize:      500,
+			minIndividualSize:    0,
+			splitFileSize:        200,
+			expectTarFiles:       nil,
+			expectRemainingFiles: []string{"shard/a.db"},
+			expectSplitFile:      "shard/b.db",
+		},
+		{
+			name: "small file triggers chunkFull without big file ahead",
+			files: []testFile{
+				{"shard/a.db", 100},
+				{"shard/b.db", 600},
+				{"shard/c.db", 50},
+			},
+			// chunkTarget=500 so after writing a.db (100), b.db (600) exceeds the chunk.
+			// splitFileSize=0 (disabled) so no split happens; chunkFull is returned.
+			// fillChunkWithSmallFiles scans ahead and fits c.db (50) into the chunk.
+			// b.db remains for the next chunk.
+			chunkTargetSize:      500,
+			minIndividualSize:    0,
+			splitFileSize:        0,
+			expectTarFiles:       []string{"shard/a.db", "shard/c.db"},
+			expectRemainingFiles: []string{"shard/b.db"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -539,73 +572,158 @@ func TestWriteRegulars(t *testing.T) {
 // file is NOT force-written if the chunk is already full from those in-memory
 // files. Before the fix, WriteRegulars always started with firstFile=true,
 // ignoring the pre-existing data in the chunk.
-func TestWriteShardFirstChunkRespectsInMemoryFiles(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "source")
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
-
-	// Create a regular file that is larger than the chunk size on its own.
-	fileData := bytes.Repeat([]byte("D"), 300)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "data.db"), fileData, 0o644))
-
-	// In-memory shard files (~100 bytes each = 300 total).
-	inMemData := bytes.Repeat([]byte("M"), 100)
-	sd := backup.ShardDescriptor{
-		Name:                  "shard",
-		Node:                  "node1",
-		DocIDCounterPath:      "shard/counter.bin",
-		DocIDCounter:          inMemData,
-		PropLengthTrackerPath: "shard/proplength.bin",
-		PropLengthTracker:     inMemData,
-		ShardVersionPath:      "shard/version.bin",
-		Version:               inMemData,
+func TestWriteShard(t *testing.T) {
+	type testFile struct {
+		relPath string
+		size    int
 	}
 
-	fileList := &backup.FileList{
-		Files:     []string{"shard/data.db"},
-		FileSizes: map[string]int64{"shard/data.db": 300},
-	}
+	inMemData := bytes.Repeat([]byte("M"), 100) // 100 bytes each, 300 total
 
-	// Chunk size = 400 bytes. The 3 in-memory files (300 bytes) nearly fill it.
-	// data.db (300 bytes) should NOT be force-written because the chunk already
-	// has content (300 + 300 = 600 > 400).
-	z, rc, err := NewZip(dir, int(NoCompression), 400, 0, 0)
-	require.NoError(t, err)
-
-	var splitFile *SplitFile
-	var writeErr error
-	go func() {
-		preComp := &atomic.Int64{}
-		_, splitFile, writeErr = z.WriteShard(context.Background(), &sd, fileList, true, preComp, "chunk1")
-		z.Close()
-	}()
-
-	buf := bytes.NewBuffer(nil)
-	_, err = io.Copy(buf, rc)
-	require.NoError(t, err)
-	require.NoError(t, rc.Close())
-	require.NoError(t, writeErr)
-
-	// The regular file should NOT have been written — it should remain in the list.
-	require.Equal(t, 1, fileList.Len(), "regular file should still be pending")
-	require.Equal(t, "shard/data.db", fileList.Peek())
-	require.Nil(t, splitFile, "no split file expected, just a full chunk")
-
-	// The tar should contain only the 3 in-memory files.
-	tr := tar.NewReader(buf)
-	var tarFiles []string
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-		tarFiles = append(tarFiles, hdr.Name)
-	}
-	require.ElementsMatch(t, []string{
+	inMemFiles := []string{
 		"shard/counter.bin",
 		"shard/proplength.bin",
 		"shard/version.bin",
-	}, tarFiles)
+	}
+
+	tests := []struct {
+		name                 string
+		files                []testFile
+		chunkTargetSize      int64
+		firstChunkForShard   bool
+		expectTarFiles       []string
+		expectRemainingFiles []string
+		expectSplitFile      string
+	}{
+		{
+			name:               "first chunk writes in-memory files and defers regular when chunk full",
+			files:              []testFile{{"shard/data.db", 300}},
+			chunkTargetSize:    400,
+			firstChunkForShard: true,
+			// 3 in-memory files = 300 bytes nearly fill the 400-byte chunk.
+			// data.db (300) doesn't fit (300+300=600 > 400), deferred.
+			expectTarFiles:       inMemFiles,
+			expectRemainingFiles: []string{"shard/data.db"},
+		},
+		{
+			name:               "first chunk writes in-memory files and regular file when both fit",
+			files:              []testFile{{"shard/data.db", 100}},
+			chunkTargetSize:    10000,
+			firstChunkForShard: true,
+			// Chunk is large enough: 300 (in-mem) + 100 (data.db) = 400 < 10000.
+			expectTarFiles:       append(append([]string{}, inMemFiles...), "shard/data.db"),
+			expectRemainingFiles: nil,
+		},
+		{
+			name:               "non-first chunk skips in-memory files and writes regulars",
+			files:              []testFile{{"shard/data.db", 100}},
+			chunkTargetSize:    10000,
+			firstChunkForShard: false,
+			// Not first chunk, so no in-memory files. Only data.db is written.
+			expectTarFiles:       []string{"shard/data.db"},
+			expectRemainingFiles: nil,
+		},
+		{
+			name:               "non-first chunk defers file that does not fit",
+			files:              []testFile{{"shard/big.db", 500}},
+			chunkTargetSize:    100,
+			firstChunkForShard: false,
+			// big.db is the first regular file, so it is force-written even though
+			// it exceeds the chunk target (firstFile guarantee).
+			expectTarFiles:       []string{"shard/big.db"},
+			expectRemainingFiles: nil,
+		},
+		{
+			name: "first chunk with in-memory files and split file",
+			files: []testFile{
+				{"shard/huge.db", 800},
+			},
+			chunkTargetSize:    200,
+			firstChunkForShard: true,
+			// In-memory files = 300 bytes > chunkTarget (200). huge.db (800) doesn't
+			// fit and exceeds the default split threshold, but splitFileSize is
+			// disabled (0 → max int64) so it's just deferred via chunkFull.
+			expectTarFiles:       inMemFiles,
+			expectRemainingFiles: []string{"shard/huge.db"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "source")
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+
+			var fileNames []string
+			fileSizes := make(map[string]int64, len(tt.files))
+			for _, f := range tt.files {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, f.relPath),
+					bytes.Repeat([]byte("X"), f.size), 0o644))
+				fileNames = append(fileNames, f.relPath)
+				fileSizes[f.relPath] = int64(f.size)
+			}
+
+			sd := backup.ShardDescriptor{
+				Name:                  "shard",
+				Node:                  "node1",
+				DocIDCounterPath:      "shard/counter.bin",
+				DocIDCounter:          inMemData,
+				PropLengthTrackerPath: "shard/proplength.bin",
+				PropLengthTracker:     inMemData,
+				ShardVersionPath:      "shard/version.bin",
+				Version:               inMemData,
+			}
+
+			fileList := &backup.FileList{
+				Files:     append([]string{}, fileNames...),
+				FileSizes: fileSizes,
+			}
+
+			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, 0, 0)
+			require.NoError(t, err)
+
+			var splitFile *SplitFile
+			var writeErr error
+			go func() {
+				preComp := &atomic.Int64{}
+				_, splitFile, writeErr = z.WriteShard(context.Background(), &sd, fileList, tt.firstChunkForShard, preComp, "chunk1")
+				z.Close()
+			}()
+
+			buf := bytes.NewBuffer(nil)
+			_, err = io.Copy(buf, rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+			require.NoError(t, writeErr)
+
+			// Check remaining files.
+			require.Equal(t, len(tt.expectRemainingFiles), fileList.Len(), "remaining file count")
+			for i, expected := range tt.expectRemainingFiles {
+				require.Equal(t, expected, fileList.PeekAt(i), "remaining file at index %d", i)
+			}
+
+			// Check tar contents.
+			tr := tar.NewReader(buf)
+			var tarFiles []string
+			for {
+				hdr, err := tr.Next()
+				if err == io.EOF {
+					break
+				}
+				require.NoError(t, err)
+				tarFiles = append(tarFiles, hdr.Name)
+			}
+			require.ElementsMatch(t, tt.expectTarFiles, tarFiles)
+
+			// Check split file.
+			if tt.expectSplitFile != "" {
+				require.NotNil(t, splitFile, "expected a SplitFile")
+				require.Equal(t, tt.expectSplitFile, splitFile.RelPath)
+			} else {
+				require.Nil(t, splitFile, "did not expect a SplitFile")
+			}
+		})
+	}
 }
 
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
@@ -677,8 +795,8 @@ func TestRenamingDuringBackup(t *testing.T) {
 			// start backup process
 			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0)
 			require.NoError(t, err)
+			fileList := newFileList(t, dir, sd.Files)
 			go func() {
-				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
 				_, _, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				require.NoError(t, err)
 				require.NoError(t, z.Close())
@@ -776,7 +894,7 @@ func TestSplitFileRoundTrip(t *testing.T) {
 			// Simulate the backup loop from backend.go: write chunks until all files
 			// and split file parts are written.
 			var chunks [][]byte
-			filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+			filesInShard := newFileList(t, sourceDir, sd.Files)
 			var fileSizeExceeded *SplitFile
 			firstChunk := true
 
@@ -885,7 +1003,7 @@ func TestSplitFileExactBoundary(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+	filesInShard := newFileList(t, sourceDir, sd.Files)
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
@@ -987,7 +1105,7 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+	filesInShard := newFileList(t, sourceDir, sd.Files)
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
@@ -1094,7 +1212,7 @@ func TestSplitFirstFileInChunk(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+	filesInShard := newFileList(t, sourceDir, sd.Files)
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
@@ -1306,7 +1424,7 @@ func TestFirstFileBelowSplitThresholdWrittenWhole(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+	filesInShard := newFileList(t, sourceDir, sd.Files)
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
@@ -1412,7 +1530,7 @@ func TestMultipleSplitFilesInShard(t *testing.T) {
 	}
 
 	var chunks [][]byte
-	filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+	filesInShard := newFileList(t, sourceDir, sd.Files)
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 
@@ -1545,7 +1663,7 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 	allChunks := []chunkData{}
 
 	for _, sd := range []*backup.ShardDescriptor{&sd1, &sd2} {
-		filesInShard := &backup.FileList{Files: append([]string{}, sd.Files...)}
+		filesInShard := newFileList(t, sourceDir, sd.Files)
 		var fileSizeExceeded *SplitFile
 		firstChunk := true
 
@@ -1676,4 +1794,20 @@ func makeTestData(size int, seed byte) []byte {
 		data[i] = byte((i + int(seed)) % 251)
 	}
 	return data
+}
+
+// newFileList creates a FileList from a list of file paths, collecting file sizes
+// from the given source directory. This mirrors what createFileList does in production.
+func newFileList(t *testing.T, sourceDir string, files []string) *backup.FileList {
+	t.Helper()
+	fileSizes := make(map[string]int64, len(files))
+	for _, relPath := range files {
+		info, err := os.Stat(filepath.Join(sourceDir, relPath))
+		require.NoError(t, err, "stat %s", relPath)
+		fileSizes[relPath] = info.Size()
+	}
+	return &backup.FileList{
+		Files:     append([]string{}, files...),
+		FileSizes: fileSizes,
+	}
 }

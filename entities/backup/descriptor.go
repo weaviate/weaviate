@@ -396,15 +396,14 @@ func (f *FileList) RemoveIndices(indices []int) {
 	// All removed indices are >= f.start, so start stays the same.
 }
 
-// GetFileSize returns the pre-collected size for a file, or -1 if not found
-func (f *FileList) GetFileSize(relPath string) int64 {
-	if f == nil || f.FileSizes == nil {
-		return -1
+// GetFileSize returns the pre-collected size for a file.
+// Returns an error if the file is not in the map, since createFileList must always populate all sizes.
+func (f *FileList) GetFileSize(relPath string) (int64, error) {
+	size, ok := f.FileSizes[relPath]
+	if !ok {
+		return 0, fmt.Errorf("file %q not found in FileSizes map", relPath)
 	}
-	if size, ok := f.FileSizes[relPath]; ok {
-		return size
-	}
-	return -1
+	return size, nil
 }
 
 type IncrementalBackupInfos struct {
