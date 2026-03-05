@@ -53,6 +53,7 @@ type SplitFile struct {
 	RelPath        string
 	FileInfo       fs.FileInfo
 	AlreadyWritten int64
+	PartSize       int64 // even part size computed once when the split is created
 }
 
 type compressor interface {
@@ -332,7 +333,10 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	// Check if the first file exceeds the chunk and needs splitting.
 	// Write the first part here so we don't waste the current chunk.
 	if fileSize > z.splitFileSizeBytes {
-		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}
+		// Compute even part size so all chunks are roughly equal.
+		numParts := ceilDiv(fileSize, z.splitFileSizeBytes)
+		partSize := ceilDiv(fileSize, numParts)
+		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0, PartSize: partSize}
 		remaining, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
 		if err != nil {
 			return 0, nil, false, err
@@ -395,9 +399,8 @@ func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor,
 		return nil, fmt.Errorf("WriteSplitFile called with nil splitFile or nil FileInfo")
 	}
 
-	// splitFileSizeBytes is intentionally used as the part size (not maxChunkSizeInBytes)
-	// to keep the number of split parts small and reduce tar/PAX overhead.
-	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, z.splitFileSizeBytes)
+	// Use the pre-computed even part size so all chunks are roughly equal.
+	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, splitFile.PartSize)
 
 	header, err := tar.FileInfoHeader(splitFile.FileInfo, splitFile.FileInfo.Name())
 	if err != nil {
@@ -624,6 +627,11 @@ func (r *readCloser) Close() error { return r.src.Close() }
 // If err is non-nil, the producer's write will return this error instead of
 // the generic "io: read/write on closed pipe".
 func (r *readCloser) CloseWithError(err error) error { return r.src.CloseWithError(err) }
+
+// ceilDiv returns ⌈a/b⌉ using integer arithmetic.
+func ceilDiv(a, b int64) int64 {
+	return (a + b - 1) / b
+}
 
 func zipLevel(level int) int {
 	if level < 0 || level > 3 {

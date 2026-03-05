@@ -14,6 +14,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -504,6 +505,135 @@ func TestProcessShard(t *testing.T) {
 		assert.Equal(t, int32(2), results2[0].chunk)
 		assert.Equal(t, int32(2), lastChunk)
 	})
+}
+
+// TestProcessShardEvenSplitSizes verifies that split file chunks are roughly
+// the same size rather than producing one large chunk and a tiny remainder.
+// Uses NoCompression so archive sizes directly reflect data sizes.
+func TestProcessShardEvenSplitSizes(t *testing.T) {
+	inMemData := bytes.Repeat([]byte("M"), 50)
+
+	tests := []struct {
+		name          string
+		fileSize      int
+		splitFileSize int64
+		chunkTarget   int64
+		minChunkSize  int64
+		wantParts     int
+	}{
+		{
+			name:          "6000 split by 5000 → 2 even chunks",
+			fileSize:      6000,
+			splitFileSize: 5000,
+			chunkTarget:   5000,
+			minChunkSize:  200,
+			wantParts:     2,
+		},
+		{
+			name:          "1000 split by 300 → 4 even chunks",
+			fileSize:      1000,
+			splitFileSize: 300,
+			chunkTarget:   300,
+			minChunkSize:  200,
+			wantParts:     4,
+		},
+		{
+			name:          "700 split by 300 → 3 even chunks",
+			fileSize:      700,
+			splitFileSize: 300,
+			chunkTarget:   300,
+			minChunkSize:  200,
+			wantParts:     3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "shard1"), os.ModePerm))
+
+			// Small file pulls bigFileThreshold down so the large file takes the split path.
+			require.NoError(t, os.WriteFile(
+				filepath.Join(tempDir, "shard1", "small.db"),
+				bytes.Repeat([]byte("s"), 50), 0o644))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(tempDir, "shard1", "big.db"),
+				bytes.Repeat([]byte("B"), tt.fileSize), 0o644))
+
+			var mu sync.Mutex
+			chunkSizes := make(map[string]int64)
+
+			mockBackend := modulecapabilities.NewMockBackupBackend(t)
+			mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+			mockBackend.EXPECT().Write(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ string, key string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
+					n, _ := io.Copy(io.Discard, r)
+					r.Close()
+					mu.Lock()
+					chunkSizes[key] = n
+					mu.Unlock()
+					return n, nil
+				})
+
+			shard := &backup.ShardDescriptor{
+				Name:                  "shard1",
+				Node:                  "node1",
+				Files:                 []string{"shard1/small.db", "shard1/big.db"},
+				DocIDCounterPath:      "shard1/counter.bin",
+				DocIDCounter:          inMemData,
+				PropLengthTrackerPath: "shard1/proplength.bin",
+				PropLengthTracker:     inMemData,
+				ShardVersionPath:      "shard1/version.bin",
+				Version:               inMemData,
+			}
+
+			u := &uploader{
+				cfg: config.Backup{
+					ChunkTargetSize: tt.chunkTarget,
+					MinChunkSize:    tt.minChunkSize,
+					SplitFileSize:   tt.splitFileSize,
+				},
+				backend: nodeStore{
+					objectStore: objectStore{backend: mockBackend},
+				},
+				zipConfig: zipConfig{Level: int(NoCompression), GoPoolSize: 1},
+				log:       logrus.New(),
+			}
+
+			lastChunk := int32(0)
+			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "")
+			require.NoError(t, err)
+
+			// First chunk has small files + in-memory data; skip it.
+			// The remaining chunks contain the split parts of big.db.
+			require.True(t, len(results) > 1, "expected more than 1 chunk")
+			splitChunks := results[1:]
+			require.Len(t, splitChunks, tt.wantParts, "number of split chunks")
+
+			// Collect sizes of the split-file chunks.
+			var sizes []int64
+			for _, r := range splitChunks {
+				key := fmt.Sprintf("TestClass/chunk-%d", r.chunk)
+				sizes = append(sizes, chunkSizes[key])
+			}
+
+			// Assert all split chunks are roughly the same size.
+			// With no compression and tar overhead being small relative to data,
+			// the largest chunk should be at most 20% bigger than the smallest.
+			minSize, maxSize := sizes[0], sizes[0]
+			for _, s := range sizes[1:] {
+				if s < minSize {
+					minSize = s
+				}
+				if s > maxSize {
+					maxSize = s
+				}
+			}
+			assert.True(t, float64(maxSize) <= float64(minSize)*1.2,
+				"chunks should be roughly equal: min=%d max=%d (ratio %.1f%%)",
+				minSize, maxSize, float64(maxSize)*100/float64(minSize))
+		})
+	}
 }
 
 func TestCalculateTop100Size(t *testing.T) {

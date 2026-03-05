@@ -439,15 +439,15 @@ func TestWriteRegulars(t *testing.T) {
 				{"shard/a.db", 100},
 			},
 			// chunkTargetSize=500, splitFileSize=200 → clamped to max(200,500)=500.
-			// b.db is the first file. fileSize(800) > splitFileSizeBytes(500)
-			// → WriteSplitFile writes the first 500 bytes and returns SplitFile{AW:500}.
+			// b.db(800) > splitFileSizeBytes(500) → numParts=ceil(800/500)=2, partSize=ceil(800/2)=400.
+			// WriteSplitFile writes the first 400 bytes and returns SplitFile{AW:400}.
 			chunkTargetSize:      500,
 			minIndividualSize:    0,
 			splitFileSize:        200,
 			expectTarFiles:       []string{"shard/b.db"},
 			expectRemainingFiles: []string{"shard/a.db"},
 			expectSplitFile:      "shard/b.db",
-			expectAlreadyWritten: 500, // clamped splitFileSize = max(200, 500)
+			expectAlreadyWritten: 400, // even part: ceil(800/ceil(800/500)) = 400
 		},
 		{
 			name: "small file triggers chunkFull without big file ahead",
