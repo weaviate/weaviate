@@ -422,6 +422,182 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux) (int64, error) {
 	return totalSize, nil
 }
 
+// MarshalSortedKeysFromKeys serializes a balanced BST index directly from
+// sorted Key entries, without constructing intermediate Tree or Node
+// structures. Keys must already be in sorted order (as produced by the replace
+// compactor's merge loop). ValueStart and ValueEnd are read directly from each
+// Key, so no derivation is needed.
+func MarshalSortedKeysFromKeys(w io.Writer, keys []Key) (int64, error) {
+	n := len(keys)
+	if n == 0 {
+		return 0, nil
+	}
+
+	capacity := balancedTreeCapacity(n)
+
+	bfsToSorted := make([]int32, capacity)
+	for i := range bfsToSorted {
+		bfsToSorted[i] = -1
+	}
+	fillBFS(bfsToSorted, 0, 0, n-1)
+
+	diskOffsets := make([]int64, capacity)
+	var currentOffset int64
+	for i := 0; i < capacity; i++ {
+		diskOffsets[i] = currentOffset
+		if si := bfsToSorted[i]; si >= 0 {
+			currentOffset += int64(36 + len(keys[si].Key))
+		}
+	}
+	totalSize := currentOffset
+
+	buf := make([]byte, 36)
+
+	for i := 0; i < capacity; i++ {
+		si := bfsToSorted[i]
+		if si < 0 {
+			continue
+		}
+
+		key := keys[si]
+
+		leftChild := int64(-1)
+		if leftPos := 2*i + 1; leftPos < capacity && bfsToSorted[leftPos] >= 0 {
+			leftChild = diskOffsets[leftPos]
+		}
+		rightChild := int64(-1)
+		if rightPos := 2*i + 2; rightPos < capacity && bfsToSorted[rightPos] >= 0 {
+			rightChild = diskOffsets[rightPos]
+		}
+
+		binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key.Key)))
+		binary.LittleEndian.PutUint64(buf[4:12], uint64(key.ValueStart))
+		binary.LittleEndian.PutUint64(buf[12:20], uint64(key.ValueEnd))
+		binary.LittleEndian.PutUint64(buf[20:28], uint64(leftChild))
+		binary.LittleEndian.PutUint64(buf[28:36], uint64(rightChild))
+
+		if _, err := w.Write(buf[:4]); err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(key.Key); err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(buf[4:36]); err != nil {
+			return 0, err
+		}
+	}
+
+	return totalSize, nil
+}
+
+// computePrimaryIndexSize returns the serialized BST size for the primary index
+// without allocating any tree structures. Every key occupies exactly one BST
+// node of size 36 + len(key.Key).
+func computePrimaryIndexSize(keys []Key) int64 {
+	var size int64
+	for _, key := range keys {
+		size += int64(36 + len(key.Key))
+	}
+	return size
+}
+
+// computeSecondaryIndexSize returns the serialized BST size for the secondary
+// index at pos without allocating any tree structures.
+func computeSecondaryIndexSize(keys []Key, pos int) int64 {
+	var size int64
+	for _, key := range keys {
+		if pos >= len(key.SecondaryKeys) {
+			continue
+		}
+		size += int64(36 + len(key.SecondaryKeys[pos]))
+	}
+	return size
+}
+
+// marshalSortedSecondaryFromKeys serializes a balanced BST for the secondary
+// key at pos directly from the keys slice without constructing intermediate
+// Tree or Node structures. It uses a []int32 index buffer (4 bytes/key) instead
+// of []Node (40 bytes/key) to reduce memory usage during compaction.
+func marshalSortedSecondaryFromKeys(w io.Writer, keys []Key, pos int) (int64, error) {
+	// Collect original-key indices for keys that have a secondary key at pos.
+	sortedIndices := make([]int32, 0, len(keys))
+	for i, key := range keys {
+		if pos < len(key.SecondaryKeys) {
+			sortedIndices = append(sortedIndices, int32(i))
+		}
+	}
+	n := len(sortedIndices)
+	if n == 0 {
+		return 0, nil
+	}
+
+	// Sort by secondary key value.
+	sort.Slice(sortedIndices, func(i, j int) bool {
+		return bytes.Compare(keys[sortedIndices[i]].SecondaryKeys[pos],
+			keys[sortedIndices[j]].SecondaryKeys[pos]) < 0
+	})
+
+	capacity := balancedTreeCapacity(n)
+
+	// Build BFS-position → position-in-sortedIndices mapping.
+	bfsToIdx := make([]int32, capacity)
+	for i := range bfsToIdx {
+		bfsToIdx[i] = -1
+	}
+	fillBFS(bfsToIdx, 0, 0, n-1)
+
+	// Compute the byte offset of each BFS position in the serialized output.
+	diskOffsets := make([]int64, capacity)
+	var currentOffset int64
+	for i := 0; i < capacity; i++ {
+		diskOffsets[i] = currentOffset
+		if si := bfsToIdx[i]; si >= 0 {
+			ki := sortedIndices[si]
+			currentOffset += int64(36 + len(keys[ki].SecondaryKeys[pos]))
+		}
+	}
+	totalSize := currentOffset
+
+	// Write nodes in BFS order (matching MarshalBinaryInto output).
+	buf := make([]byte, 36)
+	for i := 0; i < capacity; i++ {
+		si := bfsToIdx[i]
+		if si < 0 {
+			continue
+		}
+		ki := sortedIndices[si]
+		key := keys[ki]
+		secKey := key.SecondaryKeys[pos]
+
+		leftChild := int64(-1)
+		if leftPos := 2*i + 1; leftPos < capacity && bfsToIdx[leftPos] >= 0 {
+			leftChild = diskOffsets[leftPos]
+		}
+		rightChild := int64(-1)
+		if rightPos := 2*i + 2; rightPos < capacity && bfsToIdx[rightPos] >= 0 {
+			rightChild = diskOffsets[rightPos]
+		}
+
+		binary.LittleEndian.PutUint32(buf[0:4], uint32(len(secKey)))
+		binary.LittleEndian.PutUint64(buf[4:12], uint64(key.ValueStart))
+		binary.LittleEndian.PutUint64(buf[12:20], uint64(key.ValueEnd))
+		binary.LittleEndian.PutUint64(buf[20:28], uint64(leftChild))
+		binary.LittleEndian.PutUint64(buf[28:36], uint64(rightChild))
+
+		if _, err := w.Write(buf[:4]); err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(secKey); err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(buf[4:36]); err != nil {
+			return 0, err
+		}
+	}
+
+	return totalSize, nil
+}
+
 // fillBFS recursively maps heap-indexed BFS positions to sorted key indices.
 func fillBFS(bfsToSorted []int32, targetPos, leftBound, rightBound int) {
 	if leftBound > rightBound || targetPos >= len(bfsToSorted) {
