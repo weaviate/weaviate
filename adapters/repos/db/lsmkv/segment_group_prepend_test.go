@@ -298,6 +298,106 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		assert.Less(t, tgtBucket.disk.Len(), segCountBefore+1)
 	})
 
+	t.Run("compaction with mixed levels after prepend", func(t *testing.T) {
+		ctx := context.Background()
+
+		// Create source with multiple segments, then compact them so they
+		// reach higher levels than fresh (level 0) target segments.
+		srcDir := t.TempDir()
+		srcBucket := createTestBucketRoaringSet(t, ctx, srcDir)
+		for i := range 4 {
+			require.NoError(t, srcBucket.RoaringSetAddList([]byte("key-src"), []uint64{uint64(i)}))
+			require.NoError(t, srcBucket.FlushAndSwitch())
+		}
+		// Compact source to raise segment levels.
+		for {
+			compacted, err := srcBucket.disk.compactOnce()
+			require.NoError(t, err)
+			if !compacted {
+				break
+			}
+		}
+		require.NoError(t, srcBucket.Shutdown(ctx))
+
+		// Create target with fresh (level 0) segments.
+		tgtDir := t.TempDir()
+		tgtBucket := createTestBucketRoaringSet(t, ctx, tgtDir)
+		defer tgtBucket.Shutdown(ctx)
+
+		for i := range 4 {
+			require.NoError(t, tgtBucket.RoaringSetAddList([]byte("key-tgt"), []uint64{uint64(100 + i)}))
+			require.NoError(t, tgtBucket.FlushAndSwitch())
+		}
+
+		// Prepend: high-level source segments are now before low-level target
+		// segments, creating a mixed-level ordering.
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
+
+		// Compaction must handle the mixed levels without error.
+		for {
+			compacted, err := tgtBucket.disk.compactOnce()
+			require.NoError(t, err)
+			if !compacted {
+				break
+			}
+		}
+
+		// All data intact after compaction.
+		assertRoaringSetContains(t, tgtBucket, []byte("key-src"), []uint64{0, 1, 2, 3})
+		assertRoaringSetContains(t, tgtBucket, []byte("key-tgt"), []uint64{100, 101, 102, 103})
+
+		// Verify survives reload (on-disk level info is correct).
+		require.NoError(t, tgtBucket.Shutdown(ctx))
+		tgtBucket2 := createTestBucketRoaringSet(t, ctx, tgtDir)
+		defer tgtBucket2.Shutdown(ctx)
+
+		assertRoaringSetContains(t, tgtBucket2, []byte("key-src"), []uint64{0, 1, 2, 3})
+		assertRoaringSetContains(t, tgtBucket2, []byte("key-tgt"), []uint64{100, 101, 102, 103})
+	})
+
+	t.Run("overlapping keys prove source segments are older", func(t *testing.T) {
+		ctx := context.Background()
+
+		// Source: add key-x={1}, remove key-x={2}.
+		srcDir := t.TempDir()
+		srcBucket := createTestBucketRoaringSet(t, ctx, srcDir)
+		require.NoError(t, srcBucket.RoaringSetAddList([]byte("key-x"), []uint64{1, 2}))
+		require.NoError(t, srcBucket.FlushAndSwitch())
+		require.NoError(t, srcBucket.RoaringSetRemoveOne([]byte("key-x"), 2))
+		require.NoError(t, srcBucket.RoaringSetAddList([]byte("key-x"), []uint64{10}))
+		require.NoError(t, srcBucket.FlushAndSwitch())
+		require.NoError(t, srcBucket.Shutdown(ctx))
+		// Source net state: {1, 10} present, {2} deleted.
+
+		// Target: add key-x={2}, remove key-x={1}.
+		tgtDir := t.TempDir()
+		tgtBucket := createTestBucketRoaringSet(t, ctx, tgtDir)
+		defer tgtBucket.Shutdown(ctx)
+
+		require.NoError(t, tgtBucket.RoaringSetAddList([]byte("key-x"), []uint64{1, 2}))
+		require.NoError(t, tgtBucket.FlushAndSwitch())
+		require.NoError(t, tgtBucket.RoaringSetRemoveOne([]byte("key-x"), 1))
+		require.NoError(t, tgtBucket.RoaringSetAddList([]byte("key-x"), []uint64{20}))
+		require.NoError(t, tgtBucket.FlushAndSwitch())
+		// Target net state: {2, 20} present, {1} deleted.
+
+		require.NoError(t, tgtBucket.PrependSegmentsFromBucket(ctx, srcDir))
+
+		// If source is correctly older, target's operations win:
+		//   - Source added 1, but target (newer) removed 1 → 1 absent
+		//   - Source removed 2, but target (newer) added 2 → 2 present
+		//   - Source added 10, target didn't touch it → 10 present
+		//   - Target added 20, source didn't touch it → 20 present
+		bm, release, err := tgtBucket.RoaringSetGet([]byte("key-x"))
+		require.NoError(t, err)
+		defer release()
+
+		assert.False(t, bm.Contains(1), "1 should be absent: target (newer) removed it")
+		assert.True(t, bm.Contains(2), "2 should be present: target (newer) re-added it")
+		assert.True(t, bm.Contains(10), "10 should be present: source added, target didn't touch")
+		assert.True(t, bm.Contains(20), "20 should be present: target added it")
+	})
+
 	t.Run("crash recovery / reload from disk", func(t *testing.T) {
 		ctx := context.Background()
 
