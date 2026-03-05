@@ -760,8 +760,9 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	// stop at layer 1, not 0!
+	eps := priorityqueue.NewMin[any](10)
 	for level := maxLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin[any](10)
+		eps.Reset()
 		eps.Insert(entryPointID, entryPointDistance)
 
 		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
@@ -805,7 +806,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		h.pools.pqResults.Put(res)
 	}
 
-	eps := priorityqueue.NewMin[any](10)
+	eps.Reset()
 	eps.Insert(entryPointID, entryPointDistance)
 	var strategy FilterStrategy
 	h.shardedNodeLocks.RLock(entryPointID)

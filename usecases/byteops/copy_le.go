@@ -17,8 +17,8 @@ import "unsafe"
 
 // CopyBytesToSlice bulk-copies src bytes into dst typed slice using a single memmove.
 // This is safe on little-endian architectures where the in-memory representation
-// of float32/uint64 matches the little-endian byte layout used on disk.
-func CopyBytesToSlice[T float32 | uint64](dst []T, src []byte) {
+// of the supported numeric types matches the little-endian byte layout used on disk.
+func CopyBytesToSlice[T float32 | float64 | uint64 | int64](dst []T, src []byte) {
 	if len(dst) == 0 {
 		return
 	}
@@ -30,8 +30,8 @@ func CopyBytesToSlice[T float32 | uint64](dst []T, src []byte) {
 
 // CopySliceToBytes bulk-copies a typed slice into dst bytes using a single memmove.
 // This is safe on little-endian architectures where the in-memory representation
-// of float32/uint64 matches the little-endian byte layout used on disk.
-func CopySliceToBytes[T float32 | uint64](dst []byte, src []T) {
+// of the supported numeric types matches the little-endian byte layout used on disk.
+func CopySliceToBytes[T float32 | float64 | uint64 | int64](dst []byte, src []T) {
 	if len(src) == 0 {
 		return
 	}
