@@ -210,45 +210,28 @@ func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, 
 			return written, nil, err
 		}
 
-		// Big files (>= bigFileThreshold) get their own chunk
-		if fileSize >= z.bigFileThreshold {
-			if !firstFile {
-				// Current chunk already has data; fill remaining space with small files, then return.
-				// The big file stays at the front for the next chunk.
-				n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
-				written += n
-				return written, nil, err
-			}
-			// First file in chunk and it's big — write it alone
-			n, splitFile, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
-			if err != nil {
-				return written, nil, err
-			}
-			filesInShard.PopFront()
-			written += n
-			return written, splitFile, nil
-		}
-
-		n, splitFile, chunkFull, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
-		if err != nil {
-			return written, nil, err
-		}
-		if splitFile != nil {
-			// File exceeds split threshold, it will be split across chunks.
-			// Pop it from the list since the split mechanism now owns it.
-			filesInShard.PopFront()
-			return written, splitFile, nil
-		}
-		if chunkFull {
-			// The file at the front doesn't fit. Scan ahead for smaller files
-			// that still fit in the remaining chunk space.
+		// File doesn't fit in current chunk: either it's a big file that needs
+		// its own chunk, or it would exceed the chunk target size.
+		// Fill remaining space with small files and return.
+		if !firstFile && (fileSize >= z.bigFileThreshold || preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes) {
 			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
 			written += n
 			return written, nil, err
 		}
-		// remove processed element from slice
+
+		n, splitFile, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
+		if err != nil {
+			return written, nil, err
+		}
 		filesInShard.PopFront()
 		written += n
+		if splitFile != nil {
+			return written, splitFile, nil
+		}
+		// Big file was first and got its own chunk — return immediately.
+		if fileSize >= z.bigFileThreshold {
+			return written, nil, nil
+		}
 	}
 	return written, nil, nil
 }
@@ -337,11 +320,11 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		numParts := ceilDiv(fileSize, z.splitFileSizeBytes)
 		partSize := ceilDiv(fileSize, numParts)
 		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0, PartSize: partSize}
-		remaining, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
+		remainingSplitFile, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
 		if err != nil {
 			return 0, nil, false, err
 		}
-		return 0, remaining, false, nil
+		return 0, remainingSplitFile, false, nil
 	}
 
 	if fileSize >= z.bigFileThreshold {
