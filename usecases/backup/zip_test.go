@@ -386,6 +386,7 @@ func TestWriteRegulars(t *testing.T) {
 		expectTarFiles       []string // files expected in the produced tar chunk
 		expectRemainingFiles []string // files expected to remain in the file list after the call
 		expectSplitFile      string   // if non-empty, expect a SplitFile with this RelPath
+		expectAlreadyWritten int64    // expected AlreadyWritten on the returned SplitFile
 		expectBigFileChunk   string   // if non-empty, expect this file tracked in BigFilesChunk
 	}{
 		{
@@ -417,32 +418,36 @@ func TestWriteRegulars(t *testing.T) {
 			expectBigFileChunk:   "", // big file is NOT written in this chunk, only small files
 		},
 		{
-			name: "big file exceeding split threshold returns SplitFile",
+			name: "big file exceeding split threshold returns SplitFile with first part written",
 			files: []testFile{
 				{"shard/huge.db", 5000},
 			},
+			// chunkTargetSize=1000, splitFileSize=500 → clamped to max(500,1000)=1000.
+			// fileSize(5000) > splitFileSizeBytes(1000) → WriteSplitFile writes first 1000 bytes.
 			chunkTargetSize:      1000,
 			minIndividualSize:    1000,
 			splitFileSize:        500,
-			expectTarFiles:       nil,
+			expectTarFiles:       []string{"shard/huge.db"},
 			expectRemainingFiles: nil,
 			expectSplitFile:      "shard/huge.db",
+			expectAlreadyWritten: 1000, // clamped splitFileSize = max(500, 1000)
 		},
 		{
-			name: "small file exceeding split threshold returns SplitFile",
+			name: "small file exceeding split threshold returns SplitFile with first part written",
 			files: []testFile{
 				{"shard/b.db", 800},
 				{"shard/a.db", 100},
 			},
-			// b.db is the first file. chunkTarget=500, so 800 > 500 triggers the size check.
-			// splitFileSize=200, and 800 > 200, so WriteRegular returns a SplitFile for b.db.
-			// minIndividualSize=0 means the "big file" path in WriteRegulars is not taken.
+			// chunkTargetSize=500, splitFileSize=200 → clamped to max(200,500)=500.
+			// b.db is the first file. fileSize(800) > splitFileSizeBytes(500)
+			// → WriteSplitFile writes the first 500 bytes and returns SplitFile{AW:500}.
 			chunkTargetSize:      500,
 			minIndividualSize:    0,
 			splitFileSize:        200,
-			expectTarFiles:       nil,
+			expectTarFiles:       []string{"shard/b.db"},
 			expectRemainingFiles: []string{"shard/a.db"},
 			expectSplitFile:      "shard/b.db",
+			expectAlreadyWritten: 500, // clamped splitFileSize = max(200, 500)
 		},
 		{
 			name: "small file triggers chunkFull without big file ahead",
@@ -525,7 +530,7 @@ func TestWriteRegulars(t *testing.T) {
 			if tt.expectSplitFile != "" {
 				require.NotNil(t, splitFile, "expected a SplitFile")
 				require.Equal(t, tt.expectSplitFile, splitFile.RelPath)
-				require.Equal(t, int64(0), splitFile.AlreadyWritten)
+				require.Equal(t, tt.expectAlreadyWritten, splitFile.AlreadyWritten)
 			} else {
 				require.Nil(t, splitFile, "did not expect a SplitFile")
 			}
@@ -955,7 +960,7 @@ func TestSplitFileRoundTrip(t *testing.T) {
 					var sr *SplitFile
 					var we error
 					if fileSizeExceeded != nil {
-						sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+						sr, we = z.WriteSplitFile(ctx, &sd, fileSizeExceeded, &preComp, "chunk")
 					} else {
 						_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 					}
@@ -1064,7 +1069,7 @@ func TestSplitFileExactBoundary(t *testing.T) {
 			var sr *SplitFile
 			var we error
 			if fileSizeExceeded != nil {
-				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, &sd, fileSizeExceeded, &preComp, "chunk")
 			} else {
 				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
@@ -1166,7 +1171,7 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 			var sr *SplitFile
 			var we error
 			if fileSizeExceeded != nil {
-				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, &sd, fileSizeExceeded, &preComp, "chunk")
 			} else {
 				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
@@ -1273,7 +1278,7 @@ func TestSplitFirstFileInChunk(t *testing.T) {
 			var sr *SplitFile
 			var we error
 			if fileSizeExceeded != nil {
-				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, &sd, fileSizeExceeded, &preComp, "chunk")
 			} else {
 				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
@@ -1485,7 +1490,7 @@ func TestFirstFileBelowSplitThresholdWrittenWhole(t *testing.T) {
 			var sr *SplitFile
 			var we error
 			if fileSizeExceeded != nil {
-				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, &sd, fileSizeExceeded, &preComp, "chunk")
 			} else {
 				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
@@ -1591,7 +1596,7 @@ func TestMultipleSplitFilesInShard(t *testing.T) {
 			var sr *SplitFile
 			var we error
 			if fileSizeExceeded != nil {
-				sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+				sr, we = z.WriteSplitFile(ctx, &sd, fileSizeExceeded, &preComp, "chunk")
 			} else {
 				_, sr, we = z.WriteShard(ctx, &sd, filesInShard, firstChunk, &preComp, "chunk")
 			}
@@ -1724,7 +1729,7 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 				var sr *SplitFile
 				var we error
 				if fileSizeExceeded != nil {
-					sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+					sr, we = z.WriteSplitFile(ctx, sd, fileSizeExceeded, &preComp, "chunk")
 				} else {
 					_, sr, we = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp, "chunk")
 				}

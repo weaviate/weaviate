@@ -329,18 +329,19 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, nil, false, nil // ignore directories
 	}
 
-	// Check if the first file exceeds the chunk and needs splitting
-	if firstFile && preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes && fileSize > z.splitFileSizeBytes {
-		return 0, &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}, false, nil
+	// Check if the first file exceeds the chunk and needs splitting.
+	// Write the first part here so we don't waste the current chunk.
+	if fileSize > z.splitFileSizeBytes {
+		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0}
+		remaining, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
+		if err != nil {
+			return 0, nil, false, err
+		}
+		return 0, remaining, false, nil
 	}
 
 	if fileSize >= z.bigFileThreshold {
-		if sd.BigFilesChunk == nil {
-			sd.BigFilesChunk = make(map[string]entBackup.BigFileInfo)
-		}
-		// ChunkKeys already supports that single files might need to be split across multiple chunks. However currently
-		// we only support one chunk per big file.
-		sd.BigFilesChunk[relPath] = entBackup.BigFileInfo{ChunkKeys: []string{chunkKey}, Size: fileSize, ModifiedAt: info.ModTime()}
+		sd.TrackBigFileChunk(relPath, fileSize, info.ModTime(), chunkKey)
 	}
 
 	f, err := os.Open(absPath)
@@ -385,7 +386,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	return written, err
 }
 
-func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompressionSize *atomic.Int64) (*SplitFile, error) {
+func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor, splitFile *SplitFile, preCompressionSize *atomic.Int64, chunkKey string) (*SplitFile, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -427,6 +428,9 @@ func (z *zip) WriteSplitFile(ctx context.Context, splitFile *SplitFile, preCompr
 	}
 	splitFile.AlreadyWritten += amountToWrite
 	preCompressionSize.Add(amountToWrite)
+
+	// Track this chunk key in BigFilesChunk
+	sd.TrackBigFileChunk(splitFile.RelPath, splitFile.FileInfo.Size(), splitFile.FileInfo.ModTime(), chunkKey)
 
 	if splitFile.AlreadyWritten < splitFile.FileInfo.Size() {
 		return splitFile, nil

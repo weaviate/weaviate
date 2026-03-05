@@ -547,7 +547,7 @@ func (u *uploader) compress(ctx context.Context,
 			// Only write the split file part in this chunk; remaining space is intentionally
 			// left unused to keep the logic simple and avoid mixing split file parts with
 			// regular files in the same chunk.
-			fileSizeExceededInfo, err = zip.WriteSplitFile(ctx, fileSizeExceededWrite, &preCompressionSize)
+			fileSizeExceededInfo, err = zip.WriteSplitFile(ctx, shard, fileSizeExceededWrite, &preCompressionSize, chunkKey)
 			if err != nil {
 				return nil, fmt.Errorf("write split file for shard %q: %w", shard.Name, err)
 			}

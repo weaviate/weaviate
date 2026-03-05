@@ -221,12 +221,13 @@ func TestProcessShard(t *testing.T) {
 	inMemData := bytes.Repeat([]byte("M"), 50) // 3 in-memory files × 50 = 150 bytes total
 
 	tests := []struct {
-		name            string
-		files           []testFile
-		chunkTargetSize int64
-		minChunkSize    int64
-		splitFileSize   int64
-		expectChunks    int
+		name                 string
+		files                []testFile
+		chunkTargetSize      int64
+		minChunkSize         int64
+		splitFileSize        int64
+		expectChunks         int
+		expectBigFilesChunks map[string]int // relPath → expected number of chunk keys in BigFilesChunk
 	}{
 		{
 			name: "all files fit in one chunk",
@@ -271,9 +272,10 @@ func TestProcessShard(t *testing.T) {
 			// Chunk 1: in-mem(150) + small(50) = 200. big is next but "big" and !firstFile
 			//   → fillChunkWithSmallFiles picks up small2(50) = 250.
 			// Chunk 2: big(500) alone.
-			minChunkSize:    200,
-			chunkTargetSize: 5000,
-			expectChunks:    2,
+			minChunkSize:         200,
+			chunkTargetSize:      5000,
+			expectChunks:         2,
+			expectBigFilesChunks: map[string]int{"shard1/big.db": 1},
 		},
 		{
 			name: "file split across chunks via splitFile mechanism",
@@ -284,14 +286,16 @@ func TestProcessShard(t *testing.T) {
 			// MinChunkSize=200 → Top100Size=max(50,200)=200, minIndiv=200, chunkTarget=300.
 			// small(50) < 200 → packs. huge(1000) >= 200 → big.
 			// Chunk 1: in-mem(150) + small(50) = 200. huge deferred (big, !firstFile).
-			// Chunk 2: huge is first file, big → WriteRegular: 0+1000 > 300 → exceeds chunk.
-			//   1000 > 300 (splitFileSize) → returns SplitFile.
-			// Chunks 3-5: WriteSplitFile writes 300 bytes each (300+300+300=900).
-			// Chunk 6: WriteSplitFile writes remaining 100 bytes.
-			minChunkSize:    200,
-			chunkTargetSize: 300,
-			splitFileSize:   300,
-			expectChunks:    6,
+			// Chunk 2: huge is first file, big → WriteRegular: 1000 > 300 (splitFileSize)
+			//   → WriteSplitFile writes first 300 bytes, returns SplitFile{AW:300}.
+			// Chunk 3: WriteSplitFile writes 300 bytes (300-600).
+			// Chunk 4: WriteSplitFile writes 300 bytes (600-900).
+			// Chunk 5: WriteSplitFile writes remaining 100 bytes.
+			minChunkSize:         200,
+			chunkTargetSize:      300,
+			splitFileSize:        300,
+			expectChunks:         5,
+			expectBigFilesChunks: map[string]int{"shard1/huge.db": 4}, // 4 chunk keys (chunks 2-5)
 		},
 		{
 			name: "first and only file is big non-split",
@@ -301,9 +305,10 @@ func TestProcessShard(t *testing.T) {
 			// MinChunkSize=200 → Top100Size=max(500,200)=500, minIndiv=500, chunkTarget=5000.
 			// Chunk 1 (firstChunk=true): in-mem(150). big.db(500) >= 500 → big, !firstFile → deferred.
 			// Chunk 2 (firstChunk=false): big.db first, big → written alone. Tracked in BigFilesChunk.
-			minChunkSize:    200,
-			chunkTargetSize: 5000,
-			expectChunks:    2,
+			minChunkSize:         200,
+			chunkTargetSize:      5000,
+			expectChunks:         2,
+			expectBigFilesChunks: map[string]int{"shard1/big.db": 1},
 		},
 		{
 			name: "first real file is big and triggers split",
@@ -315,13 +320,14 @@ func TestProcessShard(t *testing.T) {
 			// minIndiv=200, chunkTarget=max(300, 200)=300, splitFileSize=300.
 			// huge(1000) >= 200 → big. small(50) < 200 → packs.
 			// Chunk 1: in-mem(150). huge is first but big & !firstFile → fillSmall picks small(50)=200.
-			// Chunk 2: huge first, big, firstFile=true → 0+1000 > 300 && 1000 > 300 → SplitFile.
-			// Chunks 3-5: split parts of 300 bytes each.
-			// Chunk 6: final split part of 100 bytes.
-			minChunkSize:    200,
-			chunkTargetSize: 300,
-			splitFileSize:   300,
-			expectChunks:    6,
+			// Chunk 2: huge first, big → WriteRegular: 1000 > 300 → WriteSplitFile writes first 300.
+			// Chunks 3-4: split parts of 300 bytes each.
+			// Chunk 5: final split part of 100 bytes.
+			minChunkSize:         200,
+			chunkTargetSize:      300,
+			splitFileSize:        300,
+			expectChunks:         5,
+			expectBigFilesChunks: map[string]int{"shard1/huge.db": 4},
 		},
 		{
 			name: "single big file is never split because chunkTarget adapts",
@@ -346,17 +352,15 @@ func TestProcessShard(t *testing.T) {
 			// MinChunkSize=200 → Top100Size=max(50,200)=200, minIndiv=200, chunkTarget=300.
 			// small(50) < 200 → packs. huge1(900) >= 200 → big. huge2(900) >= 200 → big.
 			// Chunk 1: in-mem(150) + small(50) = 200. huge1 deferred (big, !firstFile).
-			// Chunk 2: huge1 first, big → WriteRegular: 0+900 > 300 && 900 > 300 → SplitFile.
-			// Chunks 3-4: split parts of huge1 (300, 300 bytes).
-			// Chunk 5: final part of huge1 (300 bytes). fileSizeExceeded becomes nil.
-			//   filesInShard still has huge2 → loop continues.
-			// Chunk 6: huge2 first, big → same split path → SplitFile.
-			// Chunks 7-8: split parts of huge2.
-			// Chunk 9: final part of huge2.
-			minChunkSize:    200,
-			chunkTargetSize: 300,
-			splitFileSize:   300,
-			expectChunks:    9,
+			// Chunk 2: huge1 first, big → WriteRegular: 900 > 300 → WriteSplitFile writes first 300.
+			// Chunks 3-4: split parts of huge1 (300, 300 bytes). huge1 done, filesInShard has huge2.
+			// Chunk 5: huge2 first, big → WriteRegular: 900 > 300 → WriteSplitFile writes first 300.
+			// Chunks 6-7: split parts of huge2 (300, 300 bytes). huge2 done.
+			minChunkSize:         200,
+			chunkTargetSize:      300,
+			splitFileSize:        300,
+			expectChunks:         7,
+			expectBigFilesChunks: map[string]int{"shard1/huge1.db": 3, "shard1/huge2.db": 3},
 		},
 		{
 			name: "each file is big and gets own chunk",
@@ -369,9 +373,10 @@ func TestProcessShard(t *testing.T) {
 			// All files >= 100 → all "big" → each gets own chunk.
 			// Chunk 1: in-mem(150). a.db is big, !firstFile → fillSmall: none → return.
 			// Chunk 2: a.db alone. Chunk 3: b.db alone. Chunk 4: c.db alone.
-			minChunkSize:    0,
-			chunkTargetSize: 10000,
-			expectChunks:    4,
+			minChunkSize:         0,
+			chunkTargetSize:      10000,
+			expectChunks:         4,
+			expectBigFilesChunks: map[string]int{"shard1/a.db": 1, "shard1/b.db": 1, "shard1/c.db": 1},
 		},
 	}
 
@@ -438,6 +443,17 @@ func TestProcessShard(t *testing.T) {
 			}
 			assert.Equal(t, int32(tt.expectChunks), lastChunk)
 			assert.Len(t, chunkKeys, tt.expectChunks, "backend.Write call count")
+
+			// Verify BigFilesChunk tracking.
+			if tt.expectBigFilesChunks != nil {
+				require.NotNil(t, shard.BigFilesChunk, "expected BigFilesChunk to be populated")
+				assert.Len(t, shard.BigFilesChunk, len(tt.expectBigFilesChunks), "BigFilesChunk entry count")
+				for relPath, expectedKeyCount := range tt.expectBigFilesChunks {
+					info, ok := shard.BigFilesChunk[relPath]
+					require.True(t, ok, "expected %s in BigFilesChunk", relPath)
+					assert.Len(t, info.ChunkKeys, expectedKeyCount, "chunk key count for %s", relPath)
+				}
+			}
 		})
 	}
 

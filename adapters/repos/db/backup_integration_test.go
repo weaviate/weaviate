@@ -659,7 +659,7 @@ func backupWithSizes(
 				var sr *backupUC.SplitFile
 				var we error
 				if fileSizeExceeded != nil {
-					sr, we = z.WriteSplitFile(ctx, fileSizeExceeded, &preComp)
+					sr, we = z.WriteSplitFile(ctx, sd, fileSizeExceeded, &preComp, "")
 				} else {
 					_, sr, we = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp, "")
 				}
