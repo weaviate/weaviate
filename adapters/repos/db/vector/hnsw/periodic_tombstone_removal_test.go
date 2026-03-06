@@ -120,6 +120,7 @@ func TestTombstoneCleanupBlockedUntilCachePrefilled(t *testing.T) {
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 		GetViewThunk:          func() common.BucketView { return &periodicNoopBucketView{} },
+		AllocChecker:          memwatch.NewDummyMonitor(),
 	}, config, tombstoneCallbacks, testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
