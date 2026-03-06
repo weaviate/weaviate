@@ -98,3 +98,77 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTombstoneCleanupBlockedUntilCachePrefilled(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	cleanupIntervalSeconds := 1
+	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
+	tombstoneCleanupCycle := cyclemanager.NewManager(
+		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
+		tombstoneCallbacks.CycleCallback, logger)
+	tombstoneCleanupCycle.Start()
+
+	config := ent.UserConfig{}
+	config.SetDefaults()
+	config.CleanupIntervalSeconds = cleanupIntervalSeconds
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "tombstone-blocked-by-cache",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &periodicNoopBucketView{} },
+	}, config, tombstoneCallbacks, testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	// Simulate a non-empty index that hasn't finished cache prefill yet.
+	index.cachePrefilled.Store(false)
+
+	for i, vec := range testVectors {
+		err := index.Add(ctx, uint64(i), vec)
+		require.Nil(t, err)
+	}
+
+	// Delete some entries to create tombstones.
+	for i := range testVectors {
+		if i%2 != 0 {
+			continue
+		}
+		err := index.Delete(uint64(i))
+		require.Nil(t, err)
+	}
+
+	index.tombstoneLock.RLock()
+	initialTombstones := len(index.tombstones)
+	index.tombstoneLock.RUnlock()
+	require.True(t, initialTombstones > 0, "expected tombstones after delete")
+
+	// Wait for several cleanup cycles
+	time.Sleep(2 * time.Second)
+
+	index.tombstoneLock.RLock()
+	tombstonesAfterWait := len(index.tombstones)
+	index.tombstoneLock.RUnlock()
+	assert.Equal(t, initialTombstones, tombstonesAfterWait,
+		"tombstones should not be cleaned up before cache is prefilled")
+
+	// Now prefill the cache, which sets cachePrefilled to true.
+	index.PostStartup(ctx)
+
+	// Tombstones should now get cleaned up by the cycle manager.
+	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+		index.tombstoneLock.RLock()
+		ts := len(index.tombstones)
+		index.tombstoneLock.RUnlock()
+		return ts == 0
+	}, "tombstones should be cleaned up after cache is prefilled")
+
+	if err := index.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := tombstoneCleanupCycle.StopAndWait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
