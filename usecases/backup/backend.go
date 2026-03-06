@@ -388,6 +388,13 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 
+	// Determine source path: use staging dir (hard-linked snapshot) if available,
+	// otherwise fall back to live data path for backward compatibility.
+	sourcePath := u.backend.SourceDataPath()
+	if desc.StagingDir != "" {
+		sourcePath = desc.StagingDir
+	}
+
 	nShards := len(desc.Shards)
 	if nShards == 0 {
 		return 0, nil
@@ -440,14 +447,14 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					}
 					for shard := range sender {
 						firstChunk := true
-						filesInShard, err := u.createFileList(shard)
+						filesInShard, err := u.createFileList(shard, sourcePath)
 						if err != nil {
 							return fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
 						}
 						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
 						for {
 							chunk := atomic.AddInt32(&lastChunk, 1)
-							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, overrideBucket, overridePath)
+							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, overrideBucket, overridePath, sourcePath)
 							if err != nil {
 								return err
 							}
@@ -490,6 +497,7 @@ func (u *uploader) compress(ctx context.Context,
 	filesInShard *backup.FileList,
 	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
 	overrideBucket, overridePath string, // bucket name and path
+	sourcePath string, // root path for reading source files (staging dir or live data path)
 ) ([]string, int64, error) {
 	var (
 		chunkKey = chunkKey(class, chunk)
@@ -503,7 +511,7 @@ func (u *uploader) compress(ctx context.Context,
 	// chunkTargetSize controls the max size when packing small files together; it must be at least minIndividualFileSize.
 	minIndividualFileSize := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
 	chunkTargetSize := max(u.cfg.ChunkTargetSize, minIndividualFileSize)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, minIndividualFileSize)
+	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, minIndividualFileSize)
 	if err != nil {
 		return shards, preCompressionSize.Load(), err
 	}
@@ -589,8 +597,8 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 // FileSizes map populated, and Top100Size calculated (size of 100th biggest file, minimum 1MB).
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
 // Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
-func (u *uploader) createFileList(shard *backup.ShardDescriptor) (*backup.FileList, error) {
-	sourceDataPath := u.backend.SourceDataPath()
+func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
+	sourceDataPath := sourcePath
 	files := shard.Files
 	fileSizes := make(map[string]int64, len(files))
 
