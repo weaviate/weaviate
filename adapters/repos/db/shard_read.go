@@ -610,13 +610,35 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, properties, s.index.logger)
+		return storobj.ObjectsByDocID(bucket, docIDs, additional, propertiesWithSort(properties, sort), s.index.logger)
 	}
 
 	if cursor == nil {
 		cursor = &filters.Cursor{After: "", Limit: limit}
 	}
 	return s.cursorObjectList(ctx, cursor, additional, className, properties)
+}
+
+// propertiesWithSort ensures sort property names are included in the
+// extraction list so that cross-shard merge-sorting can access them.
+func propertiesWithSort(properties []string, sort []filters.Sort) []string {
+	if properties == nil || len(sort) == 0 {
+		return properties
+	}
+	existing := make(map[string]struct{}, len(properties))
+	for _, p := range properties {
+		existing[p] = struct{}{}
+	}
+	merged := properties
+	for _, s := range sort {
+		for _, p := range s.Path {
+			if _, ok := existing[p]; !ok {
+				merged = append(merged, p)
+				existing[p] = struct{}{}
+			}
+		}
+	}
+	return merged
 }
 
 func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
