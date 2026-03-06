@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"time"
 
@@ -47,9 +46,11 @@ type BackendProvider interface {
 
 // Selector selects shards and classes for export
 type Selector interface {
-	GetShardsForClass(ctx context.Context, className string) ([]ShardLike, error)
 	ListClasses(ctx context.Context) []string
 	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
+	ExportShardNames(className string) ([]string, bool, error)
+	AcquireShardForExport(ctx context.Context, className, shardName string) (shard ShardLike, release func(), skipReason string, err error)
+	IsMultiTenant(ctx context.Context, className string) bool
 }
 
 // ShardLike is an alias for db.ShardLike
@@ -87,8 +88,8 @@ func NewScheduler(
 	localNode string,
 	participant *Participant,
 ) *Scheduler {
-	if client != nil && nodeResolver != nil && participant == nil {
-		panic("export: multi-node scheduler requires a non-nil participant")
+	if participant == nil {
+		panic("export: scheduler requires a non-nil participant")
 	}
 	return &Scheduler{
 		shutdownCtx:  shutdownCtx,
@@ -329,7 +330,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 				sp := nodeStatus.ShardProgress[className][shardName]
 				if sp == nil {
 					sp = &ShardProgress{Status: effectiveStatus}
-				} else if sp.Status != export.Success && sp.Status != export.Failed {
+				} else if sp.Status != export.Success && sp.Status != export.Failed && sp.Status != export.Skipped {
 					sp.Status = effectiveStatus
 				}
 				status.ShardStatus[className][shardName] = models.ShardProgress{
@@ -488,21 +489,46 @@ func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
 	}
 }
 
-// performSingleNodeExport runs the original single-node export path.
+// performSingleNodeExport builds shard assignments and delegates to the
+// participant's export logic, reusing the same per-shard code path as
+// multi-node exports.
 func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) {
+	shards := make(map[string][]string, len(classes))
 	for _, className := range classes {
-		if err := s.exportClass(ctx, backend, exportID, bucket, path, className); err != nil {
+		shardNames, _, err := s.selector.ExportShardNames(className)
+		if err != nil {
 			s.logger.WithField("action", "export").
 				WithField("export_id", exportID).
 				WithField("class", className).
 				Error(err)
 
 			status.Status = string(export.Failed)
-			status.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
-
+			status.Error = fmt.Sprintf("failed to get shards for class %s: %v", className, err)
 			s.writeMetadata(backend, exportID, bucket, path, status)
 			return
 		}
+		shards[className] = shardNames
+	}
+
+	req := &ExportRequest{
+		ID:       exportID,
+		Backend:  status.Backend,
+		Classes:  classes,
+		Shards:   shards,
+		Bucket:   bucket,
+		Path:     path,
+		NodeName: s.localNode,
+	}
+
+	if err := s.participant.doExport(ctx, backend, req); err != nil {
+		s.logger.WithField("action", "export").
+			WithField("export_id", exportID).
+			Error(err)
+
+		status.Status = string(export.Failed)
+		status.Error = err.Error()
+		s.writeMetadata(backend, exportID, bucket, path, status)
+		return
 	}
 
 	status.Status = string(export.Success)
@@ -520,67 +546,6 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
 		Info("export completed successfully")
-}
-
-// exportClass exports a single class to a Parquet file (single-node path)
-func (s *Scheduler) exportClass(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string, className string) error {
-	shards, err := s.selector.GetShardsForClass(ctx, className)
-	if err != nil {
-		return fmt.Errorf("get shards for class %s: %w", className, err)
-	}
-
-	s.logger.WithField("class", className).
-		WithField("shard_count", len(shards)).
-		Info("found shards for class")
-
-	if len(shards) == 0 {
-		s.logger.WithField("class", className).Warn("no shards found for class")
-		return nil
-	}
-
-	pr, pw := io.Pipe()
-	errChan := make(chan error, 1)
-
-	enterrors.GoWrapper(func() {
-		_, err := backend.Write(ctx, exportID, fmt.Sprintf("%s.parquet", className), bucket, path, pr)
-		errChan <- err
-	}, s.logger)
-
-	writer, err := NewParquetWriter(pw)
-	if err != nil {
-		pw.CloseWithError(err)
-		<-errChan
-		return fmt.Errorf("create parquet writer: %w", err)
-	}
-
-	for _, shard := range shards {
-		if err := exportShardData(ctx, shard, writer, className, s.logger); err != nil {
-			_ = writer.Close()
-			pw.CloseWithError(err)
-			<-errChan
-			return fmt.Errorf("export shard %s: %w", shard.Name(), err)
-		}
-	}
-
-	if err := writer.Close(); err != nil {
-		pw.CloseWithError(err)
-		<-errChan
-		return fmt.Errorf("close parquet writer: %w", err)
-	}
-
-	if err := pw.Close(); err != nil {
-		return err
-	}
-
-	if err := <-errChan; err != nil {
-		return fmt.Errorf("upload parquet file: %w", err)
-	}
-
-	s.logger.WithField("class", className).
-		WithField("objects", writer.ObjectsWritten()).
-		Info("class export completed")
-
-	return nil
 }
 
 // exportShardData exports all objects from a single shard to a ParquetWriter.

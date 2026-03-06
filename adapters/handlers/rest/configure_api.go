@@ -1120,10 +1120,12 @@ func startExportScheduler(shutdownCtx context.Context, appState *state.State) *e
 	var nodeResolver exportUsecase.NodeResolver
 	var localNode string
 
-	if appState.Cluster != nil && appState.ClusterHttpClient != nil {
-		client = clients.NewClusterExports(appState.ClusterHttpClient)
-		nodeResolver = appState.Cluster
+	if appState.Cluster != nil {
 		localNode = appState.Cluster.LocalName()
+		if appState.ClusterHttpClient != nil {
+			client = clients.NewClusterExports(appState.ClusterHttpClient)
+			nodeResolver = appState.Cluster
+		}
 	}
 
 	exportScheduler := exportUsecase.NewScheduler(
