@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication"
-
 	"github.com/go-openapi/strfmt"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -460,21 +460,17 @@ func ShardsData(class string, shards ...string) []string {
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.
-// The path format varies based on the provided class, shard, and id parameters.
+// The id parameter is accepted for backward compatibility but is always ignored —
+// object-level RBAC is not supported and the objects segment is always wildcarded.
 //
 // Parameters:
 // - class: the class of the collection (string)
 // - shard: the shard identifier (string)
-// - id: the unique identifier of the object (strfmt.UUID)
+// - id: ignored, kept for API compatibility
 //
 // Returns:
 // - A string representing the path to the objects, with wildcards (*) used for any empty parameters.
-//
-// Example outputs:
-// - "collections/*/shards/*/objects/*" if all parameters are empty
-// - "collections/*/shards/*/objects/{id}" if only id is provided
-// - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
-func Objects(class, shard string, id strfmt.UUID) string {
+func Objects(class, shard string, _ strfmt.UUID) string {
 	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
@@ -482,10 +478,7 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if id == "" {
-		id = "*"
-	}
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/*", DataDomain, class, shard)
 }
 
 // Backups generates a resource string for the given classes.

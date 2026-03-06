@@ -422,11 +422,9 @@ func (p *DataPermission) WithTenant(tenant string) *DataPermission {
 	return p
 }
 
-func (p *DataPermission) WithObject(object string) *DataPermission {
-	if p.Data == nil {
-		p.Data = &models.PermissionData{}
-	}
-	p.Data.Object = authorization.String(object)
+// WithObject is a no-op. Object-level RBAC is not supported;
+// the object segment is always wildcarded.
+func (p *DataPermission) WithObject(_ string) *DataPermission {
 	return p
 }
 

@@ -800,7 +800,7 @@ type PermissionData struct {
 	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 
-	// A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value `*` applies the permission to all objects.
+	// Deprecated: Object-level permissions are not supported. This field is ignored; the permission always applies to all objects. Kept for backward compatibility.
 	Object *string `json:"object,omitempty"`
 
 	// A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value `*` applies the permission to all tenants.
