@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
@@ -96,6 +97,11 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
 	enforcer.EnableCache(true)
+	// Set a TTL to prevent unbounded cache growth. Runtime policy updates via
+	// the Manager call InvalidateCache(); this TTL is an additional safeguard,
+	// including for init/upgrade paths that may modify policy without
+	// explicitly invalidating the cache.
+	enforcer.SetExpireTime(1 * time.Hour)
 
 	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
 	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)

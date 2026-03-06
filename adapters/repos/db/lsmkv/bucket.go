@@ -605,6 +605,13 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 // Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
 // This is more efficient than getWithConsistentView() when only existence check is needed.
 func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView) error {
+	return b.existsWithConsistentViewUpTo(key, 0, view)
+}
+
+// existsWithConsistentView checks if a key exists and is not deleted, without reading the full value.
+// Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
+// This is more efficient than getWithConsistentView() when only existence check is needed.
+func (b *Bucket) existsWithConsistentViewUpTo(key []byte, segIdx int, view BucketConsistentView) error {
 	memtables, count := viewMemtables(view)
 
 	for i := range count {
@@ -624,7 +631,7 @@ func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView)
 		}
 	}
 
-	return b.disk.existsWithSegmentList(key, view.Disk)
+	return b.disk.existsWithSegmentListUpTo(key, segIdx, view.Disk)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
@@ -696,9 +703,26 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	var memtablesTook [2]time.Duration
 	for i := range count {
 		beforeMemtable := time.Now()
-		v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
+		k, v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
 		memtablesTook[i] = time.Since(beforeMemtable)
 		if err == nil {
+			if i == 1 {
+				// if the item is found in the flushing memtable,
+				// we need to check if it exists in the primary key of the active memtable,
+				// to avoid returning an item that was deleted and re-added with the same secondary key
+				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.NotFound
+				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
+				// - exists(k) == any other error != lsmkv.NotFound: return the error, since we can't be sure about the state of the doc
+				// - "default" exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
+				err = memtables[0].exists(k)
+				if err == nil {
+					return nil, nil, lsmkv.NotFound
+				} else if errors.Is(err, lsmkv.Deleted) {
+					return nil, nil, err
+				} else if !errors.Is(err, lsmkv.NotFound) {
+					return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[0], err)
+				}
+			}
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
 			return v, buffer, nil
@@ -714,7 +738,7 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 
 	beforeSegments := time.Now()
-	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
+	priKey, v, allocBuf, secSegIndex, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -722,9 +746,23 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	if err := b.existsWithConsistentView(k, view); err != nil {
+
+	// Check if a later version of the document is accesible by primary key.
+	// Only check up to, not including, the segment (secSegIndex+1) where the item was found,
+	// to avoid disk access for items that were deleted and re-added with the same secondary key in a later segment
+	err = b.existsWithConsistentViewUpTo(priKey, secSegIndex+1, view)
+
+	// if it exists on a later segment for priKey (err == nil), it means it was updated
+	// thus, we return lsmkv.NotFound to avoid returning stale data.
+	if err == nil {
+		return nil, nil, lsmkv.NotFound
+	}
+
+	// if there is an error other than not found, we propagate the err
+	if !errors.Is(err, lsmkv.NotFound) {
 		return nil, nil, err
 	}
+
 	recheckTook := time.Since(beforeReCheck)
 
 	helpers.AnnotateSlowQueryLogAppend(ctx, logKey, BucketSlowLogEntry{
@@ -766,7 +804,7 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 }
 
 func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable memtable, component string,
-) (v []byte, err error) {
+) (k []byte, v []byte, err error) {
 	op := "getbysecondary"
 
 	start := time.Now()
@@ -813,7 +851,7 @@ func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, 
 }
 
 func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
-) (k, v []byte, buf []byte, err error) {
+) (k, v []byte, buf []byte, segmentId int, err error) {
 	op := "getbysecondary"
 	component := "segment_group"
 
