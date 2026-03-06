@@ -131,7 +131,7 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 		}
 
 		// Clean up staging directory that may have been created by CreateBackupSnapshot
-		stagingDir := idx.backupStagingDir(bakID)
+		stagingDir := backupStagingDir(db.config.RootPath, bakID, schema.ClassName(class))
 		if err := os.RemoveAll(stagingDir); err != nil {
 			db.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
 		}
@@ -192,14 +192,41 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 	return classNames
 }
 
+// probeHardlinkSupport tests whether the filesystem backing RootPath supports hardlinks.
+func (i *Index) probeHardlinkSupport() bool {
+	f, err := os.CreateTemp(i.Config.RootPath, ".hardlink-probe-*")
+	if err != nil {
+		return false
+	}
+	src := f.Name()
+	f.Close()
+	defer os.Remove(src)
+
+	dst := src + ".link"
+	defer os.Remove(dst)
+
+	return os.Link(src, dst) == nil
+}
+
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
 
-	// Create staging dir for hard-linked snapshot files
-	stagingRoot := i.backupStagingDir(backupID)
+	useHardlinks := i.probeHardlinkSupport()
+	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
+
+	if useHardlinks {
+		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
+	}
+	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs)
+}
+
+// descriptorWithHardlinks creates hard-linked snapshots per shard, allowing compaction
+// to resume immediately after the snapshot is taken (~2-5s pause per shard).
+func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+	stagingRoot := backupStagingDir(i.Config.RootPath, backupID, i.Config.ClassName)
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return fmt.Errorf("create backup staging dir: %w", err)
 	}
@@ -215,17 +242,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	desc.StagingDir = stagingRoot
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		var shardBaseDescr []backup.ShardAndID
-		for _, classBaseDescr := range classBaseDescrs {
-			shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(name)
-			if shardBaseDescrTmp == nil {
-				continue
-			}
-			shardBaseDescr = append(shardBaseDescr, backup.ShardAndID{
-				ShardDesc: shardBaseDescrTmp,
-				BackupID:  classBaseDescr.BackupID,
-			})
-		}
+		shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 		i.backupLock.Lock(name)
 		defer i.backupLock.Unlock(name)
@@ -246,6 +263,67 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		return err
 	}
 
+	return i.marshalBackupMetadata(desc)
+}
+
+// descriptorWithoutHardlinks is the fallback path for filesystems that don't support
+// hardlinks. Compaction remains paused for the entire backup upload duration.
+func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+	defer func() {
+		if err != nil {
+			// closelock is hold by the caller
+			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
+		}
+	}()
+
+	if err = i.ForEachShard(func(name string, s ShardLike) error {
+		shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
+
+		i.backupLock.Lock(name)
+		defer i.backupLock.Unlock(name)
+		var sd backup.ShardDescriptor
+
+		if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+			return fmt.Errorf("halt shard %v for backup: %w", name, err)
+		}
+
+		files, err := s.ListBackupFiles(ctx, &sd)
+		if err != nil {
+			return fmt.Errorf("list backup files shard %v: %w", name, err)
+		}
+
+		if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
+		}
+
+		desc.Shards = append(desc.Shards, &sd)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return i.marshalBackupMetadata(desc)
+}
+
+// collectShardBaseDescrs gathers base descriptors for incremental backups of a given shard.
+func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*backup.ClassDescriptor) []backup.ShardAndID {
+	var result []backup.ShardAndID
+	for _, classBaseDescr := range classBaseDescrs {
+		shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(shardName)
+		if shardBaseDescrTmp == nil {
+			continue
+		}
+		result = append(result, backup.ShardAndID{
+			ShardDesc: shardBaseDescrTmp,
+			BackupID:  classBaseDescr.BackupID,
+		})
+	}
+	return result
+}
+
+// marshalBackupMetadata marshals sharding state, schema, and aliases into the class descriptor.
+func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor) error {
+	var err error
 	if desc.ShardingState, err = i.marshalShardingState(); err != nil {
 		return fmt.Errorf("marshal sharding state %w", err)
 	}
@@ -260,11 +338,11 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	// newer backups. To avoid failing to backup old backups that doesn't
 	// understand `aliases` key in the ClassDescriptor.
 	desc.AliasesIncluded = true
-	return ctx.Err()
+	return nil
 }
 
-func (i *Index) backupStagingDir(backupID string) string {
-	return filepath.Join(i.Config.RootPath, backup.BackupStagingPrefix+backupID+"-"+indexID(i.Config.ClassName))
+func backupStagingDir(rootPath, backupID string, className schema.ClassName) string {
+	return filepath.Join(rootPath, backup.BackupStagingPrefix+backupID+"-"+indexID(className))
 }
 
 // ReleaseBackup marks the specified backup as inactive and restarts all
@@ -274,7 +352,7 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 
 	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
-	stagingDir := i.backupStagingDir(id)
+	stagingDir := backupStagingDir(i.Config.RootPath, id, i.Config.ClassName)
 	if err := os.RemoveAll(stagingDir); err != nil {
 		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
 	}
