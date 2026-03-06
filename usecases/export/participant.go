@@ -296,6 +296,11 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	defer stopWriter()
 
 	for _, className := range req.Classes {
+		if err := ctx.Err(); err != nil {
+			nodeStatus.SetFailed(className, err)
+			return err
+		}
+
 		shardNames, ok := req.Shards[className]
 		if !ok || len(shardNames) == 0 {
 			continue
@@ -329,6 +334,10 @@ func (p *Participant) exportClassShards(
 
 	for _, shardName := range shardNames {
 		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
 			shard, release, err := p.selector.AcquireShardForExport(ctx, className, shardName)
 			if err != nil {
 				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error())

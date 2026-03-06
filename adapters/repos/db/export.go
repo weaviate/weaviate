@@ -92,6 +92,10 @@ func (db *DB) ExportShardNames(className string) ([]string, bool, error) {
 //
 // For non-MT classes it simply loads the shard.
 func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName string) (ExportShardLike, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return nil, nil, fmt.Errorf("index not found for class %s", className)
