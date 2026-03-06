@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -918,15 +918,14 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 	h.pools.pqResults.Put(res)
 
-	if selector != nil {
-		os.Exit(1)
-		/*view := h.GetViewThunk()
+	if sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk); sel != nil {
+		view := h.GetViewThunk()
 		defer view.ReleaseView()
-		var selErr error
-		ids, dists, selErr = (*selector).Select(ctx, ids, dists, k, 0.5, view)
-		if selErr != nil {
-			return nil, nil, selErr
-		}*/
+		var err error
+		ids, dists, err = sel.Select(ctx, ids, dists, view)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return ids, dists, nil

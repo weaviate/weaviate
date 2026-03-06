@@ -13,6 +13,7 @@ package selection
 
 import (
 	"context"
+	"errors"
 	"math"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -40,7 +41,7 @@ func mmr(
 ) ([]uint64, []float32, error) {
 	n := len(ids)
 	if n == 0 || k <= 0 {
-		return nil, nil, nil
+		return nil, nil, errors.New("invalid parameters: n must be greater than 0 and k must be greater than 0")
 	}
 	if k > n {
 		k = n
