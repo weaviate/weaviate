@@ -735,8 +735,13 @@ func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
 		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
-	// force the default in case it was not set, as empty bool == false
-	class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
+	// Set the default only when not already true. This ensures that:
+	//  - New classes get the default (config.DefaultUsingBlockMaxWAND).
+	//  - Migrated classes that set UsingBlockMaxWAND=true explicitly are
+	//    not reverted back to false when the default is false.
+	if !class.InvertedIndexConfig.UsingBlockMaxWAND {
+		class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
+	}
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
