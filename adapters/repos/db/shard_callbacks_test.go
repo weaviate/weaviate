@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -283,4 +284,55 @@ func TestShardCallbacks_DualWriteMigration(t *testing.T) {
 		"primary bucket must contain all docIDs (phases 1-3)")
 	assert.Equal(t, []uint64{4, 5, 6}, secondaryIDs,
 		"secondary bucket must contain only phase 2 docIDs (during dual-write)")
+}
+
+// TestShardCallbacks_ConcurrentRegistrationAndWrites verifies that
+// registering a callback while another goroutine is invoking callbacks
+// does not race. Run with -race to verify.
+func TestShardCallbacks_ConcurrentRegistrationAndWrites(t *testing.T) {
+	s := &Shard{}
+
+	// Pre-register a callback so the slice is non-empty from the start.
+	var baseCount atomic.Int64
+	s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
+		baseCount.Add(1)
+		return nil
+	})
+
+	const (
+		numWriters       = 4
+		writesPerWriter  = 500
+		numRegistrations = 20
+	)
+
+	var wg sync.WaitGroup
+
+	// Writers: continuously invoke callbacks.
+	for w := 0; w < numWriters; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < writesPerWriter; i++ {
+				_ = s.onAddToPropertyValueIndex(uint64(i), &inverted.Property{Name: "p"})
+			}
+		}()
+	}
+
+	// Registrations: add and deregister callbacks concurrently with writes.
+	for r := 0; r < numRegistrations; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dereg := s.registerAddToPropertyValueIndex(
+				func(_ *Shard, _ uint64, _ *inverted.Property) error {
+					return nil
+				})
+			dereg()
+		}()
+	}
+
+	wg.Wait()
+
+	// The base callback must have been invoked at least once (sanity).
+	assert.Greater(t, baseCount.Load(), int64(0))
 }
