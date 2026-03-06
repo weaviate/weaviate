@@ -288,9 +288,15 @@ type Shard struct {
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
 
-	reindexer                             ShardReindexerV3
-	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
-	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
+	reindexer ShardReindexerV3
+
+	// Copy-on-write callback slices stored in atomic.Value for lock-free reads
+	// on the hot write path. Registration (rare) copies the slice behind
+	// propertyValueIndexCallbacksMu; iteration (every object write) loads the
+	// current snapshot without locking.
+	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
+	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
+	propertyValueIndexCallbacksMu         sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -519,24 +525,46 @@ func (s *Shard) Activity() (int32, int32) {
 
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
 	disabled := &atomic.Bool{}
-	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex,
-		func(shard *Shard, docID uint64, property *inverted.Property) error {
-			if disabled.Load() {
-				return nil
-			}
-			return callback(shard, docID, property)
-		})
+	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
+		if disabled.Load() {
+			return nil
+		}
+		return callback(shard, docID, property)
+	}
+
+	s.propertyValueIndexCallbacksMu.Lock()
+	var current []onAddToPropertyValueIndex
+	if v := s.callbacksAddToPropertyValueIndex.Load(); v != nil {
+		current = v.([]onAddToPropertyValueIndex)
+	}
+	updated := make([]onAddToPropertyValueIndex, len(current)+1)
+	copy(updated, current)
+	updated[len(current)] = wrapped
+	s.callbacksAddToPropertyValueIndex.Store(updated)
+	s.propertyValueIndexCallbacksMu.Unlock()
+
 	return func() { disabled.Store(true) }
 }
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
 	disabled := &atomic.Bool{}
-	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex,
-		func(shard *Shard, docID uint64, property *inverted.Property) error {
-			if disabled.Load() {
-				return nil
-			}
-			return callback(shard, docID, property)
-		})
+	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
+		if disabled.Load() {
+			return nil
+		}
+		return callback(shard, docID, property)
+	}
+
+	s.propertyValueIndexCallbacksMu.Lock()
+	var current []onDeleteFromPropertyValueIndex
+	if v := s.callbacksRemoveFromPropertyValueIndex.Load(); v != nil {
+		current = v.([]onDeleteFromPropertyValueIndex)
+	}
+	updated := make([]onDeleteFromPropertyValueIndex, len(current)+1)
+	copy(updated, current)
+	updated[len(current)] = wrapped
+	s.callbacksRemoveFromPropertyValueIndex.Store(updated)
+	s.propertyValueIndexCallbacksMu.Unlock()
+
 	return func() { disabled.Store(true) }
 }

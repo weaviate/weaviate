@@ -311,9 +311,10 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 }
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
+	callbacks, _ := s.callbacksAddToPropertyValueIndex.Load().([]onAddToPropertyValueIndex)
 	ec := errorcompounder.New()
-	for i := range s.callbacksAddToPropertyValueIndex {
-		ec.Add(s.callbacksAddToPropertyValueIndex[i](s, docID, property))
+	for _, cb := range callbacks {
+		ec.Add(cb(s, docID, property))
 	}
 	return ec.ToError()
 }
