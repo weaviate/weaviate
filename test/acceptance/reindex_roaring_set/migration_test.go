@@ -13,10 +13,12 @@ package reindex_roaring_set
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -232,6 +235,38 @@ func TestRuntimeRoaringSetRefresh(t *testing.T) {
 		assert.ElementsMatch(t, bl.ids, ids,
 			"post-migration query %q results differ from baseline", bl.name)
 	}
+
+	// 8. Extract shard name from migration response.
+	var migrationResult map[string]map[string]string
+	require.NoError(t, json.Unmarshal(body, &migrationResult))
+	var shardName string
+	for k := range migrationResult {
+		shardName = k
+		break
+	}
+	require.NotEmpty(t, shardName, "could not extract shard name from migration response")
+
+	// 9. Verify no leftover suffixed bucket directories.
+	container := compose.GetWeaviate().Container()
+	dirs := listLSMDirs(ctx, t, container, className, shardName)
+	assertNoSuffixedBuckets(t, dirs, "__roaringset_")
+
+	// 10. Restart the server.
+	t.Log("restarting weaviate container")
+	require.NoError(t, compose.StopAt(ctx, 0, nil))
+	require.NoError(t, compose.StartAt(ctx, 0))
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	// 11. Verify filter queries return correct results after restart.
+	for i, bl := range baselines {
+		ids := runFilterQuery(t, filterQueries[i].where)
+		assert.ElementsMatch(t, bl.ids, ids,
+			"post-restart query %q results differ from baseline", bl.name)
+	}
+
+	// 12. Verify filesystem still clean after restart.
+	dirs = listLSMDirs(ctx, t, container, className, shardName)
+	assertNoSuffixedBuckets(t, dirs, "__roaringset_")
 }
 
 // runFilterQuery executes a filter query and returns the list of object IDs.
@@ -280,6 +315,35 @@ func runFilterQuerySafe(t *testing.T, where string) ([]string, error) {
 		ids = append(ids, additional["id"].(string))
 	}
 	return ids, nil
+}
+
+// listLSMDirs lists directory names under the shard's LSM path inside the container.
+func listLSMDirs(ctx context.Context, t *testing.T, c testcontainers.Container, col, shard string) []string {
+	t.Helper()
+	path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(col), shard)
+	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path})
+	require.NoError(t, err, "exec ls on container")
+	require.Equal(t, 0, code, "ls returned non-zero exit code")
+	buf := new(strings.Builder)
+	_, err = io.Copy(buf, reader)
+	require.NoError(t, err)
+	var dirs []string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			dirs = append(dirs, line)
+		}
+	}
+	return dirs
+}
+
+// assertNoSuffixedBuckets checks that no LSM directory names contain the given suffix.
+func assertNoSuffixedBuckets(t *testing.T, dirs []string, suffix string) {
+	t.Helper()
+	for _, d := range dirs {
+		assert.False(t, strings.Contains(d, suffix),
+			"unexpected leftover bucket directory: %s", d)
+	}
 }
 
 // idsMatchUnordered compares two slices of IDs without regard to order.
