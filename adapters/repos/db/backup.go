@@ -131,8 +131,7 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 		}
 
 		// Clean up staging directory that may have been created by CreateBackupSnapshot
-		stagingDir := filepath.Join(db.config.RootPath,
-			backup.BackupStagingPrefix+bakID+"-"+indexID(schema.ClassName(class)))
+		stagingDir := idx.backupStagingDir(bakID)
 		if err := os.RemoveAll(stagingDir); err != nil {
 			db.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
 		}
@@ -229,9 +228,10 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		}
 
 		i.backupLock.Lock(name)
+		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
+
 		files, err := s.CreateBackupSnapshot(ctx, &sd, stagingRoot)
-		i.backupLock.Unlock(name)
 		if err != nil {
 			return fmt.Errorf("snapshot shard %v: %w", name, err)
 		}
