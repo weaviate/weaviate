@@ -517,10 +517,26 @@ func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
 }
 
-func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
-	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex, callback)
+func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
+	disabled := &atomic.Bool{}
+	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex,
+		func(shard *Shard, docID uint64, property *inverted.Property) error {
+			if disabled.Load() {
+				return nil
+			}
+			return callback(shard, docID, property)
+		})
+	return func() { disabled.Store(true) }
 }
 
-func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
-	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
+func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
+	disabled := &atomic.Bool{}
+	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex,
+		func(shard *Shard, docID uint64, property *inverted.Property) error {
+			if disabled.Load() {
+				return nil
+			}
+			return callback(shard, docID, property)
+		})
+	return func() { disabled.Store(true) }
 }
