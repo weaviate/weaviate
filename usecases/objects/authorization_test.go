@@ -55,37 +55,37 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "ValidateObject",
 			additionalArgs:    []interface{}{(*models.Object)(nil)},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 		{
 			methodName:        "GetObject",
 			additionalArgs:    []interface{}{"", strfmt.UUID("foo"), additional.Properties{}},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 		{
 			methodName:        "DeleteObject",
 			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 		{ // deprecated by the one above
 			methodName:        "DeleteObject",
 			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 		{
 			methodName:        "UpdateObject",
 			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 		{ // deprecated by the one above
 			methodName:        "UpdateObject",
 			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 		{
 			methodName: "MergeObject",
@@ -94,31 +94,31 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 		{
 			methodName:        "GetObjectsClass",
 			additionalArgs:    []interface{}{strfmt.UUID("foo")},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 		{
 			methodName:        "GetObjectClassFromName",
 			additionalArgs:    []interface{}{strfmt.UUID("foo")},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 		{
 			methodName:        "HeadObject",
 			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 		{ // deprecated by the one above
 			methodName:        "HeadObject",
 			additionalArgs:    []interface{}{"", strfmt.UUID("foo")},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 
 		// query objects
@@ -133,7 +133,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "GetObjects",
 			additionalArgs:    []interface{}{(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), additional.Properties{}},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 
 		// reference on objects
@@ -141,19 +141,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "AddObjectReference",
 			additionalArgs:    []interface{}{AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}, (*models.SingleRef)(nil)},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 		{
 			methodName:        "DeleteObjectReference",
 			additionalArgs:    []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 		{
 			methodName:        "UpdateObjectReferences",
 			additionalArgs:    []interface{}{&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "")},
 		},
 	}
 
