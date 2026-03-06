@@ -12,6 +12,8 @@
 package dynamic
 
 import (
+	"context"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -45,6 +47,7 @@ type Config struct {
 	HNSWDisableSnapshots         bool
 	HNSWSnapshotOnStartup        bool
 	HNSWWaitForCachePrefill      bool
+	IterateVectorsThunk          func(ctx context.Context, fn func(id uint64, vector []float32) error) error
 	MinMMapSize                  int64
 	MaxWalReuseSize              int64
 	LazyLoadSegments             bool
