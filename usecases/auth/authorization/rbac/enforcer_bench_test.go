@@ -13,8 +13,6 @@ package rbac
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/casbin/casbin/v2"
@@ -25,7 +23,8 @@ import (
 
 // setupBenchEnforcer creates a cached enforcer with nRules data-domain policies.
 // Each rule grants access to a different collection (Collection0 … CollectionN-1).
-func setupBenchEnforcer(b *testing.B, nRules int) *casbin.SyncedCachedEnforcer {
+// When cache is false the enforcer's built-in cache is disabled.
+func setupBenchEnforcer(b *testing.B, nRules int, cache bool) *casbin.SyncedCachedEnforcer {
 	b.Helper()
 
 	m, err := model.NewModelFromString(MODEL)
@@ -37,19 +36,8 @@ func setupBenchEnforcer(b *testing.B, nRules int) *casbin.SyncedCachedEnforcer {
 	if err != nil {
 		b.Fatal(err)
 	}
-	e.EnableCache(true)
+	e.EnableCache(cache)
 	e.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
-
-	tmpDir, err := os.MkdirTemp("", "bench-rbac-*")
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() { os.RemoveAll(tmpDir) })
-
-	policyFile := filepath.Join(tmpDir, "policy.csv")
-	if err := os.WriteFile(policyFile, nil, 0o644); err != nil {
-		b.Fatal(err)
-	}
 
 	role := conv.PrefixRoleName("bench-role")
 
@@ -79,7 +67,7 @@ func setupBenchEnforcer(b *testing.B, nRules int) *casbin.SyncedCachedEnforcer {
 func BenchmarkEnforce_ObjectWildcard(b *testing.B) {
 	for _, nRules := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("rules=%d", nRules), func(b *testing.B) {
-			e := setupBenchEnforcer(b, nRules)
+			e := setupBenchEnforcer(b, nRules, true)
 			user := conv.UserNameWithTypeFromId("bench-user", "db")
 
 			b.ReportAllocs()
@@ -98,7 +86,7 @@ func BenchmarkEnforce_ObjectWildcard(b *testing.B) {
 func BenchmarkEnforce_ObjectUnique(b *testing.B) {
 	for _, nRules := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("rules=%d", nRules), func(b *testing.B) {
-			e := setupBenchEnforcer(b, nRules)
+			e := setupBenchEnforcer(b, nRules, true)
 			user := conv.UserNameWithTypeFromId("bench-user", "db")
 
 			b.ReportAllocs()
@@ -106,6 +94,24 @@ func BenchmarkEnforce_ObjectUnique(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// Simulate the old path: each request has a unique object UUID.
 				resource := fmt.Sprintf("data/collections/Collection%d/shards/shard0/objects/obj-%d", i%nRules, i)
+				_, _ = e.Enforce(user, resource, authorization.READ)
+			}
+		})
+	}
+}
+
+// BenchmarkEnforce_NoCache measures Enforce with caching disabled entirely,
+// showing the raw cost of policy evaluation on every call.
+func BenchmarkEnforce_NoCache(b *testing.B) {
+	for _, nRules := range []int{1, 10, 100, 1000} {
+		b.Run(fmt.Sprintf("rules=%d", nRules), func(b *testing.B) {
+			e := setupBenchEnforcer(b, nRules, false)
+			user := conv.UserNameWithTypeFromId("bench-user", "db")
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				resource := fmt.Sprintf("data/collections/Collection%d/shards/shard0/objects/*", i%nRules)
 				_, _ = e.Enforce(user, resource, authorization.READ)
 			}
 		})

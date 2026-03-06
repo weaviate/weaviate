@@ -511,11 +511,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.DataDomain:
 		collection := unwrapCasbinSegment(splits[2])
 		tenant := unwrapCasbinSegment(splits[4])
-		allObjects := "*"
 		permission.Data = &models.PermissionData{
 			Collection: &collection,
 			Tenant:     &tenant,
-			Object:     &allObjects,
+			Object:     authorization.All,
 		}
 	case authorization.RolesDomain:
 		role := unwrapCasbinSegment(splits[1])
