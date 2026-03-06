@@ -14,20 +14,23 @@ package clusterapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
+	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const (
@@ -94,7 +97,16 @@ func NewServer(appState *state.State) *Server {
 
 	mux.Handle("/", index())
 
-	grpcServer := grpc.NewServer(appState)
+	// Create replication server by combining the DB (which implements Replicator) with
+	// RemoteIndexIncoming (which provides FindUUIDs).
+	var replServer grpc.ReplicationServer
+	if appState.DB != nil && appState.RemoteIndexIncoming != nil {
+		replServer = &replicationServerAdapter{
+			Replicator:    appState.DB,
+			indexIncoming: appState.RemoteIndexIncoming,
+		}
+	}
+	grpcServer := grpc.NewServer(appState, replServer)
 
 	var handler http.Handler
 	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
@@ -191,17 +203,6 @@ func (s *Server) Close(ctx context.Context) error {
 	return eg.Wait()
 }
 
-// Serve is kept for backward compatibility
-func Serve(appState *state.State) (*Server, error) {
-	server := NewServer(appState)
-	if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		appState.Logger.WithField("action", "cluster_api_shutdown").
-			WithError(err).
-			Error("server error")
-	}
-	return server, nil
-}
-
 func index() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() != "" && r.URL.String() != "/" {
@@ -251,4 +252,17 @@ func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.
 			next.ServeHTTP(w, r)
 		}
 	})
+}
+
+// replicationServerAdapter combines the Replicator interface (from DB) with FindUUIDs
+// (from RemoteIndexIncoming) to satisfy the grpc.ReplicationServer interface.
+type replicationServerAdapter struct {
+	replicaTypes.Replicator
+	indexIncoming *sharding.RemoteIndexIncoming
+}
+
+func (a *replicationServerAdapter) FindUUIDs(ctx context.Context, indexName, shardName string,
+	f *filters.LocalFilter, limit int,
+) ([]strfmt.UUID, error) {
+	return a.indexIncoming.FindUUIDs(ctx, indexName, shardName, f, limit)
 }
