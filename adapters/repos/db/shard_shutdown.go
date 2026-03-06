@@ -114,12 +114,17 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 		}
 
-		if err = queue.Close(); err != nil {
+		if err = queue.Close(ctx); err != nil {
 			ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 		}
 
 		return nil
 	})
+
+	s.propertyIndicesLock.RLock()
+	err = s.propertyIndices.ShutdownGeoIndices(ctx)
+	s.propertyIndicesLock.RUnlock()
+	ec.AddWrapf(err, "shutdown geo property indices")
 
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// to ensure that all commitlog entries are written to disk.
@@ -139,7 +144,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
-		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
+		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()

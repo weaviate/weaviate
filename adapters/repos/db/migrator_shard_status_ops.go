@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -89,8 +90,8 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			idx.backupLock.RLock(name)
 			defer idx.backupLock.RUnlock(name)
 			originalStatus := models.TenantActivityStatusHOT
-			shard, release, err := idx.getOrInitShard(ctx, name)
-			if err != nil {
+			shard, release, err := idx.GetShard(ctx, name)
+			if err != nil && !errors.Is(err, errAlreadyShutdown) {
 				m.logger.WithFields(logrus.Fields{
 					"action": "get_local_shard_no_shutdown",
 					"error":  err,

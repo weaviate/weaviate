@@ -609,6 +609,11 @@ func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 	return err
 }
 
+func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
+	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	return nil
+}
+
 func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	l.Lock()
 	defer l.Unlock()

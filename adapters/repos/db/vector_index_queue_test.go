@@ -57,7 +57,7 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 	require.True(t, ok)
 
 	// ensure the queue doesn't get scheduled
-	q.Pause()
+	q.Pause(t.Context())
 
 	err := q.Insert(ctx, vectors...)
 	require.NoError(t, err)

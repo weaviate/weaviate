@@ -64,6 +64,8 @@ type Request struct {
 	UserRestoreOption string
 
 	RestoreOverwriteAlias bool
+
+	BaseBackupID string
 }
 
 type CanCommitResponse struct {
@@ -88,6 +90,8 @@ type StatusRequest struct {
 	Bucket string
 	// Path specify the path
 	Path string
+
+	BaseBackupID string
 }
 
 type StatusResponse struct {

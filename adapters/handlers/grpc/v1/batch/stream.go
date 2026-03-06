@@ -214,21 +214,12 @@ func (h *StreamHandler) handleRecvErr(recvErr error, stream pb.Weaviate_BatchStr
 	}
 }
 
-func (h *StreamHandler) handleRecvClosed(streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
+func (h *StreamHandler) handleRecvClosed(streamId string, logger *logrus.Entry) error {
 	if h.shuttingDown.Load() && !h.isStopping(streamId) {
-		// The server must be shutting down on its own, so return an error saying so provided that the client
-		// hasn't indicated that it has stopped the stream itself. This avoids telling a client that has already stopped
-		// of a shutting down server; it shouldn't care
-		logger.Info("stream closed due to server shutdown")
-		if err := stream.Send(newBatchShutdownMessage()); err != nil {
-			logger.Errorf("failed to send shutdown message: %s", err)
-			return fmt.Errorf("send shutdown message: %w", err)
-		}
+		logger.Info("stream closed gracefully due to server shutdown")
 		return nil
 	}
-	// otherwise, the client must be closing its side of the stream, so close gracefully
-	// client has closed its side of the stream, so close gracefully
-	logger.Info("stream closed by client gracefully")
+	logger.Info("stream closed gracefully by client")
 	return nil
 }
 
@@ -305,7 +296,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 			if !open {
 				log.Debug("recvErrCh closed, closing stream")
 				// channel closed, client must have closed its side of the stream
-				return h.handleRecvClosed(streamId, stream, log)
+				return h.handleRecvClosed(streamId, log)
 			}
 			// receiver errored, return the error to close the stream
 			return h.handleRecvErr(recvErr, stream, log)
@@ -324,7 +315,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				if recvErr != nil {
 					return h.handleRecvErr(recvErr, stream, log)
 				}
-				return h.handleRecvClosed(streamId, stream, log)
+				return h.handleRecvClosed(streamId, log)
 			}
 			if err := h.handleWorkerReport(report, batchResults, streamId, stream, log); err != nil {
 				return fmt.Errorf("handle worker report: %w", err)

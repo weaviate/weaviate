@@ -36,6 +36,11 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
+// tombstoneCleanupMemoryNeeded is the estimated memory (in bytes) required for
+// HNSW tombstone cleanup. Used both for the pre-check before starting cleanup
+// and for periodic checks during cleanup to abort on memory pressure.
+const tombstoneCleanupMemoryNeeded = 100 * 1024 * 1024
+
 type breakCleanUpTombstonedNodesFunc func() bool
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
@@ -326,6 +331,57 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
+	// Start a background goroutine that periodically checks memory pressure.
+	// If pressure is detected, memCancel is called and the cleanup aborts
+	// gracefully via the breakCleanUpTombstonedNodes check. This is started
+	// after copyTombstonesToAllowList to avoid spawning a goroutine/ticker
+	// on cycles where there are no tombstones to clean.
+	memCtx, memCancel := context.WithCancel(resetCtx)
+	defer memCancel()
+
+	// Re-bind the break function to include the memory pressure context
+	// before spawning the monitor goroutine (which checks immediately).
+	breakCleanUpTombstonedNodes = func() bool {
+		return resetCtx.Err() != nil || memCtx.Err() != nil || shouldAbort()
+	}
+
+	if h.allocChecker != nil {
+		check := func() bool {
+			if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
+				h.logger.WithFields(logrus.Fields{
+					"action": "hnsw_tombstone_cleanup",
+					"event":  "tombstone_cleanup_aborted_memory_pressure",
+					"class":  h.className,
+					"shard":  h.shardName,
+					"id":     h.id,
+				}).Error(err)
+				memCancel()
+				return true
+			}
+			return false
+		}
+
+		// Check synchronously before starting cleanup. Only spawn the
+		// periodic monitor if the initial check passes.
+		if !check() {
+			enterrors.GoWrapper(func() {
+				ticker := time.NewTicker(h.tombstoneMemCheckInterval)
+				defer ticker.Stop()
+
+				for {
+					select {
+					case <-ticker.C:
+						if check() {
+							return
+						}
+					case <-memCtx.Done():
+						return
+					}
+				}
+			}, h.logger)
+		}
+	}
+
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
 	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
 
@@ -455,18 +511,19 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
 ) (ok bool, err error) {
 	h.RLock()
-	size := len(h.nodes)
+	size := uint64(len(h.nodes))
 	h.RUnlock()
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ch := make(chan uint64)
-	var cancelled atomic.Bool
 
+	var cancelled atomic.Bool
+	var workCounter atomic.Uint64 // Workers claim work by incrementing this counter
 	processedIDs := &sync.Map{}
 
-	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
+	deletionConcurrency := tombstoneDeletionConcurrency()
+	for i := 0; i < deletionConcurrency; i++ {
 		g.Go(func() error {
 			for {
 				if breakCleanUpTombstonedNodes() {
@@ -474,72 +531,56 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					cancel()
 					return nil
 				}
-				select {
-				case <-ctx.Done():
-					return nil
-				case deletedID, ok := <-ch:
-					if !ok {
-						return nil
-					}
-					// Check if already COMPLETED processing
-					if _, alreadyProcessed := processedIDs.Load(deletedID); alreadyProcessed {
-						continue
-					}
 
-					h.shardedNodeLocks.RLock(deletedID)
-					if deletedID >= uint64(size) || deletedID >= uint64(len(h.nodes)) || h.nodes[deletedID] == nil {
-						h.shardedNodeLocks.RUnlock(deletedID)
-						continue
-					}
-					h.shardedNodeLocks.RUnlock(deletedID)
-					h.resetLock.RLock()
-					if h.getEntrypoint() != deletedID {
-						if _, err := h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
-							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
-								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
-						}
-					}
-					h.resetLock.RUnlock()
+				// Check for cancellation
+				if ctx.Err() != nil {
+					return nil
 				}
+
+				// Claim next work item using atomic counter (no channel overhead)
+				id := workCounter.Add(1) - 1
+				if id >= size {
+					return nil // No more work
+				}
+
+				// Update progress periodically
+				if id%1000 == 0 {
+					h.metrics.TombstoneCycleProgress(float64(id) / float64(size))
+					if id%1_000_000 == 0 {
+						h.logger.WithFields(logrus.Fields{
+							"action":          "tombstone_cleanup_progress",
+							"class":           h.className,
+							"shard":           h.shardName,
+							"total_nodes":     size,
+							"processed_nodes": id,
+						}).
+							Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, id, size)
+					}
+				}
+
+				// Check if already processed (can happen due to recursive processing)
+				if _, alreadyProcessed := processedIDs.Load(id); alreadyProcessed {
+					continue
+				}
+
+				h.shardedNodeLocks.RLock(id)
+				if id >= size || id >= uint64(len(h.nodes)) || h.nodes[id] == nil {
+					h.shardedNodeLocks.RUnlock(id)
+					continue
+				}
+				h.shardedNodeLocks.RUnlock(id)
+
+				h.resetLock.RLock()
+				if h.getEntrypoint() != id {
+					if _, err := h.reassignNeighbor(ctx, id, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
+						h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
+							Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+					}
+				}
+				h.resetLock.RUnlock()
 			}
 		})
 	}
-
-LOOP:
-	for i := 0; i < size; i++ {
-		if breakCleanUpTombstonedNodes() {
-			cancelled.Store(true)
-			cancel()
-		}
-		select {
-		case ch <- uint64(i):
-			if i%1000 == 0 {
-				// updating the metric has virtually no cost, so we can do it every 1k
-				h.metrics.TombstoneCycleProgress(float64(i) / float64(size))
-				if i%1_000_000 == 0 {
-					// the interval of 1M is rather arbitrary, but if we have less than 1M
-					// nodes in the graph tombstones cleanup should be so fast, we don't
-					// need to log the progress.
-					h.logger.WithFields(logrus.Fields{
-						"action":          "tombstone_cleanup_progress",
-						"class":           h.className,
-						"shard":           h.shardName,
-						"total_nodes":     size,
-						"processed_nodes": i,
-					}).
-						Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
-				}
-			}
-
-		case <-ctx.Done():
-			// before https://github.com/weaviate/weaviate/issues/4615 the context
-			// would not be canceled if a routine panicked. However, with the fix, it is
-			// now valid to wait for a cancelation – even if a panic occurs.
-			break LOOP
-		}
-	}
-
-	close(ch)
 
 	err = g.Wait()
 	if errors.Is(err, context.Canceled) {

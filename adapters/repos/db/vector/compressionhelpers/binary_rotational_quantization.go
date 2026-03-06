@@ -12,7 +12,6 @@
 package compressionhelpers
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/bits"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -209,7 +209,7 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 
 func (rq *BinaryRotationalQuantizer) Decode(compressed []uint64) []float32 {
 	restored := rq.Restore(compressed)
-	unrotated := rq.rotation.UnRotate(restored)
+	unrotated := rq.rotation.UnRotateInPlace(restored)
 	return unrotated[:rq.originalDim]
 }
 
@@ -258,7 +258,7 @@ type RQMultiBitCode struct {
 
 func (c RQMultiBitCode) String() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("bits0[0]: %064b, ", c.bits0[0]))
+	fmt.Fprintf(&sb, "bits0[0]: %064b, ", c.bits0[0])
 	return fmt.Sprintf("RQMultiBitCode{Step: %.4f, SquaredNorm: %.4f, bits: %s",
 		c.Step, c.SquaredNorm, sb.String())
 }
@@ -430,9 +430,7 @@ func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []ui
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
 	slice := make([]byte, len(compressed)*8)
-	for i := range compressed {
-		binary.LittleEndian.PutUint64(slice[i*8:], compressed[i])
-	}
+	byteops.CopySliceToBytes(slice, compressed)
 	return slice
 }
 
@@ -442,10 +440,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytes(compressed []byte) []u
 		l++
 	}
 	slice := make([]uint64, l)
-
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 
@@ -461,9 +456,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesInto(compressed []byte,
 		buffer = buffer[:l]
 	}
 
-	for i := range buffer {
-		buffer[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(buffer, compressed)
 
 	return buffer
 }
@@ -482,9 +475,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(comp
 	slice := (*buffer)[len(*buffer)-l:]
 	*buffer = (*buffer)[:len(*buffer)-l]
 
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 

@@ -93,7 +93,7 @@ func (db *DB) DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroup
 	}()
 
 	// TODO aliszka:ttl handle graceful index close / drop
-	index.IncomingDeleteObjectsExpired(eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
+	index.IncomingDeleteObjectsExpired(ctx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
 }
 
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,

@@ -233,11 +233,12 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 }
 
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
-	if h.dims == 0 {
+	dims := atomic.LoadUint32(&h.dims)
+	if dims == 0 {
 		return nil
 	}
 
-	if dims := int(h.dims); len(vector) != dims {
+	if len(vector) != int(dims) {
 		return fmt.Errorf("new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}

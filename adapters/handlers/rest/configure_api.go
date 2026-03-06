@@ -151,6 +151,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	exportUsecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -364,6 +365,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig, appState.ServerConfig.Config.MinimumInternalTimeout)
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
+	appState.ObjectTTLLocalStatus = objectttl.NewLocalStatus()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -553,10 +555,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 
 	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
-	grpcIddleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
+	grpcIdleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
 
-	appState.GRPCConnManager = grpcconn.NewConnManager(grpcMaxOpenConns, grpcIddleConnTimeout,
+	grpcConnManager, err := grpcconn.NewConnManager(grpcMaxOpenConns, grpcIdleConnTimeout,
 		metricsRegisterer, appState.Logger, opts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create gRPC connection manager")
+	}
+	appState.GRPCConnManager = grpcConnManager
 
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		clientConn, err := appState.GRPCConnManager.GetConn(address)
@@ -658,6 +666,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
+	repo.SetTenantsActivityManager(appState.SchemaManager)
 
 	// initialize needed services after all components are ready
 	postInitModules(appState)
@@ -668,6 +677,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
+
+	// Create export participant early so the cluster API server can register it
+	appState.ExportParticipant = exportUsecase.NewParticipant(serverShutdownCtx, appState.DB, appState.Modules, appState.Logger)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
@@ -685,12 +697,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
-	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
+	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	reindexer := configureReindexer(appState, reindexCtx)
-	repo.WithReindexer(reindexer)
+	repo.SetReindexer(reindexer)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -948,7 +960,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
-	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB, appState.Logger, appState.ClusterHttpClient, appState.Cluster)
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
+		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -965,6 +978,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
+	exportScheduler := startExportScheduler(serverShutdownCtx, appState)
+	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
@@ -1101,6 +1116,33 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		appState.SchemaManager,
 		appState.Logger)
 	return backupScheduler
+}
+
+func startExportScheduler(shutdownCtx context.Context, appState *state.State) *exportUsecase.Scheduler {
+	var client exportUsecase.ExportClient
+	var nodeResolver exportUsecase.NodeResolver
+	var localNode string
+
+	if appState.Cluster != nil {
+		localNode = appState.Cluster.LocalName()
+		if appState.ClusterHttpClient != nil {
+			client = clients.NewClusterExports(appState.ClusterHttpClient)
+			nodeResolver = appState.Cluster
+		}
+	}
+
+	exportScheduler := exportUsecase.NewScheduler(
+		shutdownCtx,
+		appState.Authorizer,
+		appState.DB,
+		appState.Modules,
+		appState.Logger,
+		client,
+		nodeResolver,
+		localNode,
+		appState.ExportParticipant,
+	)
+	return exportScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState

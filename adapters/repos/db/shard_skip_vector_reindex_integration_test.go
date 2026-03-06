@@ -555,7 +555,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				queue.Wait()
+				require.NoError(t, queue.Wait(t.Context()))
 			})
 
 			t.Run("verify initial docID and timestamps", func(t *testing.T) {
@@ -590,7 +590,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				queue.Wait()
+				require.NoError(t, queue.Wait(t.Context()))
 			})
 
 			t.Run("verify same docID, changed create & update timestamps", func(t *testing.T) {
@@ -627,7 +627,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				queue.Wait()
+				require.NoError(t, queue.Wait(t.Context()))
 			})
 
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -667,7 +667,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				queue.Wait()
+				require.NoError(t, queue.Wait(t.Context()))
 			})
 
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -702,7 +702,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				queue.Wait()
+				require.NoError(t, queue.Wait(t.Context()))
 			})
 
 			t.Run("verify same docID, changed update timestamp", func(t *testing.T) {
@@ -739,7 +739,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				queue.Wait()
+				require.NoError(t, queue.Wait(t.Context()))
 			})
 
 			t.Run("verify changed docID, changed update timestamp", func(t *testing.T) {
@@ -1025,7 +1025,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					queue.Wait()
+					require.NoError(t, queue.Wait(t.Context()))
 				})
 
 				t.Run("verify initial docID and timestamps", func(t *testing.T) {
@@ -1055,7 +1055,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					queue.Wait()
+					require.NoError(t, queue.Wait(t.Context()))
 				})
 
 				t.Run("add 2nd batch", func(t *testing.T) {
@@ -1105,7 +1105,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					queue.Wait()
+					require.NoError(t, queue.Wait(t.Context()))
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1149,7 +1149,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					queue.Wait()
+					require.NoError(t, queue.Wait(t.Context()))
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1191,7 +1191,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					queue.Wait()
+					require.NoError(t, queue.Wait(t.Context()))
 				})
 
 				t.Run("verify same docID, same timestamps", func(t *testing.T) {
@@ -1234,7 +1234,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					queue.Wait()
+					require.NoError(t, queue.Wait(t.Context()))
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1280,7 +1280,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					queue.Wait()
+					require.NoError(t, queue.Wait(t.Context()))
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {

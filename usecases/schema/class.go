@@ -115,6 +115,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	if cls.ObjectTTLConfig != nil && cls.ObjectTTLConfig.Enabled {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(cls.Class)...); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
@@ -316,6 +322,20 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// Require DELETE permission on data when any TTL setting is being changed,
+	// but not when the user is updating other collection settings without
+	// touching TTL configuration.
+	initial := h.schemaReader.ReadOnlyClass(className)
+	var initialTTLConfig *models.ObjectTTLConfig
+	if initial != nil {
+		initialTTLConfig = initial.ObjectTTLConfig
+	}
+	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
+			return err
+		}
+	}
+
 	return UpdateClassInternal(h, ctx, className, updated)
 }
 
@@ -328,7 +348,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true); err != nil {
+	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		updated.ObjectTTLConfig = ttlConfig
@@ -778,7 +798,7 @@ func (h *Handler) validateClassInvariants(
 		return err
 	}
 
-	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false); err != nil {
+	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		class.ObjectTTLConfig = ttlConfig

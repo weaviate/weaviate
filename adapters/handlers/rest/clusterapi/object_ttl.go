@@ -30,20 +30,22 @@ import (
 )
 
 type ObjectTTL struct {
-	remoteIndex    *sharding.RemoteIndexIncoming
-	auth           auth
-	requestRunning atomic.Bool
-	logger         logrus.FieldLogger
-	config         config.Config
+	remoteIndex *sharding.RemoteIndexIncoming
+	auth        auth
+	logger      logrus.FieldLogger
+	config      config.Config
+	localStatus *objectttl.LocalStatus
 }
 
-func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger, config config.Config) *ObjectTTL {
+func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger,
+	config config.Config, localStatus *objectttl.LocalStatus,
+) *ObjectTTL {
 	return &ObjectTTL{
-		remoteIndex:    remoteIndex,
-		auth:           auth,
-		requestRunning: atomic.Bool{},
-		logger:         logger,
-		config:         config,
+		remoteIndex: remoteIndex,
+		auth:        auth,
+		logger:      logger,
+		config:      config,
+		localStatus: localStatus,
 	}
 }
 
@@ -57,7 +59,7 @@ func (d *ObjectTTL) deleteExpiredHandler() http.HandlerFunc {
 		switch path {
 		case "/cluster/object_ttl/delete_expired":
 			if r.Method != http.MethodPost {
-				msg := fmt.Sprintf("/objectTTL api path %q with method %v not found", path, r.Method)
+				msg := fmt.Sprintf("/object_ttl api path %q with method %v not found", path, r.Method)
 				http.Error(w, msg, http.StatusMethodNotAllowed)
 				return
 			}
@@ -66,12 +68,21 @@ func (d *ObjectTTL) deleteExpiredHandler() http.HandlerFunc {
 			return
 		case "/cluster/object_ttl/status":
 			if r.Method != http.MethodGet {
-				msg := fmt.Sprintf("/objectTTL api path %q with method %v not found", path, r.Method)
+				msg := fmt.Sprintf("/object_ttl api path %q with method %v not found", path, r.Method)
 				http.Error(w, msg, http.StatusMethodNotAllowed)
 				return
 			}
 
 			d.incomingStatus().ServeHTTP(w, r)
+			return
+		case "/cluster/object_ttl/abort":
+			if r.Method != http.MethodPost {
+				msg := fmt.Sprintf("/object_ttl api path %q with method %v not found", path, r.Method)
+				http.Error(w, msg, http.StatusMethodNotAllowed)
+				return
+			}
+
+			d.incomingAbort().ServeHTTP(w, r)
 			return
 
 		default:
@@ -84,10 +95,12 @@ func (d *ObjectTTL) deleteExpiredHandler() http.HandlerFunc {
 func (d *ObjectTTL) incomingStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-		running := d.requestRunning.Load()
+
 		status := objectttl.ObjectsExpiredStatusResponse{
-			DeletionOngoing: running,
+			DeletionOngoing: d.localStatus.IsRunning(),
 		}
+
+		status.SetContentTypeHeader(w)
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(status); err != nil {
 			http.Error(w, "/object ttl marshal response: "+err.Error(),
@@ -100,14 +113,15 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
-		if !d.requestRunning.CompareAndSwap(false, true) {
+		ok, ttlCtx := d.localStatus.SetRunning()
+		if !ok {
 			http.Error(w, "another request is still being processed", http.StatusTooManyRequests)
 			return
 		}
 
 		var body []objectttl.ObjectsExpiredPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			d.requestRunning.Store(false)
+			d.localStatus.ResetRunning("bad request")
 			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
 			return
 		}
@@ -115,7 +129,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
 			// make sure to unlock the requestRunning flag when all deletions are done
-			defer d.requestRunning.Store(false)
+			defer d.localStatus.ResetRunning("finished")
 
 			started := time.Now()
 
@@ -173,7 +187,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 					continue
 				}
 
-				idx.IncomingDeleteObjectsExpired(eg, ec, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli),
+				idx.IncomingDeleteObjectsExpired(ttlCtx, eg, ec, classPayload.Prop, time.UnixMilli(classPayload.TtlMilli),
 					time.UnixMilli(classPayload.DelMilli), countDeleted, classPayload.ClassVersion)
 			}
 
@@ -183,5 +197,27 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 		}, d.logger)
 
 		w.WriteHeader(http.StatusAccepted)
+	})
+}
+
+func (d *ObjectTTL) incomingAbort() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		response := objectttl.ObjectsExpiredAbortResponse{
+			Aborted: d.localStatus.ResetRunning("aborted"),
+		}
+
+		d.logger.WithFields(logrus.Fields{
+			"action":  "objects_ttl_deletion",
+			"aborted": response.Aborted,
+		}).Info("incoming abort ttl deletion on remote node")
+
+		response.SetContentTypeHeader(w)
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "/object ttl marshal response: "+err.Error(),
+				http.StatusInternalServerError)
+		}
 	})
 }

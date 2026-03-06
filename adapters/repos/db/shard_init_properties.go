@@ -135,14 +135,14 @@ func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
 	// Remove the bucket's directory from disk
 	// If this fails after successful shutdown, we're in an inconsistent state:
 	// the bucket is removed from the store but its data remains on disk
-	if err := s.removeBucketDir(bucketName); err != nil {
+	if err := s.removeBucketDir(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}
 	return nil
 }
 
-func (s *Shard) removeBucketDir(bucketName string) error {
-	bucketDir := filepath.Join(s.pathLSM(), bucketName)
+func (s *Shard) removeBucketDir(pathLSM, bucketName string) error {
+	bucketDir := filepath.Join(pathLSM, bucketName)
 	if _, err := os.Stat(bucketDir); !os.IsNotExist(err) {
 		if err := os.RemoveAll(bucketDir); err != nil {
 			return fmt.Errorf("failed to remove data for %s bucket: "+
