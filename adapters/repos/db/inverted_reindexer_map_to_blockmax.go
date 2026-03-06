@@ -84,6 +84,32 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	)
 }
 
+// NewRuntimeMapToBlockmaxTask creates a ShardReindexTaskGeneric configured for
+// runtime (live) Map→Blockmax migration. It uses reloadShards=false so the
+// migration is performed via atomic bucket pointer swaps without shard restart.
+func NewRuntimeMapToBlockmaxTask(logger logrus.FieldLogger,
+	schemaManager *schema.Manager,
+) *ShardReindexTaskGeneric {
+	strategy := &MapToBlockmaxStrategy{schemaManager: schemaManager}
+
+	cfg := reindexTaskConfig{
+		swapBuckets:                   true,
+		tidyBuckets:                   true,
+		reloadShards:                  false,
+		concurrency:                   2,
+		memtableOptFactor:             4,
+		backupMemtableOptFactor:       1,
+		processingDuration:            10 * time.Minute,
+		pauseDuration:                 1 * time.Second,
+		checkProcessingEveryNoObjects: 1000,
+	}
+
+	return NewShardReindexTaskGeneric(
+		"MapToBlockmax", logger, strategy, cfg,
+		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+}
+
 // NewFileMapToBlockmaxReindexTracker creates a file-based reindex tracker
 // for the searchable map-to-blockmax migration. This is a backward-compatible
 // wrapper around NewFileReindexTracker used by the debug handler.
