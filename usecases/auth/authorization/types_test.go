@@ -177,11 +177,11 @@ func TestObjects(t *testing.T) {
 		{"No class, no shard, no id", "", "", "", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
 		{"Class, no shard, no id", "class1", "", "", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
 		{"No class, shard, no id", "", "shard1", "", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
-		{"No class, no shard, id", "", "", "id1", fmt.Sprintf("%s/collections/*/shards/*/objects/id1", DataDomain)},
+		{"No class, no shard, id (id ignored)", "", "", "id1", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
 		{"Class, shard, no id", "class1", "shard1", "", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
-		{"Class, no shard, id", "class1", "", "id1", fmt.Sprintf("%s/collections/Class1/shards/*/objects/id1", DataDomain)},
-		{"No class, shard, id", "", "shard1", "id1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/id1", DataDomain)},
-		{"Class, shard, id", "class1", "shard1", "id1", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/id1", DataDomain)},
+		{"Class, no shard, id (id ignored)", "class1", "", "id1", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
+		{"No class, shard, id (id ignored)", "", "shard1", "id1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
+		{"Class, shard, id (id ignored)", "class1", "shard1", "id1", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
 	}
 
 	for _, tt := range tests {
