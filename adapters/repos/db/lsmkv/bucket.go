@@ -188,6 +188,8 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+
+	skipSecondaryKeyCheck bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -1342,8 +1344,15 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		return nil, errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
+	mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
+		path:                         path,
+		strategy:                     b.strategy,
+		secondaryIndices:             b.secondaryIndices,
+		enableChecksumValidation:     b.enableChecksumValidation,
+		writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
+		skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
+		bm25config:                   b.bm25Config,
+	})
 	if err != nil {
 		return nil, err
 	}

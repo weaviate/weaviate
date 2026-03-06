@@ -32,7 +32,11 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	cl, err := newCommitLogger(dir, StrategyReplace, 0)
 	require.NoError(t, err)
 
-	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false, nil, false, nil)
+	m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+		path:             path.Join(dir, "will-never-flush"),
+		strategy:         StrategyReplace,
+		secondaryIndices: 1,
+	})
 	require.Nil(t, err)
 	t.Cleanup(func() {
 		require.Nil(t, m.commitlog.close())
@@ -87,7 +91,10 @@ func TestMemtable_Exists(t *testing.T) {
 	cl, err := newCommitLogger(dir, StrategyReplace, 0)
 	require.NoError(t, err)
 
-	m, err := newMemtable(path.Join(dir, "test"), StrategyReplace, 0, cl, nil, logger, false, nil, false, nil)
+	m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+		path:     path.Join(dir, "test"),
+		strategy: StrategyReplace,
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, m.commitlog.close())
@@ -175,7 +182,11 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 		cl, err := newCommitLogger(dir, StrategyReplace, 0)
 		require.NoError(t, err)
 
-		m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false, nil, false, nil)
+		m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+			path:             path.Join(dir, "will-never-flush"),
+			strategy:         StrategyReplace,
+			secondaryIndices: 1,
+		})
 		require.NoError(t, err)
 
 		return m
@@ -201,6 +212,7 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 	t.Run("delete existing keys", func(t *testing.T) {
 		t.Run("delete without secondary key", func(t *testing.T) {
 			memtable := initMemtable(t)
+			memtable.skipSecondaryKeyCheck = true
 			populateMemtable(t, memtable)
 
 			err := memtable.setTombstone(key)
@@ -385,6 +397,7 @@ func TestMemtable_SecondaryKeyDeleteBug(t *testing.T) {
 	t.Run("delete non existent keys", func(t *testing.T) {
 		t.Run("delete without secondary key", func(t *testing.T) {
 			memtable := initMemtable(t)
+			memtable.skipSecondaryKeyCheck = true
 
 			err := memtable.setTombstone(key)
 			require.NoError(t, err)
@@ -576,7 +589,11 @@ func TestMemtable_PutDeletePut(t *testing.T) {
 		cl, err := newCommitLogger(dir, StrategyReplace, 0)
 		require.NoError(t, err)
 
-		m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false, nil, false, nil)
+		m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+			path:             path.Join(dir, "will-never-flush"),
+			strategy:         StrategyReplace,
+			secondaryIndices: 1,
+		})
 		require.NoError(t, err)
 
 		return m
@@ -584,6 +601,7 @@ func TestMemtable_PutDeletePut(t *testing.T) {
 
 	t.Run("without secondary key", func(t *testing.T) {
 		m := initMemtable(t)
+		m.skipSecondaryKeyCheck = true
 
 		err := m.put(key, value)
 		require.NoError(t, err)

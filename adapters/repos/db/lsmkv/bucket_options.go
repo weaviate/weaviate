@@ -265,3 +265,10 @@ func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 		return nil
 	}
 }
+
+func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
+	return func(b *Bucket) error {
+		b.skipSecondaryKeyCheck = skip
+		return nil
+	}
+}
