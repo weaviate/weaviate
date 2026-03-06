@@ -17,7 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -171,22 +170,17 @@ func TestObjects(t *testing.T) {
 		name     string
 		class    string
 		shard    string
-		id       strfmt.UUID
 		expected string
 	}{
-		{"No class, no shard, no id", "", "", "", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
-		{"Class, no shard, no id", "class1", "", "", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
-		{"No class, shard, no id", "", "shard1", "", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
-		{"No class, no shard, id (id ignored)", "", "", "id1", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
-		{"Class, shard, no id", "class1", "shard1", "", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
-		{"Class, no shard, id (id ignored)", "class1", "", "id1", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
-		{"No class, shard, id (id ignored)", "", "shard1", "id1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
-		{"Class, shard, id (id ignored)", "class1", "shard1", "id1", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
+		{"No class, no shard", "", "", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
+		{"Class, no shard", "class1", "", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
+		{"No class, shard", "", "shard1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
+		{"Class, shard", "class1", "shard1", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Objects(tt.class, tt.shard, tt.id)
+			result := Objects(tt.class, tt.shard)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

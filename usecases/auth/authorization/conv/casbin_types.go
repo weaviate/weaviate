@@ -413,11 +413,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			}
 		}
 	case authorization.DataDomain:
-		allObjects := "*"
 		permission.Data = &models.PermissionData{
 			Collection: &splits[2],
 			Tenant:     &splits[4],
-			Object:     &allObjects,
+			Object:     authorization.All,
 		}
 	case authorization.RolesDomain:
 		permission.Roles = &models.PermissionRoles{
