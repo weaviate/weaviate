@@ -111,7 +111,15 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 }
 
 // discoverDBFiles walks srcDir (non-recursively) and returns all .db filenames
-// sorted lexicographically.
+// sorted lexicographically. Recognized filename formats:
+//
+//	segment-<timestamp>.db           (legacy)
+//	segment-<timestamp>.l0.s5.db     (with level and strategy info)
+//
+// In-progress compactions use a .tmp suffix (e.g., segment-L_R.db.tmp) and
+// are not matched by the .db extension check. Once compaction completes, the
+// .tmp is stripped and the joint ID is collapsed to the right segment's ID,
+// so finalized segments always have a single timestamp.
 func discoverDBFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -217,24 +225,23 @@ func findAssociatedFiles(dir, segPrefix string) ([]string, error) {
 //
 //	max(source) + shift < min(target)
 //
-// If target has no segments, a 1-second gap before time.Now() is used.
+// If target has no segments, no shift is applied (returns 0).
 // A minimum gap of 1 second is enforced between the shifted source and the
 // target to leave room for lexicographic ordering.
 func computeTimestampShift(srcDBFiles, tgtDBFiles []string) (int64, error) {
+	if len(tgtDBFiles) == 0 {
+		// No target segments — no need to shift source timestamps at all.
+		return 0, nil
+	}
+
 	srcMax, err := maxSegmentTimestamp(srcDBFiles)
 	if err != nil {
 		return 0, fmt.Errorf("source timestamps: %w", err)
 	}
 
-	var tgtMin int64
-	if len(tgtDBFiles) == 0 {
-		// No target segments yet — place source 1 second before now.
-		tgtMin = time.Now().UnixNano()
-	} else {
-		tgtMin, err = minSegmentTimestamp(tgtDBFiles)
-		if err != nil {
-			return 0, fmt.Errorf("target timestamps: %w", err)
-		}
+	tgtMin, err := minSegmentTimestamp(tgtDBFiles)
+	if err != nil {
+		return 0, fmt.Errorf("target timestamps: %w", err)
 	}
 
 	const gap = int64(time.Second) // 1s gap for safety
@@ -254,16 +261,14 @@ func computeTimestampShift(srcDBFiles, tgtDBFiles []string) (int64, error) {
 	return shift, nil
 }
 
-// parseSegmentTimestamp extracts the first (or only) nanosecond timestamp
-// from a segment filename like "segment-1771258130098421000.db" or a
-// compacted segment "segment-123_456.l0.s5.db".
+// parseSegmentTimestamp extracts the nanosecond timestamp from a segment
+// filename like "segment-1771258130098421000.db" or
+// "segment-1771258130098421000.l0.s5.db".
 func parseSegmentTimestamp(dbFile string) (int64, error) {
 	name := strings.TrimPrefix(dbFile, "segment-")
 	name, _, _ = strings.Cut(name, ".") // strip extensions
-	// For compacted segments, take the first timestamp (before "_").
-	tsStr, _, _ := strings.Cut(name, "_")
 
-	return strconv.ParseInt(tsStr, 10, 64)
+	return strconv.ParseInt(name, 10, 64)
 }
 
 func maxSegmentTimestamp(dbFiles []string) (int64, error) {
@@ -298,18 +303,13 @@ func minSegmentTimestamp(dbFiles []string) (int64, error) {
 // and returns a new prefix with the given nanosecond shift applied.
 func applyTimestampShift(segPrefix string, shift int64) (string, error) {
 	tsStr := strings.TrimPrefix(segPrefix, "segment-")
-	// The timestamp may contain an underscore for compacted segments (e.g.,
-	// "segment-123_456"). Take only the first part for the timestamp.
-	parts := strings.SplitN(tsStr, "_", 2)
 
-	timestamp, err := strconv.ParseInt(parts[0], 10, 64)
+	timestamp, err := strconv.ParseInt(tsStr, 10, 64)
 	if err != nil {
-		return "", fmt.Errorf("parse timestamp %q: %w", parts[0], err)
+		return "", fmt.Errorf("parse timestamp %q: %w", tsStr, err)
 	}
 
-	parts[0] = strconv.FormatInt(timestamp+shift, 10)
-
-	return "segment-" + strings.Join(parts, "_"), nil
+	return "segment-" + strconv.FormatInt(timestamp+shift, 10), nil
 }
 
 // copyFileWithSync copies src to dst and fsyncs dst before returning.

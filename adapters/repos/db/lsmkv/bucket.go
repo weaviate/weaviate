@@ -2318,3 +2318,10 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 	}
 	return defaultStrategy, nil
 }
+
+// PrependSegmentsFromBucket copies all segments from srcDir and prepends them
+// into this bucket's segment group. See SegmentGroup.PrependSegmentsFromBucket
+// for full semantics and preconditions.
+func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
+	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
+}

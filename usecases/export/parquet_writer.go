@@ -109,6 +109,11 @@ func (pw *ParquetWriter) ObjectsWritten() int64 {
 	return pw.written
 }
 
+// SetFileMetadata sets a key/value pair in the Parquet file metadata.
+func (pw *ParquetWriter) SetFileMetadata(key, value string) {
+	pw.writer.SetKeyValueMetadata(key, value)
+}
+
 // convertToParquetRow converts a storobj.Object to a ParquetRow
 func convertToParquetRow(obj *storobj.Object) (ParquetRow, error) {
 	row := ParquetRow{

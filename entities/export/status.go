@@ -18,6 +18,7 @@ const (
 	Transferring Status = "TRANSFERRING"
 	Success      Status = "SUCCESS"
 	Failed       Status = "FAILED"
+	Skipped      Status = "SKIPPED"
 )
 
 type CreateMeta struct {

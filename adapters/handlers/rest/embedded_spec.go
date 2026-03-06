@@ -7472,7 +7472,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         },
         "tookInMs": {
@@ -9248,6 +9249,10 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
+        },
         "status": {
           "description": "Status of this shard's export",
           "type": "string",
@@ -9255,7 +9260,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         }
       }
@@ -17572,7 +17578,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         },
         "tookInMs": {
@@ -19557,6 +19564,10 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
+        },
         "status": {
           "description": "Status of this shard's export",
           "type": "string",
@@ -19564,7 +19575,8 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "SKIPPED"
           ]
         }
       }
