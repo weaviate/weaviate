@@ -436,6 +436,10 @@ func (h *hnsw) populateKeys() {
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	if !h.cachePrefilled.Load() {
+		return false
+	}
+
 	if h.allocChecker != nil {
 		// allocChecker is optional, we can only check if it was actually set
 

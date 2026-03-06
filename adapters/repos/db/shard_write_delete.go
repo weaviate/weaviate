@@ -126,6 +126,13 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
+	// Removing the old docId from the factory solves an issue,
+	// where, if using a NotEquals filter on a property,
+	// there is a possible time period where that docId has been deleted from the inverted index,
+	// but is still present in HNSW or other vector indices.
+	// For any NotEquals filter, we do an Equals filter and invert it's results.
+	s.bitmapFactory.RemoveIds(docID)
+
 	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
