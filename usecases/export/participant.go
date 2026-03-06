@@ -329,7 +329,7 @@ func (p *Participant) exportClassShards(
 ) error {
 	isMT := p.selector.IsMultiTenant(ctx, className)
 
-	eg := enterrors.NewErrorGroupWrapper(p.logger)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(p.logger, ctx)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, shardName := range shardNames {
