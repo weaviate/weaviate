@@ -49,7 +49,7 @@ type Selector interface {
 	ListClasses(ctx context.Context) []string
 	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
 	ExportShardNames(className string) ([]string, bool, error)
-	AcquireShardForExport(ctx context.Context, className, shardName string) (ShardLike, func(), error)
+	AcquireShardForExport(ctx context.Context, className, shardName string) (shard ShardLike, release func(), skipReason string, err error)
 	IsMultiTenant(ctx context.Context, className string) bool
 }
 

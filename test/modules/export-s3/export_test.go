@@ -342,6 +342,7 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 		{Name: "tenantA"},
 		{Name: "tenantB"},
 		{Name: "tenantC"},
+		{Name: "tenantD"},
 	}
 	helper.CreateTenants(t, className, tenants)
 
@@ -349,14 +350,15 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
 		helper.CreateObjectsBatch(t, objects)
-		if tenant.Name != "tenantB" {
+		if tenant.Name == "tenantA" || tenant.Name == "tenantC" {
 			activeObjects = append(activeObjects, objects...)
 		}
 	}
 
-	// Set tenantB to COLD
+	// Set tenantB to COLD, tenantD to OFFLOADED
 	helper.UpdateTenants(t, className, []*models.Tenant{
 		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantD", ActivityStatus: models.TenantActivityStatusOFFLOADED},
 	})
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
@@ -370,6 +372,21 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 
 	// Only tenantA and tenantC should be exported (20 objects)
 	verifyParquetExport(t, exportID, className, activeObjects)
+
+	// Verify skipped tenants have a skip reason
+	require.NotNil(t, resp.Payload.ShardStatus)
+	shardStatus := resp.Payload.ShardStatus[className]
+	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
+
+	progressB, ok := shardStatus["tenantB"]
+	require.True(t, ok, "expected shard status for tenantB")
+	assert.Equal(t, "SKIPPED", progressB.Status)
+	assert.NotEmpty(t, progressB.SkipReason, "expected skip reason for cold tenantB")
+
+	progressD, ok := shardStatus["tenantD"]
+	require.True(t, ok, "expected shard status for tenantD")
+	assert.Equal(t, "SKIPPED", progressD.Status)
+	assert.Contains(t, progressD.SkipReason, "OFFLOADED", "expected OFFLOADED in skip reason for tenantD")
 
 	// Verify parquet metadata
 	verifyParquetMetadata(t, exportID, className, true)

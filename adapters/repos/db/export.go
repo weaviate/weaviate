@@ -91,44 +91,57 @@ func (db *DB) ExportShardNames(className string) ([]string, bool, error) {
 //   - HOT/ACTIVE: returns the shard as-is; release is a no-op.
 //
 // For non-MT classes it simply loads the shard.
-func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName string) (ExportShardLike, func(), error) {
+func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName string) (ExportShardLike, func(), string, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, nil, fmt.Errorf("index not found for class %s", className)
+		return nil, nil, "", fmt.Errorf("index not found for class %s", className)
 	}
 
 	class := idx.getClass()
 	if class == nil {
-		return nil, nil, fmt.Errorf("class not found for index %s", className)
+		return nil, nil, "", fmt.Errorf("class not found for index %s", className)
 	}
 
 	isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 	autoActivationEnabled := schema.AutoTenantActivationEnabled(class)
 
 	// For MT classes, check the tenant's activity status up front.
-	// If the tenant is COLD and auto-activation is disabled, skip it.
-	// If the tenant is COLD and auto-activation is enabled, we'll
-	// deactivate it again after export.
+	// Only HOT and COLD tenants are exportable. All other statuses
+	// (OFFLOADED, OFFLOADING, ONLOADING, FROZEN, FREEZING, UNFREEZING, etc.)
+	// are skipped — the caller receives a nil shard with no error.
+	//
+	// For COLD tenants:
+	//   - auto-activation enabled: activate, export, then deactivate after.
+	//   - auto-activation disabled: skip.
 	deactivateAfter := false
 	if isMT {
 		statuses, err := idx.tenantsManager.TenantsStatus(class.Class, shardName)
 		if err != nil {
-			return nil, nil, fmt.Errorf("get tenant status for %s/%s: %w", className, shardName, err)
+			return nil, nil, "", fmt.Errorf("get tenant status for %s/%s: %w", className, shardName, err)
 		}
-		isCold := statuses[shardName] == models.TenantActivityStatusCOLD
-		if isCold && !autoActivationEnabled {
-			return nil, nil, nil
+		status := statuses[shardName]
+		switch status {
+		case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
+			// Exportable as-is.
+		case models.TenantActivityStatusCOLD, models.TenantActivityStatusINACTIVE:
+			if !autoActivationEnabled {
+				return nil, nil, fmt.Sprintf("tenant is %s and auto-activation is disabled", status), nil
+			}
+			deactivateAfter = true
+		default:
+			// Any other status (OFFLOADED, FROZEN, transitional states, etc.)
+			// — skip this tenant.
+			return nil, nil, fmt.Sprintf("tenant status is %s", status), nil
 		}
-		deactivateAfter = isCold
 	}
 
 	shard, shardRelease, err := idx.acquireShardWithLock(ctx, shardName, class)
 	if err != nil {
-		return nil, nil, fmt.Errorf("acquire shard %s for class %s: %w", shardName, className, err)
+		return nil, nil, "", fmt.Errorf("acquire shard %s for class %s: %w", shardName, className, err)
 	}
 
 	release := shardRelease
@@ -146,7 +159,7 @@ func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName st
 		}
 	}
 
-	return shard, release, nil
+	return shard, release, "", nil
 }
 
 // acquireShardWithLock loads (or initializes) a shard and returns it with

@@ -9249,6 +9249,10 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
+        },
         "status": {
           "description": "Status of this shard's export",
           "type": "string",
@@ -19559,6 +19563,10 @@ func init() {
           "description": "Number of objects exported from this shard",
           "type": "integer",
           "format": "int64"
+        },
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
         },
         "status": {
           "description": "Status of this shard's export",

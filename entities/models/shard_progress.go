@@ -37,6 +37,9 @@ type ShardProgress struct {
 	// Number of objects exported from this shard
 	ObjectsExported int64 `json:"objectsExported,omitempty"`
 
+	// Reason why this shard was skipped (e.g. tenant status)
+	SkipReason string `json:"skipReason,omitempty"`
+
 	// Status of this shard's export
 	// Enum: [STARTED TRANSFERRING SUCCESS FAILED SKIPPED]
 	Status string `json:"status,omitempty"`

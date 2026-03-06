@@ -40,6 +40,7 @@ type ShardProgress struct {
 	Status          export.Status `json:"status"`
 	ObjectsExported int64         `json:"objectsExported"`
 	Error           string        `json:"error,omitempty"`
+	SkipReason      string        `json:"skipReason,omitempty"`
 }
 
 // ExportMetadata is written to S3 alongside the parquet files
@@ -83,12 +84,14 @@ type NodeStatus struct {
 }
 
 // SetShardProgress updates a shard's export progress in a thread-safe manner.
-func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.Status, objects int64, errMsg string) {
+func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.Status, objects int64, errMsg, skipReason string) {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
-	ns.ShardProgress[className][shardName].Status = status
-	ns.ShardProgress[className][shardName].ObjectsExported = objects
-	ns.ShardProgress[className][shardName].Error = errMsg
+	sp := ns.ShardProgress[className][shardName]
+	sp.Status = status
+	sp.ObjectsExported = objects
+	sp.Error = errMsg
+	sp.SkipReason = skipReason
 }
 
 // SetFailed marks the node export as failed in a thread-safe manner.

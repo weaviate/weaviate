@@ -338,26 +338,25 @@ func (p *Participant) exportClassShards(
 				return err
 			}
 
-			shard, release, err := p.selector.AcquireShardForExport(ctx, className, shardName)
+			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
 			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error())
+				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error(), "")
 				return fmt.Errorf("acquire shard %s: %w", shardName, err)
 			}
 
 			if shard == nil {
-				// Tenant is COLD and auto-activation is disabled — skip.
-				nodeStatus.SetShardProgress(className, shardName, export.Skipped, 0, "")
+				nodeStatus.SetShardProgress(className, shardName, export.Skipped, 0, "", skipReason)
 				return nil
 			}
 			defer release()
 
 			objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard, isMT)
 			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error())
+				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error(), "")
 				return fmt.Errorf("export shard %s: %w", shardName, err)
 			}
 
-			nodeStatus.SetShardProgress(className, shardName, export.Success, objects, "")
+			nodeStatus.SetShardProgress(className, shardName, export.Success, objects, "", "")
 			return nil
 		}, shardName)
 	}

@@ -237,7 +237,7 @@ func (s *blockingSelector) ExportShardNames(_ string) ([]string, bool, error) {
 	return []string{"shard0"}, false, nil
 }
 
-func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), error) {
+func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), string, error) {
 	s.initCalledCh()
 	s.calledMu.Lock()
 	if !s.called {
@@ -248,9 +248,9 @@ func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ strin
 
 	select {
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		return nil, nil, "", ctx.Err()
 	case <-s.blockCh:
-		return nil, nil, ctx.Err()
+		return nil, nil, "", ctx.Err()
 	}
 }
 
@@ -632,6 +632,6 @@ func (s *emptySelector) ExportShardNames(_ string) ([]string, bool, error) {
 	return nil, false, nil
 }
 
-func (s *emptySelector) AcquireShardForExport(_ context.Context, _, _ string) (ShardLike, func(), error) {
-	return nil, func() {}, nil
+func (s *emptySelector) AcquireShardForExport(_ context.Context, _, _ string) (ShardLike, func(), string, error) {
+	return nil, func() {}, "", nil
 }
