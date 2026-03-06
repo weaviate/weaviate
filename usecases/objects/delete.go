@@ -39,7 +39,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	className = schema.UppercaseClassName(className)
 	className, _ = m.resolveAlias(className)
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant))
 	if err != nil {
 		return err
 	}

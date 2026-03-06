@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/go-openapi/strfmt"
-
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -401,12 +399,12 @@ func CollectionsData(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{Objects("*", "*", "*")}
+		return []string{Objects("*", "*")}
 	}
 
 	var paths []string
 	for _, class := range classes {
-		paths = append(paths, Objects(class, "*", "*"))
+		paths = append(paths, Objects(class, "*"))
 	}
 	return paths
 }
@@ -454,23 +452,21 @@ func ShardsData(class string, shards ...string) []string {
 	class = schema.UppercaseClassesNames(class)[0]
 	var paths []string
 	for _, shard := range shards {
-		paths = append(paths, Objects(class, shard, "*"))
+		paths = append(paths, Objects(class, shard))
 	}
 	return paths
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.
-// The id parameter is accepted for backward compatibility but is always ignored —
-// object-level RBAC is not supported and the objects segment is always wildcarded.
+// Object-level RBAC is not supported — the objects segment is always wildcarded.
 //
 // Parameters:
 // - class: the class of the collection (string)
 // - shard: the shard identifier (string)
-// - id: ignored, kept for API compatibility
 //
 // Returns:
 // - A string representing the path to the objects, with wildcards (*) used for any empty parameters.
-func Objects(class, shard string, _ strfmt.UUID) string {
+func Objects(class, shard string) string {
 	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
