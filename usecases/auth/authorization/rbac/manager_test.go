@@ -1478,7 +1478,8 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 	}
 
 	// Foreign-namespace prefix must remain intact so the embedded ":"
-	// stays in the audit trail.
+	// stays in the audit trail. Object is deprecated and ignored, so a set
+	// value must not show up in the audit line.
 	t.Run("ns_caller_foreign_namespace_kept", func(t *testing.T) {
 		perm := &models.Permission{Data: &models.PermissionData{
 			Collection: strPtr("customer2:Movies"),
@@ -1486,7 +1487,7 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 			Object:     strPtr("*"),
 		}}
 		require.Equal(t,
-			"[Domain: data, Collection: customer2:Movies, Tenant: *, Object: *]",
+			"[Domain: data, Collection: customer2:Movies, Tenant: *]",
 			prettyPermissionsResources(nsCaller, perm),
 		)
 	})
