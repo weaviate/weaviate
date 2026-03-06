@@ -54,7 +54,7 @@ type ExportStatusResponse struct {
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// Current status of the export
-	// Enum: [STARTED TRANSFERRING SUCCESS FAILED SKIPPED]
+	// Enum: [STARTED TRANSFERRING SUCCESS FAILED CANCELLED SKIPPED]
 	Status string `json:"status,omitempty"`
 
 	// Duration of the export in milliseconds
@@ -129,7 +129,7 @@ var exportStatusResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED","SKIPPED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED","CANCELLED","SKIPPED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -150,6 +150,9 @@ const (
 
 	// ExportStatusResponseStatusFAILED captures enum value "FAILED"
 	ExportStatusResponseStatusFAILED string = "FAILED"
+
+	// ExportStatusResponseStatusCANCELLED captures enum value "CANCELLED"
+	ExportStatusResponseStatusCANCELLED string = "CANCELLED"
 
 	// ExportStatusResponseStatusSKIPPED captures enum value "SKIPPED"
 	ExportStatusResponseStatusSKIPPED string = "SKIPPED"

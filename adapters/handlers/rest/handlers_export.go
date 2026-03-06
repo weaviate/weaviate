@@ -101,6 +101,43 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 	return export.NewExportStatusOK().WithPayload(status)
 }
 
+// cancelExport handles DELETE /v1/export/{backend}/{id}
+func (h *exportHandlers) cancelExport(params export.ExportCancelParams,
+	principal *models.Principal,
+) middleware.Responder {
+	bucket := ""
+	if params.Bucket != nil {
+		bucket = *params.Bucket
+	}
+	path := ""
+	if params.Path != nil {
+		path = *params.Path
+	}
+
+	err := h.scheduler.Cancel(params.HTTPRequest.Context(), principal,
+		params.Backend, params.ID, bucket, path)
+	if err != nil {
+		h.metricRequestsTotal.logError("", err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return export.NewExportCancelForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, ucexport.ErrExportNotFound):
+			return export.NewExportCancelNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, ucexport.ErrExportAlreadyFinished):
+			return export.NewExportCancelConflict().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return export.NewExportCancelInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.metricRequestsTotal.logOk("")
+	return export.NewExportCancelNoContent()
+}
+
 // setupExportHandlers wires up the export handlers to the API
 func setupExportHandlers(api *operations.WeaviateAPI,
 	scheduler *ucexport.Scheduler,
@@ -115,6 +152,7 @@ func setupExportHandlers(api *operations.WeaviateAPI,
 
 	api.ExportExportCreateHandler = export.ExportCreateHandlerFunc(h.createExport)
 	api.ExportExportStatusHandler = export.ExportStatusHandlerFunc(h.exportStatus)
+	api.ExportExportCancelHandler = export.ExportCancelHandlerFunc(h.cancelExport)
 }
 
 type exportRequestsTotal struct {

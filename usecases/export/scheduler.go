@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -32,7 +33,16 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-var regExpID = regexp.MustCompile(`^[a-z0-9_-]+$`)
+var (
+	regExpID = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+	// ErrExportNotFound is returned when no export with the given ID exists.
+	ErrExportNotFound = errors.New("export not found")
+
+	// ErrExportAlreadyFinished is returned when trying to cancel an export
+	// that has already completed (SUCCESS, FAILED, or CANCELLED).
+	ErrExportAlreadyFinished = errors.New("export has already finished")
+)
 
 const (
 	exportMetadataFile = "export_metadata.json"
@@ -72,6 +82,11 @@ type Scheduler struct {
 	nodeResolver NodeResolver // nil for single-node
 	localNode    string       // from appState.Cluster.LocalName()
 	participant  *Participant // local participant — always present
+
+	// cancelMu guards cancelExport and exportCancelled for single-node cancellation.
+	cancelMu        sync.Mutex
+	cancelExport    context.CancelFunc
+	exportCancelled bool
 }
 
 // NewScheduler creates a new export scheduler.
@@ -167,8 +182,25 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 			return nil, err
 		}
 	} else {
+		s.cancelMu.Lock()
+		if s.cancelExport != nil {
+			s.cancelMu.Unlock()
+			return nil, fmt.Errorf("an export is already in progress")
+		}
+		exportCtx, cancel := context.WithCancel(s.shutdownCtx)
+		s.cancelExport = cancel
+		s.exportCancelled = false
+		s.cancelMu.Unlock()
+
 		enterrors.GoWrapper(func() {
-			s.performSingleNodeExport(s.shutdownCtx, backendStore, id, status, classes, bucket, path)
+			defer func() {
+				s.cancelMu.Lock()
+				s.cancelExport = nil
+				s.exportCancelled = false
+				s.cancelMu.Unlock()
+				cancel()
+			}()
+			s.performSingleNodeExport(exportCtx, backendStore, id, status, classes, bucket, path)
 		}, s.logger)
 	}
 
@@ -199,19 +231,28 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
 		if err != nil {
 			// Plan may not exist if the export failed before/during plan writing.
-			// Fall back to reading the metadata file which may contain the FAILED state.
+			// Fall back to reading the metadata file which may contain the FAILED/CANCELLED state.
 			meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
 			if metaErr != nil {
 				return nil, fmt.Errorf("export %s not found: %w", id, err)
 			}
 			// Missing plan is always a failure — override the status and preserve
-			// any error already recorded in the metadata.
-			meta.Status = export.Failed
-			if meta.Error == "" {
-				meta.Error = fmt.Sprintf("export plan not found: %v", err)
+			// any error already recorded in the metadata, unless it was cancelled.
+			if meta.Status != export.Cancelled {
+				meta.Status = export.Failed
+				if meta.Error == "" {
+					meta.Error = fmt.Sprintf("export plan not found: %v", err)
+				}
 			}
 			return s.statusFromMetadata(backendStore, id, bucket, path, meta)
 		}
+
+		// Check if the export was cancelled after the plan was written.
+		meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+		if metaErr == nil && meta.Status == export.Cancelled {
+			return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+		}
+
 		return s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
 	}
 
@@ -225,6 +266,96 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 
 	return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+}
+
+// Cancel cancels a running export.
+// Returns ErrExportNotFound if the export does not exist,
+// or ErrExportAlreadyFinished if it has already completed.
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) error {
+	backendStore, err := s.backends.BackupBackend(backend)
+	if err != nil {
+		return fmt.Errorf("backend %s not available: %w", backend, err)
+	}
+
+	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
+		return fmt.Errorf("initialize backend: %w", err)
+	}
+
+	// Check metadata — if the export already has a terminal status, reject.
+	meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+	if metaErr == nil {
+		switch meta.Status {
+		case export.Success, export.Failed, export.Cancelled:
+			return ErrExportAlreadyFinished
+		default:
+			// Non-terminal status — continue with cancellation
+		}
+	}
+
+	if s.isMultiNode() {
+		plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
+		if planErr != nil {
+			// No plan and no metadata → export doesn't exist
+			if metaErr != nil {
+				return ErrExportNotFound
+			}
+			// Metadata exists but no plan and non-terminal status — unusual but cancel anyway
+		}
+
+		if plan != nil {
+			if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
+				return fmt.Errorf("authorization failed: %w", err)
+			}
+
+			// Build node info from plan for abort
+			nodes := make([]exportNodeInfo, 0, len(plan.NodeAssignments))
+			for nodeName := range plan.NodeAssignments {
+				ni := exportNodeInfo{
+					req: &ExportRequest{ID: id, NodeName: nodeName},
+				}
+				if nodeName != s.localNode {
+					host, ok := s.nodeResolver.NodeHostname(nodeName)
+					if ok {
+						ni.host = host
+					}
+				}
+				nodes = append(nodes, ni)
+			}
+			s.abortAll(id, nodes)
+		}
+
+		// Write CANCELLED metadata for multi-node
+		cancelStatus := &models.ExportStatusResponse{
+			ID:      id,
+			Backend: backend,
+			Status:  string(export.Cancelled),
+			Error:   "export was cancelled",
+		}
+		if plan != nil {
+			cancelStatus.Classes = plan.Classes
+			cancelStatus.StartedAt = strfmt.DateTime(plan.StartedAt)
+		}
+		s.writeMetadata(backendStore, id, bucket, path, cancelStatus)
+		return nil
+	}
+
+	// Single-node: grab the cancel func for the active export.
+	s.cancelMu.Lock()
+	cancel := s.cancelExport
+	if cancel == nil {
+		s.cancelMu.Unlock()
+		if metaErr != nil {
+			return ErrExportNotFound
+		}
+		return ErrExportNotFound
+	}
+	s.exportCancelled = true
+	s.cancelMu.Unlock()
+
+	// Cancel the context. The goroutine in performSingleNodeExport will
+	// check exportCancelled and write CANCELLED metadata.
+	cancel()
+	return nil
 }
 
 // statusFromMetadata builds an ExportStatusResponse from an ExportMetadata record.
@@ -525,8 +656,16 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 			WithField("export_id", exportID).
 			Error(err)
 
-		status.Status = string(export.Failed)
-		status.Error = err.Error()
+		s.cancelMu.Lock()
+		cancelled := s.exportCancelled
+		s.cancelMu.Unlock()
+		if cancelled {
+			status.Status = string(export.Cancelled)
+			status.Error = "export was cancelled"
+		} else {
+			status.Status = string(export.Failed)
+			status.Error = err.Error()
+		}
 		s.writeMetadata(backend, exportID, bucket, path, status)
 		return
 	}

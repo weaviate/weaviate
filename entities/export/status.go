@@ -18,6 +18,7 @@ const (
 	Transferring Status = "TRANSFERRING"
 	Success      Status = "SUCCESS"
 	Failed       Status = "FAILED"
+	Cancelled    Status = "CANCELLED"
 	Skipped      Status = "SKIPPED"
 )
 

@@ -41,7 +41,7 @@ type ShardProgress struct {
 	SkipReason string `json:"skipReason,omitempty"`
 
 	// Status of this shard's export
-	// Enum: [STARTED TRANSFERRING SUCCESS FAILED SKIPPED]
+	// Enum: [STARTED TRANSFERRING SUCCESS FAILED CANCELLED SKIPPED]
 	Status string `json:"status,omitempty"`
 }
 
@@ -63,7 +63,7 @@ var shardProgressTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED","SKIPPED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED","CANCELLED","SKIPPED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -84,6 +84,9 @@ const (
 
 	// ShardProgressStatusFAILED captures enum value "FAILED"
 	ShardProgressStatusFAILED string = "FAILED"
+
+	// ShardProgressStatusCANCELLED captures enum value "CANCELLED"
+	ShardProgressStatusCANCELLED string = "CANCELLED"
 
 	// ShardProgressStatusSKIPPED captures enum value "SKIPPED"
 	ShardProgressStatusSKIPPED string = "SKIPPED"

@@ -44,6 +44,15 @@ func ExportStatus(t *testing.T, backend, exportID string) (*export.ExportStatusO
 	return helper.Client(t).Export.ExportStatus(params, nil)
 }
 
+func CancelExport(t *testing.T, backend, exportID string) (*export.ExportCancelNoContent, error) {
+	t.Helper()
+	params := export.NewExportCancelParams().
+		WithBackend(backend).
+		WithID(exportID)
+	t.Logf("Cancelling export with ID: %s, backend: %s", exportID, backend)
+	return helper.Client(t).Export.ExportCancel(params, nil)
+}
+
 func ExpectExportEventuallySucceeded(t *testing.T, backend, exportID string) {
 	t.Helper()
 
@@ -58,4 +67,20 @@ func ExpectExportEventuallySucceeded(t *testing.T, backend, exportID string) {
 		status := resp.Payload.Status
 		require.Equalf(c, "SUCCESS", status, "export status (error: %s)", resp.Payload.Error)
 	}, deadline, interval, "export %s not succeeded after %s", exportID, deadline)
+}
+
+func ExpectExportEventuallyCancelled(t *testing.T, backend, exportID string) {
+	t.Helper()
+
+	deadline := 60 * time.Second
+	interval := 500 * time.Millisecond
+
+	require.EventuallyWithTf(t, func(c *assert.CollectT) {
+		resp, err := ExportStatus(t, backend, exportID)
+		require.NoError(c, err, "fetch export status")
+		require.NotNil(c, resp.Payload, "empty response")
+
+		status := resp.Payload.Status
+		require.Equalf(c, "CANCELLED", status, "export status (error: %s)", resp.Payload.Error)
+	}, deadline, interval, "export %s not cancelled after %s", exportID, deadline)
 }
