@@ -1294,6 +1294,46 @@ func setupDebugHandlers(appState *state.State) {
 
 		writeJSON(w, http.StatusOK, response)
 	}))
+
+	http.HandleFunc("/debug/reindex/roaring-set", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+		shardFilter := r.URL.Query().Get("shard")
+
+		className := schema.ClassName(colName)
+		idx := appState.DB.GetIndex(className)
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		task := db.NewRuntimeRoaringSetRefreshTask(logger)
+
+		response := map[string]any{}
+		err := idx.ForEachShard(func(shardName string, shard db.ShardLike) error {
+			if shardFilter != "" && shardName != shardFilter {
+				response[shardName] = map[string]string{"status": "skipped"}
+				return nil
+			}
+			if err := task.RunOnShard(r.Context(), shard); err != nil {
+				response[shardName] = map[string]string{"status": "error", "message": err.Error()}
+				return nil
+			}
+			response[shardName] = map[string]string{"status": "completed"}
+			return nil
+		})
+		if err != nil {
+			logger.WithError(err).Error("reindex/roaring-set: ForEachShard failed")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, response)
+	}))
 }
 
 // cleanEmptyValues recursively removes empty values from a JSON map.
