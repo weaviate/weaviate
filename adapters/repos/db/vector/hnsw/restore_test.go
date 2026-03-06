@@ -143,7 +143,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(ctx, i, vectors[i])
 	})
-	recall1, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
+	recall1, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths, nil)
 	assert.True(t, recall1 > 0.9)
 
 	assert.Nil(t, idx.Flush())
@@ -153,6 +153,6 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 	require.Nil(t, err)
 	idx.PostStartup(context.Background())
 
-	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
+	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths, nil)
 	assert.Equal(t, recall1, recall2)
 }

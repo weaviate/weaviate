@@ -94,7 +94,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	})
 
 	t.Run("run a search that would typically find the new ep", func(t *testing.T) {
-		res, _, err := vectorIndex.SearchByVector(ctx, []float32{1.7, 1.7}, 20, nil)
+		res, _, err := vectorIndex.SearchByVector(ctx, []float32{1.7, 1.7}, 20, nil, nil)
 		require.Nil(t, err)
 		assert.Equal(t, []uint64{2, 0}, res, "right results are found")
 	})

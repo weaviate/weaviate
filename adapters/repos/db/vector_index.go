@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 // VectorIndex is anything that indexes vectors efficiently. For an example
@@ -27,9 +28,9 @@ type VectorIndex interface {
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
-	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
-		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
+		maxLimit int64, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
@@ -59,9 +60,9 @@ type VectorIndexMulti interface {
 	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
 	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	DeleteMulti(id ...uint64) error
-	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error)
 	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32,
-		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
+		maxLimit int64, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error)
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	ValidateMultiBeforeInsert(vector [][]float32) error
 }

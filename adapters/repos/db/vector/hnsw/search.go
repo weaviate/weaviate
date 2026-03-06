@@ -27,8 +27,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -76,7 +78,7 @@ func (h *hnsw) autoEfFromK(k int) int {
 }
 
 func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
-	k int, allowList helpers.AllowList,
+	k int, allowList helpers.AllowList, selector *searchparams.Selection,
 ) ([]uint64, []float32, error) {
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
@@ -88,10 +90,10 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
+	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList, selector)
 }
 
-func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
 	if !h.multivector.Load() {
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
@@ -104,7 +106,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
 		overfetch := 2
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList, selector)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -125,7 +127,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		return h.flatMultiSearch(ctx, vectors, k, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
+	return h.knnSearchByMultiVector(ctx, vectors, k, allowList, selector)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -139,10 +141,10 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 // passed in to truly obtain all results from the vector index.
 func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64,
-	allowList helpers.AllowList,
+	allowList helpers.AllowList, selector *searchparams.Selection,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByVector, h.logger)
+		h.SearchByVector, h.logger, selector)
 }
 
 // SearchByMultiVectorDistance wraps SearchByMultiVector, and calls it recursively until
@@ -157,9 +159,10 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
+	selector *searchparams.Selection,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByMultiVector, h.logger)
+		h.SearchByMultiVector, h.logger, selector)
 }
 
 func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {
@@ -728,6 +731,7 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
+	selector *searchparams.Selection,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
@@ -895,7 +899,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
 	}
 
-	if !h.multivector.Load() {
+	if !h.multivector.Load() && selector == nil {
 		for res.Len() > k {
 			res.Pop()
 		}
@@ -913,14 +917,25 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		i--
 	}
 	h.pools.pqResults.Put(res)
+
+	if sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk); sel != nil {
+		view := h.GetViewThunk()
+		defer view.ReleaseView()
+		var err error
+		ids, dists, err = sel.Select(ctx, ids, dists, view)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	return ids, dists, nil
 }
 
-func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList, selector)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1199,8 +1214,9 @@ func (params *searchByDistParams) maxLimitReached() bool {
 func searchByVectorDistance[T dto.Embedding](ctx context.Context, vector T,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
-	searchByVector func(context.Context, T, int, helpers.AllowList) ([]uint64, []float32, error),
+	searchByVector func(context.Context, T, int, helpers.AllowList, *searchparams.Selection) ([]uint64, []float32, error),
 	logger logrus.FieldLogger,
+	selector *searchparams.Selection,
 ) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
@@ -1212,7 +1228,7 @@ func searchByVectorDistance[T dto.Embedding](ctx context.Context, vector T,
 	recursiveSearch := func() (bool, error) {
 		shouldContinue := false
 
-		ids, dist, err := searchByVector(ctx, vector, searchParams.totalLimit, allowList)
+		ids, dist, err := searchByVector(ctx, vector, searchParams.totalLimit, allowList, selector)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}

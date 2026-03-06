@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -28,7 +29,7 @@ const (
 	flatSearchCutoff      = 5_000
 )
 
-func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
 	if allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
@@ -174,6 +175,7 @@ func (h *HFresh) SearchByVectorDistance(
 	targetDistance float32,
 	maxLimit int64,
 	allow helpers.AllowList,
+	selector *searchparams.Selection,
 ) ([]uint64, []float32, error) {
 	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
 	var resultIDs []uint64
@@ -181,7 +183,7 @@ func (h *HFresh) SearchByVectorDistance(
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow)
+		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow, selector)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}

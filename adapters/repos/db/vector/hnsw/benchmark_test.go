@@ -128,7 +128,7 @@ Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Datase
 								}
 
 								compressionhelpers.Concurrently(logger, uint64(len(queryVectors)), func(i uint64) {
-									_, _, err := index.SearchByVector(ctx, queryVectors[i], 0, nil)
+									_, _, err := index.SearchByVector(ctx, queryVectors[i], 0, nil, nil)
 									require.NoError(b, err)
 								})
 							default:
