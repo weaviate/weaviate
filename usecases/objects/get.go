@@ -38,7 +38,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, NewErrInvalidUserInput("%v", err)
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant)); err != nil {
 		return nil, err
 	}
 
@@ -67,7 +67,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		return nil, NewErrEndpointGone("listing objects without a class is not supported; specify the ?class= query parameter")
 	}
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant, ""))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant))
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		objects,
 		authorization.READ,
 		func(obj *models.Object) string {
-			return authorization.Objects(obj.Class, tenant, obj.ID)
+			return authorization.Objects(obj.Class, tenant)
 		},
 	)
 
@@ -98,7 +98,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", "", id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", ""))
 	if err != nil {
 		return nil, err
 	}
