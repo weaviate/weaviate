@@ -34,7 +34,7 @@ type MCPServer struct {
 	logger   logrus.FieldLogger
 }
 
-func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServer, error) {
+func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServer {
 	authHandler := auth.NewAuth(state)
 	logger := state.Logger.WithField("component", "mcp")
 	s := &MCPServer{
@@ -52,7 +52,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 		logger:   logger,
 	}
 	s.registerTools()
-	return s, nil
+	return s
 }
 
 func (s *MCPServer) Serve() {
