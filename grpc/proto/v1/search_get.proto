@@ -83,6 +83,8 @@ message MetadataRequest {
   bool explain_score = 8;
   bool is_consistent = 9;
   repeated string vectors = 10;
+  // profile enables per-shard query profiling. When true, the response includes
+  // timing breakdowns for each shard and search type.
   bool profile = 11;
 }
 
@@ -121,16 +123,25 @@ message SearchReply {
   optional QueryProfile profile = 7;
 }
 
+// QueryProfile contains per-shard profiling data for a search query.
+// Only populated when MetadataRequest.profile is true.
 message QueryProfile {
   repeated ShardProfile shards = 1;
 }
 
+// ShardProfile holds profiling data for a single shard's contribution to a search query.
 message ShardProfile {
+  // name is the identifier of the shard that was searched.
   string name = 1;
+  // searches maps search type (e.g., "vector", "keyword") to its profiling details.
   map<string, SearchProfile> searches = 2;
+  // node is the name of the cluster node that executed this shard search.
+  string node = 3;
 }
 
+// SearchProfile holds the profiling details for a single search type within a shard.
 message SearchProfile {
+  // details contains human-readable profiling metrics keyed by metric name.
   map<string, string> details = 1;
 }
 

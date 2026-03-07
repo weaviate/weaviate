@@ -913,6 +913,7 @@ type ShardProfile struct {
 	state         protoimpl.MessageState    `protogen:"open.v1"`
 	Name          string                    `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Searches      map[string]*SearchProfile `protobuf:"bytes,2,rep,name=searches,proto3" json:"searches,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Node          string                    `protobuf:"bytes,3,opt,name=node,proto3" json:"node,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -959,6 +960,13 @@ func (x *ShardProfile) GetSearches() map[string]*SearchProfile {
 		return x.Searches
 	}
 	return nil
+}
+
+func (x *ShardProfile) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
 }
 
 type SearchProfile struct {
@@ -1691,10 +1699,11 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
 	"\b_profileJ\x04\b\x06\x10\a\"A\n" +
 	"\fQueryProfile\x121\n" +
-	"\x06shards\x18\x01 \x03(\v2\x19.weaviate.v1.ShardProfileR\x06shards\"\xc0\x01\n" +
+	"\x06shards\x18\x01 \x03(\v2\x19.weaviate.v1.ShardProfileR\x06shards\"\xd4\x01\n" +
 	"\fShardProfile\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12C\n" +
-	"\bsearches\x18\x02 \x03(\v2'.weaviate.v1.ShardProfile.SearchesEntryR\bsearches\x1aW\n" +
+	"\bsearches\x18\x02 \x03(\v2'.weaviate.v1.ShardProfile.SearchesEntryR\bsearches\x12\x12\n" +
+	"\x04node\x18\x03 \x01(\tR\x04node\x1aW\n" +
 	"\rSearchesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
 	"\x05value\x18\x02 \x01(\v2\x1a.weaviate.v1.SearchProfileR\x05value:\x028\x01\"\x8e\x01\n" +

@@ -40,6 +40,8 @@ type SearchProfile struct {
 type ShardProfile struct {
 	// Name is the identifier of the shard that was searched.
 	Name string `json:"name"`
+	// Node is the name of the node that executed the shard search.
+	Node string `json:"node"`
 	// Searches maps search type (e.g., "vector", "keyword") to its profiling details.
 	Searches map[string]SearchProfile `json:"searches"`
 }
@@ -47,6 +49,7 @@ type ShardProfile struct {
 // shardEntry is an internal record for a single search operation within a shard.
 type shardEntry struct {
 	shardName  string
+	nodeName   string
 	searchType string
 	details    map[string]string
 }
@@ -74,7 +77,7 @@ func InitProfileCollector(ctx context.Context) context.Context {
 // searchType identifies the kind of search (e.g., "vector", "keyword").
 // It converts the raw slow-query details map into human-readable strings.
 // Safe for concurrent use from multiple shard search goroutines.
-func AddShardProfile(ctx context.Context, shardName string, searchType string, totalTook time.Duration, details map[string]any) {
+func AddShardProfile(ctx context.Context, shardName, nodeName, searchType string, totalTook time.Duration, details map[string]any) {
 	val := ctx.Value(profileCollectorKey)
 	if val == nil {
 		return
@@ -127,9 +130,40 @@ func AddShardProfile(ctx context.Context, shardName string, searchType string, t
 	collector.mu.Lock()
 	collector.entries = append(collector.entries, shardEntry{
 		shardName:  shardName,
+		nodeName:   nodeName,
 		searchType: searchType,
 		details:    d,
 	})
+	collector.mu.Unlock()
+}
+
+// AddRemoteProfiles merges pre-built [ShardProfile] entries (received from a remote node)
+// into the collector stored in ctx. This allows the coordinator to include profiling data
+// from shards that were searched on other nodes. Safe for concurrent use.
+func AddRemoteProfiles(ctx context.Context, profiles []ShardProfile) {
+	if len(profiles) == 0 {
+		return
+	}
+	val := ctx.Value(profileCollectorKey)
+	if val == nil {
+		return
+	}
+	collector, ok := val.(*ProfileCollector)
+	if !ok {
+		return
+	}
+
+	collector.mu.Lock()
+	for _, p := range profiles {
+		for searchType, sp := range p.Searches {
+			collector.entries = append(collector.entries, shardEntry{
+				shardName:  p.Name,
+				nodeName:   p.Node,
+				searchType: searchType,
+				details:    sp.Details,
+			})
+		}
+	}
 	collector.mu.Unlock()
 }
 
@@ -177,21 +211,27 @@ func ExtractProfiles(ctx context.Context) []ShardProfile {
 	}
 
 	// Group entries by shard name, preserving insertion order.
-	order := make([]string, 0)
-	grouped := make(map[string]map[string]SearchProfile)
+	type shardKey struct {
+		name string
+		node string
+	}
+	order := make([]shardKey, 0)
+	grouped := make(map[shardKey]map[string]SearchProfile)
 	for _, e := range collector.entries {
-		if _, exists := grouped[e.shardName]; !exists {
-			order = append(order, e.shardName)
-			grouped[e.shardName] = make(map[string]SearchProfile)
+		key := shardKey{name: e.shardName, node: e.nodeName}
+		if _, exists := grouped[key]; !exists {
+			order = append(order, key)
+			grouped[key] = make(map[string]SearchProfile)
 		}
-		grouped[e.shardName][e.searchType] = SearchProfile{Details: e.details}
+		grouped[key][e.searchType] = SearchProfile{Details: e.details}
 	}
 
 	result := make([]ShardProfile, len(order))
-	for i, name := range order {
+	for i, key := range order {
 		result[i] = ShardProfile{
-			Name:     name,
-			Searches: grouped[name],
+			Name:     key.name,
+			Node:     key.node,
+			Searches: grouped[key],
 		}
 	}
 	return result

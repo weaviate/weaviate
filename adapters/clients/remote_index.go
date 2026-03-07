@@ -29,6 +29,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -376,34 +377,35 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, []helpers.ShardProfile, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
 		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
 	req, err := setupRequest(ctx, http.MethodPost, host,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
 		"", bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, fmt.Errorf("create http request: %w", err)
+		return nil, nil, nil, fmt.Errorf("create http request: %w", err)
 	}
 	clusterapi.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
 
 	// send request
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
-	return resp.Objects, resp.Distributions, err
+	return resp.Objects, resp.Distributions, resp.Profiles, err
 }
 
 type searchShardResp struct {
 	Objects       []*storobj.Object
 	Distributions []float32
+	Profiles      []helpers.ShardProfile
 }
 
 func (r *searchShardResp) decode(data []byte) (err error) {
-	r.Objects, r.Distributions, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
+	r.Objects, r.Distributions, r.Profiles, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
 	return err
 }
 

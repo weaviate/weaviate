@@ -129,6 +129,7 @@ func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 		}
 		shards[i] = &pb.ShardProfile{
 			Name:     p.Name,
+			Node:     p.Node,
 			Searches: searches,
 		}
 	}
