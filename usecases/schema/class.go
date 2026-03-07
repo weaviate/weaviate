@@ -418,6 +418,18 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	return err
 }
 
+// UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
+// command, bypassing the property immutability validation that UpdateClass
+// enforces. This is intended for internal migrations that need to change
+// property-level indexing fields (e.g., IndexRangeFilters) after building new
+// indexes at runtime.
+func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, prop *models.Property,
+) error {
+	setPropertyDefaults(prop)
+	_, err := h.schemaManager.UpdateProperty(ctx, className, prop)
+	return err
+}
+
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	if class.ShardingConfig != nil && schema.MultiTenancyEnabled(class) {
 		return fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")

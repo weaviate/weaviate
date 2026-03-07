@@ -1334,6 +1334,82 @@ func setupDebugHandlers(appState *state.State) {
 
 		writeJSON(w, http.StatusOK, response)
 	}))
+
+	http.HandleFunc("/debug/reindex/enable-rangeable", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+
+		propNames := r.URL.Query()["property"]
+		if len(propNames) == 0 {
+			http.Error(w, "at least one property is required", http.StatusBadRequest)
+			return
+		}
+
+		shardFilter := r.URL.Query().Get("shard")
+
+		class := appState.SchemaManager.ReadOnlyClass(colName)
+		if class == nil {
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		// Validate each requested property.
+		propsByName := make(map[string]*models.Property, len(class.Properties))
+		for _, p := range class.Properties {
+			propsByName[p.Name] = p
+		}
+
+		for _, pn := range propNames {
+			prop, ok := propsByName[pn]
+			if !ok {
+				http.Error(w, fmt.Sprintf("property %q not found", pn), http.StatusBadRequest)
+				return
+			}
+			dt, ok := schema.AsPrimitive(prop.DataType)
+			if !ok || (dt != schema.DataTypeInt && dt != schema.DataTypeNumber && dt != schema.DataTypeDate) {
+				http.Error(w, fmt.Sprintf("property %q is not a numeric type (int, number, date)", pn), http.StatusBadRequest)
+				return
+			}
+			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+				http.Error(w, fmt.Sprintf("property %q already has indexRangeFilters enabled", pn), http.StatusBadRequest)
+				return
+			}
+		}
+
+		className := schema.ClassName(colName)
+		idx := appState.DB.GetIndex(className)
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection index not found")
+			http.Error(w, "collection index not found", http.StatusNotFound)
+			return
+		}
+
+		task := db.NewRuntimeFilterableToRangeableTask(logger, appState.SchemaManager, propNames, colName)
+
+		response := map[string]any{}
+		err := idx.ForEachShard(func(shardName string, shard db.ShardLike) error {
+			if shardFilter != "" && shardName != shardFilter {
+				response[shardName] = map[string]string{"status": "skipped"}
+				return nil
+			}
+			if err := task.RunOnShard(r.Context(), shard); err != nil {
+				response[shardName] = map[string]string{"status": "error", "message": err.Error()}
+				return nil
+			}
+			response[shardName] = map[string]string{"status": "completed"}
+			return nil
+		})
+		if err != nil {
+			logger.WithError(err).Error("reindex/enable-rangeable: ForEachShard failed")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, response)
+	}))
 }
 
 // cleanEmptyValues recursively removes empty values from a JSON map.
