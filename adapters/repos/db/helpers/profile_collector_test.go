@@ -35,10 +35,10 @@ func TestAddShardProfile(t *testing.T) {
 
 	AddShardProfile(ctx, "shard-1", 35*time.Millisecond, map[string]any{
 		"filters_build_allow_list_took": 10 * time.Millisecond,
-		"vector_search_took":           20 * time.Millisecond,
-		"objects_took":                 5 * time.Millisecond,
-		"filters_ids_matched":          42,
-		"hnsw_flat_search":             true,
+		"vector_search_took":            20 * time.Millisecond,
+		"objects_took":                  5 * time.Millisecond,
+		"filters_ids_matched":           42,
+		"hnsw_flat_search":              true,
 	})
 	AddShardProfile(ctx, "shard-2", 10*time.Millisecond, map[string]any{
 		"sort_took":               3 * time.Millisecond,
@@ -137,6 +137,81 @@ func TestAddShardProfile_SkipStringDuplicates(t *testing.T) {
 	assert.Equal(t, "10ms", profiles[0].Details["vector_search_took"])
 	_, hasString := profiles[0].Details["vector_search_took_string"]
 	assert.False(t, hasString)
+}
+
+func TestAddShardProfile_TypeConversions(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+
+	AddShardProfile(ctx, "shard-1", 1*time.Millisecond, map[string]any{
+		"str_val":     "hello",
+		"int32_val":   int32(42),
+		"int64_val":   int64(999),
+		"float64_val": 3.14,
+		"slice_val":   []string{"a", "b"},
+	})
+
+	profiles := ExtractProfiles(ctx)
+	require.Len(t, profiles, 1)
+	d := profiles[0].Details
+
+	assert.Equal(t, "hello", d["str_val"])
+	assert.Equal(t, "42", d["int32_val"])
+	assert.Equal(t, "999", d["int64_val"])
+	assert.Equal(t, "3.14", d["float64_val"])
+	assert.Equal(t, `["a","b"]`, d["slice_val"])
+}
+
+func TestAddShardProfile_SkipIsCoordinator(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+
+	AddShardProfile(ctx, "shard-1", 1*time.Millisecond, map[string]any{
+		"is_coordinator":     true,
+		"vector_search_took": 1 * time.Millisecond,
+	})
+
+	profiles := ExtractProfiles(ctx)
+	require.Len(t, profiles, 1)
+	_, hasCoordinator := profiles[0].Details["is_coordinator"]
+	assert.False(t, hasCoordinator)
+	assert.Equal(t, "1ms", profiles[0].Details["vector_search_took"])
+}
+
+func TestAddShardProfile_StringSuffixWithoutBase(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+
+	AddShardProfile(ctx, "shard-1", 1*time.Millisecond, map[string]any{
+		"orphan_string": "some value",
+	})
+
+	profiles := ExtractProfiles(ctx)
+	require.Len(t, profiles, 1)
+	assert.Equal(t, "some value", profiles[0].Details["orphan_string"])
+}
+
+func TestAddShardProfile_UnmarshalableFallback(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+
+	ch := make(chan int)
+	AddShardProfile(ctx, "shard-1", 1*time.Millisecond, map[string]any{
+		"channel_val": ch,
+	})
+
+	profiles := ExtractProfiles(ctx)
+	require.Len(t, profiles, 1)
+	assert.NotEmpty(t, profiles[0].Details["channel_val"])
+}
+
+func TestExtractProfiles_ReturnsCopy(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+	AddShardProfile(ctx, "shard-1", 1*time.Millisecond, nil)
+
+	profiles1 := ExtractProfiles(ctx)
+	require.Len(t, profiles1, 1)
+
+	profiles1[0].Name = "mutated"
+
+	profiles2 := ExtractProfiles(ctx)
+	assert.Equal(t, "shard-1", profiles2[0].Name)
 }
 
 func TestAttachProfileToResults(t *testing.T) {

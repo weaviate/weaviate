@@ -30,7 +30,10 @@ const profileCollectorKey contextKey = "profile_collector"
 
 // ShardProfile holds the profiling details for a single shard's contribution to a search query.
 type ShardProfile struct {
-	Name    string            `json:"name"`
+	// Name is the identifier of the shard that was searched.
+	Name string `json:"name"`
+	// Details contains human-readable profiling metrics keyed by metric name
+	// (e.g., "total_took", "vector_search_took", "filters_build_allow_list_took").
 	Details map[string]string `json:"details,omitempty"`
 }
 
@@ -109,10 +112,11 @@ func AddShardProfile(ctx context.Context, shardName string, totalTook time.Durat
 	collector.mu.Unlock()
 }
 
-// AttachProfileToResults extracts collected profiles and attaches them to the first
-// search result's AdditionalProperties. Profile data is per-query (not per-object),
-// so it is only attached to results[0]. The data is stored in two formats:
-// "profileRaw" ([]ShardProfile for gRPC) and "profile" (JSON string for GraphQL).
+// AttachProfileToResults calls [ExtractProfiles] and attaches the collected
+// [ShardProfile] entries to the first search result's AdditionalProperties.
+// Profile data is per-query (not per-object), so it is only attached to results[0].
+// The data is stored in two formats: "profileRaw" ([][ShardProfile] for gRPC)
+// and "profile" (JSON string for GraphQL).
 func AttachProfileToResults(ctx context.Context, results search.Results) search.Results {
 	profiles := ExtractProfiles(ctx)
 	if len(profiles) == 0 || len(results) == 0 {
@@ -130,7 +134,9 @@ func AttachProfileToResults(ctx context.Context, results search.Results) search.
 	return results
 }
 
-// ExtractProfiles returns a copy of all collected shard profiles from the context.
+// ExtractProfiles returns a defensive copy of all [ShardProfile] entries collected
+// by the [ProfileCollector] stored in ctx. Safe for concurrent use.
+// Returns nil if no collector is present or no profiles were recorded.
 func ExtractProfiles(ctx context.Context) []ShardProfile {
 	val := ctx.Value(profileCollectorKey)
 	if val == nil {

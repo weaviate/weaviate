@@ -127,8 +127,7 @@ message QueryProfile {
 
 message ShardProfile {
   string name = 1;
-  map<string, string> details = 9;
-  reserved 2, 3, 4, 5, 6, 7, 8;
+  map<string, string> details = 2;
 }
 
 message RerankReply {
