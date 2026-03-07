@@ -215,7 +215,7 @@ func ExtractProfiles(ctx context.Context) []ShardProfile {
 		name string
 		node string
 	}
-	order := make([]shardKey, 0)
+	order := make([]shardKey, 0, len(collector.entries))
 	grouped := make(map[shardKey]map[string]SearchProfile)
 	for _, e := range collector.entries {
 		key := shardKey{name: e.shardName, node: e.nodeName}
@@ -223,7 +223,12 @@ func ExtractProfiles(ctx context.Context) []ShardProfile {
 			order = append(order, key)
 			grouped[key] = make(map[string]SearchProfile)
 		}
-		grouped[key][e.searchType] = SearchProfile{Details: e.details}
+		// Copy the details map so callers cannot mutate collector state.
+		detailsCopy := make(map[string]string, len(e.details))
+		for k, v := range e.details {
+			detailsCopy[k] = v
+		}
+		grouped[key][e.searchType] = SearchProfile{Details: detailsCopy}
 	}
 
 	result := make([]ShardProfile, len(order))

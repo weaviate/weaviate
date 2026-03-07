@@ -255,6 +255,23 @@ func TestExtractProfiles_ReturnsCopy(t *testing.T) {
 	assert.Equal(t, "shard-1", profiles2[0].Name)
 }
 
+func TestExtractProfiles_DetailsMapIsCopied(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+	AddShardProfile(ctx, "shard-1", "node-1", "vector", 1*time.Millisecond, map[string]any{
+		"vector_search_took": 5 * time.Millisecond,
+	})
+
+	profiles1 := ExtractProfiles(ctx)
+	require.Len(t, profiles1, 1)
+
+	// Mutate the returned details map.
+	profiles1[0].Searches["vector"].Details["vector_search_took"] = "mutated"
+
+	// A second extraction must return the original value.
+	profiles2 := ExtractProfiles(ctx)
+	assert.Equal(t, "5ms", profiles2[0].Searches["vector"].Details["vector_search_took"])
+}
+
 func TestAttachProfileToResults(t *testing.T) {
 	ctx := InitProfileCollector(context.Background())
 	AddShardProfile(ctx, "shard-1", "node-1", "vector", 10*time.Millisecond, map[string]any{
