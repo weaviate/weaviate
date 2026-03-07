@@ -162,6 +162,14 @@ func (l *LazyLoadShard) Store() *lsmkv.Store {
 	return l.shard.Store()
 }
 
+// Unwrap loads the shard if necessary and returns the underlying concrete *Shard.
+func (l *LazyLoadShard) Unwrap(ctx context.Context) (*Shard, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard, nil
+}
+
 func (l *LazyLoadShard) NotifyReady() {
 	l.mustLoad()
 	l.shard.NotifyReady()
