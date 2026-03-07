@@ -253,13 +253,22 @@ func printProfile(profile *pb.QueryProfile) {
 	}
 	for _, s := range profile.Shards {
 		fmt.Printf("\nShard: %s\n", s.Name)
-		keys := make([]string, 0, len(s.Details))
-		for k := range s.Details {
-			keys = append(keys, k)
+		searchTypes := make([]string, 0, len(s.Searches))
+		for st := range s.Searches {
+			searchTypes = append(searchTypes, st)
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			fmt.Printf("  %-40s %s\n", k, s.Details[k])
+		sort.Strings(searchTypes)
+		for _, st := range searchTypes {
+			sp := s.Searches[st]
+			fmt.Printf("  [%s]\n", st)
+			keys := make([]string, 0, len(sp.Details))
+			for k := range sp.Details {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("    %-38s %s\n", k, sp.Details[k])
+			}
 		}
 	}
 }

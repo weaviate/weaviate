@@ -1887,7 +1887,11 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				"local shard object search %s: %w", shard.ID(), err)
 		}
 		if addlProps.Profile {
-			helpers.AddShardProfile(ctx, shard.ID(), time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
+			searchType := "keyword"
+			if keywordRanking == nil {
+				searchType = "object"
+			}
+			helpers.AddShardProfile(ctx, shard.ID(), searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 		}
 		nodeName := i.getSchema.NodeName()
 
@@ -2004,7 +2008,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additional.Profile {
-		helpers.AddShardProfile(ctx, shard.ID(), time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
+		helpers.AddShardProfile(ctx, shard.ID(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 	return res, resDists, nil
 }
@@ -2032,7 +2036,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additionalProps.Profile {
-		helpers.AddShardProfile(ctx, shard.ID(), time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
+		helpers.AddShardProfile(ctx, shard.ID(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 	}
 	// Append result to out
 	if i.shardHasMultipleReplicasRead(tenantName, shardName) {
