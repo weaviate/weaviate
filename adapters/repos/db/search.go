@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -81,6 +82,10 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		}).Debugf("sparse object search query completed in %s", took)
 	}()
 
+	if params.AdditionalProperties.Profile {
+		ctx = helpers.InitProfileCollector(ctx)
+	}
+
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
@@ -127,15 +132,26 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
+	if params.AdditionalProperties.Profile {
+		ctx = helpers.InitProfileCollector(ctx)
+	}
+
 	res, scores, err := db.SparseObjectSearch(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
 	res, scores = db.getStoreObjectsWithScores(res, scores, params.Pagination)
-	return db.ResolveReferences(ctx,
+	results, err := db.ResolveReferences(ctx,
 		storobj.SearchResultsWithScore(res, scores, params.AdditionalProperties, params.Tenant),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	if params.AdditionalProperties.Profile {
+		results = helpers.AttachProfileToResults(ctx, results)
+	}
+	return results, nil
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
@@ -154,6 +170,10 @@ func (db *DB) VectorSearch(ctx context.Context,
 	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
 		results, err := db.Search(ctx, params)
 		return results, err
+	}
+
+	if params.AdditionalProperties.Profile {
+		ctx = helpers.InitProfileCollector(ctx)
 	}
 
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
@@ -178,10 +198,17 @@ func (db *DB) VectorSearch(ctx context.Context,
 		params.Pagination.Limit = len(res)
 	}
 
-	return db.ResolveReferences(ctx,
+	results, err := db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
 			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	if params.AdditionalProperties.Profile {
+		results = helpers.AttachProfileToResults(ctx, results)
+	}
+	return results, nil
 }
 
 func isEmptyVector(searchVector models.Vector) bool {
