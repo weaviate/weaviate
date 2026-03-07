@@ -31,6 +31,7 @@ type Countable struct {
 type Property struct {
 	Name               string
 	Items              []Countable
+	RawValues          []string // Original text values before tokenization (text/text[] only)
 	Length             int
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)

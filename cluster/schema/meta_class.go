@@ -220,6 +220,9 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
 			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
 			mergedProps[oldIdx].IndexSearchable = new[idx].IndexSearchable
+			if new[idx].Tokenization != "" {
+				mergedProps[oldIdx].Tokenization = new[idx].Tokenization
+			}
 
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
 				mergedProps[oldIdx].NestedProperties,
