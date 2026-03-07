@@ -36,16 +36,19 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 	backend := &fakeBackend{}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
-	// blockingSelector blocks in GetShardsForClass until released
+	// blockingSelector blocks in AcquireShardForExport until released
 	selector := &blockingSelector{
 		blockCh: make(chan struct{}),
 	}
+
+	participant := NewParticipant(shutdownCtx, selector, &fakeBackendProvider{backend: backend}, logger)
 
 	s := &Scheduler{
 		shutdownCtx: shutdownCtx,
 		logger:      logger,
 		selector:    selector,
 		backends:    &fakeBackendProvider{backend: backend},
+		participant: participant,
 	}
 
 	status := &models.ExportStatusResponse{
@@ -61,7 +64,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for GetShardsForClass to be called
+	// Wait for AcquireShardForExport to be called
 	selector.waitForCall(t)
 
 	// Simulate shutdown
@@ -118,7 +121,7 @@ func TestParticipant_ShutdownWritesFailedNodeStatus(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for GetShardsForClass to be called
+	// Wait for AcquireShardForExport to be called
 	selector.waitForCall(t)
 
 	// Simulate shutdown
@@ -192,7 +195,7 @@ func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-// blockingSelector blocks GetShardsForClass until blockCh is closed.
+// blockingSelector blocks AcquireShardForExport until blockCh is closed.
 type blockingSelector struct {
 	blockCh   chan struct{}
 	classList []string
@@ -208,7 +211,33 @@ func (s *blockingSelector) initCalledCh() {
 	})
 }
 
-func (s *blockingSelector) GetShardsForClass(ctx context.Context, _ string) ([]ShardLike, error) {
+func (s *blockingSelector) waitForCall(t *testing.T) {
+	t.Helper()
+	s.initCalledCh()
+	select {
+	case <-s.calledCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("AcquireShardForExport was not called")
+	}
+}
+
+func (s *blockingSelector) ListClasses(_ context.Context) []string {
+	return s.classList
+}
+
+func (s *blockingSelector) ShardOwnership(_ context.Context, _ string) (map[string][]string, error) {
+	return nil, nil
+}
+
+func (s *blockingSelector) IsMultiTenant(_ context.Context, _ string) bool {
+	return false
+}
+
+func (s *blockingSelector) ExportShardNames(_ string) ([]string, bool, error) {
+	return []string{"shard0"}, false, nil
+}
+
+func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), string, error) {
 	s.initCalledCh()
 	s.calledMu.Lock()
 	if !s.called {
@@ -219,28 +248,10 @@ func (s *blockingSelector) GetShardsForClass(ctx context.Context, _ string) ([]S
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, nil, "", ctx.Err()
 	case <-s.blockCh:
-		return nil, ctx.Err()
+		return nil, nil, "", ctx.Err()
 	}
-}
-
-func (s *blockingSelector) waitForCall(t *testing.T) {
-	t.Helper()
-	s.initCalledCh()
-	select {
-	case <-s.calledCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("GetShardsForClass was not called")
-	}
-}
-
-func (s *blockingSelector) ListClasses(_ context.Context) []string {
-	return s.classList
-}
-
-func (s *blockingSelector) ShardOwnership(_ context.Context, _ string) (map[string][]string, error) {
-	return nil, nil
 }
 
 // fakeBackend captures Write calls so tests can verify what was written.
@@ -502,14 +513,17 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// emptySelector returns no shards, so exportClass succeeds immediately
+	// emptySelector returns no shards, so export succeeds immediately
 	selector := &emptySelector{classList: []string{"TestClass"}}
+	backends := &fakeBackendProvider{backend: backend}
+	participant := NewParticipant(context.Background(), selector, backends, logger)
 
 	s := &Scheduler{
 		shutdownCtx: context.Background(),
 		logger:      logger,
 		selector:    selector,
-		backends:    &fakeBackendProvider{backend: backend},
+		backends:    backends,
+		participant: participant,
 	}
 
 	status := &models.ExportStatusResponse{
@@ -532,14 +546,74 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 	assert.Empty(t, meta.Error)
 }
 
+func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	// Node completed export: shard0 succeeded, shard1 was cold and skipped.
+	nodeStatus := &NodeStatus{
+		NodeName: "node1",
+		Status:   export.Success,
+		ShardProgress: map[string]map[string]*ShardProgress{
+			"TestClass": {
+				"shard0": {Status: export.Success, ObjectsExported: 500},
+				"shard1": {Status: export.Skipped, ObjectsExported: 0},
+			},
+		},
+	}
+	data, err := json.Marshal(nodeStatus)
+	require.NoError(t, err)
+	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+
+	resolver := &fakeNodeResolver{
+		nodes: map[string]string{
+			"node1": "host1:8080",
+		},
+	}
+
+	client := &fakeExportClient{
+		isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+			return false, nil // finished
+		},
+	}
+
+	s := &Scheduler{
+		shutdownCtx:  context.Background(),
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		client:       client,
+		nodeResolver: resolver,
+	}
+
+	plan := &ExportPlan{
+		ID:      "test-export",
+		Backend: "s3",
+		Classes: []string{"TestClass"},
+		NodeAssignments: map[string]map[string][]string{
+			"node1": {"TestClass": {"shard0", "shard1"}},
+		},
+		StartedAt: time.Now().UTC(),
+	}
+
+	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	require.NoError(t, err)
+
+	// Overall status is Success — skipped shards don't block completion
+	assert.Equal(t, string(export.Success), status.Status)
+	assert.Empty(t, status.Error)
+
+	// Per-shard status is correctly reported
+	require.NotNil(t, status.ShardStatus["TestClass"])
+	assert.Equal(t, string(export.Success), status.ShardStatus["TestClass"]["shard0"].Status)
+	assert.Equal(t, int64(500), status.ShardStatus["TestClass"]["shard0"].ObjectsExported)
+	assert.Equal(t, string(export.Skipped), status.ShardStatus["TestClass"]["shard1"].Status)
+	assert.Equal(t, int64(0), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
+}
+
 // emptySelector returns no shards for any class, allowing exportClass to
 // complete immediately without needing real store/parquet infrastructure.
 type emptySelector struct {
 	classList []string
-}
-
-func (s *emptySelector) GetShardsForClass(context.Context, string) ([]ShardLike, error) {
-	return nil, nil
 }
 
 func (s *emptySelector) ListClasses(context.Context) []string {
@@ -548,4 +622,16 @@ func (s *emptySelector) ListClasses(context.Context) []string {
 
 func (s *emptySelector) ShardOwnership(context.Context, string) (map[string][]string, error) {
 	return nil, nil
+}
+
+func (s *emptySelector) IsMultiTenant(_ context.Context, _ string) bool {
+	return false
+}
+
+func (s *emptySelector) ExportShardNames(_ string) ([]string, bool, error) {
+	return nil, false, nil
+}
+
+func (s *emptySelector) AcquireShardForExport(_ context.Context, _, _ string) (ShardLike, func(), string, error) {
+	return nil, func() {}, "", nil
 }
