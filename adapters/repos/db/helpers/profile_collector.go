@@ -46,7 +46,13 @@ type ProfileCollector struct {
 
 // InitProfileCollector stores a new [ProfileCollector] in the context.
 // Call this before shard searches so that [AddShardProfile] can record timing data.
+// It is idempotent: if a collector already exists in ctx, the context is returned as-is.
+// This allows hybrid search to initialize a single shared collector that both
+// sub-searches (vector and keyword) write to.
 func InitProfileCollector(ctx context.Context) context.Context {
+	if ctx.Value(profileCollectorKey) != nil {
+		return ctx
+	}
 	return context.WithValue(ctx, profileCollectorKey, &ProfileCollector{})
 }
 

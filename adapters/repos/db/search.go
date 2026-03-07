@@ -82,6 +82,10 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		}).Debugf("sparse object search query completed in %s", took)
 	}()
 
+	if params.AdditionalProperties.Profile {
+		ctx = helpers.InitProfileCollector(ctx)
+	}
+
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)

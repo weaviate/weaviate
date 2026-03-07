@@ -30,6 +30,20 @@ func TestInitProfileCollector_Empty(t *testing.T) {
 	assert.Empty(t, profiles)
 }
 
+func TestInitProfileCollector_Idempotent(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+	AddShardProfile(ctx, "shard-1", 1*time.Millisecond, nil)
+
+	ctx2 := InitProfileCollector(ctx)
+	AddShardProfile(ctx2, "shard-2", 2*time.Millisecond, nil)
+
+	// Both profiles should be in the same collector since InitProfileCollector is idempotent.
+	profiles := ExtractProfiles(ctx)
+	require.Len(t, profiles, 2)
+	assert.Equal(t, "shard-1", profiles[0].Name)
+	assert.Equal(t, "shard-2", profiles[1].Name)
+}
+
 func TestAddShardProfile(t *testing.T) {
 	ctx := InitProfileCollector(context.Background())
 
