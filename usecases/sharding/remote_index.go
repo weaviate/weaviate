@@ -268,9 +268,11 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 }
 
 type ReplicasSearchResult struct {
-	Objects  []*storobj.Object
-	Scores   []float32
-	Node     string
+	Objects []*storobj.Object
+	Scores  []float32
+	Node    string
+	// Profiles contains per-shard profiling data returned from the remote node.
+	// Only populated when additional.Profile is true.
 	Profiles []helpers.ShardProfile
 }
 

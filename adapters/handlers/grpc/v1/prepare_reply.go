@@ -105,6 +105,8 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 	return out, nil
 }
 
+// extractQueryProfile converts the raw profile data from the first search result's
+// additional properties into a [pb.QueryProfile] for the gRPC response.
 func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 	if len(res) == 0 {
 		return nil

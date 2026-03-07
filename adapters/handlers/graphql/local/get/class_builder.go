@@ -285,6 +285,8 @@ func (b *classBuilder) additionalExplainScoreField() *graphql.Field {
 	}
 }
 
+// additionalProfileField returns the GraphQL field definition for per-query
+// profiling data, returned as a JSON string.
 func (b *classBuilder) additionalProfileField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,

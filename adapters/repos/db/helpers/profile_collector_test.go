@@ -390,6 +390,36 @@ func TestAddRemoteProfiles(t *testing.T) {
 	assert.Equal(t, "2ms", profiles[2].Searches["keyword"].Details["sort_took"])
 }
 
+func TestAddRemoteProfiles_HybridMultipleSearchTypes(t *testing.T) {
+	ctx := InitProfileCollector(context.Background())
+
+	// Simulate a remote node returning hybrid profile data with both search types per shard.
+	remoteProfiles := []ShardProfile{
+		{
+			Name: "remote-shard-1",
+			Node: "node-2",
+			Searches: map[string]SearchProfile{
+				"vector":  {Details: map[string]string{"total_took": "10ms", "vector_search_took": "8ms"}},
+				"keyword": {Details: map[string]string{"total_took": "6ms"}},
+			},
+		},
+	}
+	AddRemoteProfiles(ctx, remoteProfiles)
+
+	profiles := ExtractProfiles(ctx)
+	require.Len(t, profiles, 1)
+	assert.Equal(t, "remote-shard-1", profiles[0].Name)
+	assert.Equal(t, "node-2", profiles[0].Node)
+
+	vecSearch, hasVec := profiles[0].Searches["vector"]
+	require.True(t, hasVec, "should have vector search profile")
+	assert.Equal(t, "8ms", vecSearch.Details["vector_search_took"])
+
+	kwdSearch, hasKwd := profiles[0].Searches["keyword"]
+	require.True(t, hasKwd, "should have keyword search profile")
+	assert.Equal(t, "6ms", kwdSearch.Details["total_took"])
+}
+
 func TestAddRemoteProfiles_NilContext(t *testing.T) {
 	ctx := context.Background()
 	// Should not panic when no collector is present.
