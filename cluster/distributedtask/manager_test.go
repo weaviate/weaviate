@@ -524,4 +524,392 @@ func assertTask(t *testing.T, expected, actual *Task) {
 	assert.Equal(t, expected.FinishedAt.UTC(), actual.FinishedAt.UTC())
 	assert.Equal(t, expected.Error, actual.Error)
 	assert.Equal(t, expected.FinishedNodes, actual.FinishedNodes)
+	assert.Equal(t, expected.HasSubUnits(), actual.HasSubUnits())
+	if expected.HasSubUnits() {
+		assert.Equal(t, len(expected.SubUnits), len(actual.SubUnits))
+		for id, expectedSU := range expected.SubUnits {
+			actualSU, ok := actual.SubUnits[id]
+			assert.True(t, ok, "sub-unit %s should exist", id)
+			if ok {
+				assert.Equal(t, expectedSU.Status, actualSU.Status)
+				assert.Equal(t, expectedSU.Progress, actualSU.Progress)
+				assert.Equal(t, expectedSU.Error, actualSU.Error)
+			}
+		}
+	}
+}
+
+func TestManager_AddTask_WithSubUnits(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		Payload:               []byte("test"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		SubUnitIds:            []string{"su-1", "su-2", "su-3"},
+	}), version)
+	require.NoError(t, err)
+
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+
+	task := tasks["ns"][0]
+	require.True(t, task.HasSubUnits())
+	require.Len(t, task.SubUnits, 3)
+	for _, id := range []string{"su-1", "su-2", "su-3"} {
+		su, ok := task.SubUnits[id]
+		require.True(t, ok, "sub-unit %s should exist", id)
+		assert.Equal(t, SubUnitStatusPending, su.Status)
+		assert.Equal(t, id, su.ID)
+	}
+}
+
+func TestManager_RecordSubUnitCompletion_Success(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	now := h.clock.Now()
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		SubUnitIds:            []string{"su-1", "su-2"},
+	}), version)
+	require.NoError(t, err)
+
+	// Complete first sub-unit
+	err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "node-1",
+		SubUnitId:            "su-1",
+		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	assert.Equal(t, TaskStatusStarted, task.Status)
+	assert.Equal(t, SubUnitStatusCompleted, task.SubUnits["su-1"].Status)
+	assert.Equal(t, float32(1.0), task.SubUnits["su-1"].Progress)
+	assert.Equal(t, SubUnitStatusPending, task.SubUnits["su-2"].Status)
+
+	// Complete second sub-unit → task should finish
+	err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "node-2",
+		SubUnitId:            "su-2",
+		FinishedAtUnixMillis: now.Add(2 * time.Minute).UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task = tasks["ns"][0]
+	assert.Equal(t, TaskStatusFinished, task.Status)
+	assert.Equal(t, now.Add(2*time.Minute).UnixMilli(), task.FinishedAt.UnixMilli())
+}
+
+func TestManager_RecordSubUnitCompletion_WithError(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	now := h.clock.Now()
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		SubUnitIds:            []string{"su-1", "su-2"},
+	}), version)
+	require.NoError(t, err)
+
+	// Fail first sub-unit → task should immediately fail
+	err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "node-1",
+		SubUnitId:            "su-1",
+		Error:                "disk full",
+		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	assert.Equal(t, TaskStatusFailed, task.Status)
+	assert.Contains(t, task.Error, "disk full")
+	assert.Equal(t, SubUnitStatusFailed, task.SubUnits["su-1"].Status)
+}
+
+func TestManager_RecordSubUnitCompletion_Failures(t *testing.T) {
+	t.Run("task does not exist", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		err := h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "nonexistent",
+			Version:              1,
+			NodeId:               "node-1",
+			SubUnitId:            "su-1",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.ErrorContains(t, err, "does not exist")
+	})
+
+	t.Run("task without sub-units", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), version)
+		require.NoError(t, err)
+
+		err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               "node-1",
+			SubUnitId:            "su-1",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.ErrorContains(t, err, "does not have sub-units")
+	})
+
+	t.Run("sub-unit does not exist", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			SubUnitIds:            []string{"su-1"},
+		}), version)
+		require.NoError(t, err)
+
+		err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               "node-1",
+			SubUnitId:            "su-nonexistent",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.ErrorContains(t, err, "does not exist")
+	})
+
+	t.Run("sub-unit already terminal", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			SubUnitIds:            []string{"su-1", "su-2"},
+		}), version)
+		require.NoError(t, err)
+
+		err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               "node-1",
+			SubUnitId:            "su-1",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.NoError(t, err)
+
+		err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               "node-1",
+			SubUnitId:            "su-1",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.ErrorContains(t, err, "already terminal")
+	})
+}
+
+func TestManager_UpdateSubUnitProgress(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	now := h.clock.Now()
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		SubUnitIds:            []string{"su-1"},
+	}), version)
+	require.NoError(t, err)
+
+	// Update progress → should transition from PENDING to IN_PROGRESS
+	err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+		Namespace:           "ns",
+		Id:                  "task1",
+		Version:             version,
+		NodeId:              "node-1",
+		SubUnitId:           "su-1",
+		Progress:            0.5,
+		UpdatedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	su := task.SubUnits["su-1"]
+	assert.Equal(t, SubUnitStatusInProgress, su.Status)
+	assert.Equal(t, float32(0.5), su.Progress)
+	assert.Equal(t, "node-1", su.NodeID)
+}
+
+func TestManager_UpdateSubUnitProgress_Failures(t *testing.T) {
+	t.Run("task does not exist", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		err := h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+			Namespace:           "ns",
+			Id:                  "nonexistent",
+			Version:             1,
+			NodeId:              "node-1",
+			SubUnitId:           "su-1",
+			Progress:            0.5,
+			UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.ErrorContains(t, err, "does not exist")
+	})
+
+	t.Run("task without sub-units", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}), version)
+		require.NoError(t, err)
+
+		err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+			Namespace:           "ns",
+			Id:                  "task1",
+			Version:             version,
+			NodeId:              "node-1",
+			SubUnitId:           "su-1",
+			Progress:            0.5,
+			UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.ErrorContains(t, err, "does not have sub-units")
+	})
+
+	t.Run("terminal sub-unit ignored", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			SubUnitIds:            []string{"su-1", "su-2"},
+		}), version)
+		require.NoError(t, err)
+
+		// Complete the sub-unit first
+		err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               "node-1",
+			SubUnitId:            "su-1",
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.NoError(t, err)
+
+		// Progress update should be silently ignored
+		err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+			Namespace:           "ns",
+			Id:                  "task1",
+			Version:             version,
+			NodeId:              "node-1",
+			SubUnitId:           "su-1",
+			Progress:            0.5,
+			UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.NoError(t, err)
+	})
+}
+
+func TestManager_SnapshotRestore_WithSubUnits(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	now := h.clock.Now()
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		SubUnitIds:            []string{"su-1", "su-2"},
+	}), version)
+	require.NoError(t, err)
+
+	err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+		Namespace:           "ns",
+		Id:                  "task1",
+		Version:             version,
+		NodeId:              "node-1",
+		SubUnitId:           "su-1",
+		Progress:            0.7,
+		UpdatedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	h2 := newTestHarness(t).init(t)
+	require.NoError(t, h2.manager.Restore(snap))
+
+	tasks, err := h2.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+
+	task := tasks["ns"][0]
+	require.True(t, task.HasSubUnits())
+	require.Len(t, task.SubUnits, 2)
+	assert.Equal(t, SubUnitStatusInProgress, task.SubUnits["su-1"].Status)
+	assert.Equal(t, float32(0.7), task.SubUnits["su-1"].Progress)
+	assert.Equal(t, SubUnitStatusPending, task.SubUnits["su-2"].Status)
+}
+
+func TestManager_LegacyPathUnchanged(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), version)
+	require.NoError(t, err)
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.False(t, task.HasSubUnits())
+	require.Nil(t, task.SubUnits)
+
+	// Legacy node completion should still work
+	err = h.manager.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "local-node",
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), 1)
+	require.NoError(t, err)
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task = tasks["ns"][0]
+	assert.Equal(t, TaskStatusFinished, task.Status)
 }

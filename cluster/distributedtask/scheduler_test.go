@@ -792,3 +792,190 @@ func collectChToSet[T comparable](t *testing.T, expectCount int, ch chan T) map[
 	}
 	return cleanedUpTasks
 }
+
+// testSubUnitAwareProvider extends testTaskProvider with sub-unit awareness
+type testSubUnitAwareProvider struct {
+	*testTaskProvider
+	onTaskCompletedCh chan *Task
+}
+
+func newTestSubUnitAwareProvider(t *testing.T) *testSubUnitAwareProvider {
+	return &testSubUnitAwareProvider{
+		testTaskProvider:  newTestTaskProvider(t, nil),
+		onTaskCompletedCh: make(chan *Task, 100),
+	}
+}
+
+func (p *testSubUnitAwareProvider) OnTaskCompleted(task *Task) {
+	p.onTaskCompletedCh <- task
+}
+
+func TestSubUnitTask_OnTaskCompletedFires(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	provider := newTestSubUnitAwareProvider(t)
+
+	h := newTestHarness(t)
+	h.tasksNamespace = namespace
+	h.provider = provider.testTaskProvider
+	h.registeredProviders = map[string]Provider{
+		namespace: provider,
+	}
+	h = h.init(t)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             namespace,
+		Id:                    "task1",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		SubUnitIds:            []string{"su-1", "su-2"},
+	}), version)
+	require.NoError(t, err)
+
+	// Assign sub-units to local node via progress updates
+	for _, suID := range []string{"su-1", "su-2"} {
+		err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+			Namespace:           namespace,
+			Id:                  "task1",
+			Version:             version,
+			NodeId:              h.localNodeID,
+			SubUnitId:           suID,
+			Progress:            0.1,
+			UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.NoError(t, err)
+	}
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	// Task should be started since the local node has non-terminal sub-units
+	startedTask := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, "task1", startedTask.ID)
+
+	// Complete both sub-units
+	for _, suID := range []string{"su-1", "su-2"} {
+		err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+			Namespace:            namespace,
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               h.localNodeID,
+			SubUnitId:            suID,
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.NoError(t, err)
+	}
+
+	// Tick to detect the terminal state and fire OnTaskCompleted
+	h.advanceClock(h.schedulerTickInterval)
+
+	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
+	require.Equal(t, "task1", completedTask.ID)
+	require.Equal(t, TaskStatusFinished, completedTask.Status)
+
+	// Verify it fires exactly once by ticking again
+	h.advanceClock(h.schedulerTickInterval)
+	select {
+	case <-provider.onTaskCompletedCh:
+		require.Fail(t, "OnTaskCompleted should fire exactly once")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	startedTask.Terminate()
+}
+
+func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	provider := newTestSubUnitAwareProvider(t)
+
+	h := newTestHarness(t)
+	h.tasksNamespace = namespace
+	h.provider = provider.testTaskProvider
+	h.registeredProviders = map[string]Provider{
+		namespace: provider,
+	}
+	h = h.init(t)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             namespace,
+		Id:                    "task1",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		SubUnitIds:            []string{"su-1", "su-2"},
+	}), version)
+	require.NoError(t, err)
+
+	// Assign one sub-unit to local node
+	err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+		Namespace:           namespace,
+		Id:                  "task1",
+		Version:             version,
+		NodeId:              h.localNodeID,
+		SubUnitId:           "su-1",
+		Progress:            0.1,
+		UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	h.advanceClock(h.schedulerTickInterval)
+	startedTask := recvWithTimeout(t, provider.startedCh)
+
+	// Fail the sub-unit
+	err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+		Namespace:            namespace,
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               h.localNodeID,
+		SubUnitId:            "su-1",
+		Error:                "oops",
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
+	require.Equal(t, TaskStatusFailed, completedTask.Status)
+
+	startedTask.Terminate()
+}
+
+func TestLegacyTask_NoSubUnits_UnchangedBehavior(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var (
+		taskID         = "legacy-task"
+		version uint64 = 10
+	)
+
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), version)
+	require.NoError(t, err)
+	h.advanceClock(h.schedulerTickInterval)
+
+	startedTask := recvWithTimeout(t, h.provider.startedCh)
+	require.Equal(t, taskID, startedTask.ID)
+
+	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, taskID, version)
+	startedTask.Complete()
+	recvWithTimeout(t, h.provider.completedCh)
+
+	h.advanceClock(h.schedulerTickInterval)
+	require.Zero(t, h.scheduler.totalRunningTaskCount())
+}

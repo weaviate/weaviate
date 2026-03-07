@@ -31,6 +31,9 @@ type TaskCleaner interface {
 type TaskCompletionRecorder interface {
 	RecordDistributedTaskNodeCompletion(ctx context.Context, namespace, taskID string, version uint64) error
 	RecordDistributedTaskNodeFailure(ctx context.Context, namespace, taskID string, version uint64, errMsg string) error
+	RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string) error
+	RecordDistributedTaskSubUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error
+	UpdateDistributedTaskSubUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string, progress float32) error
 }
 
 // TaskHandle is an interface to control a locally running task.
@@ -56,6 +59,34 @@ type Provider interface {
 
 	// StartTask is a signal to start executing the task in the background.
 	StartTask(task *Task) (TaskHandle, error)
+}
+
+// SubUnitAwareProvider is an optional extension of Provider that enables sub-unit tracking.
+// When a task with sub-units reaches a terminal state (FINISHED or FAILED), the scheduler
+// calls OnTaskCompleted exactly once.
+type SubUnitAwareProvider interface {
+	Provider
+	OnTaskCompleted(task *Task)
+}
+
+type SubUnitStatus string
+
+const (
+	SubUnitStatusPending    SubUnitStatus = "PENDING"
+	SubUnitStatusInProgress SubUnitStatus = "IN_PROGRESS"
+	SubUnitStatusCompleted  SubUnitStatus = "COMPLETED"
+	SubUnitStatusFailed     SubUnitStatus = "FAILED"
+)
+
+// SubUnit represents a trackable work unit within a distributed task.
+type SubUnit struct {
+	ID         string        `json:"id"`
+	NodeID     string        `json:"nodeId"`
+	Status     SubUnitStatus `json:"status"`
+	Progress   float32       `json:"progress"`
+	Error      string        `json:"error,omitempty"`
+	UpdatedAt  time.Time     `json:"updatedAt"`
+	FinishedAt time.Time     `json:"finishedAt,omitempty"`
 }
 
 type TaskStatus string
@@ -110,12 +141,59 @@ type Task struct {
 
 	// FinishedNodes is a map of nodeIDs that successfully finished the task.
 	FinishedNodes map[string]bool `json:"finishedNodes"`
+
+	// SubUnits tracks per-sub-unit progress. nil means legacy node-level tracking.
+	SubUnits map[string]*SubUnit `json:"subUnits,omitempty"`
 }
 
 func (t *Task) Clone() *Task {
 	clone := *t
 	clone.FinishedNodes = maps.Clone(t.FinishedNodes)
+	if t.SubUnits != nil {
+		clone.SubUnits = make(map[string]*SubUnit, len(t.SubUnits))
+		for k, v := range t.SubUnits {
+			subCopy := *v
+			clone.SubUnits[k] = &subCopy
+		}
+	}
 	return &clone
+}
+
+// HasSubUnits returns true if the task uses sub-unit tracking (as opposed to legacy node-level tracking).
+func (t *Task) HasSubUnits() bool { return t.SubUnits != nil }
+
+// AllSubUnitsTerminal returns true if all sub-units are in a terminal state (COMPLETED or FAILED).
+func (t *Task) AllSubUnitsTerminal() bool {
+	for _, su := range t.SubUnits {
+		if su.Status != SubUnitStatusCompleted && su.Status != SubUnitStatusFailed {
+			return false
+		}
+	}
+	return true
+}
+
+// AnySubUnitFailed returns true if any sub-unit has FAILED status.
+func (t *Task) AnySubUnitFailed() bool {
+	for _, su := range t.SubUnits {
+		if su.Status == SubUnitStatusFailed {
+			return true
+		}
+	}
+	return false
+}
+
+// NodeHasNonTerminalSubUnits returns true if the given node has sub-units that are not yet terminal.
+// Unassigned sub-units (empty NodeID) are considered as belonging to any node.
+func (t *Task) NodeHasNonTerminalSubUnits(nodeID string) bool {
+	for _, su := range t.SubUnits {
+		if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+			continue
+		}
+		if su.NodeID == "" || su.NodeID == nodeID {
+			return true
+		}
+	}
+	return false
 }
 
 type ListDistributedTasksResponse struct {

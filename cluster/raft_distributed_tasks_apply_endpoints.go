@@ -20,7 +20,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string, taskPayload any) error {
+func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string, taskPayload any, subUnitIDs []string) error {
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task payload: %w", err)
@@ -31,6 +31,7 @@ func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string,
 		Id:                    taskID,
 		Payload:               payloadBytes,
 		SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		SubUnitIds:            subUnitIDs,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
@@ -90,6 +91,62 @@ func (s *Raft) CancelDistributedTask(ctx context.Context, namespace, taskID stri
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL,
+		SubCommand: subCommand,
+	}
+	if _, err = s.Execute(ctx, command); err != nil {
+		return fmt.Errorf("executing command: %w", err)
+	}
+	return nil
+}
+
+func (s *Raft) RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string) error {
+	return s.recordDistributedTaskSubUnitCompletion(ctx, namespace, taskID, version, nodeID, subUnitID, "")
+}
+
+func (s *Raft) RecordDistributedTaskSubUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error {
+	return s.recordDistributedTaskSubUnitCompletion(ctx, namespace, taskID, version, nodeID, subUnitID, errMsg)
+}
+
+func (s *Raft) recordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error {
+	req := cmd.RecordDistributedTaskSubUnitCompletionRequest{
+		Namespace:            namespace,
+		Id:                   taskID,
+		Version:              version,
+		NodeId:               nodeID,
+		SubUnitId:            subUnitID,
+		Error:                errMsg,
+		FinishedAtUnixMillis: time.Now().UnixMilli(),
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_SUB_UNIT_COMPLETED,
+		SubCommand: subCommand,
+	}
+	if _, err = s.Execute(ctx, command); err != nil {
+		return fmt.Errorf("executing command: %w", err)
+	}
+	return nil
+}
+
+func (s *Raft) UpdateDistributedTaskSubUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string, progress float32) error {
+	req := cmd.UpdateDistributedTaskSubUnitProgressRequest{
+		Namespace:           namespace,
+		Id:                  taskID,
+		Version:             version,
+		NodeId:              nodeID,
+		SubUnitId:           subUnitID,
+		Progress:            progress,
+		UpdatedAtUnixMillis: time.Now().UnixMilli(),
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_SUB_UNIT_PROGRESS,
 		SubCommand: subCommand,
 	}
 	if _, err = s.Execute(ctx, command); err != nil {

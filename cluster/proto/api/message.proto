@@ -99,6 +99,8 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_CANCEL = 301;
     TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED = 302;
     TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
+    TYPE_DISTRIBUTED_TASK_RECORD_SUB_UNIT_COMPLETED = 304;
+    TYPE_DISTRIBUTED_TASK_UPDATE_SUB_UNIT_PROGRESS = 305;
   }
   Type type = 1;
   string class = 2;
@@ -204,6 +206,7 @@ message AddDistributedTaskRequest {
   string id = 2;
   bytes payload = 4;
   int64 submitted_at_unix_millis = 5;
+  repeated string sub_unit_ids = 6;
 }
 
 message RecordDistributedTaskNodeCompletionRequest {
@@ -246,4 +249,24 @@ message ReplaceAliasRequest {
 
 message DeleteAliasRequest {
   string alias = 1;
+}
+
+message RecordDistributedTaskSubUnitCompletionRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  string sub_unit_id = 5;
+  string error = 6;
+  int64 finished_at_unix_millis = 7;
+}
+
+message UpdateDistributedTaskSubUnitProgressRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  string sub_unit_id = 5;
+  float progress = 6;
+  int64 updated_at_unix_millis = 7;
 }

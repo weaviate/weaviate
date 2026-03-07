@@ -72,14 +72,26 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		}
 	}
 
-	m.setTaskWithLock(&Task{
+	newTask := &Task{
 		Namespace:      r.Namespace,
 		TaskDescriptor: TaskDescriptor{ID: r.Id, Version: seqNum},
 		Payload:        r.Payload,
 		Status:         TaskStatusStarted,
 		StartedAt:      time.UnixMilli(r.SubmittedAtUnixMillis),
 		FinishedNodes:  map[string]bool{},
-	})
+	}
+
+	if len(r.SubUnitIds) > 0 {
+		newTask.SubUnits = make(map[string]*SubUnit, len(r.SubUnitIds))
+		for _, id := range r.SubUnitIds {
+			newTask.SubUnits[id] = &SubUnit{
+				ID:     id,
+				Status: SubUnitStatusPending,
+			}
+		}
+	}
+
+	m.setTaskWithLock(newTask)
 
 	return nil
 }
@@ -114,6 +126,117 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 		task.Status = TaskStatusFinished
 		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
 		return nil
+	}
+
+	return nil
+}
+
+func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
+	var r api.RecordDistributedTaskSubUnitCompletionRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal record sub-unit completion request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	if task.Status != TaskStatusStarted {
+		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+	}
+
+	if !task.HasSubUnits() {
+		return fmt.Errorf("task %s/%s/%d does not have sub-units", r.Namespace, r.Id, task.Version)
+	}
+
+	su, ok := task.SubUnits[r.SubUnitId]
+	if !ok {
+		return fmt.Errorf("sub-unit %s does not exist in task %s/%s/%d", r.SubUnitId, r.Namespace, r.Id, task.Version)
+	}
+
+	if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+		return fmt.Errorf("sub-unit %s in task %s/%s/%d is already terminal", r.SubUnitId, r.Namespace, r.Id, task.Version)
+	}
+
+	if su.NodeID != "" && su.NodeID != r.NodeId {
+		return fmt.Errorf("sub-unit %s in task %s/%s/%d belongs to node %s, not %s",
+			r.SubUnitId, r.Namespace, r.Id, task.Version, su.NodeID, r.NodeId)
+	}
+
+	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
+
+	if r.Error != "" {
+		su.Status = SubUnitStatusFailed
+		su.Error = r.Error
+		su.FinishedAt = finishedAt
+		task.Status = TaskStatusFailed
+		task.Error = fmt.Sprintf("sub-unit %s failed: %s", r.SubUnitId, r.Error)
+		task.FinishedAt = finishedAt
+		return nil
+	}
+
+	su.Status = SubUnitStatusCompleted
+	su.Progress = 1.0
+	su.FinishedAt = finishedAt
+
+	if task.AllSubUnitsTerminal() {
+		if task.AnySubUnitFailed() {
+			task.Status = TaskStatusFailed
+		} else {
+			task.Status = TaskStatusFinished
+		}
+		task.FinishedAt = finishedAt
+	}
+
+	return nil
+}
+
+func (m *Manager) UpdateSubUnitProgress(c *api.ApplyRequest) error {
+	var r api.UpdateDistributedTaskSubUnitProgressRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal update sub-unit progress request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	if task.Status != TaskStatusStarted {
+		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+	}
+
+	if !task.HasSubUnits() {
+		return fmt.Errorf("task %s/%s/%d does not have sub-units", r.Namespace, r.Id, task.Version)
+	}
+
+	su, ok := task.SubUnits[r.SubUnitId]
+	if !ok {
+		return fmt.Errorf("sub-unit %s does not exist in task %s/%s/%d", r.SubUnitId, r.Namespace, r.Id, task.Version)
+	}
+
+	if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+		return nil // silently ignore progress updates for terminal sub-units
+	}
+
+	if su.NodeID != "" && su.NodeID != r.NodeId {
+		return fmt.Errorf("sub-unit %s in task %s/%s/%d belongs to node %s, not %s",
+			r.SubUnitId, r.Namespace, r.Id, task.Version, su.NodeID, r.NodeId)
+	}
+
+	su.NodeID = r.NodeId
+	su.Progress = r.Progress
+	su.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
+
+	if su.Status == SubUnitStatusPending {
+		su.Status = SubUnitStatusInProgress
 	}
 
 	return nil

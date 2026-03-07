@@ -790,10 +790,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		providers := map[string]distributedtask.Provider{}
+
+		if os.Getenv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED") == "true" {
+			dummyProvider := distributedtask.NewDummyProvider(
+				appState.Cluster.LocalName(), appState.Logger,
+			)
+			providers[distributedtask.DummyProviderNamespace] = dummyProvider
+			setupDummyTaskDebugHandler(appState, dummyProvider)
+		}
+
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 			CompletionRecorder: appState.ClusterService.Raft,
 			TasksLister:        appState.ClusterService.Raft,
-			Providers:          map[string]distributedtask.Provider{},
+			Providers:          providers,
 			Logger:             appState.Logger,
 			MetricsRegisterer:  metricsRegisterer,
 			LocalNode:          appState.Cluster.LocalName(),

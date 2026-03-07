@@ -56,6 +56,8 @@ type Scheduler struct {
 
 	tasksRunning *prometheus.GaugeVec
 
+	completedCallbackFired map[TaskDescriptor]bool
+
 	stopCh chan struct{}
 }
 
@@ -85,11 +87,12 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
 
-		providers:          params.Providers,
-		completionRecorder: params.CompletionRecorder,
-		tasksLister:        params.TasksLister,
-		taskCleaner:        params.TaskCleaner,
-		clock:              params.Clock,
+		providers:              params.Providers,
+		completionRecorder:     params.CompletionRecorder,
+		completedCallbackFired: map[TaskDescriptor]bool{},
+		tasksLister:            params.TasksLister,
+		taskCleaner:            params.TaskCleaner,
+		clock:                  params.Clock,
 
 		localNode:        params.LocalNode,
 		completedTaskTTL: params.CompletedTaskTTL,
@@ -113,10 +116,12 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return fmt.Errorf("list distributed tasks: %w", err)
 	}
 
+	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 30*time.Second, s.clock)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for namespace, provider := range s.providers {
-		provider.SetCompletionRecorder(s.completionRecorder)
+		provider.SetCompletionRecorder(throttledRecorder)
 
 		var (
 			tasks         = tasksByNamespace[namespace]
@@ -159,7 +164,13 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 func (s *Scheduler) filterStartedTasks(tasks map[TaskDescriptor]*Task) map[TaskDescriptor]*Task {
 	return filterTasks(tasks, func(task *Task) bool {
-		return task.Status == TaskStatusStarted && !task.FinishedNodes[s.localNode]
+		if task.Status != TaskStatusStarted {
+			return false
+		}
+		if task.HasSubUnits() {
+			return task.NodeHasNonTerminalSubUnits(s.localNode)
+		}
+		return !task.FinishedNodes[s.localNode]
 	})
 }
 
@@ -243,6 +254,24 @@ func (s *Scheduler) tick() {
 
 			s.loggerWithTask(namespace, desc).Info("terminated distributed task execution")
 
+		}
+
+		// Fire OnTaskCompleted callback for sub-unit-aware providers when a task
+		// with sub-units reaches a terminal state.
+		if suProvider, ok := provider.(SubUnitAwareProvider); ok {
+			for desc, task := range tasks {
+				if !task.HasSubUnits() {
+					continue
+				}
+				if task.Status != TaskStatusFinished && task.Status != TaskStatusFailed {
+					continue
+				}
+				if s.completedCallbackFired[desc] {
+					continue
+				}
+				s.completedCallbackFired[desc] = true
+				suProvider.OnTaskCompleted(task)
+			}
 		}
 
 		// Check that all tasks that are already finished and if their TTL has passed, so we can clean them up.

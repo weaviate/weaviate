@@ -401,6 +401,14 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_SUB_UNIT_COMPLETED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordSubUnitCompletion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_SUB_UNIT_PROGRESS:
+		f = func() {
+			ret.Error = st.distributedTasksManager.UpdateSubUnitProgress(&cmd)
+		}
 
 	default:
 		// This could occur when a new command has been introduced in a later app version

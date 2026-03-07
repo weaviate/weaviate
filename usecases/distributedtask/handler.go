@@ -64,7 +64,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				return nil, fmt.Errorf("unmarshal payload: %w", err)
 			}
 
-			resp[namespace] = append(resp[namespace], models.DistributedTask{
+			dt := models.DistributedTask{
 				ID:            task.ID,
 				Version:       int64(task.Version),
 				Status:        task.Status.String(),
@@ -73,7 +73,27 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				FinishedAt:    strfmt.DateTime(task.FinishedAt),
 				FinishedNodes: finishedNodes,
 				Payload:       payload,
-			})
+			}
+
+			if task.HasSubUnits() {
+				dt.SubUnits = make([]*models.DistributedTaskSubUnit, 0, len(task.SubUnits))
+				for _, su := range task.SubUnits {
+					dt.SubUnits = append(dt.SubUnits, &models.DistributedTaskSubUnit{
+						ID:         su.ID,
+						NodeID:     su.NodeID,
+						Status:     string(su.Status),
+						Progress:   su.Progress,
+						Error:      su.Error,
+						UpdatedAt:  strfmt.DateTime(su.UpdatedAt),
+						FinishedAt: strfmt.DateTime(su.FinishedAt),
+					})
+				}
+				sort.Slice(dt.SubUnits, func(i, j int) bool {
+					return dt.SubUnits[i].ID < dt.SubUnits[j].ID
+				})
+			}
+
+			resp[namespace] = append(resp[namespace], dt)
 		}
 	}
 
