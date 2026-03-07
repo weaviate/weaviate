@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -98,7 +99,42 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.GenerativeGroupedResults = generativeGroupedResults
 		out.Results = objects
 	}
+	if searchParams.AdditionalProperties.Profile {
+		out.Profile = r.extractQueryProfile(res)
+	}
 	return out, nil
+}
+
+func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
+	if len(res) == 0 {
+		return nil
+	}
+	asMap, ok := res[0].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	additional, ok := asMap["_additional"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	profiles, ok := additional["profile"].([]helpers.ShardProfile)
+	if !ok {
+		return nil
+	}
+	shards := make([]*pb.ShardProfile, len(profiles))
+	for i, p := range profiles {
+		shards[i] = &pb.ShardProfile{
+			Name:             p.Name,
+			FilterNs:         p.FilterNs,
+			VectorSearchNs:   p.VectorSearchNs,
+			ObjectRetrievalNs: p.ObjectRetrievalNs,
+			SortNs:           p.SortNs,
+			RescoreNs:        p.RescoreNs,
+			FilterIdsMatched: p.FilterIdsMatched,
+			HnswFlatSearch:   p.HnswFlatSearch,
+		}
+	}
+	return &pb.QueryProfile{Shards: shards}
 }
 
 func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {

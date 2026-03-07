@@ -1885,6 +1885,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return fmt.Errorf(
 				"local shard object search %s: %w", shard.ID(), err)
 		}
+		if addlProps.Profile {
+			helpers.AddShardProfile(ctx, shard.ID(), helpers.ExtractSlowQueryDetails(localCtx))
+		}
 		nodeName := i.getSchema.NodeName()
 
 		if i.shardHasMultipleReplicasRead(tenant, shardName) {
@@ -1998,6 +2001,9 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
+	if additional.Profile {
+		helpers.AddShardProfile(ctx, shard.ID(), helpers.ExtractSlowQueryDetails(ctx))
+	}
 	return res, resDists, nil
 }
 
@@ -2021,6 +2027,9 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+	if additionalProps.Profile {
+		helpers.AddShardProfile(ctx, shard.ID(), helpers.ExtractSlowQueryDetails(localCtx))
 	}
 	// Append result to out
 	if i.shardHasMultipleReplicasRead(tenantName, shardName) {
