@@ -69,6 +69,7 @@ type SubUnitAwareProvider interface {
 	OnTaskCompleted(task *Task)
 }
 
+// SubUnitStatus represents the lifecycle state of a [SubUnit] within a distributed task.
 type SubUnitStatus string
 
 const (
@@ -79,6 +80,8 @@ const (
 )
 
 // SubUnit represents a trackable work unit within a distributed task.
+// SubUnit values are managed exclusively by the [Manager] under its mutex; they are not safe
+// for concurrent use outside of cloned [Task] snapshots.
 type SubUnit struct {
 	ID         string        `json:"id"`
 	NodeID     string        `json:"nodeId"`
@@ -117,6 +120,8 @@ type TaskDescriptor struct {
 	Version uint64 `json:"version"`
 }
 
+// Task represents a distributed task that is tracked across the cluster via Raft consensus.
+// Tasks are managed by the [Manager] and polled by the [Scheduler] on each node.
 type Task struct {
 	// Namespace is the namespace of distributed tasks which are managed by different Provider implementations
 	Namespace string `json:"namespace"`
@@ -146,6 +151,7 @@ type Task struct {
 	SubUnits map[string]*SubUnit `json:"subUnits,omitempty"`
 }
 
+// Clone returns a deep copy of the task, including [SubUnit] entries and FinishedNodes.
 func (t *Task) Clone() *Task {
 	clone := *t
 	clone.FinishedNodes = maps.Clone(t.FinishedNodes)
@@ -196,6 +202,7 @@ func (t *Task) NodeHasNonTerminalSubUnits(nodeID string) bool {
 	return false
 }
 
+// ListDistributedTasksResponse is the wire format returned by the Raft query endpoint for listing tasks.
 type ListDistributedTasksResponse struct {
 	Tasks map[string][]*Task `json:"tasks"`
 }

@@ -31,6 +31,8 @@ type ThrottledRecorder struct {
 	lastSent map[string]time.Time // key: "namespace/taskID/version/subUnitID"
 }
 
+// NewThrottledRecorder creates a [ThrottledRecorder] that throttles progress updates
+// to at most once per interval per sub-unit. If clock is nil, a real clock is used.
 func NewThrottledRecorder(inner TaskCompletionRecorder, interval time.Duration, clock clockwork.Clock) *ThrottledRecorder {
 	if clock == nil {
 		clock = clockwork.NewRealClock()
@@ -52,11 +54,20 @@ func (r *ThrottledRecorder) RecordDistributedTaskNodeFailure(ctx context.Context
 }
 
 func (r *ThrottledRecorder) RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string) error {
+	r.cleanupThrottleEntry(namespace, taskID, version, subUnitID)
 	return r.inner.RecordDistributedTaskSubUnitCompletion(ctx, namespace, taskID, version, nodeID, subUnitID)
 }
 
 func (r *ThrottledRecorder) RecordDistributedTaskSubUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error {
+	r.cleanupThrottleEntry(namespace, taskID, version, subUnitID)
 	return r.inner.RecordDistributedTaskSubUnitFailure(ctx, namespace, taskID, version, nodeID, subUnitID, errMsg)
+}
+
+func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, version uint64, subUnitID string) {
+	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, subUnitID)
+	r.mu.Lock()
+	delete(r.lastSent, key)
+	r.mu.Unlock()
 }
 
 func (r *ThrottledRecorder) UpdateDistributedTaskSubUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string, progress float32) error {

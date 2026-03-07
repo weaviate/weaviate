@@ -96,6 +96,61 @@ func TestThrottledRecorder_CompletionNeverThrottled(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestThrottledRecorder_CompletionCleansUpThrottleEntry(t *testing.T) {
+	clock := clockwork.NewFakeClock()
+	inner := NewMockTaskCompletionRecorder(t)
+	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+
+	// First progress call goes through
+	inner.EXPECT().UpdateDistributedTaskSubUnitProgress(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.1),
+	).Return(nil).Once()
+
+	err := recorder.UpdateDistributedTaskSubUnitProgress(context.Background(), "ns", "task", 1, "node", "su-1", 0.1)
+	require.NoError(t, err)
+
+	// Complete the sub-unit — this should clean up the throttle entry
+	inner.EXPECT().RecordDistributedTaskSubUnitCompletion(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1",
+	).Return(nil).Once()
+
+	err = recorder.RecordDistributedTaskSubUnitCompletion(context.Background(), "ns", "task", 1, "node", "su-1")
+	require.NoError(t, err)
+
+	// Verify the throttle entry was cleaned up — the lastSent map should not
+	// contain an entry for this sub-unit anymore. We can check indirectly by
+	// verifying the map length.
+	recorder.mu.Lock()
+	require.Empty(t, recorder.lastSent)
+	recorder.mu.Unlock()
+}
+
+func TestThrottledRecorder_FailureCleansUpThrottleEntry(t *testing.T) {
+	clock := clockwork.NewFakeClock()
+	inner := NewMockTaskCompletionRecorder(t)
+	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+
+	// First progress call goes through
+	inner.EXPECT().UpdateDistributedTaskSubUnitProgress(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.1),
+	).Return(nil).Once()
+
+	err := recorder.UpdateDistributedTaskSubUnitProgress(context.Background(), "ns", "task", 1, "node", "su-1", 0.1)
+	require.NoError(t, err)
+
+	// Fail the sub-unit — this should clean up the throttle entry
+	inner.EXPECT().RecordDistributedTaskSubUnitFailure(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1", "err",
+	).Return(nil).Once()
+
+	err = recorder.RecordDistributedTaskSubUnitFailure(context.Background(), "ns", "task", 1, "node", "su-1", "err")
+	require.NoError(t, err)
+
+	recorder.mu.Lock()
+	require.Empty(t, recorder.lastSent)
+	recorder.mu.Unlock()
+}
+
 func TestThrottledRecorder_DifferentSubUnitsTrackedIndependently(t *testing.T) {
 	clock := clockwork.NewFakeClock()
 	inner := NewMockTaskCompletionRecorder(t)

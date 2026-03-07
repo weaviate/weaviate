@@ -38,6 +38,7 @@ type ManagerParameters struct {
 	CompletedTaskTTL time.Duration
 }
 
+// NewManager creates a new [Manager] with the given parameters.
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
@@ -131,6 +132,10 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	return nil
 }
 
+// RecordSubUnitCompletion records the completion or failure of a single [SubUnit].
+// On failure (non-empty error), the task immediately transitions to [TaskStatusFailed].
+// On success, if all sub-units are terminal, the task transitions to [TaskStatusFinished]
+// (or [TaskStatusFailed] if any sub-unit failed).
 func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskSubUnitCompletionRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -195,6 +200,9 @@ func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
 	return nil
 }
 
+// UpdateSubUnitProgress updates the progress of a [SubUnit] and transitions it from
+// [SubUnitStatusPending] to [SubUnitStatusInProgress] on the first update. Progress must
+// be in the range [0.0, 1.0]. Updates to terminal sub-units are silently ignored.
 func (m *Manager) UpdateSubUnitProgress(c *api.ApplyRequest) error {
 	var r api.UpdateDistributedTaskSubUnitProgressRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -229,6 +237,11 @@ func (m *Manager) UpdateSubUnitProgress(c *api.ApplyRequest) error {
 	if su.NodeID != "" && su.NodeID != r.NodeId {
 		return fmt.Errorf("sub-unit %s in task %s/%s/%d belongs to node %s, not %s",
 			r.SubUnitId, r.Namespace, r.Id, task.Version, su.NodeID, r.NodeId)
+	}
+
+	if r.Progress < 0 || r.Progress > 1 {
+		return fmt.Errorf("progress for sub-unit %s in task %s/%s/%d must be between 0.0 and 1.0, got %v",
+			r.SubUnitId, r.Namespace, r.Id, r.Version, r.Progress)
 	}
 
 	su.NodeID = r.NodeId

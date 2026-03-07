@@ -300,6 +300,8 @@ func (s *Scheduler) tick() {
 				continue
 			}
 
+			delete(s.completedCallbackFired, desc)
+
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					s.loggerWithTask(namespace, desc).WithError(err).

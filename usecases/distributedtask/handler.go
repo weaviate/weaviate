@@ -23,11 +23,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+// Handler serves distributed task queries via the REST API.
 type Handler struct {
 	authorizer  authorization.Authorizer
 	tasksLister distributedtask.TasksLister
 }
 
+// NewHandler creates a new [Handler] with the given authorizer and task lister.
 func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TasksLister) *Handler {
 	return &Handler{
 		authorizer:  authorizer,
@@ -35,6 +37,7 @@ func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.
 	}
 }
 
+// ListTasks returns all distributed tasks grouped by namespace. Requires cluster-level read authorization.
 func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (models.DistributedTasks, error) {
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err
@@ -75,27 +78,34 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				Payload:       payload,
 			}
 
-			if task.HasSubUnits() {
-				dt.SubUnits = make([]*models.DistributedTaskSubUnit, 0, len(task.SubUnits))
-				for _, su := range task.SubUnits {
-					dt.SubUnits = append(dt.SubUnits, &models.DistributedTaskSubUnit{
-						ID:         su.ID,
-						NodeID:     su.NodeID,
-						Status:     string(su.Status),
-						Progress:   su.Progress,
-						Error:      su.Error,
-						UpdatedAt:  strfmt.DateTime(su.UpdatedAt),
-						FinishedAt: strfmt.DateTime(su.FinishedAt),
-					})
-				}
-				sort.Slice(dt.SubUnits, func(i, j int) bool {
-					return dt.SubUnits[i].ID < dt.SubUnits[j].ID
-				})
-			}
+			dt.SubUnits = mapSubUnits(task)
 
 			resp[namespace] = append(resp[namespace], dt)
 		}
 	}
 
 	return resp, nil
+}
+
+func mapSubUnits(task *distributedtask.Task) []*models.DistributedTaskSubUnit {
+	if !task.HasSubUnits() {
+		return nil
+	}
+
+	subUnits := make([]*models.DistributedTaskSubUnit, 0, len(task.SubUnits))
+	for _, su := range task.SubUnits {
+		subUnits = append(subUnits, &models.DistributedTaskSubUnit{
+			ID:         su.ID,
+			NodeID:     su.NodeID,
+			Status:     string(su.Status),
+			Progress:   su.Progress,
+			Error:      su.Error,
+			UpdatedAt:  strfmt.DateTime(su.UpdatedAt),
+			FinishedAt: strfmt.DateTime(su.FinishedAt),
+		})
+	}
+	sort.Slice(subUnits, func(i, j int) bool {
+		return subUnits[i].ID < subUnits[j].ID
+	})
+	return subUnits
 }

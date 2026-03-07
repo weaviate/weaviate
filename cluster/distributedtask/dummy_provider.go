@@ -21,6 +21,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+// DummyProviderNamespace is the task namespace used by [DummyProvider] for testing.
 const DummyProviderNamespace = "dummy-test"
 
 // DummyProviderPayload is the payload for a dummy task.
@@ -42,6 +43,7 @@ type DummyProvider struct {
 	completedTasksMu sync.Mutex
 }
 
+// NewDummyProvider creates a new [DummyProvider] for the given node.
 func NewDummyProvider(nodeID string, logger logrus.FieldLogger) *DummyProvider {
 	return &DummyProvider{
 		nodeID:         nodeID,

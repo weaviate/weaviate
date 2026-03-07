@@ -842,6 +842,68 @@ func TestManager_UpdateSubUnitProgress_Failures(t *testing.T) {
 	})
 }
 
+func TestManager_UpdateSubUnitProgress_InvalidValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress float32
+	}{
+		{"negative", -0.1},
+		{"greater than 1", 1.1},
+		{"large negative", -100},
+		{"large positive", 100},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			var version uint64 = 10
+			err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace:             "ns",
+				Id:                    "task1",
+				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+				SubUnitIds:            []string{"su-1"},
+			}), version)
+			require.NoError(t, err)
+
+			err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+				Namespace:           "ns",
+				Id:                  "task1",
+				Version:             version,
+				NodeId:              "node-1",
+				SubUnitId:           "su-1",
+				Progress:            tc.progress,
+				UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+			}))
+			require.ErrorContains(t, err, "between 0.0 and 1.0")
+		})
+	}
+
+	t.Run("boundary values accepted", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			SubUnitIds:            []string{"su-1"},
+		}), version)
+		require.NoError(t, err)
+
+		for _, progress := range []float32{0.0, 0.5, 1.0} {
+			err = h.manager.UpdateSubUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+				Namespace:           "ns",
+				Id:                  "task1",
+				Version:             version,
+				NodeId:              "node-1",
+				SubUnitId:           "su-1",
+				Progress:            progress,
+				UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+			}))
+			require.NoError(t, err)
+		}
+	})
+}
+
 func TestManager_SnapshotRestore_WithSubUnits(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
