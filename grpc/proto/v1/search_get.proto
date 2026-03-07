@@ -117,6 +117,7 @@ message SearchReply {
   optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
+  reserved 6;
   optional QueryProfile profile = 7;
 }
 
@@ -126,13 +127,8 @@ message QueryProfile {
 
 message ShardProfile {
   string name = 1;
-  int64 filter_ns = 2;
-  int64 vector_search_ns = 3;
-  int64 object_retrieval_ns = 4;
-  int64 sort_ns = 5;
-  int64 rescore_ns = 6;
-  int32 filter_ids_matched = 7;
-  bool hnsw_flat_search = 8;
+  map<string, string> details = 9;
+  reserved 2, 3, 4, 5, 6, 7, 8;
 }
 
 message RerankReply {

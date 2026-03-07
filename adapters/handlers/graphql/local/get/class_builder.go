@@ -187,6 +187,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
+	additionalProperties["profile"] = b.additionalProfileField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
@@ -279,6 +280,12 @@ func (b *classBuilder) additionalScoreField() *graphql.Field {
 }
 
 func (b *classBuilder) additionalExplainScoreField() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.String,
+	}
+}
+
+func (b *classBuilder) additionalProfileField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,
 	}

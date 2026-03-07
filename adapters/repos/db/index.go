@@ -1880,13 +1880,14 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		localCtx := helpers.InitSlowQueryDetails(ctx)
 		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+		shardStart := time.Now()
 		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 		if err != nil {
 			return fmt.Errorf(
 				"local shard object search %s: %w", shard.ID(), err)
 		}
 		if addlProps.Profile {
-			helpers.AddShardProfile(ctx, shard.ID(), helpers.ExtractSlowQueryDetails(localCtx))
+			helpers.AddShardProfile(ctx, shard.ID(), time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 		}
 		nodeName := i.getSchema.NodeName()
 
@@ -1996,13 +1997,14 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
+	shardStart := time.Now()
 	res, resDists, err := shard.ObjectVectorSearch(
 		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additional.Profile {
-		helpers.AddShardProfile(ctx, shard.ID(), helpers.ExtractSlowQueryDetails(ctx))
+		helpers.AddShardProfile(ctx, shard.ID(), time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 	return res, resDists, nil
 }
@@ -2023,13 +2025,14 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 
 	localCtx := helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+	shardStart := time.Now()
 	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
 		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additionalProps.Profile {
-		helpers.AddShardProfile(ctx, shard.ID(), helpers.ExtractSlowQueryDetails(localCtx))
+		helpers.AddShardProfile(ctx, shard.ID(), time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 	}
 	// Append result to out
 	if i.shardHasMultipleReplicasRead(tenantName, shardName) {
