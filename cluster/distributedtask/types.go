@@ -72,7 +72,7 @@ type Provider interface {
 // Every sub-unit task has groups. If no explicit GroupID is set, all sub-units
 // belong to a single implicit default group (""). This means:
 //   - Tasks without groups: OnGroupCompleted fires once with all local sub-units
-//     when all sub-units terminal — equivalent to old OnSubUnitsCompleted
+//     when all sub-units reach terminal state (same effect as having a single group).
 //   - Tasks with groups: OnGroupCompleted fires per-group as each completes,
 //     even while the task is still STARTED
 //

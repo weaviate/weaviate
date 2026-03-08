@@ -272,7 +272,7 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 		Info("shard-noop provider: starting sub-unit processing")
 
 	if payload.MaxConcurrency > 1 {
-		p.processSubUnitsConcurrent(task, handle, payload, localShardSet)
+		p.processSubUnitsConcurrent(task, handle, payload, localShardSet, processingDelay)
 		return
 	}
 
@@ -296,13 +296,8 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 	}
 }
 
-func (p *ShardNoopProvider) processSubUnitsConcurrent(task *Task, handle *shardNoopTaskHandle, payload ShardNoopProviderPayload, localShardSet map[string]bool) {
+func (p *ShardNoopProvider) processSubUnitsConcurrent(task *Task, handle *shardNoopTaskHandle, payload ShardNoopProviderPayload, localShardSet map[string]bool, processingDelay time.Duration) {
 	limiter := NewConcurrencyLimiter(payload.MaxConcurrency)
-
-	processingDelay := time.Duration(payload.ProcessingDelayMs) * time.Millisecond
-	if processingDelay == 0 {
-		processingDelay = 100 * time.Millisecond
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -367,7 +362,7 @@ func (p *ShardNoopProvider) shouldProcessSubUnit(suID string, su *SubUnit, paylo
 // processOneSubUnit handles a single sub-unit's lifecycle (progress, delay, complete/fail).
 func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, handle *shardNoopTaskHandle, suID string, payload ShardNoopProviderPayload, processingDelay time.Duration) {
 	p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
-		Info("shard-noop provider: processing sub-unit (concurrent)")
+		Info("shard-noop provider: processing sub-unit")
 
 	p.retryRecorderCall(handle, func() error {
 		return p.recorder.UpdateDistributedTaskSubUnitProgress(
