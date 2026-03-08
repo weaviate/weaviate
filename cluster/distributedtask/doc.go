@@ -183,4 +183,29 @@
 //     sub-unit IDs if using sub-unit tracking (nil for legacy mode).
 //
 // See [ShardNoopProvider] for a complete working example used by acceptance tests.
+//
+// # Provider idempotency contract
+//
+// After a node crash, the [Scheduler] re-launches tasks that still have non-terminal
+// sub-units. The [Provider] MUST handle re-invocation idempotently:
+//
+//   - Sub-units in IN_PROGRESS state will be re-delivered to the same node that claimed
+//     them. The provider must detect partially-completed work (e.g. via sentinel files)
+//     and either resume or restart the sub-unit safely.
+//
+//   - Sub-units in PENDING state (unclaimed) may be delivered to any node. The provider
+//     must tolerate being asked to process a sub-unit that another node is also attempting
+//     to claim — only one node's first progress update will succeed. Providers that use
+//     per-replica assignment (SubUnitToNode metadata) avoid this race entirely, since each
+//     sub-unit is deterministically assigned to exactly one node at creation time.
+//
+//   - The framework does NOT re-assign sub-units claimed by a crashed node to other nodes.
+//     The crashed node must eventually restart for its IN_PROGRESS sub-units to complete.
+//     If a node is permanently lost, the task must be cancelled manually.
+//
+// Typical idempotency patterns:
+//
+//   - Check for a completion sentinel file before starting work
+//   - Use atomic file operations (write-to-temp + rename) for crash safety
+//   - Store progress checkpoints that allow resuming from the last known good state
 package distributedtask
