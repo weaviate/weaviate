@@ -14,7 +14,6 @@ package rest
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -58,36 +57,51 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 		})
 	}))
 
-	// POST /debug/distributed-tasks/add?id=<taskID>&sub_units=su-1,su-2&fail_sub_unit=su-2&collection=MyClass
+	// POST /debug/distributed-tasks/add — JSON body with task configuration.
 	http.HandleFunc("/debug/distributed-tasks/add", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
-		taskID := r.URL.Query().Get("id")
-		if taskID == "" {
-			http.Error(w, `{"error":"missing id parameter"}`, http.StatusBadRequest)
+		var req struct {
+			ID                string            `json:"id"`
+			SubUnits          []string          `json:"subUnits,omitempty"`
+			FailSubUnit       string            `json:"failSubUnit,omitempty"`
+			Collection        string            `json:"collection,omitempty"`
+			SubUnitToShard    map[string]string `json:"subUnitToShard,omitempty"`
+			SubUnitToNode     map[string]string `json:"subUnitToNode,omitempty"`
+			SlowSubUnit       string            `json:"slowSubUnit,omitempty"`
+			SlowDelayMs       int               `json:"slowDelayMs,omitempty"`
+			ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
 			return
 		}
 
-		subUnitsParam := r.URL.Query().Get("sub_units")
-		var subUnitIDs []string
-		if subUnitsParam != "" {
-			subUnitIDs = strings.Split(subUnitsParam, ",")
+		if req.ID == "" {
+			http.Error(w, `{"error":"missing id field"}`, http.StatusBadRequest)
+			return
 		}
 
 		payload := distributedtask.ShardNoopProviderPayload{
-			FailSubUnitID: r.URL.Query().Get("fail_sub_unit"),
-			Collection:    r.URL.Query().Get("collection"),
+			FailSubUnitID:      req.FailSubUnit,
+			Collection:         req.Collection,
+			SubUnitToShard:     req.SubUnitToShard,
+			SubUnitToNode:      req.SubUnitToNode,
+			SlowSubUnitID:      req.SlowSubUnit,
+			SlowSubUnitDelayMs: req.SlowDelayMs,
+			ProcessingDelayMs:  req.ProcessingDelayMs,
 		}
 
 		err := appState.ClusterService.AddDistributedTask(
 			r.Context(),
 			distributedtask.ShardNoopProviderNamespace,
-			taskID,
+			req.ID,
 			payload,
-			subUnitIDs,
+			req.SubUnits,
 		)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")

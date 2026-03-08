@@ -402,6 +402,187 @@ func TestShardNoopProvider_OnTaskCompleted(t *testing.T) {
 	assert.True(t, provider.IsTaskCompleted(task.TaskDescriptor))
 }
 
+func TestShardNoopProvider_PerReplicaSubUnits_OnlyProcessesLocalShards(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	recorder := newMockRecorder()
+
+	lister := &mockShardLister{
+		shards: map[string][]string{
+			"MyClass": {"s1", "s2"}, // nodeA has both s1 and s2
+		},
+	}
+
+	provider := NewShardNoopProvider("nodeA", logger, lister)
+	provider.SetCompletionRecorder(recorder)
+
+	payload, _ := json.Marshal(ShardNoopProviderPayload{
+		Collection: "MyClass",
+		SubUnitToShard: map[string]string{
+			"s1__nodeA": "s1",
+			"s1__nodeB": "s1", // same shard, but belongs to nodeB
+			"s2__nodeA": "s2",
+			"s2__nodeC": "s2", // belongs to nodeC
+		},
+		SubUnitToNode: map[string]string{
+			"s1__nodeA": "nodeA",
+			"s1__nodeB": "nodeB",
+			"s2__nodeA": "nodeA",
+			"s2__nodeC": "nodeC",
+		},
+		ProcessingDelayMs: 10,
+	})
+	task := &Task{
+		TaskDescriptor: TaskDescriptor{ID: "test-per-replica", Version: 1},
+		Namespace:      ShardNoopProviderNamespace,
+		Status:         TaskStatusStarted,
+		Payload:        payload,
+		SubUnits: map[string]*SubUnit{
+			"s1__nodeA": {Status: SubUnitStatusPending},
+			"s1__nodeB": {Status: SubUnitStatusPending},
+			"s2__nodeA": {Status: SubUnitStatusPending},
+			"s2__nodeC": {Status: SubUnitStatusPending},
+		},
+	}
+
+	handle, err := provider.StartTask(task)
+	require.NoError(t, err)
+	defer handle.Terminate()
+
+	// Only s1__nodeA and s2__nodeA should be processed (nodeA's sub-units per SubUnitToNode).
+	// s1__nodeB and s2__nodeC belong to other nodes.
+	require.Eventually(t, func() bool {
+		return len(recorder.getCompleted()) == 2
+	}, 5*time.Second, 50*time.Millisecond)
+
+	completed := recorder.getCompleted()
+	assert.ElementsMatch(t, []string{"s1__nodeA", "s2__nodeA"}, completed)
+}
+
+func TestShardNoopProvider_PerReplicaSubUnits_UnknownSubUnitSkipped(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	recorder := newMockRecorder()
+
+	lister := &mockShardLister{
+		shards: map[string][]string{
+			"MyClass": {"s1"},
+		},
+	}
+
+	provider := NewShardNoopProvider("nodeA", logger, lister)
+	provider.SetCompletionRecorder(recorder)
+
+	payload, _ := json.Marshal(ShardNoopProviderPayload{
+		Collection: "MyClass",
+		SubUnitToShard: map[string]string{
+			"s1__nodeA":     "s1",
+			"s1__otherNode": "s1",
+			// "unknown" is not in the mapping → skipped
+		},
+		SubUnitToNode: map[string]string{
+			"s1__nodeA":     "nodeA",
+			"s1__otherNode": "otherNode",
+		},
+		ProcessingDelayMs: 10,
+	})
+	task := &Task{
+		TaskDescriptor: TaskDescriptor{ID: "test-unknown-su", Version: 1},
+		Namespace:      ShardNoopProviderNamespace,
+		Status:         TaskStatusStarted,
+		Payload:        payload,
+		SubUnits: map[string]*SubUnit{
+			"s1__nodeA":     {Status: SubUnitStatusPending},
+			"unknown":       {Status: SubUnitStatusPending}, // not in SubUnitToShard
+			"s1__otherNode": {Status: SubUnitStatusPending}, // in mapping but wrong node
+		},
+	}
+
+	handle, err := provider.StartTask(task)
+	require.NoError(t, err)
+	defer handle.Terminate()
+
+	require.Eventually(t, func() bool {
+		return len(recorder.getCompleted()) == 1
+	}, 5*time.Second, 50*time.Millisecond)
+
+	completed := recorder.getCompleted()
+	assert.ElementsMatch(t, []string{"s1__nodeA"}, completed)
+}
+
+func TestShardNoopProvider_SlowSubUnit(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	recorder := newMockRecorder()
+
+	provider := NewShardNoopProvider("node1", logger, nil)
+	provider.SetCompletionRecorder(recorder)
+
+	payload, _ := json.Marshal(ShardNoopProviderPayload{
+		SlowSubUnitID:      "su-slow",
+		SlowSubUnitDelayMs: 500,
+		ProcessingDelayMs:  10,
+	})
+	task := &Task{
+		TaskDescriptor: TaskDescriptor{ID: "test-slow", Version: 1},
+		Namespace:      ShardNoopProviderNamespace,
+		Status:         TaskStatusStarted,
+		Payload:        payload,
+		SubUnits: map[string]*SubUnit{
+			"su-fast": {Status: SubUnitStatusPending},
+			"su-slow": {Status: SubUnitStatusPending},
+		},
+	}
+
+	start := time.Now()
+	handle, err := provider.StartTask(task)
+	require.NoError(t, err)
+	defer handle.Terminate()
+
+	require.Eventually(t, func() bool {
+		return len(recorder.getCompleted()) == 2
+	}, 5*time.Second, 50*time.Millisecond)
+
+	elapsed := time.Since(start)
+	assert.Greater(t, elapsed, 400*time.Millisecond, "slow sub-unit delay should be applied")
+
+	completed := recorder.getCompleted()
+	assert.ElementsMatch(t, []string{"su-fast", "su-slow"}, completed)
+}
+
+func TestShardNoopProvider_ProcessingDelayOverride(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	recorder := newMockRecorder()
+
+	provider := NewShardNoopProvider("node1", logger, nil)
+	provider.SetCompletionRecorder(recorder)
+
+	payload, _ := json.Marshal(ShardNoopProviderPayload{
+		ProcessingDelayMs: 10, // fast override
+	})
+	task := &Task{
+		TaskDescriptor: TaskDescriptor{ID: "test-fast-delay", Version: 1},
+		Namespace:      ShardNoopProviderNamespace,
+		Status:         TaskStatusStarted,
+		Payload:        payload,
+		SubUnits: map[string]*SubUnit{
+			"su-1": {Status: SubUnitStatusPending},
+			"su-2": {Status: SubUnitStatusPending},
+			"su-3": {Status: SubUnitStatusPending},
+		},
+	}
+
+	start := time.Now()
+	handle, err := provider.StartTask(task)
+	require.NoError(t, err)
+	defer handle.Terminate()
+
+	require.Eventually(t, func() bool {
+		return len(recorder.getCompleted()) == 3
+	}, 5*time.Second, 50*time.Millisecond)
+
+	elapsed := time.Since(start)
+	// With 10ms delay per sub-unit, should be much faster than default 100ms * 3 = 300ms
+	assert.Less(t, elapsed, 200*time.Millisecond, "processing should use fast delay override")
+}
+
 func TestShardNoopProvider_TaskLifecycle(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	provider := NewShardNoopProvider("node1", logger, nil)

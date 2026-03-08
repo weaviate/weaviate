@@ -37,9 +37,20 @@ type ShardLister interface {
 // [ShardNoopProvider]. When Collection is set and a [ShardLister] is available,
 // the provider uses real shard placement for sub-unit ownership instead of the
 // synthetic NodeID-based assignment.
+//
+// SubUnitToShard maps sub-unit IDs to shard names, allowing multiple sub-units
+// per shard (one per replica). SubUnitToNode maps sub-unit IDs to the node that
+// should process them, providing deterministic ownership when RF > 1 (where
+// multiple nodes have the same shard locally). Both maps are required when
+// Collection is set.
 type ShardNoopProviderPayload struct {
-	FailSubUnitID string `json:"failSubUnitId,omitempty"`
-	Collection    string `json:"collection,omitempty"`
+	FailSubUnitID      string            `json:"failSubUnitId,omitempty"`
+	Collection         string            `json:"collection,omitempty"`
+	SubUnitToShard     map[string]string `json:"subUnitToShard,omitempty"`
+	SubUnitToNode      map[string]string `json:"subUnitToNode,omitempty"`
+	SlowSubUnitID      string            `json:"slowSubUnitId,omitempty"`
+	SlowSubUnitDelayMs int               `json:"slowSubUnitDelayMs,omitempty"`
+	ProcessingDelayMs  int               `json:"processingDelayMs,omitempty"`
 }
 
 // ShardNoopProvider is a test-only [SubUnitAwareProvider] used by acceptance tests to exercise
@@ -162,6 +173,18 @@ func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
 	p.completedTasksMu.Lock()
 	defer p.completedTasksMu.Unlock()
 	p.completedTasks[task.TaskDescriptor] = true
+
+	// Write completion marker file
+	dir := filepath.Join("/tmp/dtm-complete", task.ID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		p.logger.WithError(err).Error("shard-noop provider: failed to create completion marker dir")
+	} else {
+		path := filepath.Join(dir, fmt.Sprintf("done-%s", p.nodeID))
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("completed by %s, status=%s", p.nodeID, task.Status)), 0o644); err != nil {
+			p.logger.WithError(err).Error("shard-noop provider: failed to write completion marker")
+		}
+	}
+
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
 		Info("shard-noop provider: OnTaskCompleted fired")
 }
@@ -179,8 +202,6 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 	}
 
 	// Build a local shard set when a collection is specified and a ShardLister is available.
-	// In this mode, sub-unit ownership is determined by whether the shard is local to this node,
-	// rather than by SubUnit.NodeID.
 	var localShardSet map[string]bool
 	if payload.Collection != "" && p.shardLister != nil {
 		// Retry GetLocalShardNames with backoff — shards may not be loaded yet on this node
@@ -209,6 +230,12 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 		}
 	}
 
+	// Determine processing delay (default 100ms).
+	processingDelay := time.Duration(payload.ProcessingDelayMs) * time.Millisecond
+	if processingDelay == 0 {
+		processingDelay = 100 * time.Millisecond
+	}
+
 	p.logger.WithField("nodeID", p.nodeID).WithField("taskID", task.ID).
 		WithField("subUnitCount", len(task.SubUnits)).WithField("localShardSet", localShardSet).
 		Info("shard-noop provider: starting sub-unit processing")
@@ -225,8 +252,23 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 			continue
 		}
 
-		if localShardSet != nil {
-			// Collection-aware mode: only process sub-units whose IDs match local shards.
+		if localShardSet != nil && payload.SubUnitToShard != nil {
+			// Per-replica mode: use SubUnitToShard to check shard locality, and
+			// SubUnitToNode for deterministic ownership (avoids RAFT contention when
+			// multiple nodes have the same shard with RF > 1).
+			shardName, ok := payload.SubUnitToShard[suID]
+			if !ok || !localShardSet[shardName] {
+				p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
+					Debug("shard-noop provider: skipping non-local sub-unit (per-replica)")
+				continue
+			}
+			if ownerNode, ok := payload.SubUnitToNode[suID]; ok && ownerNode != p.nodeID {
+				p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
+					Debug("shard-noop provider: skipping sub-unit owned by another node")
+				continue
+			}
+		} else if localShardSet != nil {
+			// Legacy collection-aware mode: sub-unit ID = shard name.
 			if !localShardSet[suID] {
 				p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
 					Debug("shard-noop provider: skipping non-local sub-unit")
@@ -255,7 +297,20 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 			)
 		})
 
-		time.Sleep(100 * time.Millisecond)
+		// Apply slow sub-unit delay if this sub-unit is the designated slow one.
+		if payload.SlowSubUnitID == suID && payload.SlowSubUnitDelayMs > 0 {
+			select {
+			case <-handle.stopCh:
+				return
+			case <-time.After(time.Duration(payload.SlowSubUnitDelayMs) * time.Millisecond):
+			}
+		}
+
+		select {
+		case <-handle.stopCh:
+			return
+		case <-time.After(processingDelay):
+		}
 
 		if payload.FailSubUnitID == suID {
 			p.retryRecorderCall(handle, func() error {
@@ -271,6 +326,17 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID,
 			)
 		})
+
+		// Write processing marker file
+		dir := filepath.Join("/tmp/dtm-process", task.ID)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			p.logger.WithError(err).Error("shard-noop provider: failed to create processing marker dir")
+		} else {
+			path := filepath.Join(dir, suID)
+			if err := os.WriteFile(path, []byte(fmt.Sprintf("processed by %s", p.nodeID)), 0o644); err != nil {
+				p.logger.WithError(err).Error("shard-noop provider: failed to write processing marker")
+			}
+		}
 	}
 }
 
