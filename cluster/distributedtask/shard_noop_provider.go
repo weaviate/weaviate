@@ -111,14 +111,16 @@ func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
 	p.tasks = append(p.tasks, task.TaskDescriptor)
 	p.mu.Unlock()
 
-	handle := &shardNoopTaskHandle{stopCh: make(chan struct{})}
+	handle := &shardNoopTaskHandle{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 
 	if task.HasSubUnits() {
 		enterrors.GoWrapper(func() {
+			defer close(handle.doneCh)
 			p.processSubUnits(task, handle)
 		}, p.logger)
 	} else {
 		enterrors.GoWrapper(func() {
+			defer close(handle.doneCh)
 			p.processLegacyTask(task, handle)
 		}, p.logger)
 	}
@@ -181,9 +183,24 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 	// rather than by SubUnit.NodeID.
 	var localShardSet map[string]bool
 	if payload.Collection != "" && p.shardLister != nil {
-		shardNames, err := p.shardLister.GetLocalShardNames(payload.Collection)
-		if err != nil {
-			p.logger.WithError(err).Error("shard-noop provider: failed to list local shards")
+		// Retry GetLocalShardNames with backoff — shards may not be loaded yet on this node
+		// shortly after collection creation.
+		var shardNames []string
+		for attempt := 0; attempt < 10; attempt++ {
+			var err error
+			shardNames, err = p.shardLister.GetLocalShardNames(payload.Collection)
+			if err == nil {
+				break
+			}
+			p.logger.WithError(err).Warn("shard-noop provider: waiting for local shards")
+			select {
+			case <-handle.stopCh:
+				return
+			case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+			}
+		}
+		if shardNames == nil {
+			p.logger.Error("shard-noop provider: failed to list local shards after retries")
 			return
 		}
 		localShardSet = make(map[string]bool, len(shardNames))
@@ -192,6 +209,10 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 		}
 	}
 
+	p.logger.WithField("nodeID", p.nodeID).WithField("taskID", task.ID).
+		WithField("subUnitCount", len(task.SubUnits)).WithField("localShardSet", localShardSet).
+		Info("shard-noop provider: starting sub-unit processing")
+
 	for suID, su := range task.SubUnits {
 		select {
 		case <-handle.stopCh:
@@ -199,9 +220,16 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 		default:
 		}
 
+		// Skip sub-units that are already in a terminal state (from a previous run)
+		if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+			continue
+		}
+
 		if localShardSet != nil {
 			// Collection-aware mode: only process sub-units whose IDs match local shards.
 			if !localShardSet[suID] {
+				p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
+					Debug("shard-noop provider: skipping non-local sub-unit")
 				continue
 			}
 		} else {
@@ -215,25 +243,34 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 			}
 		}
 
+		p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
+			Info("shard-noop provider: processing sub-unit")
+
 		ctx := context.Background()
 
-		// Report initial progress
-		_ = p.recorder.UpdateDistributedTaskSubUnitProgress(
-			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, 0.5,
-		)
+		// Report initial progress with retry
+		p.retryRecorderCall(handle, func() error {
+			return p.recorder.UpdateDistributedTaskSubUnitProgress(
+				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, 0.5,
+			)
+		})
 
 		time.Sleep(100 * time.Millisecond)
 
 		if payload.FailSubUnitID == suID {
-			_ = p.recorder.RecordDistributedTaskSubUnitFailure(
-				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, "dummy failure",
-			)
+			p.retryRecorderCall(handle, func() error {
+				return p.recorder.RecordDistributedTaskSubUnitFailure(
+					ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, "dummy failure",
+				)
+			})
 			return // stop processing after failure
 		}
 
-		_ = p.recorder.RecordDistributedTaskSubUnitCompletion(
-			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID,
-		)
+		p.retryRecorderCall(handle, func() error {
+			return p.recorder.RecordDistributedTaskSubUnitCompletion(
+				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID,
+			)
+		})
 	}
 }
 
@@ -252,8 +289,30 @@ func (p *ShardNoopProvider) processLegacyTask(task *Task, handle *shardNoopTaskH
 type shardNoopTaskHandle struct {
 	once   sync.Once
 	stopCh chan struct{}
+	doneCh chan struct{}
 }
 
 func (h *shardNoopTaskHandle) Terminate() {
 	h.once.Do(func() { close(h.stopCh) })
+}
+
+func (h *shardNoopTaskHandle) Done() <-chan struct{} { return h.doneCh }
+
+// retryRecorderCall retries a recorder operation up to 3 times with a 500ms delay between attempts.
+// It respects the stop channel and returns early if termination is requested.
+func (p *ShardNoopProvider) retryRecorderCall(handle *shardNoopTaskHandle, fn func() error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		err := fn()
+		if err == nil {
+			return
+		}
+		p.logger.WithError(err).WithField("attempt", attempt+1).
+			Warn("shard-noop provider: recorder call failed, retrying")
+		select {
+		case <-handle.stopCh:
+			return
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	p.logger.Error("shard-noop provider: recorder call failed after all retries")
 }

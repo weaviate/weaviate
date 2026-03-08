@@ -679,6 +679,7 @@ type testTask struct {
 
 	cancelled atomic.Bool
 	cancelCh  chan struct{}
+	doneCh    chan struct{}
 
 	provider *testTaskProvider
 }
@@ -691,6 +692,7 @@ func newTestTask(task *Task, p *testTaskProvider) *testTask {
 		completeCh: make(chan struct{}),
 		failCh:     make(chan string),
 		cancelCh:   make(chan struct{}),
+		doneCh:     make(chan struct{}),
 	}
 
 	go t.run()
@@ -699,6 +701,8 @@ func newTestTask(task *Task, p *testTaskProvider) *testTask {
 }
 
 func (t *testTask) run() {
+	defer close(t.doneCh)
+
 	t.provider.startedCh <- t
 
 	select {
@@ -726,6 +730,8 @@ func (t *testTask) Terminate() {
 		close(t.cancelCh)
 	}
 }
+
+func (t *testTask) Done() <-chan struct{} { return t.doneCh }
 
 func (t *testTask) Fail(errMsg string) {
 	t.failCh <- errMsg
@@ -1072,6 +1078,151 @@ func TestSubUnitTask_CallbacksFireExactlyOnce(t *testing.T) {
 	startedTask.Terminate()
 }
 
+func TestSubUnitTask_DeadHandleDetection(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	// Task is started — the provider goroutine picks it up
+	startedTask1 := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, "task1", startedTask1.ID)
+
+	// Simulate the provider goroutine exiting after completing some work (but not all sub-units).
+	// In real life this happens when processSubUnits returns after processing only local shards.
+	// We terminate the task to cause the goroutine to exit.
+	startedTask1.Terminate()
+	// Wait for Done() to close
+	<-startedTask1.Done()
+
+	// At this point the handle is dead but there are still pending sub-units.
+	// On next tick, the scheduler should detect the dead handle and re-launch.
+	h.advanceClock(h.schedulerTickInterval)
+
+	startedTask2 := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, "task1", startedTask2.ID)
+	startedTask2.Terminate()
+}
+
+func TestSubUnitTask_NoSpuriousRestart(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	startedTask := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, "task1", startedTask.ID)
+
+	// Tick again — the handle is still alive (goroutine is blocked on completeCh/failCh/cancelCh).
+	// The scheduler should NOT restart the task.
+	h.advanceClock(h.schedulerTickInterval)
+
+	select {
+	case task := <-provider.startedCh:
+		require.Fail(t, "task should not be restarted while handle is alive", "got task %s", task.ID)
+	case <-time.After(200 * time.Millisecond):
+		// expected — no spurious restart
+	}
+
+	startedTask.Terminate()
+}
+
+func TestSubUnitTask_ProviderErrorRecovery(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	// First launch — simulate provider goroutine exiting early (e.g. GetLocalShardNames failed)
+	startedTask1 := recvWithTimeout(t, provider.startedCh)
+	startedTask1.Terminate()
+	<-startedTask1.Done()
+
+	// Scheduler should re-launch on next tick since sub-units are still pending
+	h.advanceClock(h.schedulerTickInterval)
+
+	startedTask2 := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, "task1", startedTask2.ID)
+
+	// Now complete the sub-unit so the task finishes
+	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
+	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	startedTask2.Terminate()
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	// Task should be finished now
+	tasks := h.listManagerTasks(t)[namespace]
+	require.Len(t, tasks, 1)
+	require.Equal(t, TaskStatusFinished, tasks[0].Status)
+}
+
+func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-local", "su-remote"})
+
+	// Assign su-local to local node, su-remote to a remote node
+	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-local", 0.1)
+	updateProgress(t, h, namespace, "task1", version, "remote-node", "su-remote", 0.1)
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	startedTask := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, "task1", startedTask.ID)
+
+	// Complete local sub-unit
+	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-local")
+
+	// Remote sub-unit is still pending — task is still STARTED
+	tasks := h.listManagerTasks(t)[namespace]
+	require.Len(t, tasks, 1)
+	require.Equal(t, TaskStatusStarted, tasks[0].Status)
+
+	// Complete remote sub-unit
+	completeSubUnit(t, h, namespace, "task1", version, "remote-node", "su-remote")
+
+	// Task should now be FINISHED
+	tasks = h.listManagerTasks(t)[namespace]
+	require.Len(t, tasks, 1)
+	require.Equal(t, TaskStatusFinished, tasks[0].Status)
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	// OnSubUnitsCompleted should fire with only the local sub-unit
+	event := recvWithTimeout(t, provider.onSubUnitsCompletedCh)
+	require.ElementsMatch(t, []string{"su-local"}, event.LocalSubUnitIDs)
+
+	startedTask.Terminate()
+}
+
 func TestLegacyTask_NoSubUnits_UnchangedBehavior(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -1091,6 +1242,84 @@ func TestLegacyTask_NoSubUnits_UnchangedBehavior(t *testing.T) {
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}), version)
 	require.NoError(t, err)
+	h.advanceClock(h.schedulerTickInterval)
+
+	startedTask := recvWithTimeout(t, h.provider.startedCh)
+	require.Equal(t, taskID, startedTask.ID)
+
+	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, taskID, version)
+	startedTask.Complete()
+	recvWithTimeout(t, h.provider.completedCh)
+
+	h.advanceClock(h.schedulerTickInterval)
+	require.Zero(t, h.scheduler.totalRunningTaskCount())
+}
+
+// failingLister wraps a TasksLister and makes the first N calls fail.
+type failingLister struct {
+	delegate   TasksLister
+	failCount  int
+	callsMu    sync.Mutex
+	callsSoFar int
+}
+
+func (f *failingLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
+	f.callsMu.Lock()
+	defer f.callsMu.Unlock()
+	f.callsSoFar++
+	if f.callsSoFar <= f.failCount {
+		return nil, fmt.Errorf("simulated Raft not ready")
+	}
+	return f.delegate.ListDistributedTasks(ctx)
+}
+
+func TestScheduler_StartsEvenWhenInitialListFails(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t)
+
+	// Initialize manager first, then wrap it with a failing lister
+	h.manager = NewManager(ManagerParameters{
+		Clock:            h.clock,
+		CompletedTaskTTL: h.completedTaskTTL,
+	})
+
+	lister := &failingLister{delegate: h.manager, failCount: 1}
+
+	h.scheduler = NewScheduler(SchedulerParams{
+		CompletionRecorder: h.completionRecorder,
+		TasksLister:        lister,
+		TaskCleaner:        h.cleaner,
+		Providers:          h.registeredProviders,
+		Clock:              h.clock,
+		Logger:             h.logger,
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          h.localNodeID,
+		CompletedTaskTTL:   h.completedTaskTTL,
+		TickInterval:       h.schedulerTickInterval,
+	})
+
+	// Start should succeed even though listing fails
+	require.NoError(t, h.scheduler.Start(context.Background()))
+	defer h.scheduler.Close()
+
+	// Give goroutines time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Add a task — the scheduler loop should pick it up on the next tick
+	var (
+		taskID         = "task-after-fail"
+		version uint64 = 10
+	)
+
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), version)
+	require.NoError(t, err)
+
+	// Advance clock — tick() will list tasks successfully (failCount=1 already exhausted by Start())
 	h.advanceClock(h.schedulerTickInterval)
 
 	startedTask := recvWithTimeout(t, h.provider.startedCh)

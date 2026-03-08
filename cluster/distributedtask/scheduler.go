@@ -113,50 +113,59 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 }
 
 func (s *Scheduler) Start(ctx context.Context) error {
-	tasksByNamespace, err := s.listTasks(ctx)
-	if err != nil {
-		return fmt.Errorf("list distributed tasks: %w", err)
-	}
-
 	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 30*time.Second, s.clock)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for namespace, provider := range s.providers {
+	for _, provider := range s.providers {
 		provider.SetCompletionRecorder(throttledRecorder)
+	}
+	s.mu.Unlock()
 
-		var (
-			tasks         = tasksByNamespace[namespace]
-			startedTasks  = s.filterStartedTasks(tasks)
-			localTaskDesc = provider.GetLocalTasks()
-		)
-		for _, taskDesc := range localTaskDesc {
-			if _, ok := startedTasks[taskDesc]; ok {
-				continue
+	// Attempt an initial task listing to bootstrap running tasks. If it fails
+	// (e.g. Raft not ready yet), log and continue — tick() will pick tasks up
+	// once the cluster is ready.
+	tasksByNamespace, err := s.listTasks(ctx)
+	if err != nil {
+		s.logger.WithError(err).Warn("initial distributed task listing failed, scheduler will retry on next tick")
+	} else {
+		s.mu.Lock()
+		for namespace, provider := range s.providers {
+			var (
+				tasks         = tasksByNamespace[namespace]
+				startedTasks  = s.filterStartedTasks(tasks)
+				localTaskDesc = provider.GetLocalTasks()
+			)
+			for _, taskDesc := range localTaskDesc {
+				if _, ok := startedTasks[taskDesc]; ok {
+					continue
+				}
+
+				if err = provider.CleanupTask(taskDesc); err != nil {
+					s.loggerWithTask(namespace, taskDesc).WithError(err).
+						Error("failed to clean up local distributed task state")
+					continue
+				}
+
+				s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
 			}
 
-			if err = provider.CleanupTask(taskDesc); err != nil {
-				s.loggerWithTask(namespace, taskDesc).WithError(err).
-					Error("failed to clean up local distributed task state")
-				continue
+			for desc, task := range startedTasks {
+				handle, err := provider.StartTask(task)
+				if err != nil {
+					s.loggerWithTask(namespace, desc).WithError(err).
+						Error("failed to start distributed task during bootstrap")
+					continue
+				}
+
+				s.setRunningTaskHandleWithLock(namespace, desc, handle)
+				s.loggerWithTask(namespace, desc).Info("started distributed task execution")
 			}
 
-			s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
+			s.tasksRunning.
+				WithLabelValues(namespace).
+				Set(float64(len(startedTasks)))
 		}
-
-		for desc, task := range startedTasks {
-			handle, err := provider.StartTask(task)
-			if err != nil {
-				return fmt.Errorf("provider %s start task %v: %w", namespace, desc, err)
-			}
-
-			s.setRunningTaskHandleWithLock(namespace, desc, handle)
-			s.loggerWithTask(namespace, desc).Info("started distributed task execution")
-		}
-
-		s.tasksRunning.
-			WithLabelValues(namespace).
-			Set(float64(len(startedTasks)))
+		s.mu.Unlock()
 	}
 
 	enterrors.GoWrapper(s.loop, s.logger)
@@ -219,6 +228,16 @@ func (s *Scheduler) tick() {
 
 	for namespace, provider := range s.providers {
 		tasks := tasksByNamespace[namespace]
+
+		// Remove dead handles so tasks can be re-launched if they still have pending work.
+		// A handle is "dead" when its goroutine has exited (Done() channel is closed).
+		for desc, taskHandle := range s.runningTasks[namespace] {
+			select {
+			case <-taskHandle.Done():
+				delete(s.runningTasks[namespace], desc)
+			default:
+			}
+		}
 
 		// Check that all tasks that are supposed to be running
 		// and launch if they aren't.

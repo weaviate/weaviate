@@ -43,6 +43,11 @@ type TaskHandle interface {
 	//
 	// Terminated task can be started later again, therefore, no local state can be removed.
 	Terminate()
+
+	// Done returns a channel that is closed when the task's goroutine exits, whether due to
+	// completion, failure, or termination. The scheduler uses this to detect dead handles
+	// and allow re-launch of tasks that still have pending work.
+	Done() <-chan struct{}
 }
 
 // Provider is an interface for the management and execution of a group of tasks denoted by a namespace.

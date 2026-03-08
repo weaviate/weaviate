@@ -109,14 +109,9 @@ func TestSubUnitTask_PerShardFinalize_MoreSubUnitsThanNodes(t *testing.T) {
 	addTask(t, debugURI1, taskID, "sub_units="+strings.Join(subUnits, ","))
 	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FINISHED")
 
-	// Verify all 6 sub-units have finalization marker files across the cluster
-	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
-	sort.Strings(allFinalized)
-	sort.Strings(subUnits)
-	assert.Equal(t, subUnits, allFinalized, "all sub-units should be finalized across the cluster")
-
-	// Verify OnTaskCompleted fired on at least one node via debug status endpoint
-	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+	// Wait for callbacks to fire (scheduler tick interval is 1s)
+	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnits)
+	awaitTaskCompletedOnAnyNode(t, compose, taskID)
 }
 
 func TestSubUnitTask_PerShardFinalize_FewerSubUnitsThanNodes(t *testing.T) {
@@ -132,13 +127,9 @@ func TestSubUnitTask_PerShardFinalize_FewerSubUnitsThanNodes(t *testing.T) {
 	addTask(t, debugURI1, taskID, "sub_units="+strings.Join(subUnits, ","))
 	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FINISHED")
 
-	// Only 2 marker files should exist across the entire cluster
-	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
-	sort.Strings(allFinalized)
-	sort.Strings(subUnits)
-	assert.Equal(t, subUnits, allFinalized, "exactly 2 sub-units should be finalized")
-
-	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+	// Wait for callbacks to fire (scheduler tick interval is 1s)
+	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnits)
+	awaitTaskCompletedOnAnyNode(t, compose, taskID)
 }
 
 func TestSubUnitTask_PerShardFinalize_OneSubUnit(t *testing.T) {
@@ -153,11 +144,9 @@ func TestSubUnitTask_PerShardFinalize_OneSubUnit(t *testing.T) {
 	addTask(t, debugURI1, taskID, "sub_units=su-only")
 	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FINISHED")
 
-	// Exactly 1 marker file should exist across the cluster
-	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
-	assert.Equal(t, []string{"su-only"}, allFinalized, "exactly 1 sub-unit should be finalized")
-
-	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+	// Wait for callbacks to fire (scheduler tick interval is 1s)
+	awaitFinalizedSubUnits(t, ctx, compose, taskID, []string{"su-only"})
+	awaitTaskCompletedOnAnyNode(t, compose, taskID)
 }
 
 func TestSubUnitTask_PerShardFinalize_OnFailure(t *testing.T) {
@@ -175,15 +164,176 @@ func TestSubUnitTask_PerShardFinalize_OnFailure(t *testing.T) {
 	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FAILED")
 
 	// Wait for callbacks to fire (scheduler tick interval is 1s)
-	time.Sleep(3 * time.Second)
+	awaitFinalizedSubUnits(t, ctx, compose, taskID, []string{"su-1"})
+	awaitTaskCompletedOnAnyNode(t, compose, taskID)
+}
 
-	// OnSubUnitsCompleted should still fire on failure — the sub-unit was claimed
-	// (progress was reported at 50%) before it failed, so it has a NodeID.
-	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
-	assert.Equal(t, []string{"su-1"}, allFinalized, "OnSubUnitsCompleted should fire even on failure")
+func TestSubUnitTask_RealCollection_RF1(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	// OnTaskCompleted should fire on failure too
-	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	defer cleanup()
+
+	restURI := compose.GetWeaviate().URI()
+	className := "DTMTestRF1"
+	createCollection(t, restURI, className, 3, 1)
+
+	shardNames := getShardNames(t, restURI, className, 3)
+	t.Logf("shard names: %v", shardNames)
+
+	taskID := "real-collection-rf1"
+	debugURI1 := compose.GetWeaviate().DebugURI()
+	addTask(t, debugURI1, taskID, "sub_units="+strings.Join(shardNames, ",")+"&collection="+className)
+
+	if !awaitTaskStatusOK(t, restURI, taskID, "FINISHED") {
+		dumpTaskAndLogs(t, ctx, compose, restURI, taskID)
+		t.FailNow()
+	}
+
+	task := findTask(t, restURI, taskID)
+	assert.Equal(t, "FINISHED", task.Status)
+	require.NotNil(t, task.SubUnits)
+	assert.Len(t, task.SubUnits, 3)
+
+	for _, su := range task.SubUnits {
+		assert.Equal(t, "COMPLETED", su.Status, "sub-unit %s should be completed", su.ID)
+	}
+
+	// Verify finalization marker files exist across the cluster
+	awaitFinalizedSubUnits(t, ctx, compose, taskID, shardNames)
+}
+
+func TestSubUnitTask_RealCollection_RF2(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	defer cleanup()
+
+	restURI := compose.GetWeaviate().URI()
+	className := "DTMTestRF2"
+	createCollection(t, restURI, className, 3, 2)
+
+	shardNames := getShardNames(t, restURI, className, 3)
+	t.Logf("shard names: %v", shardNames)
+
+	taskID := "real-collection-rf2"
+	debugURI1 := compose.GetWeaviate().DebugURI()
+	addTask(t, debugURI1, taskID, "sub_units="+strings.Join(shardNames, ",")+"&collection="+className)
+	awaitTaskStatus(t, restURI, taskID, "FINISHED")
+
+	task := findTask(t, restURI, taskID)
+	assert.Equal(t, "FINISHED", task.Status)
+	require.NotNil(t, task.SubUnits)
+	assert.Len(t, task.SubUnits, 3)
+
+	for _, su := range task.SubUnits {
+		assert.Equal(t, "COMPLETED", su.Status, "sub-unit %s should be completed", su.ID)
+	}
+}
+
+func TestSubUnitTask_RealCollection_RF1_Failure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	defer cleanup()
+
+	restURI := compose.GetWeaviate().URI()
+	className := "DTMTestRF1Fail"
+	createCollection(t, restURI, className, 3, 1)
+
+	shardNames := getShardNames(t, restURI, className, 3)
+	t.Logf("shard names: %v", shardNames)
+
+	failShard := shardNames[0]
+	taskID := "real-collection-rf1-failure"
+	debugURI1 := compose.GetWeaviate().DebugURI()
+	addTask(t, debugURI1, taskID, "sub_units="+strings.Join(shardNames, ",")+"&collection="+className+"&fail_sub_unit="+failShard)
+	awaitTaskStatus(t, restURI, taskID, "FAILED")
+
+	task := findTask(t, restURI, taskID)
+	assert.Equal(t, "FAILED", task.Status)
+	assert.Contains(t, task.Error, "dummy failure")
+
+	// Verify callbacks fired
+	awaitTaskCompletedOnAnyNode(t, compose, taskID)
+}
+
+// createCollection creates a class with the given shard count and replication factor via the REST API.
+func createCollection(t *testing.T, restURI, className string, shardCount, rf int) {
+	t.Helper()
+
+	body := fmt.Sprintf(`{
+		"class": %q,
+		"vectorizer": "none",
+		"shardingConfig": {"desiredCount": %d},
+		"replicationConfig": {"factor": %d}
+	}`, className, shardCount, rf)
+
+	resp, err := http.Post(
+		fmt.Sprintf("http://%s/v1/schema", restURI),
+		"application/json",
+		strings.NewReader(body),
+	)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "create class failed: %s", string(respBody))
+}
+
+// getShardNames retrieves shard names for a collection by querying the /v1/nodes endpoint.
+func getShardNames(t *testing.T, restURI, className string, expectedCount int) []string {
+	t.Helper()
+
+	var shardNames []string
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+
+		var nodesResp struct {
+			Nodes []struct {
+				Shards []struct {
+					Class string `json:"class"`
+					Name  string `json:"name"`
+				} `json:"shards"`
+			} `json:"nodes"`
+		}
+		if err := json.Unmarshal(body, &nodesResp); err != nil {
+			return false
+		}
+
+		seen := map[string]bool{}
+		for _, node := range nodesResp.Nodes {
+			for _, shard := range node.Shards {
+				if shard.Class == className {
+					seen[shard.Name] = true
+				}
+			}
+		}
+
+		if len(seen) >= expectedCount {
+			shardNames = make([]string, 0, len(seen))
+			for name := range seen {
+				shardNames = append(shardNames, name)
+			}
+			sort.Strings(shardNames)
+			return true
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond, "expected %d shards for %s", expectedCount, className)
+
+	return shardNames
 }
 
 // startDTMCluster spins up a single-node Weaviate with DTM and the shard-noop provider enabled.
@@ -214,6 +364,7 @@ func start3NodeDTMCluster(ctx context.Context, t *testing.T) (*docker.DockerComp
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("SHARD_NOOP_PROVIDER_ENABLED", "true").
+		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
 		Start(ctx)
 	require.NoError(t, err)
 
@@ -249,6 +400,45 @@ func awaitTaskStatus(t *testing.T, restURI, taskID, expectedStatus string) {
 		}
 		return false
 	}, 30*time.Second, 500*time.Millisecond, "task %s should reach %s status", taskID, expectedStatus)
+}
+
+// awaitTaskStatusOK is like awaitTaskStatus but returns false instead of failing the test.
+func awaitTaskStatusOK(t *testing.T, restURI, taskID, expectedStatus string) bool {
+	t.Helper()
+
+	return assert.Eventually(t, func() bool {
+		tasks := listTasks(t, restURI)
+		for _, task := range tasks["shard-noop"] {
+			if task.ID == taskID && task.Status == expectedStatus {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond, "task %s should reach %s status", taskID, expectedStatus)
+}
+
+// dumpTaskAndLogs prints the task state and relevant container logs for debugging.
+func dumpTaskAndLogs(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI, taskID string) {
+	t.Helper()
+
+	task := findTask(t, restURI, taskID)
+	taskJSON, _ := json.MarshalIndent(task, "", "  ")
+	t.Logf("task state on failure:\n%s", taskJSON)
+
+	for i := 1; i <= 3; i++ {
+		logs, err := compose.GetWeaviateNode(i).Container().Logs(ctx)
+		if err != nil {
+			t.Logf("node%d: failed to get logs: %v", i, err)
+			continue
+		}
+		buf, _ := io.ReadAll(logs)
+		logs.Close()
+		for _, line := range strings.Split(string(buf), "\n") {
+			if strings.Contains(line, "shard-noop") || strings.Contains(line, "distributed") {
+				t.Logf("node%d: %s", i, line)
+			}
+		}
+	}
 }
 
 // findTask retrieves a specific task by ID from the REST API.
@@ -340,18 +530,30 @@ func getDebugStatus(t *testing.T, debugURI, taskID string) debugStatus {
 	return status
 }
 
-// verifyTaskCompletedOnAnyNode checks that OnTaskCompleted fired on at least one node.
-func verifyTaskCompletedOnAnyNode(t *testing.T, compose *docker.DockerCompose, taskID string) {
+// awaitFinalizedSubUnits polls until the expected finalized sub-unit marker files appear across the cluster.
+func awaitFinalizedSubUnits(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string) {
 	t.Helper()
 
-	var anyCompleted bool
-	for i := 1; i <= 3; i++ {
-		node := compose.GetWeaviateNode(i)
-		status := getDebugStatus(t, node.DebugURI(), taskID)
-		if status.TaskCompleted {
-			anyCompleted = true
-			break
+	sort.Strings(expected)
+	require.Eventually(t, func() bool {
+		all := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
+		sort.Strings(all)
+		return fmt.Sprintf("%v", all) == fmt.Sprintf("%v", expected)
+	}, 15*time.Second, 500*time.Millisecond, "expected finalized sub-units %v", expected)
+}
+
+// awaitTaskCompletedOnAnyNode polls until OnTaskCompleted has fired on at least one node.
+func awaitTaskCompletedOnAnyNode(t *testing.T, compose *docker.DockerCompose, taskID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		for i := 1; i <= 3; i++ {
+			node := compose.GetWeaviateNode(i)
+			status := getDebugStatus(t, node.DebugURI(), taskID)
+			if status.TaskCompleted {
+				return true
+			}
 		}
-	}
-	assert.True(t, anyCompleted, "OnTaskCompleted should fire on at least one node")
+		return false
+	}, 15*time.Second, 500*time.Millisecond, "OnTaskCompleted should fire on at least one node")
 }
