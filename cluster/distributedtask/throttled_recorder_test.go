@@ -21,10 +21,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestThrottledRecorder_ProgressWithinInterval_NotForwarded(t *testing.T) {
+func newTestThrottledRecorder(t *testing.T) (*ThrottledRecorder, *clockwork.FakeClock, *MockTaskCompletionRecorder) {
 	clock := clockwork.NewFakeClock()
 	inner := NewMockTaskCompletionRecorder(t)
-	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+	return NewThrottledRecorder(inner, 30*time.Second, clock), clock, inner
+}
+
+func TestThrottledRecorder_ProgressWithinInterval_NotForwarded(t *testing.T) {
+	recorder, clock, inner := newTestThrottledRecorder(t)
 
 	inner.EXPECT().UpdateDistributedTaskSubUnitProgress(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.1),
@@ -41,9 +45,7 @@ func TestThrottledRecorder_ProgressWithinInterval_NotForwarded(t *testing.T) {
 }
 
 func TestThrottledRecorder_ProgressAfterInterval_Forwarded(t *testing.T) {
-	clock := clockwork.NewFakeClock()
-	inner := NewMockTaskCompletionRecorder(t)
-	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+	recorder, clock, inner := newTestThrottledRecorder(t)
 
 	inner.EXPECT().UpdateDistributedTaskSubUnitProgress(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.1),
@@ -63,9 +65,7 @@ func TestThrottledRecorder_ProgressAfterInterval_Forwarded(t *testing.T) {
 }
 
 func TestThrottledRecorder_CompletionNeverThrottled(t *testing.T) {
-	clock := clockwork.NewFakeClock()
-	inner := NewMockTaskCompletionRecorder(t)
-	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+	recorder, _, inner := newTestThrottledRecorder(t)
 
 	inner.EXPECT().RecordDistributedTaskSubUnitCompletion(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1",
@@ -97,9 +97,7 @@ func TestThrottledRecorder_CompletionNeverThrottled(t *testing.T) {
 }
 
 func TestThrottledRecorder_CompletionCleansUpThrottleEntry(t *testing.T) {
-	clock := clockwork.NewFakeClock()
-	inner := NewMockTaskCompletionRecorder(t)
-	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+	recorder, _, inner := newTestThrottledRecorder(t)
 
 	// First progress call goes through
 	inner.EXPECT().UpdateDistributedTaskSubUnitProgress(
@@ -126,9 +124,7 @@ func TestThrottledRecorder_CompletionCleansUpThrottleEntry(t *testing.T) {
 }
 
 func TestThrottledRecorder_FailureCleansUpThrottleEntry(t *testing.T) {
-	clock := clockwork.NewFakeClock()
-	inner := NewMockTaskCompletionRecorder(t)
-	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+	recorder, _, inner := newTestThrottledRecorder(t)
 
 	// First progress call goes through
 	inner.EXPECT().UpdateDistributedTaskSubUnitProgress(
@@ -152,9 +148,7 @@ func TestThrottledRecorder_FailureCleansUpThrottleEntry(t *testing.T) {
 }
 
 func TestThrottledRecorder_DifferentSubUnitsTrackedIndependently(t *testing.T) {
-	clock := clockwork.NewFakeClock()
-	inner := NewMockTaskCompletionRecorder(t)
-	recorder := NewThrottledRecorder(inner, 30*time.Second, clock)
+	recorder, clock, inner := newTestThrottledRecorder(t)
 
 	inner.EXPECT().UpdateDistributedTaskSubUnitProgress(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.1),
