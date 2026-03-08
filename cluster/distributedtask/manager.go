@@ -131,6 +131,35 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	return nil
 }
 
+// findStartedSubUnitWithLock validates that the task exists, is running, has sub-units, the sub-unit
+// exists, and is owned by (or unassigned to) the given node. Returns the task and sub-unit on success.
+func (m *Manager) findStartedSubUnitWithLock(namespace, taskID string, version uint64, subUnitID, nodeID string) (*Task, *SubUnit, error) {
+	task, err := m.findVersionedTaskWithLock(namespace, taskID, version)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if task.Status != TaskStatusStarted {
+		return nil, nil, fmt.Errorf("task %s/%s/%d is no longer running", namespace, taskID, task.Version)
+	}
+
+	if !task.HasSubUnits() {
+		return nil, nil, fmt.Errorf("task %s/%s/%d does not have sub-units", namespace, taskID, task.Version)
+	}
+
+	su, ok := task.SubUnits[subUnitID]
+	if !ok {
+		return nil, nil, fmt.Errorf("sub-unit %s does not exist in task %s/%s/%d", subUnitID, namespace, taskID, task.Version)
+	}
+
+	if su.NodeID != "" && su.NodeID != nodeID {
+		return nil, nil, fmt.Errorf("sub-unit %s in task %s/%s/%d belongs to node %s, not %s",
+			subUnitID, namespace, taskID, task.Version, su.NodeID, nodeID)
+	}
+
+	return task, su, nil
+}
+
 // RecordSubUnitCompletion handles both success and failure (distinguished by a non-empty error
 // field in the request). On failure, the task transitions to FAILED immediately — remaining
 // in-flight sub-units are NOT waited for, and their subsequent completion reports will be
@@ -145,31 +174,13 @@ func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	task, su, err := m.findStartedSubUnitWithLock(r.Namespace, r.Id, r.Version, r.SubUnitId, r.NodeId)
 	if err != nil {
 		return err
 	}
 
-	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
-	}
-
-	if !task.HasSubUnits() {
-		return fmt.Errorf("task %s/%s/%d does not have sub-units", r.Namespace, r.Id, task.Version)
-	}
-
-	su, ok := task.SubUnits[r.SubUnitId]
-	if !ok {
-		return fmt.Errorf("sub-unit %s does not exist in task %s/%s/%d", r.SubUnitId, r.Namespace, r.Id, task.Version)
-	}
-
 	if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
 		return fmt.Errorf("sub-unit %s in task %s/%s/%d is already terminal", r.SubUnitId, r.Namespace, r.Id, task.Version)
-	}
-
-	if su.NodeID != "" && su.NodeID != r.NodeId {
-		return fmt.Errorf("sub-unit %s in task %s/%s/%d belongs to node %s, not %s",
-			r.SubUnitId, r.Namespace, r.Id, task.Version, su.NodeID, r.NodeId)
 	}
 
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
@@ -213,31 +224,13 @@ func (m *Manager) UpdateSubUnitProgress(c *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	_, su, err := m.findStartedSubUnitWithLock(r.Namespace, r.Id, r.Version, r.SubUnitId, r.NodeId)
 	if err != nil {
 		return err
 	}
 
-	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
-	}
-
-	if !task.HasSubUnits() {
-		return fmt.Errorf("task %s/%s/%d does not have sub-units", r.Namespace, r.Id, task.Version)
-	}
-
-	su, ok := task.SubUnits[r.SubUnitId]
-	if !ok {
-		return fmt.Errorf("sub-unit %s does not exist in task %s/%s/%d", r.SubUnitId, r.Namespace, r.Id, task.Version)
-	}
-
 	if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
 		return nil // silently ignore progress updates for terminal sub-units
-	}
-
-	if su.NodeID != "" && su.NodeID != r.NodeId {
-		return fmt.Errorf("sub-unit %s in task %s/%s/%d belongs to node %s, not %s",
-			r.SubUnitId, r.Namespace, r.Id, task.Version, su.NodeID, r.NodeId)
 	}
 
 	if r.Progress < 0 || r.Progress > 1 {

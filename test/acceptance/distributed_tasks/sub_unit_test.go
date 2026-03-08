@@ -30,55 +30,14 @@ func TestSubUnitTaskLifecycle_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateWithDebugPort().
-		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
+	restURI, debugURI, cleanup := startDTMCluster(ctx, t)
+	defer cleanup()
 
-	restURI := compose.GetWeaviate().URI()
-	debugURI := compose.GetWeaviate().DebugURI()
-
-	// Create a task with 3 sub-units via the debug endpoint
 	taskID := "sub-unit-success-test"
-	resp, err := http.Post(
-		fmt.Sprintf("http://%s/debug/distributed-tasks/add?id=%s&sub_units=su-1,su-2,su-3", debugURI, taskID),
-		"application/json", nil,
-	)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	resp.Body.Close()
+	addTask(t, debugURI, taskID, "sub_units=su-1,su-2,su-3")
+	awaitTaskStatus(t, restURI, taskID, "FINISHED")
 
-	// Poll GET /v1/tasks until the task reaches FINISHED status
-	require.Eventually(t, func() bool {
-		tasks := listTasks(t, restURI)
-		namespaceTasks, ok := tasks["dummy-test"]
-		if !ok || len(namespaceTasks) == 0 {
-			return false
-		}
-		for _, task := range namespaceTasks {
-			if task.ID == taskID && task.Status == "FINISHED" {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 500*time.Millisecond, "task should reach FINISHED status")
-
-	// Verify sub-unit details
-	tasks := listTasks(t, restURI)
-	var task *models.DistributedTask
-	for i := range tasks["dummy-test"] {
-		if tasks["dummy-test"][i].ID == taskID {
-			task = &tasks["dummy-test"][i]
-			break
-		}
-	}
-	require.NotNil(t, task)
-
+	task := findTask(t, restURI, taskID)
 	assert.Equal(t, "FINISHED", task.Status)
 	require.NotNil(t, task.SubUnits)
 	assert.Len(t, task.SubUnits, 3)
@@ -93,60 +52,18 @@ func TestSubUnitTaskLifecycle_Failure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateWithDebugPort().
-		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
+	restURI, debugURI, cleanup := startDTMCluster(ctx, t)
+	defer cleanup()
 
-	restURI := compose.GetWeaviate().URI()
-	debugURI := compose.GetWeaviate().DebugURI()
-
-	// Create a task with 3 sub-units, one configured to fail
 	taskID := "sub-unit-failure-test"
-	resp, err := http.Post(
-		fmt.Sprintf("http://%s/debug/distributed-tasks/add?id=%s&sub_units=su-1,su-2,su-3&fail_sub_unit=su-2", debugURI, taskID),
-		"application/json", nil,
-	)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	resp.Body.Close()
+	addTask(t, debugURI, taskID, "sub_units=su-1,su-2,su-3&fail_sub_unit=su-2")
+	awaitTaskStatus(t, restURI, taskID, "FAILED")
 
-	// Poll until the task reaches FAILED status
-	require.Eventually(t, func() bool {
-		tasks := listTasks(t, restURI)
-		namespaceTasks, ok := tasks["dummy-test"]
-		if !ok || len(namespaceTasks) == 0 {
-			return false
-		}
-		for _, task := range namespaceTasks {
-			if task.ID == taskID && task.Status == "FAILED" {
-				return true
-			}
-		}
-		return false
-	}, 30*time.Second, 500*time.Millisecond, "task should reach FAILED status")
-
-	// Verify task error contains sub-unit failure info
-	tasks := listTasks(t, restURI)
-	var task *models.DistributedTask
-	for i := range tasks["dummy-test"] {
-		if tasks["dummy-test"][i].ID == taskID {
-			task = &tasks["dummy-test"][i]
-			break
-		}
-	}
-	require.NotNil(t, task)
-
+	task := findTask(t, restURI, taskID)
 	assert.Equal(t, "FAILED", task.Status)
 	assert.Contains(t, task.Error, "dummy failure")
 	require.NotNil(t, task.SubUnits)
 
-	// Find the failed sub-unit
 	var failedSU *models.DistributedTaskSubUnit
 	for _, su := range task.SubUnits {
 		if su.ID == "su-2" {
@@ -163,6 +80,22 @@ func TestLegacyTask_NoSubUnits(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	restURI, debugURI, cleanup := startDTMCluster(ctx, t)
+	defer cleanup()
+
+	taskID := "legacy-test"
+	addTask(t, debugURI, taskID, "")
+	awaitTaskStatus(t, restURI, taskID, "FINISHED")
+
+	task := findTask(t, restURI, taskID)
+	assert.Equal(t, "FINISHED", task.Status)
+	assert.Nil(t, task.SubUnits)
+}
+
+// startDTMCluster spins up a single-node Weaviate with DTM and the dummy test provider enabled.
+func startDTMCluster(ctx context.Context, t *testing.T) (restURI, debugURI string, cleanup func()) {
+	t.Helper()
+
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
@@ -171,48 +104,55 @@ func TestLegacyTask_NoSubUnits(t *testing.T) {
 		WithWeaviateEnv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
 
-	restURI := compose.GetWeaviate().URI()
-	debugURI := compose.GetWeaviate().DebugURI()
+	return compose.GetWeaviate().URI(),
+		compose.GetWeaviate().DebugURI(),
+		func() { require.NoError(t, compose.Terminate(ctx)) }
+}
 
-	// Create a legacy task (no sub-units)
-	taskID := "legacy-test"
-	resp, err := http.Post(
-		fmt.Sprintf("http://%s/debug/distributed-tasks/add?id=%s", debugURI, taskID),
-		"application/json", nil,
-	)
+// addTask creates a task via the debug endpoint. params is the query string after "id=<taskID>&"
+// (e.g. "sub_units=su-1,su-2" or "" for a legacy task).
+func addTask(t *testing.T, debugURI, taskID, params string) {
+	t.Helper()
+
+	url := fmt.Sprintf("http://%s/debug/distributed-tasks/add?id=%s", debugURI, taskID)
+	if params != "" {
+		url += "&" + params
+	}
+
+	resp, err := http.Post(url, "application/json", nil)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 	resp.Body.Close()
+}
 
-	// Poll until the task reaches FINISHED status
+// awaitTaskStatus polls GET /v1/tasks until the given task reaches the expected status.
+func awaitTaskStatus(t *testing.T, restURI, taskID, expectedStatus string) {
+	t.Helper()
+
 	require.Eventually(t, func() bool {
 		tasks := listTasks(t, restURI)
-		namespaceTasks, ok := tasks["dummy-test"]
-		if !ok || len(namespaceTasks) == 0 {
-			return false
-		}
-		for _, task := range namespaceTasks {
-			if task.ID == taskID && task.Status == "FINISHED" {
+		for _, task := range tasks["dummy-test"] {
+			if task.ID == taskID && task.Status == expectedStatus {
 				return true
 			}
 		}
 		return false
-	}, 30*time.Second, 500*time.Millisecond, "legacy task should reach FINISHED status")
+	}, 30*time.Second, 500*time.Millisecond, "task %s should reach %s status", taskID, expectedStatus)
+}
 
-	// Verify no sub-units
+// findTask retrieves a specific task by ID from the REST API.
+func findTask(t *testing.T, restURI, taskID string) *models.DistributedTask {
+	t.Helper()
+
 	tasks := listTasks(t, restURI)
-	var task *models.DistributedTask
 	for i := range tasks["dummy-test"] {
 		if tasks["dummy-test"][i].ID == taskID {
-			task = &tasks["dummy-test"][i]
-			break
+			return &tasks["dummy-test"][i]
 		}
 	}
-	require.NotNil(t, task)
-	assert.Equal(t, "FINISHED", task.Status)
-	assert.Nil(t, task.SubUnits)
+	t.Fatalf("task %s not found", taskID)
+	return nil
 }
 
 func listTasks(t *testing.T, restURI string) models.DistributedTasks {
