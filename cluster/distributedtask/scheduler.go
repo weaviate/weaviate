@@ -34,9 +34,9 @@ import (
 // 2. A task is created and added to the cluster via the Manager.AddTask.
 // 3. Scheduler regularly scans all available tasks in the cluster, picks up new ones and instructs the Provider to execute them locally.
 // 4. A task is responsible for updating its status in the cluster via TaskCompletionRecorder.
-// 6. Scheduler polls the cluster for the task status and checks if it is still running. It cancels the local task if it is not marked as STARTED anymore.
-// 7. After completed task TTL has passed, the Scheduler issues the Manager.CleanUpDistributedTask request to remove the task from the cluster list.
-// 8. After a task is removed from the cluster list, the Scheduler instructs the Provider to clean up the local task state.
+// 5. Scheduler polls the cluster for the task status and checks if it is still running. It cancels the local task if it is not marked as STARTED anymore.
+// 6. After completed task TTL has passed, the Scheduler issues the Manager.CleanUpDistributedTask request to remove the task from the cluster list.
+// 7. After a task is removed from the cluster list, the Scheduler instructs the Provider to clean up the local task state.
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
