@@ -20,9 +20,13 @@ import (
 	"github.com/jonboulle/clockwork"
 )
 
-// ThrottledRecorder wraps a TaskCompletionRecorder and throttles
-// UpdateDistributedTaskSubUnitProgress calls to at most once per interval per sub-unit.
-// Completion and failure calls are never throttled.
+// ThrottledRecorder wraps a [TaskCompletionRecorder] to prevent progress updates from
+// flooding Raft consensus. Each sub-unit's progress is forwarded at most once per interval
+// (default 30s); intermediate updates are silently dropped. Completion and failure calls
+// always pass through immediately — they are never throttled.
+//
+// Throttle entries are cleaned up when a sub-unit reaches a terminal state (completion or
+// failure), so the internal map does not grow beyond the number of active sub-units.
 type ThrottledRecorder struct {
 	inner    TaskCompletionRecorder
 	interval time.Duration
@@ -31,8 +35,6 @@ type ThrottledRecorder struct {
 	lastSent map[string]time.Time // key: "namespace/taskID/version/subUnitID"
 }
 
-// NewThrottledRecorder creates a [ThrottledRecorder] that throttles progress updates
-// to at most once per interval per sub-unit. If clock is nil, a real clock is used.
 func NewThrottledRecorder(inner TaskCompletionRecorder, interval time.Duration, clock clockwork.Clock) *ThrottledRecorder {
 	if clock == nil {
 		clock = clockwork.NewRealClock()

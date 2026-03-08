@@ -23,13 +23,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-// Handler serves distributed task queries via the REST API.
 type Handler struct {
 	authorizer  authorization.Authorizer
 	tasksLister distributedtask.TasksLister
 }
 
-// NewHandler creates a new [Handler] with the given authorizer and task lister.
 func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TasksLister) *Handler {
 	return &Handler{
 		authorizer:  authorizer,
@@ -37,7 +35,10 @@ func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.
 	}
 }
 
-// ListTasks returns all distributed tasks grouped by namespace. Requires cluster-level read authorization.
+// ListTasks converts internal [distributedtask.Task] structs into the REST API model.
+// The raw task payload (opaque bytes internally) is unmarshaled into a generic JSON map —
+// if we ever add sensitive fields to payloads, the [distributedtask.Provider] interface
+// should grow a method to redact them before they reach this layer.
 func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (models.DistributedTasks, error) {
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err

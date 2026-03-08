@@ -38,7 +38,6 @@ type ManagerParameters struct {
 	CompletedTaskTTL time.Duration
 }
 
-// NewManager creates a new [Manager] with the given parameters.
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
@@ -132,10 +131,11 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	return nil
 }
 
-// RecordSubUnitCompletion records the completion or failure of a single [SubUnit].
-// On failure (non-empty error), the task immediately transitions to [TaskStatusFailed].
-// On success, if all sub-units are terminal, the task transitions to [TaskStatusFinished]
-// (or [TaskStatusFailed] if any sub-unit failed).
+// RecordSubUnitCompletion handles both success and failure (distinguished by a non-empty error
+// field in the request). On failure, the task transitions to FAILED immediately — remaining
+// in-flight sub-units are NOT waited for, and their subsequent completion reports will be
+// rejected with "task is no longer running". This fail-fast behavior is intentional: it avoids
+// wasting cluster resources on a task that is already doomed.
 func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskSubUnitCompletionRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -200,9 +200,10 @@ func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
 	return nil
 }
 
-// UpdateSubUnitProgress updates the progress of a [SubUnit] and transitions it from
-// [SubUnitStatusPending] to [SubUnitStatusInProgress] on the first update. Progress must
-// be in the range [0.0, 1.0]. Updates to terminal sub-units are silently ignored.
+// UpdateSubUnitProgress also handles initial node assignment: the first progress update for an
+// unassigned sub-unit sets its NodeID, claiming it for that node. After assignment, updates from
+// other nodes are rejected. Progress updates to terminal sub-units are silently ignored (no error)
+// because in-flight Raft commands may arrive after a sub-unit has already completed.
 func (m *Manager) UpdateSubUnitProgress(c *api.ApplyRequest) error {
 	var r api.UpdateDistributedTaskSubUnitProgressRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {

@@ -21,17 +21,20 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// DummyProviderNamespace is the task namespace used by [DummyProvider] for testing.
 const DummyProviderNamespace = "dummy-test"
 
-// DummyProviderPayload is the payload for a dummy task.
 type DummyProviderPayload struct {
 	FailSubUnitID string `json:"failSubUnitId,omitempty"`
 }
 
-// DummyProvider is a test-only provider that automatically processes sub-units
-// when a task is started. It reports progress and completes each sub-unit.
-// One sub-unit can be configured to fail via the task payload.
+// DummyProvider is a test-only [SubUnitAwareProvider] used by acceptance tests to exercise
+// the sub-unit lifecycle end-to-end. It is registered in configure_api.go behind the
+// DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED env var and exposed via a debug HTTP endpoint
+// on port 6060.
+//
+// On StartTask, it spawns a goroutine that iterates sub-units sequentially, reports 50%
+// progress, then completes each one. Set FailSubUnitID in the payload to make one sub-unit
+// fail instead, which triggers the task-level fail-fast behavior.
 type DummyProvider struct {
 	mu       sync.Mutex
 	recorder TaskCompletionRecorder
@@ -43,7 +46,6 @@ type DummyProvider struct {
 	completedTasksMu sync.Mutex
 }
 
-// NewDummyProvider creates a new [DummyProvider] for the given node.
 func NewDummyProvider(nodeID string, logger logrus.FieldLogger) *DummyProvider {
 	return &DummyProvider{
 		nodeID:         nodeID,

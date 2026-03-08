@@ -69,7 +69,6 @@ type SubUnitAwareProvider interface {
 	OnTaskCompleted(task *Task)
 }
 
-// SubUnitStatus represents the lifecycle state of a [SubUnit] within a distributed task.
 type SubUnitStatus string
 
 const (
@@ -79,9 +78,15 @@ const (
 	SubUnitStatusFailed     SubUnitStatus = "FAILED"
 )
 
-// SubUnit represents a trackable work unit within a distributed task.
-// SubUnit values are managed exclusively by the [Manager] under its mutex; they are not safe
-// for concurrent use outside of cloned [Task] snapshots.
+// SubUnit represents a trackable work unit within a distributed task (e.g. a single shard
+// in a reindex operation). Sub-units follow the lifecycle PENDING → IN_PROGRESS → COMPLETED/FAILED.
+//
+// NodeID starts empty (unassigned) and is set on the first progress update. The [Scheduler]
+// treats unassigned sub-units as belonging to any node, which is how initial assignment happens:
+// the first node to report progress claims the sub-unit.
+//
+// SubUnit values are owned by the [Manager] and mutated under its lock. Callers outside the
+// Manager should only access sub-units via cloned [Task] snapshots from ListDistributedTasks.
 type SubUnit struct {
 	ID         string        `json:"id"`
 	NodeID     string        `json:"nodeId"`
@@ -120,8 +125,16 @@ type TaskDescriptor struct {
 	Version uint64 `json:"version"`
 }
 
-// Task represents a distributed task that is tracked across the cluster via Raft consensus.
-// Tasks are managed by the [Manager] and polled by the [Scheduler] on each node.
+// Task represents a distributed task tracked across the cluster via Raft consensus.
+//
+// A task operates in one of two tracking modes, determined at creation time:
+//   - Legacy (SubUnits == nil): completion is tracked per-node via FinishedNodes. The task
+//     finishes when all cluster nodes report completion.
+//   - Sub-unit (SubUnits != nil): completion is tracked per-sub-unit. The task finishes when
+//     all sub-units reach a terminal state. A single sub-unit failure immediately fails the
+//     entire task — remaining in-flight sub-units are NOT waited for.
+//
+// The tracking mode cannot change after creation and is preserved across snapshots.
 type Task struct {
 	// Namespace is the namespace of distributed tasks which are managed by different Provider implementations
 	Namespace string `json:"namespace"`
@@ -151,7 +164,6 @@ type Task struct {
 	SubUnits map[string]*SubUnit `json:"subUnits,omitempty"`
 }
 
-// Clone returns a deep copy of the task, including [SubUnit] entries and FinishedNodes.
 func (t *Task) Clone() *Task {
 	clone := *t
 	clone.FinishedNodes = maps.Clone(t.FinishedNodes)
@@ -202,7 +214,6 @@ func (t *Task) NodeHasNonTerminalSubUnits(nodeID string) bool {
 	return false
 }
 
-// ListDistributedTasksResponse is the wire format returned by the Raft query endpoint for listing tasks.
 type ListDistributedTasksResponse struct {
 	Tasks map[string][]*Task `json:"tasks"`
 }
