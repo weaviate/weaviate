@@ -276,6 +276,7 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 		return
 	}
 
+	ctx := context.Background()
 	for suID, su := range task.SubUnits {
 		select {
 		case <-handle.stopCh:
@@ -283,96 +284,15 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 		default:
 		}
 
-		// Skip sub-units that are already in a terminal state (from a previous run)
 		if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
 			continue
 		}
 
-		if localShardSet != nil && payload.SubUnitToShard != nil {
-			// Per-replica mode: use SubUnitToShard to check shard locality, and
-			// SubUnitToNode for deterministic ownership (avoids RAFT contention when
-			// multiple nodes have the same shard with RF > 1).
-			shardName, ok := payload.SubUnitToShard[suID]
-			if !ok || !localShardSet[shardName] {
-				p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
-					Debug("shard-noop provider: skipping non-local sub-unit (per-replica)")
-				continue
-			}
-			if ownerNode, ok := payload.SubUnitToNode[suID]; ok && ownerNode != p.nodeID {
-				p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
-					Debug("shard-noop provider: skipping sub-unit owned by another node")
-				continue
-			}
-		} else if localShardSet != nil {
-			// Legacy collection-aware mode: sub-unit ID = shard name.
-			if !localShardSet[suID] {
-				p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
-					Debug("shard-noop provider: skipping non-local sub-unit")
-				continue
-			}
-		} else {
-			// Synthetic mode: use NodeID-based ownership (original behavior).
-			nodeID := su.NodeID
-			if nodeID == "" {
-				nodeID = p.nodeID
-			}
-			if nodeID != p.nodeID {
-				continue
-			}
+		if !p.shouldProcessSubUnit(suID, su, payload, localShardSet) {
+			continue
 		}
 
-		p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
-			Info("shard-noop provider: processing sub-unit")
-
-		ctx := context.Background()
-
-		// Report initial progress with retry
-		p.retryRecorderCall(handle, func() error {
-			return p.recorder.UpdateDistributedTaskSubUnitProgress(
-				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, 0.5,
-			)
-		})
-
-		// Apply slow sub-unit delay if this sub-unit is the designated slow one.
-		if payload.SlowSubUnitID == suID && payload.SlowSubUnitDelayMs > 0 {
-			select {
-			case <-handle.stopCh:
-				return
-			case <-time.After(time.Duration(payload.SlowSubUnitDelayMs) * time.Millisecond):
-			}
-		}
-
-		select {
-		case <-handle.stopCh:
-			return
-		case <-time.After(processingDelay):
-		}
-
-		if payload.FailSubUnitID == suID {
-			p.retryRecorderCall(handle, func() error {
-				return p.recorder.RecordDistributedTaskSubUnitFailure(
-					ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, "dummy failure",
-				)
-			})
-			return // stop processing after failure
-		}
-
-		p.retryRecorderCall(handle, func() error {
-			return p.recorder.RecordDistributedTaskSubUnitCompletion(
-				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID,
-			)
-		})
-
-		// Write processing marker file
-		dir := filepath.Join("/tmp/dtm-process", task.ID)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			p.logger.WithError(err).Error("shard-noop provider: failed to create processing marker dir")
-		} else {
-			path := filepath.Join(dir, suID)
-			if err := os.WriteFile(path, []byte(fmt.Sprintf("processed by %s", p.nodeID)), 0o644); err != nil {
-				p.logger.WithError(err).Error("shard-noop provider: failed to write processing marker")
-			}
-		}
+		p.processOneSubUnit(ctx, task, handle, suID, payload, processingDelay)
 	}
 }
 
