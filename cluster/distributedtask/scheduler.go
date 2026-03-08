@@ -57,6 +57,7 @@ type Scheduler struct {
 	tasksRunning *prometheus.GaugeVec
 
 	completedCallbackFired map[TaskDescriptor]bool
+	subUnitsCallbackFired  map[TaskDescriptor]bool
 
 	stopCh chan struct{}
 }
@@ -90,6 +91,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		providers:              params.Providers,
 		completionRecorder:     params.CompletionRecorder,
 		completedCallbackFired: map[TaskDescriptor]bool{},
+		subUnitsCallbackFired:  map[TaskDescriptor]bool{},
 		tasksLister:            params.TasksLister,
 		taskCleaner:            params.TaskCleaner,
 		clock:                  params.Clock,
@@ -256,7 +258,7 @@ func (s *Scheduler) tick() {
 
 		}
 
-		// Fire OnTaskCompleted callback for sub-unit-aware providers when a task
+		// Fire two-phase callbacks for sub-unit-aware providers when a task
 		// with sub-units reaches a terminal state.
 		if suProvider, ok := provider.(SubUnitAwareProvider); ok {
 			for desc, task := range tasks {
@@ -266,11 +268,21 @@ func (s *Scheduler) tick() {
 				if task.Status != TaskStatusFinished && task.Status != TaskStatusFailed {
 					continue
 				}
-				if s.completedCallbackFired[desc] {
-					continue
+
+				// Phase 1: per-node sub-unit finalization
+				if !s.subUnitsCallbackFired[desc] {
+					s.subUnitsCallbackFired[desc] = true
+					localIDs := task.LocalSubUnitIDs(s.localNode)
+					if len(localIDs) > 0 {
+						suProvider.OnSubUnitsCompleted(task, localIDs)
+					}
 				}
-				s.completedCallbackFired[desc] = true
-				suProvider.OnTaskCompleted(task)
+
+				// Phase 2: global task completion
+				if !s.completedCallbackFired[desc] {
+					s.completedCallbackFired[desc] = true
+					suProvider.OnTaskCompleted(task)
+				}
 			}
 		}
 
@@ -301,6 +313,7 @@ func (s *Scheduler) tick() {
 			}
 
 			delete(s.completedCallbackFired, desc)
+			delete(s.subUnitsCallbackFired, desc)
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {

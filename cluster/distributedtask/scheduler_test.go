@@ -793,17 +793,29 @@ func collectChToSet[T comparable](t *testing.T, expectCount int, ch chan T) map[
 	return cleanedUpTasks
 }
 
+// subUnitsCompletedEvent captures the arguments passed to OnSubUnitsCompleted.
+type subUnitsCompletedEvent struct {
+	Task            *Task
+	LocalSubUnitIDs []string
+}
+
 // testSubUnitAwareProvider extends testTaskProvider with sub-unit awareness
 type testSubUnitAwareProvider struct {
 	*testTaskProvider
-	onTaskCompletedCh chan *Task
+	onSubUnitsCompletedCh chan subUnitsCompletedEvent
+	onTaskCompletedCh     chan *Task
 }
 
 func newTestSubUnitAwareProvider(t *testing.T) *testSubUnitAwareProvider {
 	return &testSubUnitAwareProvider{
-		testTaskProvider:  newTestTaskProvider(t, nil),
-		onTaskCompletedCh: make(chan *Task, 100),
+		testTaskProvider:      newTestTaskProvider(t, nil),
+		onSubUnitsCompletedCh: make(chan subUnitsCompletedEvent, 100),
+		onTaskCompletedCh:     make(chan *Task, 100),
 	}
+}
+
+func (p *testSubUnitAwareProvider) OnSubUnitsCompleted(task *Task, localSubUnitIDs []string) {
+	p.onSubUnitsCompletedCh <- subUnitsCompletedEvent{Task: task, LocalSubUnitIDs: localSubUnitIDs}
 }
 
 func (p *testSubUnitAwareProvider) OnTaskCompleted(task *Task) {
@@ -888,6 +900,174 @@ func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
 
 	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
 	require.Equal(t, TaskStatusFailed, completedTask.Status)
+
+	startedTask.Terminate()
+}
+
+func TestSubUnitTask_OnSubUnitsCompletedFires(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
+
+	// Assign sub-units to local node
+	for _, suID := range []string{"su-1", "su-2"} {
+		updateProgress(t, h, namespace, "task1", version, h.localNodeID, suID, 0.1)
+	}
+
+	h.advanceClock(h.schedulerTickInterval)
+	startedTask := recvWithTimeout(t, provider.startedCh)
+
+	// Complete both sub-units
+	for _, suID := range []string{"su-1", "su-2"} {
+		completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, suID)
+	}
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	// OnSubUnitsCompleted should fire with correct local sub-unit IDs
+	event := recvWithTimeout(t, provider.onSubUnitsCompletedCh)
+	require.Equal(t, "task1", event.Task.ID)
+	require.ElementsMatch(t, []string{"su-1", "su-2"}, event.LocalSubUnitIDs)
+
+	// OnTaskCompleted should also fire
+	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
+	require.Equal(t, "task1", completedTask.ID)
+	require.Equal(t, TaskStatusFinished, completedTask.Status)
+
+	startedTask.Terminate()
+}
+
+func TestSubUnitTask_OnSubUnitsCompletedBeforeOnTaskCompleted(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
+
+	h.advanceClock(h.schedulerTickInterval)
+	startedTask := recvWithTimeout(t, provider.startedCh)
+
+	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	h.advanceClock(h.schedulerTickInterval)
+
+	// Both callbacks fire in the same tick. Verify OnSubUnitsCompleted fires first
+	// by draining both channels and checking order.
+	event := recvWithTimeout(t, provider.onSubUnitsCompletedCh)
+	require.Equal(t, "task1", event.Task.ID)
+
+	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
+	require.Equal(t, "task1", completedTask.ID)
+
+	startedTask.Terminate()
+}
+
+func TestSubUnitTask_OnSubUnitsCompletedOnFailure(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
+	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
+
+	h.advanceClock(h.schedulerTickInterval)
+	startedTask := recvWithTimeout(t, provider.startedCh)
+
+	// Fail one sub-unit
+	failSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1", "oops")
+	h.advanceClock(h.schedulerTickInterval)
+
+	// OnSubUnitsCompleted should fire on failure too
+	event := recvWithTimeout(t, provider.onSubUnitsCompletedCh)
+	require.Equal(t, "task1", event.Task.ID)
+	require.Equal(t, TaskStatusFailed, event.Task.Status)
+	require.ElementsMatch(t, []string{"su-1"}, event.LocalSubUnitIDs)
+
+	// OnTaskCompleted should also fire
+	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
+	require.Equal(t, TaskStatusFailed, completedTask.Status)
+
+	startedTask.Terminate()
+}
+
+func TestSubUnitTask_OnSubUnitsCompletedSkipsNodesWithNoLocalSubUnits(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+
+	// Assign the sub-unit to a DIFFERENT node
+	updateProgress(t, h, namespace, "task1", version, "remote-node", "su-1", 0.1)
+	completeSubUnit(t, h, namespace, "task1", version, "remote-node", "su-1")
+
+	h.advanceClock(h.schedulerTickInterval)
+
+	// OnSubUnitsCompleted should NOT fire because this node has no local sub-units
+	select {
+	case <-provider.onSubUnitsCompletedCh:
+		require.Fail(t, "OnSubUnitsCompleted should not fire on node with no local sub-units")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// OnTaskCompleted should still fire
+	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
+	require.Equal(t, "task1", completedTask.ID)
+	require.Equal(t, TaskStatusFinished, completedTask.Status)
+}
+
+func TestSubUnitTask_CallbacksFireExactlyOnce(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	namespace := "su-namespace"
+	h, provider := initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var version uint64 = 10
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
+
+	h.advanceClock(h.schedulerTickInterval)
+	startedTask := recvWithTimeout(t, provider.startedCh)
+
+	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	h.advanceClock(h.schedulerTickInterval)
+
+	// Drain the callbacks
+	recvWithTimeout(t, provider.onSubUnitsCompletedCh)
+	recvWithTimeout(t, provider.onTaskCompletedCh)
+
+	// Tick again — no extra events
+	h.advanceClock(h.schedulerTickInterval)
+	select {
+	case <-provider.onSubUnitsCompletedCh:
+		require.Fail(t, "OnSubUnitsCompleted should fire exactly once")
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case <-provider.onTaskCompletedCh:
+		require.Fail(t, "OnTaskCompleted should fire exactly once")
+	case <-time.After(100 * time.Millisecond):
+	}
 
 	startedTask.Terminate()
 }

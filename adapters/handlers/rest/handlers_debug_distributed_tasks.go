@@ -21,6 +21,43 @@ import (
 )
 
 func setupDummyTaskDebugHandler(appState *state.State, provider *distributedtask.DummyProvider) {
+	// GET /debug/distributed-tasks/status?id=<taskID>
+	http.HandleFunc("/debug/distributed-tasks/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		taskID := r.URL.Query().Get("id")
+		if taskID == "" {
+			http.Error(w, `{"error":"missing id parameter"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Find the task version by listing tasks
+		tasks, err := appState.ClusterService.ListDistributedTasks(r.Context())
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		desc := distributedtask.TaskDescriptor{ID: taskID}
+		for _, task := range tasks[distributedtask.DummyProviderNamespace] {
+			if task.ID == taskID {
+				desc.Version = task.Version
+				break
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"taskCompleted":     provider.IsTaskCompleted(desc),
+			"finalizedSubUnits": provider.GetFinalizedSubUnits(desc),
+		})
+	}))
+
 	// POST /debug/distributed-tasks/add?id=<taskID>&sub_units=su-1,su-2&fail_sub_unit=su-2
 	http.HandleFunc("/debug/distributed-tasks/add", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

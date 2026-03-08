@@ -17,11 +17,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 )
@@ -92,6 +96,96 @@ func TestLegacyTask_NoSubUnits(t *testing.T) {
 	assert.Nil(t, task.SubUnits)
 }
 
+func TestSubUnitTask_PerShardFinalize_MoreSubUnitsThanNodes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	defer cleanup()
+
+	taskID := "finalize-more-sub-units"
+	subUnits := []string{"su-1", "su-2", "su-3", "su-4", "su-5", "su-6"}
+	debugURI1 := compose.GetWeaviate().DebugURI()
+	addTask(t, debugURI1, taskID, "sub_units="+strings.Join(subUnits, ","))
+	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FINISHED")
+
+	// Verify all 6 sub-units have finalization marker files across the cluster
+	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
+	sort.Strings(allFinalized)
+	sort.Strings(subUnits)
+	assert.Equal(t, subUnits, allFinalized, "all sub-units should be finalized across the cluster")
+
+	// Verify OnTaskCompleted fired on at least one node via debug status endpoint
+	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+}
+
+func TestSubUnitTask_PerShardFinalize_FewerSubUnitsThanNodes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	defer cleanup()
+
+	taskID := "finalize-fewer-sub-units"
+	subUnits := []string{"su-1", "su-2"}
+	debugURI1 := compose.GetWeaviate().DebugURI()
+	addTask(t, debugURI1, taskID, "sub_units="+strings.Join(subUnits, ","))
+	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FINISHED")
+
+	// Only 2 marker files should exist across the entire cluster
+	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
+	sort.Strings(allFinalized)
+	sort.Strings(subUnits)
+	assert.Equal(t, subUnits, allFinalized, "exactly 2 sub-units should be finalized")
+
+	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+}
+
+func TestSubUnitTask_PerShardFinalize_OneSubUnit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	defer cleanup()
+
+	taskID := "finalize-one-sub-unit"
+	debugURI1 := compose.GetWeaviate().DebugURI()
+	addTask(t, debugURI1, taskID, "sub_units=su-only")
+	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FINISHED")
+
+	// Exactly 1 marker file should exist across the cluster
+	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
+	assert.Equal(t, []string{"su-only"}, allFinalized, "exactly 1 sub-unit should be finalized")
+
+	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+}
+
+func TestSubUnitTask_PerShardFinalize_OnFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	defer cleanup()
+
+	// Use a single sub-unit that will fail. This ensures the sub-unit is claimed
+	// (progress reported) before failure, so OnSubUnitsCompleted receives it.
+	taskID := "finalize-on-failure"
+	debugURI1 := compose.GetWeaviate().DebugURI()
+	addTask(t, debugURI1, taskID, "sub_units=su-1&fail_sub_unit=su-1")
+	awaitTaskStatus(t, compose.GetWeaviate().URI(), taskID, "FAILED")
+
+	// Wait for callbacks to fire (scheduler tick interval is 1s)
+	time.Sleep(3 * time.Second)
+
+	// OnSubUnitsCompleted should still fire on failure — the sub-unit was claimed
+	// (progress was reported at 50%) before it failed, so it has a NodeID.
+	allFinalized := collectFinalizedSubUnitsFromCluster(t, ctx, compose, taskID)
+	assert.Equal(t, []string{"su-1"}, allFinalized, "OnSubUnitsCompleted should fire even on failure")
+
+	// OnTaskCompleted should fire on failure too
+	verifyTaskCompletedOnAnyNode(t, compose, taskID)
+}
+
 // startDTMCluster spins up a single-node Weaviate with DTM and the dummy test provider enabled.
 func startDTMCluster(ctx context.Context, t *testing.T) (restURI, debugURI string, cleanup func()) {
 	t.Helper()
@@ -108,6 +202,22 @@ func startDTMCluster(ctx context.Context, t *testing.T) (restURI, debugURI strin
 	return compose.GetWeaviate().URI(),
 		compose.GetWeaviate().DebugURI(),
 		func() { require.NoError(t, compose.Terminate(ctx)) }
+}
+
+// start3NodeDTMCluster spins up a 3-node Weaviate cluster with DTM and the dummy test provider.
+func start3NodeDTMCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
+	t.Helper()
+
+	compose, err := docker.New().
+		With3NodeCluster().
+		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED", "true").
+		Start(ctx)
+	require.NoError(t, err)
+
+	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
 // addTask creates a task via the debug endpoint. params is the query string after "id=<taskID>&"
@@ -173,4 +283,75 @@ func listTasks(t *testing.T, restURI string) models.DistributedTasks {
 	var tasks models.DistributedTasks
 	require.NoError(t, json.Unmarshal(body, &tasks))
 	return tasks
+}
+
+// listMarkerFiles lists finalization marker files for a task inside a container.
+func listMarkerFiles(ctx context.Context, c testcontainers.Container, taskID string) []string {
+	path := fmt.Sprintf("/tmp/dtm-finalize/%s", taskID)
+	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path}, tcexec.Multiplexed())
+	if err != nil || code != 0 {
+		return nil
+	}
+	buf := new(strings.Builder)
+	if _, err := io.Copy(buf, reader); err != nil {
+		return nil
+	}
+	var files []string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files
+}
+
+// collectFinalizedSubUnitsFromCluster collects all finalized sub-unit marker files from all 3 nodes.
+func collectFinalizedSubUnitsFromCluster(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string) []string {
+	t.Helper()
+
+	var all []string
+	for i := 1; i <= 3; i++ {
+		node := compose.GetWeaviateNode(i)
+		files := listMarkerFiles(ctx, node.Container(), taskID)
+		all = append(all, files...)
+	}
+	return all
+}
+
+type debugStatus struct {
+	TaskCompleted     bool     `json:"taskCompleted"`
+	FinalizedSubUnits []string `json:"finalizedSubUnits"`
+}
+
+// getDebugStatus queries the debug status endpoint on a node.
+func getDebugStatus(t *testing.T, debugURI, taskID string) debugStatus {
+	t.Helper()
+
+	resp, err := http.Get(fmt.Sprintf("http://%s/debug/distributed-tasks/status?id=%s", debugURI, taskID))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var status debugStatus
+	require.NoError(t, json.Unmarshal(body, &status))
+	return status
+}
+
+// verifyTaskCompletedOnAnyNode checks that OnTaskCompleted fired on at least one node.
+func verifyTaskCompletedOnAnyNode(t *testing.T, compose *docker.DockerCompose, taskID string) {
+	t.Helper()
+
+	var anyCompleted bool
+	for i := 1; i <= 3; i++ {
+		node := compose.GetWeaviateNode(i)
+		status := getDebugStatus(t, node.DebugURI(), taskID)
+		if status.TaskCompleted {
+			anyCompleted = true
+			break
+		}
+	}
+	assert.True(t, anyCompleted, "OnTaskCompleted should fire on at least one node")
 }

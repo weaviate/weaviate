@@ -63,9 +63,18 @@ type Provider interface {
 
 // SubUnitAwareProvider is an optional extension of Provider that enables sub-unit tracking.
 // When a task with sub-units reaches a terminal state (FINISHED or FAILED), the scheduler
-// calls OnTaskCompleted exactly once.
+// fires two callbacks in order:
+//
+//  1. OnSubUnitsCompleted — fires on each node that owns sub-units. localSubUnitIDs contains
+//     only sub-units owned by this node. Skipped on nodes with no local sub-units. Use this
+//     for per-shard finalization (e.g. atomically swapping bucket pointers).
+//
+//  2. OnTaskCompleted — fires once per node after OnSubUnitsCompleted. Use this for global
+//     operations (e.g. Raft schema update). Both callbacks fire on FINISHED and FAILED tasks
+//     so providers can finalize or rollback based on task.Status.
 type SubUnitAwareProvider interface {
 	Provider
+	OnSubUnitsCompleted(task *Task, localSubUnitIDs []string)
 	OnTaskCompleted(task *Task)
 }
 
@@ -198,6 +207,17 @@ func (t *Task) AnySubUnitFailed() bool {
 		}
 	}
 	return false
+}
+
+// LocalSubUnitIDs returns the IDs of sub-units assigned to the given node.
+func (t *Task) LocalSubUnitIDs(nodeID string) []string {
+	var ids []string
+	for id, su := range t.SubUnits {
+		if su.NodeID == nodeID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // NodeHasNonTerminalSubUnits returns true if the given node has sub-units that are not yet terminal.

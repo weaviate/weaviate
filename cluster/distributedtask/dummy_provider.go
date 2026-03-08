@@ -14,6 +14,9 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -44,13 +47,17 @@ type DummyProvider struct {
 
 	completedTasks   map[TaskDescriptor]bool
 	completedTasksMu sync.Mutex
+
+	finalizedSubUnits   map[TaskDescriptor][]string
+	finalizedSubUnitsMu sync.Mutex
 }
 
 func NewDummyProvider(nodeID string, logger logrus.FieldLogger) *DummyProvider {
 	return &DummyProvider{
-		nodeID:         nodeID,
-		logger:         logger,
-		completedTasks: make(map[TaskDescriptor]bool),
+		nodeID:            nodeID,
+		logger:            logger,
+		completedTasks:    make(map[TaskDescriptor]bool),
+		finalizedSubUnits: make(map[TaskDescriptor][]string),
 	}
 }
 
@@ -96,6 +103,36 @@ func (p *DummyProvider) StartTask(task *Task) (TaskHandle, error) {
 	}
 
 	return handle, nil
+}
+
+func (p *DummyProvider) OnSubUnitsCompleted(task *Task, localSubUnitIDs []string) {
+	p.finalizedSubUnitsMu.Lock()
+	p.finalizedSubUnits[task.TaskDescriptor] = append(
+		p.finalizedSubUnits[task.TaskDescriptor], localSubUnitIDs...,
+	)
+	p.finalizedSubUnitsMu.Unlock()
+
+	// Write marker files for each finalized sub-unit
+	dir := filepath.Join("/tmp/dtm-finalize", task.ID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		p.logger.WithError(err).Error("dummy provider: failed to create marker dir")
+		return
+	}
+	for _, suID := range localSubUnitIDs {
+		path := filepath.Join(dir, suID)
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("finalized by %s", p.nodeID)), 0o644); err != nil {
+			p.logger.WithError(err).Error("dummy provider: failed to write marker file")
+		}
+	}
+
+	p.logger.WithField("taskID", task.ID).WithField("localSubUnitIDs", localSubUnitIDs).
+		Info("dummy provider: OnSubUnitsCompleted fired")
+}
+
+func (p *DummyProvider) GetFinalizedSubUnits(desc TaskDescriptor) []string {
+	p.finalizedSubUnitsMu.Lock()
+	defer p.finalizedSubUnitsMu.Unlock()
+	return append([]string{}, p.finalizedSubUnits[desc]...)
 }
 
 func (p *DummyProvider) OnTaskCompleted(task *Task) {

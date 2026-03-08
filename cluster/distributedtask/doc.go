@@ -53,8 +53,91 @@
 // When any sub-unit fails, the entire task immediately transitions to FAILED. In-flight
 // sub-units on other nodes are NOT waited for — their subsequent completion reports are
 // rejected. This fail-fast approach avoids wasting cluster resources on doomed work.
-// If the [Provider] implements [SubUnitAwareProvider], the Scheduler calls OnTaskCompleted
-// exactly once when the task reaches a terminal state, regardless of success or failure.
+//
+// # Per-node sub-unit finalization
+//
+// If the [Provider] implements [SubUnitAwareProvider], the Scheduler fires two callbacks
+// when a sub-unit task reaches a terminal state (FINISHED or FAILED):
+//
+//  1. OnSubUnitsCompleted — fires on each node that owns sub-units. The callback receives
+//     only the sub-unit IDs assigned to that node. Skipped on nodes with no local sub-units.
+//     Use this for per-shard finalization (e.g. atomically swapping bucket pointers).
+//
+//  2. OnTaskCompleted — fires after OnSubUnitsCompleted on every node, regardless of whether
+//     it owns sub-units. Use this for global operations (e.g. Raft schema update). Since Raft
+//     deduplicates, the schema update happens exactly once even though OnTaskCompleted fires
+//     on every node.
+//
+// Both callbacks fire on FINISHED and FAILED tasks so providers can finalize (success) or
+// rollback (failure) based on task.Status. Both fire exactly once per task lifecycle.
+//
+// # Three journey examples
+//
+// Journey 1: Spread work across any node (no finalization needed).
+//
+// A data-cleanup provider distributes 1000 files as sub-units. Any node can claim any
+// file. No finalization needed — each sub-unit is independent.
+//
+//	subUnitIDs := []string{"file-001", "file-002", ..., "file-1000"}
+//	raft.AddDistributedTask(ctx, "cleanup", taskID, payload, subUnitIDs)
+//
+// The Provider's StartTask iterates sub-units, processes unclaimed ones, and reports
+// completion. No SubUnitAwareProvider needed.
+//
+// Journey 2: Per-shard work, global finalize (behavior unchanged).
+//
+// A repair/rebuild provider recreates an index with the same configuration (e.g.,
+// fixing a corrupted HNSW or rebuilding blockmax segments). Because the behavior
+// is unchanged, shards can swap independently as they finish — there's no need to
+// wait for all shards before swapping, since queries produce the same results
+// regardless of which format a shard is currently serving from.
+//
+// Sub-unit IDs are opaque strings. The Provider defines them at task creation time
+// and stores any shard→subUnit mapping in the task payload:
+//
+//	payload := ReindexPayload{
+//	    ShardMap: map[string]string{  // subUnitID → shardName
+//	        "su-0": "shard-S1",       // nodeA's replica of S1
+//	        "su-1": "shard-S1",       // nodeB's replica of S1
+//	        "su-2": "shard-S2",       // ...
+//	    },
+//	}
+//	subUnitIDs := []string{"su-0", "su-1", "su-2", ...}
+//
+// Node assignment is automatic: the first node to report progress for a sub-unit
+// claims it (SubUnit.NodeID is set). The Provider's StartTask iterates sub-units,
+// checks which local shards it owns, and claims the corresponding sub-units.
+//
+// Each shard swaps its bucket pointers immediately upon completing its own reindex
+// (inside the StartTask goroutine, before calling RecordSubUnitCompletion).
+//
+// OnSubUnitsCompleted: no-op — each shard already swapped during its own processing.
+// OnTaskCompleted: optional — e.g., log completion or flip a cosmetic schema flag.
+//
+// Journey 3: Per-shard work, per-shard finalize after barrier (behavior changes).
+//
+// A tokenization-change provider reindexes every shard with new tokenization config
+// (e.g., WORD → TRIGRAM). Because the behavior changes, consistency matters: if some
+// shards serve old tokenization while others serve new, queries return mixed results.
+// ALL shards must finish reindexing before ANY shard swaps to the new format.
+//
+// Sub-unit IDs and shard mapping work the same way as Journey 2 — the Provider
+// defines IDs at creation time and stores the mapping in the task payload.
+// The framework only cares about SubUnit.NodeID for ownership tracking.
+//
+// During StartTask, each shard reindexes into new segments but does NOT swap yet.
+// It reports progress and completion, but the old segments remain active for queries.
+//
+// OnSubUnitsCompleted: fires on each node AFTER all sub-units across all nodes finish.
+// Receives localSubUnitIDs — the Provider looks up the shard mapping from
+// task.Payload to know which local shards to swap. Atomically swaps bucket
+// pointers for each local shard. This is a local operation, no Raft needed.
+//
+// OnTaskCompleted: submits a Raft schema update to change the tokenization config.
+// Because Raft deduplicates, the schema update happens exactly once even though
+// OnTaskCompleted fires on every node.
+//
+// The barrier guarantee ensures NO shard swaps until ALL shards finish reindexing.
 //
 // # Progress throttling
 //
