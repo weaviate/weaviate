@@ -306,15 +306,44 @@ type events struct {
 
 // NotifyJoin is invoked when a node is detected to have joined.
 // The Node argument must not be modified.
-func (e events) NotifyJoin(*memberlist.Node) {}
+func (e events) NotifyJoin(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "join",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Info("node joined cluster")
+}
 
 // NotifyLeave is invoked when a node is detected to have left.
 // The Node argument must not be modified.
 func (e events) NotifyLeave(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "leave",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Info("node left cluster")
 	e.d.delete(node.Name)
 }
 
 // NotifyUpdate is invoked when a node is detected to have
 // updated, usually involving the meta data. The Node argument
 // must not be modified.
-func (e events) NotifyUpdate(*memberlist.Node) {}
+func (e events) NotifyUpdate(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "update",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Info("node updated in cluster")
+}
