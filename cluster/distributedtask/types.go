@@ -66,20 +66,22 @@ type Provider interface {
 	StartTask(task *Task) (TaskHandle, error)
 }
 
-// SubUnitAwareProvider is an optional extension of Provider that enables sub-unit tracking.
-// When a task with sub-units reaches a terminal state (FINISHED or FAILED), the scheduler
-// fires two callbacks in order:
+// SubUnitAwareProvider fires per-group callbacks as groups complete (mid-flight),
+// then a global OnTaskCompleted when the task reaches terminal state.
 //
-//  1. OnSubUnitsCompleted — fires on each node that owns sub-units. localSubUnitIDs contains
-//     only sub-units owned by this node. Skipped on nodes with no local sub-units. Use this
-//     for per-shard finalization (e.g. atomically swapping bucket pointers).
+// Every sub-unit task has groups. If no explicit GroupID is set, all sub-units
+// belong to a single implicit default group (""). This means:
+//   - Tasks without groups: OnGroupCompleted fires once with all local sub-units
+//     when all sub-units terminal — equivalent to old OnSubUnitsCompleted
+//   - Tasks with groups: OnGroupCompleted fires per-group as each completes,
+//     even while the task is still STARTED
 //
-//  2. OnTaskCompleted — fires once per node after OnSubUnitsCompleted. Use this for global
-//     operations (e.g. Raft schema update). Both callbacks fire on FINISHED and FAILED tasks
-//     so providers can finalize or rollback based on task.Status.
+// Callback phases:
+//  1. OnGroupCompleted — per group, fires as each group's sub-units all reach terminal
+//  2. OnTaskCompleted — fires once on every node after ALL sub-units terminal
 type SubUnitAwareProvider interface {
 	Provider
-	OnSubUnitsCompleted(task *Task, localSubUnitIDs []string)
+	OnGroupCompleted(task *Task, groupID string, localGroupSubUnitIDs []string)
 	OnTaskCompleted(task *Task)
 }
 
@@ -103,12 +105,20 @@ const (
 // Manager should only access sub-units via cloned [Task] snapshots from ListDistributedTasks.
 type SubUnit struct {
 	ID         string        `json:"id"`
+	GroupID    string        `json:"groupId,omitempty"`
 	NodeID     string        `json:"nodeId"`
 	Status     SubUnitStatus `json:"status"`
 	Progress   float32       `json:"progress"`
 	Error      string        `json:"error,omitempty"`
 	UpdatedAt  time.Time     `json:"updatedAt"`
 	FinishedAt time.Time     `json:"finishedAt,omitempty"`
+}
+
+// SubUnitSpec defines a sub-unit with an optional group assignment. Used at task creation
+// time when sub-units need group membership (e.g. one group per tenant for MT reindex).
+type SubUnitSpec struct {
+	ID      string
+	GroupID string
 }
 
 type TaskStatus string
@@ -219,6 +229,43 @@ func (t *Task) LocalSubUnitIDs(nodeID string) []string {
 	var ids []string
 	for id, su := range t.SubUnits {
 		if su.NodeID == nodeID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// Groups returns the distinct GroupIDs across all sub-units (includes "" for ungrouped).
+func (t *Task) Groups() []string {
+	seen := map[string]bool{}
+	for _, su := range t.SubUnits {
+		seen[su.GroupID] = true
+	}
+	groups := make([]string, 0, len(seen))
+	for g := range seen {
+		groups = append(groups, g)
+	}
+	return groups
+}
+
+// AllGroupSubUnitsTerminal returns true if all sub-units in the given group are terminal.
+func (t *Task) AllGroupSubUnitsTerminal(groupID string) bool {
+	for _, su := range t.SubUnits {
+		if su.GroupID != groupID {
+			continue
+		}
+		if su.Status != SubUnitStatusCompleted && su.Status != SubUnitStatusFailed {
+			return false
+		}
+	}
+	return true
+}
+
+// LocalGroupSubUnitIDs returns the IDs of sub-units in the given group assigned to the given node.
+func (t *Task) LocalGroupSubUnitIDs(groupID, nodeID string) []string {
+	var ids []string
+	for id, su := range t.SubUnits {
+		if su.GroupID == groupID && su.NodeID == nodeID {
 			ids = append(ids, id)
 		}
 	}

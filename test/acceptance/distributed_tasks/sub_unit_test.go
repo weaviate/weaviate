@@ -571,6 +571,7 @@ type shardPlacement struct {
 type addTaskRequest struct {
 	ID                string            `json:"id"`
 	SubUnits          []string          `json:"subUnits,omitempty"`
+	SubUnitGroups     map[string]string `json:"subUnitGroups,omitempty"` // subUnitID → groupID
 	FailSubUnit       string            `json:"failSubUnit,omitempty"`
 	Collection        string            `json:"collection,omitempty"`
 	SubUnitToShard    map[string]string `json:"subUnitToShard,omitempty"`
@@ -578,6 +579,7 @@ type addTaskRequest struct {
 	SlowSubUnit       string            `json:"slowSubUnit,omitempty"`
 	SlowDelayMs       int               `json:"slowDelayMs,omitempty"`
 	ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
+	MaxConcurrency    int               `json:"maxConcurrency,omitempty"`
 }
 
 // addTaskJSON sends a JSON body to the debug add endpoint.

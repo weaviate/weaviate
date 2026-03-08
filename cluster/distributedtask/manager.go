@@ -81,7 +81,16 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		FinishedNodes:  map[string]bool{},
 	}
 
-	if len(r.SubUnitIds) > 0 {
+	if len(r.SubUnitSpecs) > 0 {
+		newTask.SubUnits = make(map[string]*SubUnit, len(r.SubUnitSpecs))
+		for _, spec := range r.SubUnitSpecs {
+			newTask.SubUnits[spec.Id] = &SubUnit{
+				ID:      spec.Id,
+				GroupID: spec.GroupId,
+				Status:  SubUnitStatusPending,
+			}
+		}
+	} else if len(r.SubUnitIds) > 0 {
 		newTask.SubUnits = make(map[string]*SubUnit, len(r.SubUnitIds))
 		for _, id := range r.SubUnitIds {
 			newTask.SubUnits[id] = &SubUnit{

@@ -57,7 +57,7 @@ type Scheduler struct {
 	tasksRunning *prometheus.GaugeVec
 
 	completedCallbackFired map[TaskDescriptor]bool
-	subUnitsCallbackFired  map[TaskDescriptor]bool
+	groupCallbackFired     map[TaskDescriptor]map[string]bool
 
 	stopCh chan struct{}
 }
@@ -91,7 +91,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		providers:              params.Providers,
 		completionRecorder:     params.CompletionRecorder,
 		completedCallbackFired: map[TaskDescriptor]bool{},
-		subUnitsCallbackFired:  map[TaskDescriptor]bool{},
+		groupCallbackFired:     map[TaskDescriptor]map[string]bool{},
 		tasksLister:            params.TasksLister,
 		taskCleaner:            params.TaskCleaner,
 		clock:                  params.Clock,
@@ -277,28 +277,43 @@ func (s *Scheduler) tick() {
 
 		}
 
-		// Fire two-phase callbacks for sub-unit-aware providers when a task
-		// with sub-units reaches a terminal state.
+		// Fire group-level and task-level callbacks for sub-unit-aware providers.
+		// OnGroupCompleted fires per-group as each group's sub-units all reach terminal
+		// state (can fire mid-flight while task is still STARTED).
+		// OnTaskCompleted fires once when the task reaches terminal state.
 		if suProvider, ok := provider.(SubUnitAwareProvider); ok {
 			for desc, task := range tasks {
 				if !task.HasSubUnits() {
 					continue
 				}
-				if task.Status != TaskStatusFinished && task.Status != TaskStatusFailed {
+				if task.Status == TaskStatusCancelled {
 					continue
 				}
 
-				// Phase 1: per-node sub-unit finalization
-				if !s.subUnitsCallbackFired[desc] {
-					s.subUnitsCallbackFired[desc] = true
-					localIDs := task.LocalSubUnitIDs(s.localNode)
+				// Phase 1: per-group finalization (fires mid-flight as groups complete).
+				// A group is ready to finalize when either:
+				//   - All sub-units in the group are terminal (normal completion), OR
+				//   - The task itself is terminal (fail-fast: remaining sub-units won't complete)
+				taskTerminal := task.Status == TaskStatusFinished || task.Status == TaskStatusFailed
+				for _, groupID := range task.Groups() {
+					if s.groupCallbackFired[desc] != nil && s.groupCallbackFired[desc][groupID] {
+						continue
+					}
+					if !taskTerminal && !task.AllGroupSubUnitsTerminal(groupID) {
+						continue
+					}
+					if s.groupCallbackFired[desc] == nil {
+						s.groupCallbackFired[desc] = map[string]bool{}
+					}
+					s.groupCallbackFired[desc][groupID] = true
+					localIDs := task.LocalGroupSubUnitIDs(groupID, s.localNode)
 					if len(localIDs) > 0 {
-						suProvider.OnSubUnitsCompleted(task, localIDs)
+						suProvider.OnGroupCompleted(task, groupID, localIDs)
 					}
 				}
 
-				// Phase 2: global task completion
-				if !s.completedCallbackFired[desc] {
+				// Phase 2: global task completion (fires once when task is terminal)
+				if taskTerminal && !s.completedCallbackFired[desc] {
 					s.completedCallbackFired[desc] = true
 					suProvider.OnTaskCompleted(task)
 				}
@@ -332,7 +347,7 @@ func (s *Scheduler) tick() {
 			}
 
 			delete(s.completedCallbackFired, desc)
-			delete(s.subUnitsCallbackFired, desc)
+			delete(s.groupCallbackFired, desc)
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {

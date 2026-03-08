@@ -201,12 +201,18 @@ message Tenant {
   string status = 2;
 }
 
+message SubUnitSpec {
+  string id = 1;
+  string group_id = 2;
+}
+
 message AddDistributedTaskRequest {
   string namespace = 1;
   string id = 2;
   bytes payload = 4;
   int64 submitted_at_unix_millis = 5;
   repeated string sub_unit_ids = 6;
+  repeated SubUnitSpec sub_unit_specs = 7;
 }
 
 message RecordDistributedTaskNodeCompletionRequest {

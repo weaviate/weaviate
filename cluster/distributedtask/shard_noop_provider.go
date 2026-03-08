@@ -43,6 +43,10 @@ type ShardLister interface {
 // should process them, providing deterministic ownership when RF > 1 (where
 // multiple nodes have the same shard locally). Both maps are required when
 // Collection is set.
+//
+// MaxConcurrency controls how many sub-units are processed in parallel on each
+// node. When > 1, processSubUnits fans out with a [ConcurrencyLimiter] instead
+// of sequential iteration. Default 0 = sequential (existing behavior).
 type ShardNoopProviderPayload struct {
 	FailSubUnitID      string            `json:"failSubUnitId,omitempty"`
 	Collection         string            `json:"collection,omitempty"`
@@ -51,6 +55,7 @@ type ShardNoopProviderPayload struct {
 	SlowSubUnitID      string            `json:"slowSubUnitId,omitempty"`
 	SlowSubUnitDelayMs int               `json:"slowSubUnitDelayMs,omitempty"`
 	ProcessingDelayMs  int               `json:"processingDelayMs,omitempty"`
+	MaxConcurrency     int               `json:"maxConcurrency,omitempty"`
 }
 
 // ShardNoopProvider is a test-only [SubUnitAwareProvider] used by acceptance tests to exercise
@@ -77,19 +82,19 @@ type ShardNoopProvider struct {
 	completedTasks   map[TaskDescriptor]bool
 	completedTasksMu sync.Mutex
 
-	finalizedSubUnits   map[TaskDescriptor][]string
-	finalizedSubUnitsMu sync.Mutex
+	finalizedGroups   map[TaskDescriptor]map[string][]string
+	finalizedGroupsMu sync.Mutex
 }
 
 // NewShardNoopProvider creates a new [ShardNoopProvider]. Pass nil for shardLister
 // when real shard topology is not needed (e.g. unit tests with synthetic sub-unit IDs).
 func NewShardNoopProvider(nodeID string, logger logrus.FieldLogger, shardLister ShardLister) *ShardNoopProvider {
 	return &ShardNoopProvider{
-		nodeID:            nodeID,
-		logger:            logger,
-		shardLister:       shardLister,
-		completedTasks:    make(map[TaskDescriptor]bool),
-		finalizedSubUnits: make(map[TaskDescriptor][]string),
+		nodeID:          nodeID,
+		logger:          logger,
+		shardLister:     shardLister,
+		completedTasks:  make(map[TaskDescriptor]bool),
+		finalizedGroups: make(map[TaskDescriptor]map[string][]string),
 	}
 }
 
@@ -139,34 +144,59 @@ func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
 	return handle, nil
 }
 
-func (p *ShardNoopProvider) OnSubUnitsCompleted(task *Task, localSubUnitIDs []string) {
-	p.finalizedSubUnitsMu.Lock()
-	p.finalizedSubUnits[task.TaskDescriptor] = append(
-		p.finalizedSubUnits[task.TaskDescriptor], localSubUnitIDs...,
+func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupSubUnitIDs []string) {
+	p.finalizedGroupsMu.Lock()
+	if p.finalizedGroups[task.TaskDescriptor] == nil {
+		p.finalizedGroups[task.TaskDescriptor] = make(map[string][]string)
+	}
+	p.finalizedGroups[task.TaskDescriptor][groupID] = append(
+		p.finalizedGroups[task.TaskDescriptor][groupID], localGroupSubUnitIDs...,
 	)
-	p.finalizedSubUnitsMu.Unlock()
+	p.finalizedGroupsMu.Unlock()
 
-	// Write marker files for each finalized sub-unit
+	// Write marker files for each finalized sub-unit (grouped by groupID)
 	dir := filepath.Join("/tmp/dtm-finalize", task.ID)
+	if groupID != "" {
+		dir = filepath.Join(dir, groupID)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		p.logger.WithError(err).Error("shard-noop provider: failed to create marker dir")
 		return
 	}
-	for _, suID := range localSubUnitIDs {
+	for _, suID := range localGroupSubUnitIDs {
 		path := filepath.Join(dir, suID)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("finalized by %s", p.nodeID)), 0o644); err != nil {
 			p.logger.WithError(err).Error("shard-noop provider: failed to write marker file")
 		}
 	}
 
-	p.logger.WithField("taskID", task.ID).WithField("localSubUnitIDs", localSubUnitIDs).
-		Info("shard-noop provider: OnSubUnitsCompleted fired")
+	p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
+		WithField("localGroupSubUnitIDs", localGroupSubUnitIDs).
+		Info("shard-noop provider: OnGroupCompleted fired")
 }
 
+// GetFinalizedSubUnits returns all finalized sub-unit IDs across all groups for a task.
 func (p *ShardNoopProvider) GetFinalizedSubUnits(desc TaskDescriptor) []string {
-	p.finalizedSubUnitsMu.Lock()
-	defer p.finalizedSubUnitsMu.Unlock()
-	return append([]string{}, p.finalizedSubUnits[desc]...)
+	p.finalizedGroupsMu.Lock()
+	defer p.finalizedGroupsMu.Unlock()
+
+	var all []string
+	for _, groupSUs := range p.finalizedGroups[desc] {
+		all = append(all, groupSUs...)
+	}
+	return all
+}
+
+// GetFinalizedGroups returns the per-group finalized sub-unit IDs for a task.
+func (p *ShardNoopProvider) GetFinalizedGroups(desc TaskDescriptor) map[string][]string {
+	p.finalizedGroupsMu.Lock()
+	defer p.finalizedGroupsMu.Unlock()
+
+	result := make(map[string][]string, len(p.finalizedGroups[desc]))
+	for g, ids := range p.finalizedGroups[desc] {
+		result[g] = append([]string{}, ids...)
+	}
+	return result
 }
 
 func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
@@ -238,7 +268,13 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 
 	p.logger.WithField("nodeID", p.nodeID).WithField("taskID", task.ID).
 		WithField("subUnitCount", len(task.SubUnits)).WithField("localShardSet", localShardSet).
+		WithField("maxConcurrency", payload.MaxConcurrency).
 		Info("shard-noop provider: starting sub-unit processing")
+
+	if payload.MaxConcurrency > 1 {
+		p.processSubUnitsConcurrent(task, handle, payload, localShardSet)
+		return
+	}
 
 	for suID, su := range task.SubUnits {
 		select {
@@ -336,6 +372,129 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 			if err := os.WriteFile(path, []byte(fmt.Sprintf("processed by %s", p.nodeID)), 0o644); err != nil {
 				p.logger.WithError(err).Error("shard-noop provider: failed to write processing marker")
 			}
+		}
+	}
+}
+
+func (p *ShardNoopProvider) processSubUnitsConcurrent(task *Task, handle *shardNoopTaskHandle, payload ShardNoopProviderPayload, localShardSet map[string]bool) {
+	limiter := NewConcurrencyLimiter(payload.MaxConcurrency)
+
+	processingDelay := time.Duration(payload.ProcessingDelayMs) * time.Millisecond
+	if processingDelay == 0 {
+		processingDelay = 100 * time.Millisecond
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Cancel context when handle is terminated
+	enterrors.GoWrapper(func() {
+		select {
+		case <-handle.stopCh:
+			cancel()
+		case <-ctx.Done():
+		}
+	}, p.logger)
+
+	var wg sync.WaitGroup
+	for suID, su := range task.SubUnits {
+		if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+			continue
+		}
+
+		if !p.shouldProcessSubUnit(suID, su, payload, localShardSet) {
+			continue
+		}
+
+		if err := limiter.Acquire(ctx); err != nil {
+			return
+		}
+
+		wg.Add(1)
+		suID := suID // capture loop variable
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			defer limiter.Release()
+
+			p.processOneSubUnit(ctx, task, handle, suID, payload, processingDelay)
+		}, p.logger)
+	}
+
+	wg.Wait()
+}
+
+// shouldProcessSubUnit checks whether this node should process the given sub-unit.
+func (p *ShardNoopProvider) shouldProcessSubUnit(suID string, su *SubUnit, payload ShardNoopProviderPayload, localShardSet map[string]bool) bool {
+	if localShardSet != nil && payload.SubUnitToShard != nil {
+		shardName, ok := payload.SubUnitToShard[suID]
+		if !ok || !localShardSet[shardName] {
+			return false
+		}
+		if ownerNode, ok := payload.SubUnitToNode[suID]; ok && ownerNode != p.nodeID {
+			return false
+		}
+		return true
+	} else if localShardSet != nil {
+		return localShardSet[suID]
+	}
+	nodeID := su.NodeID
+	if nodeID == "" {
+		nodeID = p.nodeID
+	}
+	return nodeID == p.nodeID
+}
+
+// processOneSubUnit handles a single sub-unit's lifecycle (progress, delay, complete/fail).
+func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, handle *shardNoopTaskHandle, suID string, payload ShardNoopProviderPayload, processingDelay time.Duration) {
+	p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
+		Info("shard-noop provider: processing sub-unit (concurrent)")
+
+	p.retryRecorderCall(handle, func() error {
+		return p.recorder.UpdateDistributedTaskSubUnitProgress(
+			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, 0.5,
+		)
+	})
+
+	if payload.SlowSubUnitID == suID && payload.SlowSubUnitDelayMs > 0 {
+		select {
+		case <-handle.stopCh:
+			return
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(payload.SlowSubUnitDelayMs) * time.Millisecond):
+		}
+	}
+
+	select {
+	case <-handle.stopCh:
+		return
+	case <-ctx.Done():
+		return
+	case <-time.After(processingDelay):
+	}
+
+	if payload.FailSubUnitID == suID {
+		p.retryRecorderCall(handle, func() error {
+			return p.recorder.RecordDistributedTaskSubUnitFailure(
+				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, "dummy failure",
+			)
+		})
+		return
+	}
+
+	p.retryRecorderCall(handle, func() error {
+		return p.recorder.RecordDistributedTaskSubUnitCompletion(
+			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID,
+		)
+	})
+
+	dir := filepath.Join("/tmp/dtm-process", task.ID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		p.logger.WithError(err).Error("shard-noop provider: failed to create processing marker dir")
+	} else {
+		path := filepath.Join(dir, suID)
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("processed by %s", p.nodeID)), 0o644); err != nil {
+			p.logger.WithError(err).Error("shard-noop provider: failed to write processing marker")
 		}
 	}
 }

@@ -54,19 +54,20 @@
 // sub-units on other nodes are NOT waited for — their subsequent completion reports are
 // rejected. This fail-fast approach avoids wasting cluster resources on doomed work.
 //
-// # Per-node sub-unit finalization
+// # Group-level finalization
 //
-// If the [Provider] implements [SubUnitAwareProvider], the Scheduler fires two callbacks
-// when a sub-unit task reaches a terminal state (FINISHED or FAILED):
+// If the [Provider] implements [SubUnitAwareProvider], the Scheduler fires per-group
+// callbacks as groups complete — even while the task is still STARTED:
 //
-//  1. OnSubUnitsCompleted — fires on each node that owns sub-units. The callback receives
-//     only the sub-unit IDs assigned to that node. Skipped on nodes with no local sub-units.
-//     Use this for per-shard finalization (e.g. atomically swapping bucket pointers).
+//  1. OnGroupCompleted — fires per group when all sub-units in that group reach a terminal
+//     state. Receives the groupID and only the local sub-unit IDs in that group. Fires
+//     mid-flight for tasks with explicit groups, enabling per-tenant atomicity for MT reindex.
+//     When no explicit GroupID is set, all sub-units belong to default group "" and
+//     OnGroupCompleted fires once when all sub-units are terminal (identical to old behavior).
 //
-//  2. OnTaskCompleted — fires after OnSubUnitsCompleted on every node, regardless of whether
-//     it owns sub-units. Use this for global operations (e.g. Raft schema update). Since Raft
-//     deduplicates, the schema update happens exactly once even though OnTaskCompleted fires
-//     on every node.
+//  2. OnTaskCompleted — fires once per node after ALL sub-units reach terminal state.
+//     Use this for global operations (e.g. Raft schema update). Since Raft deduplicates,
+//     the schema update happens exactly once even though OnTaskCompleted fires on every node.
 //
 // Both callbacks fire on FINISHED and FAILED tasks so providers can finalize (success) or
 // rollback (failure) based on task.Status. Both fire exactly once per task lifecycle.
@@ -138,6 +139,30 @@
 // OnTaskCompleted fires on every node.
 //
 // The barrier guarantee ensures NO shard swaps until ALL shards finish reindexing.
+//
+// Journey 4: Per-tenant work with per-tenant finalize (MT reindex with groups).
+//
+// A multi-tenant reindex provider creates one group per tenant. Each tenant's replicas
+// are sub-units in that group. As each tenant's group completes, OnGroupCompleted fires
+// mid-flight — the provider atomically swaps that tenant's bucket pointers without
+// waiting for other tenants. This provides per-tenant atomicity: if tenant A's group
+// completes while tenant B is still reindexing, tenant A starts serving new data
+// immediately.
+//
+//	specs := []SubUnitSpec{
+//	    {ID: "t1__nodeA", GroupID: "tenant-1"},
+//	    {ID: "t1__nodeB", GroupID: "tenant-1"},
+//	    {ID: "t2__nodeA", GroupID: "tenant-2"},
+//	    ...
+//	}
+//	raft.AddDistributedTaskWithGroups(ctx, "reindex", taskID, payload, specs)
+//
+// OnGroupCompleted: fires per-tenant as each tenant's replicas all finish.
+// Atomically swaps bucket pointers for the local replicas of that tenant.
+//
+// OnTaskCompleted: fires once when ALL tenants finish. Updates schema with new
+// tokenization config. If any tenant failed, task.Status == FAILED — provider
+// skips schema update but already-swapped tenants remain valid (independent).
 //
 // # Progress throttling
 //

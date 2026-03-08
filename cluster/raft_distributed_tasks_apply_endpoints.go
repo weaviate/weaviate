@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -42,6 +43,29 @@ func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string,
 		Payload:               payloadBytes,
 		SubmittedAtUnixMillis: time.Now().UnixMilli(),
 		SubUnitIds:            subUnitIDs,
+	})
+}
+
+// AddDistributedTaskWithGroups creates a task with sub-units that have explicit group assignments.
+// SubUnitSpecs take precedence over SubUnitIds when both are present.
+func (s *Raft) AddDistributedTaskWithGroups(
+	ctx context.Context, namespace, taskID string,
+	taskPayload any, subUnitSpecs []distributedtask.SubUnitSpec,
+) error {
+	payloadBytes, err := json.Marshal(taskPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task payload: %w", err)
+	}
+	protoSpecs := make([]*cmd.SubUnitSpec, len(subUnitSpecs))
+	for i, spec := range subUnitSpecs {
+		protoSpecs[i] = &cmd.SubUnitSpec{Id: spec.ID, GroupId: spec.GroupID}
+	}
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		Payload:               payloadBytes,
+		SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		SubUnitSpecs:          protoSpecs,
 	})
 }
 

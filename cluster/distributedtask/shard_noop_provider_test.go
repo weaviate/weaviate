@@ -373,7 +373,7 @@ func TestShardNoopProvider_LegacyTask_NoSubUnits(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 }
 
-func TestShardNoopProvider_OnSubUnitsCompleted(t *testing.T) {
+func TestShardNoopProvider_OnGroupCompleted(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	provider := NewShardNoopProvider("node1", logger, nil)
 
@@ -382,10 +382,31 @@ func TestShardNoopProvider_OnSubUnitsCompleted(t *testing.T) {
 		Namespace:      ShardNoopProviderNamespace,
 	}
 
-	provider.OnSubUnitsCompleted(task, []string{"su-1", "su-2"})
+	provider.OnGroupCompleted(task, "", []string{"su-1", "su-2"})
 
 	finalized := provider.GetFinalizedSubUnits(task.TaskDescriptor)
 	assert.ElementsMatch(t, []string{"su-1", "su-2"}, finalized)
+}
+
+func TestShardNoopProvider_OnGroupCompleted_MultipleGroups(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	provider := NewShardNoopProvider("node1", logger, nil)
+
+	task := &Task{
+		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
+		Namespace:      ShardNoopProviderNamespace,
+	}
+
+	provider.OnGroupCompleted(task, "groupA", []string{"su-1"})
+	provider.OnGroupCompleted(task, "groupB", []string{"su-2", "su-3"})
+
+	groups := provider.GetFinalizedGroups(task.TaskDescriptor)
+	assert.ElementsMatch(t, []string{"su-1"}, groups["groupA"])
+	assert.ElementsMatch(t, []string{"su-2", "su-3"}, groups["groupB"])
+
+	// GetFinalizedSubUnits should return all across groups
+	all := provider.GetFinalizedSubUnits(task.TaskDescriptor)
+	assert.ElementsMatch(t, []string{"su-1", "su-2", "su-3"}, all)
 }
 
 func TestShardNoopProvider_OnTaskCompleted(t *testing.T) {

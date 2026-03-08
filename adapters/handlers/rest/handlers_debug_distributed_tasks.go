@@ -67,6 +67,7 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 		var req struct {
 			ID                string            `json:"id"`
 			SubUnits          []string          `json:"subUnits,omitempty"`
+			SubUnitGroups     map[string]string `json:"subUnitGroups,omitempty"` // subUnitID → groupID
 			FailSubUnit       string            `json:"failSubUnit,omitempty"`
 			Collection        string            `json:"collection,omitempty"`
 			SubUnitToShard    map[string]string `json:"subUnitToShard,omitempty"`
@@ -74,6 +75,7 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 			SlowSubUnit       string            `json:"slowSubUnit,omitempty"`
 			SlowDelayMs       int               `json:"slowDelayMs,omitempty"`
 			ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
+			MaxConcurrency    int               `json:"maxConcurrency,omitempty"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -94,15 +96,34 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 			SlowSubUnitID:      req.SlowSubUnit,
 			SlowSubUnitDelayMs: req.SlowDelayMs,
 			ProcessingDelayMs:  req.ProcessingDelayMs,
+			MaxConcurrency:     req.MaxConcurrency,
 		}
 
-		err := appState.ClusterService.AddDistributedTask(
-			r.Context(),
-			distributedtask.ShardNoopProviderNamespace,
-			req.ID,
-			payload,
-			req.SubUnits,
-		)
+		var err error
+		if len(req.SubUnitGroups) > 0 {
+			specs := make([]distributedtask.SubUnitSpec, 0, len(req.SubUnits))
+			for _, suID := range req.SubUnits {
+				specs = append(specs, distributedtask.SubUnitSpec{
+					ID:      suID,
+					GroupID: req.SubUnitGroups[suID],
+				})
+			}
+			err = appState.ClusterService.AddDistributedTaskWithGroups(
+				r.Context(),
+				distributedtask.ShardNoopProviderNamespace,
+				req.ID,
+				payload,
+				specs,
+			)
+		} else {
+			err = appState.ClusterService.AddDistributedTask(
+				r.Context(),
+				distributedtask.ShardNoopProviderNamespace,
+				req.ID,
+				payload,
+				req.SubUnits,
+			)
+		}
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)

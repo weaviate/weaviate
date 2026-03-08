@@ -823,6 +823,96 @@ func TestManager_SnapshotRestore_WithSubUnits(t *testing.T) {
 	assert.Equal(t, SubUnitStatusPending, task.SubUnits["su-2"].Status)
 }
 
+func TestManager_AddTask_WithSubUnitSpecs(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		Payload:               []byte("test"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		SubUnitSpecs: []*cmd.SubUnitSpec{
+			{Id: "su-1", GroupId: "groupA"},
+			{Id: "su-2", GroupId: "groupA"},
+			{Id: "su-3", GroupId: "groupB"},
+		},
+	}), version)
+	require.NoError(t, err)
+
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+
+	task := tasks["ns"][0]
+	require.True(t, task.HasSubUnits())
+	require.Len(t, task.SubUnits, 3)
+
+	assert.Equal(t, "groupA", task.SubUnits["su-1"].GroupID)
+	assert.Equal(t, "groupA", task.SubUnits["su-2"].GroupID)
+	assert.Equal(t, "groupB", task.SubUnits["su-3"].GroupID)
+
+	// Test helper methods
+	groups := task.Groups()
+	assert.Len(t, groups, 2)
+	assert.Contains(t, groups, "groupA")
+	assert.Contains(t, groups, "groupB")
+
+	assert.False(t, task.AllGroupSubUnitsTerminal("groupA"))
+	assert.False(t, task.AllGroupSubUnitsTerminal("groupB"))
+}
+
+func TestManager_SubUnitSpecs_TakesPrecedenceOverSubUnitIds(t *testing.T) {
+	h := newTestHarness(t).init(t)
+
+	var version uint64 = 10
+	// When both SubUnitSpecs and SubUnitIds are set, SubUnitSpecs wins
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		SubUnitIds:            []string{"old-1", "old-2"},
+		SubUnitSpecs: []*cmd.SubUnitSpec{
+			{Id: "new-1", GroupId: "g1"},
+		},
+	}), version)
+	require.NoError(t, err)
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Len(t, task.SubUnits, 1)
+	assert.Contains(t, task.SubUnits, "new-1")
+	assert.Equal(t, "g1", task.SubUnits["new-1"].GroupID)
+}
+
+func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		SubUnitSpecs: []*cmd.SubUnitSpec{
+			{Id: "su-1", GroupId: "g1"},
+			{Id: "su-2", GroupId: "g2"},
+		},
+	}), version))
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	h2 := newTestHarness(t).init(t)
+	require.NoError(t, h2.manager.Restore(snap))
+
+	tasks, err := h2.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+
+	task := tasks["ns"][0]
+	require.True(t, task.HasSubUnits())
+	assert.Equal(t, "g1", task.SubUnits["su-1"].GroupID)
+	assert.Equal(t, "g2", task.SubUnits["su-2"].GroupID)
+}
+
 func TestManager_LegacyPathUnchanged(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	var version uint64 = 10
