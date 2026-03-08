@@ -156,5 +156,5 @@
 //  4. Create tasks via the Raft endpoint [cluster.Raft.AddDistributedTask], passing
 //     sub-unit IDs if using sub-unit tracking (nil for legacy mode).
 //
-// See [DummyProvider] for a complete working example used by acceptance tests.
+// See [ShardNoopProvider] for a complete working example used by acceptance tests.
 package distributedtask

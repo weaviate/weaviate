@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-func setupDummyTaskDebugHandler(appState *state.State, provider *distributedtask.DummyProvider) {
+func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask.ShardNoopProvider) {
 	// GET /debug/distributed-tasks/status?id=<taskID>
 	http.HandleFunc("/debug/distributed-tasks/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -44,7 +44,7 @@ func setupDummyTaskDebugHandler(appState *state.State, provider *distributedtask
 		}
 
 		desc := distributedtask.TaskDescriptor{ID: taskID}
-		for _, task := range tasks[distributedtask.DummyProviderNamespace] {
+		for _, task := range tasks[distributedtask.ShardNoopProviderNamespace] {
 			if task.ID == taskID {
 				desc.Version = task.Version
 				break
@@ -58,7 +58,7 @@ func setupDummyTaskDebugHandler(appState *state.State, provider *distributedtask
 		})
 	}))
 
-	// POST /debug/distributed-tasks/add?id=<taskID>&sub_units=su-1,su-2&fail_sub_unit=su-2
+	// POST /debug/distributed-tasks/add?id=<taskID>&sub_units=su-1,su-2&fail_sub_unit=su-2&collection=MyClass
 	http.HandleFunc("/debug/distributed-tasks/add", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -77,13 +77,14 @@ func setupDummyTaskDebugHandler(appState *state.State, provider *distributedtask
 			subUnitIDs = strings.Split(subUnitsParam, ",")
 		}
 
-		payload := distributedtask.DummyProviderPayload{
+		payload := distributedtask.ShardNoopProviderPayload{
 			FailSubUnitID: r.URL.Query().Get("fail_sub_unit"),
+			Collection:    r.URL.Query().Get("collection"),
 		}
 
 		err := appState.ClusterService.AddDistributedTask(
 			r.Context(),
-			distributedtask.DummyProviderNamespace,
+			distributedtask.ShardNoopProviderNamespace,
 			taskID,
 			payload,
 			subUnitIDs,

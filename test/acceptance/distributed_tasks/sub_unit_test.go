@@ -186,7 +186,7 @@ func TestSubUnitTask_PerShardFinalize_OnFailure(t *testing.T) {
 	verifyTaskCompletedOnAnyNode(t, compose, taskID)
 }
 
-// startDTMCluster spins up a single-node Weaviate with DTM and the dummy test provider enabled.
+// startDTMCluster spins up a single-node Weaviate with DTM and the shard-noop provider enabled.
 func startDTMCluster(ctx context.Context, t *testing.T) (restURI, debugURI string, cleanup func()) {
 	t.Helper()
 
@@ -195,7 +195,7 @@ func startDTMCluster(ctx context.Context, t *testing.T) (restURI, debugURI strin
 		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED", "true").
+		WithWeaviateEnv("SHARD_NOOP_PROVIDER_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 
@@ -204,7 +204,7 @@ func startDTMCluster(ctx context.Context, t *testing.T) (restURI, debugURI strin
 		func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
-// start3NodeDTMCluster spins up a 3-node Weaviate cluster with DTM and the dummy test provider.
+// start3NodeDTMCluster spins up a 3-node Weaviate cluster with DTM and the shard-noop provider.
 func start3NodeDTMCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
 	t.Helper()
 
@@ -213,7 +213,7 @@ func start3NodeDTMCluster(ctx context.Context, t *testing.T) (*docker.DockerComp
 		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED", "true").
+		WithWeaviateEnv("SHARD_NOOP_PROVIDER_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 
@@ -242,7 +242,7 @@ func awaitTaskStatus(t *testing.T, restURI, taskID, expectedStatus string) {
 
 	require.Eventually(t, func() bool {
 		tasks := listTasks(t, restURI)
-		for _, task := range tasks["dummy-test"] {
+		for _, task := range tasks["shard-noop"] {
 			if task.ID == taskID && task.Status == expectedStatus {
 				return true
 			}
@@ -256,9 +256,9 @@ func findTask(t *testing.T, restURI, taskID string) *models.DistributedTask {
 	t.Helper()
 
 	tasks := listTasks(t, restURI)
-	for i := range tasks["dummy-test"] {
-		if tasks["dummy-test"][i].ID == taskID {
-			return &tasks["dummy-test"][i]
+	for i := range tasks["shard-noop"] {
+		if tasks["shard-noop"][i].ID == taskID {
+			return &tasks["shard-noop"][i]
 		}
 	}
 	t.Fatalf("task %s not found", taskID)

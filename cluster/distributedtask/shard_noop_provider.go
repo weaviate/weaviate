@@ -24,26 +24,44 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-const DummyProviderNamespace = "dummy-test"
+const ShardNoopProviderNamespace = "shard-noop"
 
-type DummyProviderPayload struct {
-	FailSubUnitID string `json:"failSubUnitId,omitempty"`
+// ShardLister provides local shard names for a collection, allowing the
+// [ShardNoopProvider] to determine sub-unit ownership based on real shard
+// topology without importing the db package.
+type ShardLister interface {
+	GetLocalShardNames(collection string) ([]string, error)
 }
 
-// DummyProvider is a test-only [SubUnitAwareProvider] used by acceptance tests to exercise
+// ShardNoopProviderPayload is the JSON payload for tasks created with the
+// [ShardNoopProvider]. When Collection is set and a [ShardLister] is available,
+// the provider uses real shard placement for sub-unit ownership instead of the
+// synthetic NodeID-based assignment.
+type ShardNoopProviderPayload struct {
+	FailSubUnitID string `json:"failSubUnitId,omitempty"`
+	Collection    string `json:"collection,omitempty"`
+}
+
+// ShardNoopProvider is a test-only [SubUnitAwareProvider] used by acceptance tests to exercise
 // the sub-unit lifecycle end-to-end. It is registered in configure_api.go behind the
-// DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED env var and exposed via a debug HTTP endpoint
+// SHARD_NOOP_PROVIDER_ENABLED env var and exposed via a debug HTTP endpoint
 // on port 6060.
 //
 // On StartTask, it spawns a goroutine that iterates sub-units sequentially, reports 50%
 // progress, then completes each one. Set FailSubUnitID in the payload to make one sub-unit
 // fail instead, which triggers the task-level fail-fast behavior.
-type DummyProvider struct {
+//
+// When a Collection is specified in the payload and a [ShardLister] is provided, the provider
+// only claims sub-units whose IDs match local shard names. This validates that sub-unit
+// ownership aligns with actual shard placement.
+type ShardNoopProvider struct {
 	mu       sync.Mutex
 	recorder TaskCompletionRecorder
 	tasks    []TaskDescriptor
 	nodeID   string
 	logger   logrus.FieldLogger
+
+	shardLister ShardLister
 
 	completedTasks   map[TaskDescriptor]bool
 	completedTasksMu sync.Mutex
@@ -52,26 +70,29 @@ type DummyProvider struct {
 	finalizedSubUnitsMu sync.Mutex
 }
 
-func NewDummyProvider(nodeID string, logger logrus.FieldLogger) *DummyProvider {
-	return &DummyProvider{
+// NewShardNoopProvider creates a new [ShardNoopProvider]. Pass nil for shardLister
+// when real shard topology is not needed (e.g. unit tests with synthetic sub-unit IDs).
+func NewShardNoopProvider(nodeID string, logger logrus.FieldLogger, shardLister ShardLister) *ShardNoopProvider {
+	return &ShardNoopProvider{
 		nodeID:            nodeID,
 		logger:            logger,
+		shardLister:       shardLister,
 		completedTasks:    make(map[TaskDescriptor]bool),
 		finalizedSubUnits: make(map[TaskDescriptor][]string),
 	}
 }
 
-func (p *DummyProvider) SetCompletionRecorder(recorder TaskCompletionRecorder) {
+func (p *ShardNoopProvider) SetCompletionRecorder(recorder TaskCompletionRecorder) {
 	p.recorder = recorder
 }
 
-func (p *DummyProvider) GetLocalTasks() []TaskDescriptor {
+func (p *ShardNoopProvider) GetLocalTasks() []TaskDescriptor {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]TaskDescriptor{}, p.tasks...)
 }
 
-func (p *DummyProvider) CleanupTask(desc TaskDescriptor) error {
+func (p *ShardNoopProvider) CleanupTask(desc TaskDescriptor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -85,12 +106,12 @@ func (p *DummyProvider) CleanupTask(desc TaskDescriptor) error {
 	return nil
 }
 
-func (p *DummyProvider) StartTask(task *Task) (TaskHandle, error) {
+func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
 	p.mu.Lock()
 	p.tasks = append(p.tasks, task.TaskDescriptor)
 	p.mu.Unlock()
 
-	handle := &dummyTaskHandle{stopCh: make(chan struct{})}
+	handle := &shardNoopTaskHandle{stopCh: make(chan struct{})}
 
 	if task.HasSubUnits() {
 		enterrors.GoWrapper(func() {
@@ -105,7 +126,7 @@ func (p *DummyProvider) StartTask(task *Task) (TaskHandle, error) {
 	return handle, nil
 }
 
-func (p *DummyProvider) OnSubUnitsCompleted(task *Task, localSubUnitIDs []string) {
+func (p *ShardNoopProvider) OnSubUnitsCompleted(task *Task, localSubUnitIDs []string) {
 	p.finalizedSubUnitsMu.Lock()
 	p.finalizedSubUnits[task.TaskDescriptor] = append(
 		p.finalizedSubUnits[task.TaskDescriptor], localSubUnitIDs...,
@@ -115,44 +136,60 @@ func (p *DummyProvider) OnSubUnitsCompleted(task *Task, localSubUnitIDs []string
 	// Write marker files for each finalized sub-unit
 	dir := filepath.Join("/tmp/dtm-finalize", task.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		p.logger.WithError(err).Error("dummy provider: failed to create marker dir")
+		p.logger.WithError(err).Error("shard-noop provider: failed to create marker dir")
 		return
 	}
 	for _, suID := range localSubUnitIDs {
 		path := filepath.Join(dir, suID)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("finalized by %s", p.nodeID)), 0o644); err != nil {
-			p.logger.WithError(err).Error("dummy provider: failed to write marker file")
+			p.logger.WithError(err).Error("shard-noop provider: failed to write marker file")
 		}
 	}
 
 	p.logger.WithField("taskID", task.ID).WithField("localSubUnitIDs", localSubUnitIDs).
-		Info("dummy provider: OnSubUnitsCompleted fired")
+		Info("shard-noop provider: OnSubUnitsCompleted fired")
 }
 
-func (p *DummyProvider) GetFinalizedSubUnits(desc TaskDescriptor) []string {
+func (p *ShardNoopProvider) GetFinalizedSubUnits(desc TaskDescriptor) []string {
 	p.finalizedSubUnitsMu.Lock()
 	defer p.finalizedSubUnitsMu.Unlock()
 	return append([]string{}, p.finalizedSubUnits[desc]...)
 }
 
-func (p *DummyProvider) OnTaskCompleted(task *Task) {
+func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
 	p.completedTasksMu.Lock()
 	defer p.completedTasksMu.Unlock()
 	p.completedTasks[task.TaskDescriptor] = true
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
-		Info("dummy provider: OnTaskCompleted fired")
+		Info("shard-noop provider: OnTaskCompleted fired")
 }
 
-func (p *DummyProvider) IsTaskCompleted(desc TaskDescriptor) bool {
+func (p *ShardNoopProvider) IsTaskCompleted(desc TaskDescriptor) bool {
 	p.completedTasksMu.Lock()
 	defer p.completedTasksMu.Unlock()
 	return p.completedTasks[desc]
 }
 
-func (p *DummyProvider) processSubUnits(task *Task, handle *dummyTaskHandle) {
-	var payload DummyProviderPayload
+func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHandle) {
+	var payload ShardNoopProviderPayload
 	if len(task.Payload) > 0 {
 		_ = json.Unmarshal(task.Payload, &payload)
+	}
+
+	// Build a local shard set when a collection is specified and a ShardLister is available.
+	// In this mode, sub-unit ownership is determined by whether the shard is local to this node,
+	// rather than by SubUnit.NodeID.
+	var localShardSet map[string]bool
+	if payload.Collection != "" && p.shardLister != nil {
+		shardNames, err := p.shardLister.GetLocalShardNames(payload.Collection)
+		if err != nil {
+			p.logger.WithError(err).Error("shard-noop provider: failed to list local shards")
+			return
+		}
+		localShardSet = make(map[string]bool, len(shardNames))
+		for _, name := range shardNames {
+			localShardSet[name] = true
+		}
 	}
 
 	for suID, su := range task.SubUnits {
@@ -162,14 +199,20 @@ func (p *DummyProvider) processSubUnits(task *Task, handle *dummyTaskHandle) {
 		default:
 		}
 
-		nodeID := su.NodeID
-		if nodeID == "" {
-			nodeID = p.nodeID
-		}
-
-		// Only process sub-units assigned to this node (or unassigned)
-		if nodeID != p.nodeID {
-			continue
+		if localShardSet != nil {
+			// Collection-aware mode: only process sub-units whose IDs match local shards.
+			if !localShardSet[suID] {
+				continue
+			}
+		} else {
+			// Synthetic mode: use NodeID-based ownership (original behavior).
+			nodeID := su.NodeID
+			if nodeID == "" {
+				nodeID = p.nodeID
+			}
+			if nodeID != p.nodeID {
+				continue
+			}
 		}
 
 		ctx := context.Background()
@@ -194,7 +237,7 @@ func (p *DummyProvider) processSubUnits(task *Task, handle *dummyTaskHandle) {
 	}
 }
 
-func (p *DummyProvider) processLegacyTask(task *Task, handle *dummyTaskHandle) {
+func (p *ShardNoopProvider) processLegacyTask(task *Task, handle *shardNoopTaskHandle) {
 	select {
 	case <-handle.stopCh:
 		return
@@ -206,11 +249,11 @@ func (p *DummyProvider) processLegacyTask(task *Task, handle *dummyTaskHandle) {
 	)
 }
 
-type dummyTaskHandle struct {
+type shardNoopTaskHandle struct {
 	once   sync.Once
 	stopCh chan struct{}
 }
 
-func (h *dummyTaskHandle) Terminate() {
+func (h *shardNoopTaskHandle) Terminate() {
 	h.once.Do(func() { close(h.stopCh) })
 }

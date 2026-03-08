@@ -74,6 +74,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -792,12 +793,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		providers := map[string]distributedtask.Provider{}
 
-		if os.Getenv("DISTRIBUTED_TASKS_TEST_PROVIDER_ENABLED") == "true" {
-			dummyProvider := distributedtask.NewDummyProvider(
-				appState.Cluster.LocalName(), appState.Logger,
+		if os.Getenv("SHARD_NOOP_PROVIDER_ENABLED") == "true" {
+			shardNoopProvider := distributedtask.NewShardNoopProvider(
+				appState.Cluster.LocalName(), appState.Logger, &dbShardLister{db: repo},
 			)
-			providers[distributedtask.DummyProviderNamespace] = dummyProvider
-			setupDummyTaskDebugHandler(appState, dummyProvider)
+			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
+			setupShardNoopDebugHandler(appState, shardNoopProvider)
 		}
 
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
@@ -828,6 +829,31 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	return appState
+}
+
+// dbShardLister adapts [db.DB] to the [distributedtask.ShardLister] interface,
+// allowing the [distributedtask.ShardNoopProvider] to discover which shards are
+// local to this node for a given collection.
+type dbShardLister struct {
+	db *db.DB
+}
+
+func (v *dbShardLister) GetLocalShardNames(collection string) ([]string, error) {
+	index := v.db.GetIndex(entschema.ClassName(collection))
+	if index == nil {
+		return nil, fmt.Errorf("collection %q not found", collection)
+	}
+	var names []string
+	if err := index.ForEachShard(func(name string, _ db.ShardLike) error {
+		names = append(names, name)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	}
+	return names, nil
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
