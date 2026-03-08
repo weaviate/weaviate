@@ -72,7 +72,7 @@
 // Both callbacks fire on FINISHED and FAILED tasks so providers can finalize (success) or
 // rollback (failure) based on task.Status. Both fire exactly once per task lifecycle.
 //
-// # Three journey examples
+// # Four journey examples
 //
 // Journey 1: Spread work across any node (no finalization needed).
 //
@@ -112,7 +112,7 @@
 // Each shard swaps its bucket pointers immediately upon completing its own reindex
 // (inside the StartTask goroutine, before calling RecordSubUnitCompletion).
 //
-// OnSubUnitsCompleted: no-op — each shard already swapped during its own processing.
+// OnGroupCompleted: no-op — each shard already swapped during its own processing.
 // OnTaskCompleted: optional — e.g., log completion or flip a cosmetic schema flag.
 //
 // Journey 3: Per-shard work, per-shard finalize after barrier (behavior changes).
@@ -129,10 +129,11 @@
 // During StartTask, each shard reindexes into new segments but does NOT swap yet.
 // It reports progress and completion, but the old segments remain active for queries.
 //
-// OnSubUnitsCompleted: fires on each node AFTER all sub-units across all nodes finish.
-// Receives localSubUnitIDs — the Provider looks up the shard mapping from
-// task.Payload to know which local shards to swap. Atomically swaps bucket
-// pointers for each local shard. This is a local operation, no Raft needed.
+// OnGroupCompleted: fires on each node AFTER all sub-units across all nodes finish
+// (since all sub-units share the default group ""). Receives localGroupSubUnitIDs —
+// the Provider looks up the shard mapping from task.Payload to know which local
+// shards to swap. Atomically swaps bucket pointers for each local shard. This is
+// a local operation, no Raft needed.
 //
 // OnTaskCompleted: submits a Raft schema update to change the tokenization config.
 // Because Raft deduplicates, the schema update happens exactly once even though
