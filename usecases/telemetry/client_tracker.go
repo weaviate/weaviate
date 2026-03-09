@@ -211,10 +211,6 @@ func IdentifyClientFromHeader(headerValue string) ClientInfo {
 
 	// Split by "/" to get SDK and version
 	parts := strings.SplitN(clientPart, "/", 2)
-	if len(parts) < 1 {
-		return ClientInfo{Type: ClientTypeUnknown, Version: ""}
-	}
-
 	sdk := strings.ToLower(strings.TrimSpace(parts[0]))
 	version := ""
 	if len(parts) == 2 {
