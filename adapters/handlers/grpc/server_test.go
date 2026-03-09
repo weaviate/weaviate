@@ -20,8 +20,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func TestMakeClientVersionInterceptor(t *testing.T) {
-	interceptor := makeClientVersionInterceptor()
+func TestMakeClientIdentifierInterceptor(t *testing.T) {
+	interceptor := makeClientIdentifierInterceptor()
 
 	tests := []struct {
 		name        string
@@ -59,9 +59,9 @@ func TestMakeClientVersionInterceptor(t *testing.T) {
 			assert.NoError(t, err)
 
 			if tt.headerValue != "" {
-				assert.Equal(t, tt.headerValue, capturedCtx.Value("clientVersion"))
+				assert.Equal(t, tt.headerValue, capturedCtx.Value("clientIdentifier"))
 			} else {
-				assert.Nil(t, capturedCtx.Value("clientVersion"))
+				assert.Nil(t, capturedCtx.Value("clientIdentifier"))
 			}
 		})
 	}

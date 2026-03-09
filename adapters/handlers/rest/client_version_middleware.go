@@ -18,10 +18,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
-func addClientVersionToContext(next http.Handler) http.Handler {
+func addClientIdentifierToContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if clientVersion := telemetry.SanitizeClientHeader(r.Header.Get("X-Weaviate-Client")); clientVersion != "" {
-			ctx := context.WithValue(r.Context(), "clientVersion", clientVersion)
+		if clientIdentifier := telemetry.SanitizeClientHeader(r.Header.Get("X-Weaviate-Client")); clientIdentifier != "" {
+			ctx := context.WithValue(r.Context(), "clientIdentifier", clientIdentifier)
 			r = r.WithContext(ctx)
 		}
 

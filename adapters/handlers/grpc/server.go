@@ -95,7 +95,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
-	interceptors = append(interceptors, makeClientVersionInterceptor())
+	interceptors = append(interceptors, makeClientIdentifierInterceptor())
 	if clientTracker != nil {
 		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker))
 	}
@@ -200,12 +200,12 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func makeClientVersionInterceptor() grpc.UnaryServerInterceptor {
+func makeClientIdentifierInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok {
 			if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
-				ctx = context.WithValue(ctx, "clientVersion", telemetry.SanitizeClientHeader(vals[0]))
+				ctx = context.WithValue(ctx, "clientIdentifier", telemetry.SanitizeClientHeader(vals[0]))
 			}
 		}
 		return handler(ctx, req)

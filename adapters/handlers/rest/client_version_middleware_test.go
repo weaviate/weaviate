@@ -43,10 +43,10 @@ func TestAddClientVersionToContext(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var capturedVersion interface{}
 			inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				capturedVersion = r.Context().Value("clientVersion")
+				capturedVersion = r.Context().Value("clientIdentifier")
 			})
 
-			handler := addClientVersionToContext(inner)
+			handler := addClientIdentifierToContext(inner)
 
 			req, err := http.NewRequest("GET", "/v1/objects", nil)
 			require.NoError(t, err)
