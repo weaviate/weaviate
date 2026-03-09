@@ -327,7 +327,9 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	} else {
 		cancelPtr := s.cancelExport.Load()
 		if cancelPtr == nil {
-			return ErrExportNotFound
+			// The export goroutine finished between the metadata check
+			// above and now — the export is already done.
+			return ErrExportAlreadyFinished
 		}
 		(*cancelPtr)(errExportCancelled)
 	}
