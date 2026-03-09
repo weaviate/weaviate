@@ -334,32 +334,43 @@ func TestNewZipClampsSplitFileSize(t *testing.T) {
 	tests := []struct {
 		name                  string
 		chunkTargetSize       int64
+		bigFileThreshold      int64
 		splitFileSize         int64
 		expectedSplitFileSize int64
 	}{
 		{
-			name:                  "splitFileSize already above chunkTargetSize",
+			name:                  "splitFileSize already above bigFileThreshold",
 			chunkTargetSize:       500,
+			bigFileThreshold:      300,
 			splitFileSize:         1000,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize equals chunkTargetSize",
-			chunkTargetSize:       1000,
+			name:                  "splitFileSize equals bigFileThreshold",
+			chunkTargetSize:       500,
+			bigFileThreshold:      1000,
 			splitFileSize:         1000,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize below chunkTargetSize gets clamped up",
+			name:                  "splitFileSize below bigFileThreshold gets clamped up",
+			chunkTargetSize:       500,
+			bigFileThreshold:      1000,
+			splitFileSize:         300,
+			expectedSplitFileSize: 1000,
+		},
+		{
+			name:                  "splitFileSize below chunkTargetSize stays as-is when bigFileThreshold is zero",
 			chunkTargetSize:       1000,
+			bigFileThreshold:      0,
 			splitFileSize:         500,
-			expectedSplitFileSize: 1000,
+			expectedSplitFileSize: 500,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, 0, tc.splitFileSize)
+			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFileThreshold, tc.splitFileSize)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedSplitFileSize, z.splitFileSizeBytes)
 			go func() { io.Copy(io.Discard, rc) }()
@@ -422,15 +433,17 @@ func TestWriteRegulars(t *testing.T) {
 			files: []testFile{
 				{"shard/huge.db", 5000},
 			},
-			// chunkTargetSize=1000, splitFileSize=500 → clamped to max(500,1000)=1000.
-			// fileSize(5000) > splitFileSizeBytes(1000) → WriteSplitFile writes first 1000 bytes.
+			// chunkTargetSize=1000, bigFileThreshold=1000, splitFileSize=500.
+			// splitFileSize clamped to bigFileThreshold=1000.
+			// fileSize(5000) > splitFileSizeBytes(1000) → numParts=ceil(5000/1000)=5, partSize=ceil(5000/5)=1000.
+			// WriteSplitFile writes first 1000 bytes.
 			chunkTargetSize:      1000,
 			minIndividualSize:    1000,
 			splitFileSize:        500,
 			expectTarFiles:       []string{"shard/huge.db"},
 			expectRemainingFiles: nil,
 			expectSplitFile:      "shard/huge.db",
-			expectAlreadyWritten: 1000, // clamped splitFileSize = max(500, 1000)
+			expectAlreadyWritten: 1000, // splitFileSize clamped to bigFileThreshold
 		},
 		{
 			name: "small file exceeding split threshold returns SplitFile with first part written",
@@ -438,16 +451,16 @@ func TestWriteRegulars(t *testing.T) {
 				{"shard/b.db", 800},
 				{"shard/a.db", 100},
 			},
-			// chunkTargetSize=500, splitFileSize=200 → clamped to max(200,500)=500.
-			// b.db(800) > splitFileSizeBytes(500) → numParts=ceil(800/500)=2, partSize=ceil(800/2)=400.
-			// WriteSplitFile writes the first 400 bytes and returns SplitFile{AW:400}.
+			// chunkTargetSize=500, splitFileSize=200 (no clamping).
+			// b.db(800) > splitFileSizeBytes(200) → numParts=ceil(800/200)=4, partSize=ceil(800/4)=200.
+			// WriteSplitFile writes the first 200 bytes and returns SplitFile{AW:200}.
 			chunkTargetSize:      500,
 			minIndividualSize:    0,
 			splitFileSize:        200,
 			expectTarFiles:       []string{"shard/b.db"},
 			expectRemainingFiles: []string{"shard/a.db"},
 			expectSplitFile:      "shard/b.db",
-			expectAlreadyWritten: 400, // even part: ceil(800/ceil(800/500)) = 400
+			expectAlreadyWritten: 200,
 		},
 		{
 			name: "small file triggers chunkFull without big file ahead",

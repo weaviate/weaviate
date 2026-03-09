@@ -125,7 +125,6 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshol
 	if splitFileSize == 0 {
 		splitFileSize = int64(1<<63 - 1) // effectively no limit
 	}
-
 	return zip{
 		sourcePath:          sourcePath,
 		compressorWriter:    gzw,
