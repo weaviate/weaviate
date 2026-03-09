@@ -225,13 +225,18 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 
 	// Both single-node and multi-node write a plan, so try to read it first.
-	plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
-	if err != nil {
+	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
+	if planErr != nil {
+		// Only fall back to metadata if the plan is genuinely missing.
+		// For other errors (connectivity, permissions) propagate them.
+		if !errors.As(planErr, &backup.ErrNotFound{}) {
+			return nil, fmt.Errorf("get export plan: %w", planErr)
+		}
 		// Plan may not exist if the export failed before/during plan writing.
 		// Fall back to reading the metadata file which may contain the FAILED/CANCELLED state.
 		meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
 		if metaErr != nil {
-			return nil, fmt.Errorf("export %s not found: %w", id, err)
+			return nil, fmt.Errorf("export %s not found: %w", id, planErr)
 		}
 		// Missing plan is always a failure — override the status and preserve
 		// any error already recorded in the metadata, unless it was cancelled.
@@ -251,6 +256,9 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 
 	// Check if the export was cancelled or has terminal metadata.
 	meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+	if metaErr != nil && !errors.As(metaErr, &backup.ErrNotFound{}) {
+		return nil, fmt.Errorf("get export metadata: %w", metaErr)
+	}
 	if metaErr == nil && meta.Status == export.Cancelled {
 		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
 	}
@@ -263,7 +271,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	if metaErr == nil {
 		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
 	}
-	// No metadata yet means the export is still running.
+	// Metadata not found — the export is still running.
 	return &models.ExportStatusResponse{
 		ID:        plan.ID,
 		Backend:   plan.Backend,
@@ -291,7 +299,10 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	// primary source of truth for authorization and node assignments.
 	plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if err != nil {
-		return ErrExportNotFound
+		if errors.As(err, &backup.ErrNotFound{}) {
+			return ErrExportNotFound
+		}
+		return fmt.Errorf("get export plan: %w", err)
 	}
 
 	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(plan.Classes...)...); err != nil {
@@ -316,6 +327,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 			switch export.Status(assembled.Status) {
 			case export.Success, export.Failed:
 				return ErrExportAlreadyFinished
+			case export.Started, export.Transferring, export.Cancelled, export.Skipped:
 			}
 		}
 
@@ -607,7 +619,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 // abortAll sends abort to all previously prepared nodes (best-effort).
 // It uses a fresh context so abort requests reach participants even when the
 // original request context has been cancelled (e.g. client disconnect).
-// Remote aborts are retried up to 3 times on connection errors.
+// Remote aborts are retried up to 3 times on error.
 func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
 	const maxRetries = 3
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
