@@ -208,7 +208,7 @@ func IdentifyClientFromHeader(headerValue string) ClientInfo {
 		return ClientInfo{Type: ClientTypeUnknown, Version: ""}
 	}
 
-	headerValue = strings.TrimSpace(headerValue)
+	headerValue = SanitizeClientHeader(strings.TrimSpace(headerValue))
 
 	// Parse the header: weaviate-client-{sdk}/{version}
 	// Remove "weaviate-client-" prefix if present
