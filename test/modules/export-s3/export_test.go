@@ -664,46 +664,48 @@ func readParquetRows(t *testing.T, data []byte) []pqexport.ParquetRow {
 	return rows[:n]
 }
 
-func TestExport_Cancel_Running(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+func TestExport_Cancel(t *testing.T) {
+	t.Run("running", func(t *testing.T) {
+		className := t.Name()
+		exportID := strings.ToLower(t.Name())
 
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ShardingConfig: map[string]interface{}{
-			"desiredCount": float64(1),
-		},
+		helper.CreateClass(t, &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{Name: "text", DataType: []string{"text"}},
+			},
+			ShardingConfig: map[string]interface{}{
+				"desiredCount": float64(1),
+			},
+		})
+		defer helper.DeleteClass(t, className)
+
+		// Create enough objects to make the export take some time
+		objects := makeObjects(className, "", 200)
+		helper.CreateObjectsBatch(t, objects)
+
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		require.NoError(t, err)
+
+		// Immediately try to cancel
+		_, cancelErr := exporttest.CancelExport(t, "s3", exportID)
+		if cancelErr != nil {
+			// 409 means the export finished before we could cancel — that's OK
+			require.Contains(t, cancelErr.Error(), "409",
+				"expected either success or 409, got: %v", cancelErr)
+			// Verify it actually succeeded
+			exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+		} else {
+			// Cancel succeeded — verify it reaches CANCELLED status
+			exporttest.ExpectExportEventuallyCancelled(t, "s3", exportID)
+		}
 	})
-	defer helper.DeleteClass(t, className)
 
-	// Create enough objects to make the export take some time
-	objects := makeObjects(className, "", 200)
-	helper.CreateObjectsBatch(t, objects)
-
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
-
-	// Immediately try to cancel
-	_, cancelErr := exporttest.CancelExport(t, "s3", exportID)
-	if cancelErr != nil {
-		// 409 means the export finished before we could cancel — that's OK
-		require.Contains(t, cancelErr.Error(), "409",
-			"expected either success or 409, got: %v", cancelErr)
-		// Verify it actually succeeded
-		exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-	} else {
-		// Cancel succeeded — verify it reaches CANCELLED status
-		exporttest.ExpectExportEventuallyCancelled(t, "s3", exportID)
-	}
-}
-
-func TestExport_Cancel_NotFound(t *testing.T) {
-	_, err := exporttest.CancelExport(t, "s3", "nonexistent-export-id")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "404")
+	t.Run("not found", func(t *testing.T) {
+		_, err := exporttest.CancelExport(t, "s3", "nonexistent-export-id")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "404")
+	})
 }
 
 func TestExport_Cancel_AlreadyFinished(t *testing.T) {
