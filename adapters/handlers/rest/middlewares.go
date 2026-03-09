@@ -115,6 +115,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		handler = addSourceIpToContext(handler)
+		handler = addClientVersionToContext(handler)
 		handler = addOperationalMode(appState, handler)
 		// Add OpenTelemetry tracing middleware (only has an effect if tracing is enabled)
 		handler = monitoring.AddTracingToHTTPMiddleware(handler, appState.Logger)

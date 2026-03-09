@@ -185,50 +185,58 @@ func (ct *ClientTracker) Stop() {
 // weaviate-client-{sdk}/{version}
 // where sdk is one of: python, java, typescript, go, csharp
 func identifyClient(r *http.Request) ClientInfo {
-	// Check for explicit client header
-	if clientHeader := r.Header.Get("X-Weaviate-Client"); clientHeader != "" {
-		clientHeader = strings.TrimSpace(clientHeader)
+	return IdentifyClientFromHeader(r.Header.Get("X-Weaviate-Client"))
+}
 
-		// Parse the header: weaviate-client-{sdk}/{version}
-		// Remove "weaviate-client-" prefix if present
-		prefix := "weaviate-client-"
-		if !strings.HasPrefix(strings.ToLower(clientHeader), prefix) {
-			return ClientInfo{Type: ClientTypeUnknown, Version: ""}
-		}
-
-		// Extract the part after "weaviate-client-"
-		clientPart := clientHeader[len(prefix):]
-
-		// Split by "/" to get SDK and version
-		parts := strings.SplitN(clientPart, "/", 2)
-		if len(parts) < 1 {
-			return ClientInfo{Type: ClientTypeUnknown, Version: ""}
-		}
-
-		sdk := strings.ToLower(strings.TrimSpace(parts[0]))
-		version := ""
-		if len(parts) == 2 {
-			version = strings.TrimSpace(parts[1])
-		}
-
-		// Identify client type
-		var clientType ClientType
-		switch sdk {
-		case "python":
-			clientType = ClientTypePython
-		case "java":
-			clientType = ClientTypeJava
-		case "csharp":
-			clientType = ClientTypeCSharp
-		case "typescript":
-			clientType = ClientTypeTypeScript
-		case "go":
-			clientType = ClientTypeGo
-		default:
-			return ClientInfo{Type: ClientTypeUnknown, Version: ""}
-		}
-
-		return ClientInfo{Type: clientType, Version: version}
+// IdentifyClientFromHeader parses a client header value (e.g. "weaviate-client-python/4.10.0")
+// and returns the identified client info. The header follows the pattern:
+// weaviate-client-{sdk}/{version}
+// where sdk is one of: python, java, typescript, go, csharp
+func IdentifyClientFromHeader(headerValue string) ClientInfo {
+	if headerValue == "" {
+		return ClientInfo{Type: ClientTypeUnknown, Version: ""}
 	}
-	return ClientInfo{Type: ClientTypeUnknown, Version: ""}
+
+	headerValue = strings.TrimSpace(headerValue)
+
+	// Parse the header: weaviate-client-{sdk}/{version}
+	// Remove "weaviate-client-" prefix if present
+	prefix := "weaviate-client-"
+	if !strings.HasPrefix(strings.ToLower(headerValue), prefix) {
+		return ClientInfo{Type: ClientTypeUnknown, Version: ""}
+	}
+
+	// Extract the part after "weaviate-client-"
+	clientPart := headerValue[len(prefix):]
+
+	// Split by "/" to get SDK and version
+	parts := strings.SplitN(clientPart, "/", 2)
+	if len(parts) < 1 {
+		return ClientInfo{Type: ClientTypeUnknown, Version: ""}
+	}
+
+	sdk := strings.ToLower(strings.TrimSpace(parts[0]))
+	version := ""
+	if len(parts) == 2 {
+		version = strings.TrimSpace(parts[1])
+	}
+
+	// Identify client type
+	var clientType ClientType
+	switch sdk {
+	case "python":
+		clientType = ClientTypePython
+	case "java":
+		clientType = ClientTypeJava
+	case "csharp":
+		clientType = ClientTypeCSharp
+	case "typescript":
+		clientType = ClientTypeTypeScript
+	case "go":
+		clientType = ClientTypeGo
+	default:
+		return ClientInfo{Type: ClientTypeUnknown, Version: ""}
+	}
+
+	return ClientInfo{Type: clientType, Version: version}
 }
