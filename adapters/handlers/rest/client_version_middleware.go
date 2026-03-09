@@ -14,11 +14,13 @@ package rest
 import (
 	"context"
 	"net/http"
+
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
 func addClientVersionToContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if clientVersion := r.Header.Get("X-Weaviate-Client"); clientVersion != "" {
+		if clientVersion := telemetry.SanitizeClientHeader(r.Header.Get("X-Weaviate-Client")); clientVersion != "" {
 			ctx := context.WithValue(r.Context(), "clientVersion", clientVersion)
 			r = r.WithContext(ctx)
 		}

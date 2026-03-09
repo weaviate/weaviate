@@ -205,7 +205,7 @@ func makeClientVersionInterceptor() grpc.UnaryServerInterceptor {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok {
 			if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
-				ctx = context.WithValue(ctx, "clientVersion", vals[0])
+				ctx = context.WithValue(ctx, "clientVersion", telemetry.SanitizeClientHeader(vals[0]))
 			}
 		}
 		return handler(ctx, req)

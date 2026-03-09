@@ -13,6 +13,7 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +94,21 @@ func TestIdentifyClientFromHeader(t *testing.T) {
 			assert.Equal(t, tt.expectedVer, info.Version)
 		})
 	}
+}
+
+func TestSanitizeClientHeader(t *testing.T) {
+	t.Run("normal header passes through", func(t *testing.T) {
+		assert.Equal(t, "weaviate-client-python/4.10.0", SanitizeClientHeader("weaviate-client-python/4.10.0"))
+	})
+
+	t.Run("empty string", func(t *testing.T) {
+		assert.Equal(t, "", SanitizeClientHeader(""))
+	})
+
+	t.Run("caps length at 128", func(t *testing.T) {
+		long := strings.Repeat("a", 200)
+		assert.Equal(t, 128, len(SanitizeClientHeader(long)))
+	})
 }
 
 func TestClientTrackingUnaryInterceptor(t *testing.T) {
