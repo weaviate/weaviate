@@ -290,53 +290,62 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if s.isMultiNode() {
-		plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
-		if planErr != nil {
-			// No plan and no metadata → export doesn't exist
-			if metaErr != nil {
-				return ErrExportNotFound
-			}
-			// Metadata exists but no plan and non-terminal status — unusual but cancel anyway
-		}
+		return s.cancelMultiNode(ctx, principal, backendStore, backend, id, bucket, path, metaErr)
+	}
+	return s.cancelSingleNode()
+}
 
-		if plan != nil {
-			if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
-				return fmt.Errorf("authorization failed: %w", err)
-			}
-
-			// Build node info from plan for abort
-			nodes := make([]exportNodeInfo, 0, len(plan.NodeAssignments))
-			for nodeName := range plan.NodeAssignments {
-				ni := exportNodeInfo{
-					req: &ExportRequest{ID: id, NodeName: nodeName},
-				}
-				if nodeName != s.localNode {
-					host, ok := s.nodeResolver.NodeHostname(nodeName)
-					if ok {
-						ni.host = host
-					}
-				}
-				nodes = append(nodes, ni)
-			}
-			s.abortAll(id, nodes)
+// cancelMultiNode cancels a running multi-node export by aborting all
+// participating nodes and writing CANCELLED metadata.
+func (s *Scheduler) cancelMultiNode(ctx context.Context, principal *models.Principal, backendStore modulecapabilities.BackupBackend, backend, id, bucket, path string, metaErr error) error {
+	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
+	if planErr != nil {
+		// No plan and no metadata → export doesn't exist
+		if metaErr != nil {
+			return ErrExportNotFound
 		}
-
-		// Write CANCELLED metadata for multi-node
-		cancelStatus := &models.ExportStatusResponse{
-			ID:      id,
-			Backend: backend,
-			Status:  string(export.Cancelled),
-			Error:   "export was cancelled",
-		}
-		if plan != nil {
-			cancelStatus.Classes = plan.Classes
-			cancelStatus.StartedAt = strfmt.DateTime(plan.StartedAt)
-		}
-		s.writeMetadata(backendStore, id, bucket, path, cancelStatus)
-		return nil
+		// Metadata exists but no plan and non-terminal status — unusual but cancel anyway
 	}
 
-	// Single-node: load the cancel-cause func for the active export.
+	if plan != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
+			return fmt.Errorf("authorization failed: %w", err)
+		}
+
+		// Build node info from plan for abort
+		nodes := make([]exportNodeInfo, 0, len(plan.NodeAssignments))
+		for nodeName := range plan.NodeAssignments {
+			ni := exportNodeInfo{
+				req: &ExportRequest{ID: id, NodeName: nodeName},
+			}
+			if nodeName != s.localNode {
+				host, ok := s.nodeResolver.NodeHostname(nodeName)
+				if ok {
+					ni.host = host
+				}
+			}
+			nodes = append(nodes, ni)
+		}
+		s.abortAll(id, nodes)
+	}
+
+	cancelStatus := &models.ExportStatusResponse{
+		ID:      id,
+		Backend: backend,
+		Status:  string(export.Cancelled),
+		Error:   "export was cancelled",
+	}
+	if plan != nil {
+		cancelStatus.Classes = plan.Classes
+		cancelStatus.StartedAt = strfmt.DateTime(plan.StartedAt)
+	}
+	s.writeMetadata(backendStore, id, bucket, path, cancelStatus)
+	return nil
+}
+
+// cancelSingleNode cancels a running single-node export by invoking the
+// cancel-cause function stored during Export().
+func (s *Scheduler) cancelSingleNode() error {
 	cancelPtr := s.cancelExport.Load()
 	if cancelPtr == nil {
 		return ErrExportNotFound
