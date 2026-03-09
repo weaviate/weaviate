@@ -224,45 +224,54 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		return nil, fmt.Errorf("initialize backend: %w", err)
 	}
 
-	if s.isMultiNode() {
-		plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
-		if err != nil {
-			// Plan may not exist if the export failed before/during plan writing.
-			// Fall back to reading the metadata file which may contain the FAILED/CANCELLED state.
-			meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
-			if metaErr != nil {
-				return nil, fmt.Errorf("export %s not found: %w", id, err)
-			}
-			// Missing plan is always a failure — override the status and preserve
-			// any error already recorded in the metadata, unless it was cancelled.
-			if meta.Status != export.Cancelled {
-				meta.Status = export.Failed
-				if meta.Error == "" {
-					meta.Error = fmt.Sprintf("export plan not found: %v", err)
-				}
-			}
-			return s.statusFromMetadata(backendStore, id, bucket, path, meta)
-		}
-
-		// Check if the export was cancelled after the plan was written.
-		meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
-		if metaErr == nil && meta.Status == export.Cancelled {
-			return s.statusFromMetadata(backendStore, id, bucket, path, meta)
-		}
-
-		return s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
-	}
-
-	meta, err := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+	// Both single-node and multi-node write a plan, so try to read it first.
+	plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if err != nil {
-		return nil, fmt.Errorf("export %s not found: %w", id, err)
+		// Plan may not exist if the export failed before/during plan writing.
+		// Fall back to reading the metadata file which may contain the FAILED/CANCELLED state.
+		meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+		if metaErr != nil {
+			return nil, fmt.Errorf("export %s not found: %w", id, err)
+		}
+		// Missing plan is always a failure — override the status and preserve
+		// any error already recorded in the metadata, unless it was cancelled.
+		if meta.Status != export.Cancelled {
+			meta.Status = export.Failed
+			if meta.Error == "" {
+				meta.Error = fmt.Sprintf("export plan not found: %v", err)
+			}
+		}
+		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
 	}
 
-	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(meta.Classes...)...); err != nil {
+	// Authorize using plan classes.
+	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
 		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
-	return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+	// Check if the export was cancelled or has terminal metadata.
+	meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
+	if metaErr == nil && meta.Status == export.Cancelled {
+		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+	}
+
+	if s.isMultiNode() {
+		return s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
+	}
+
+	// Single-node: metadata has the terminal status.
+	if metaErr == nil {
+		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+	}
+	// No metadata yet means the export is still running.
+	return &models.ExportStatusResponse{
+		ID:        plan.ID,
+		Backend:   plan.Backend,
+		Path:      backendStore.HomeDir(id, bucket, path),
+		Status:    string(export.Transferring),
+		StartedAt: strfmt.DateTime(plan.StartedAt),
+		Classes:   plan.Classes,
+	}, nil
 }
 
 // Cancel cancels a running export.
@@ -278,41 +287,29 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return fmt.Errorf("initialize backend: %w", err)
 	}
 
-	// Check metadata — if the export already has a terminal status, reject.
+	// Both single-node and multi-node write a plan, so use it as the
+	// primary source of truth for authorization and node assignments.
+	plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
+	if err != nil {
+		return ErrExportNotFound
+	}
+
+	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
+		return fmt.Errorf("authorization failed: %w", err)
+	}
+
+	// If terminal metadata already exists, the export is done.
 	meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
 	if metaErr == nil {
 		switch meta.Status {
 		case export.Success, export.Failed, export.Cancelled:
 			return ErrExportAlreadyFinished
 		default:
-			// Non-terminal status — continue with cancellation
 		}
 	}
 
 	if s.isMultiNode() {
-		return s.cancelMultiNode(ctx, principal, backendStore, backend, id, bucket, path, metaErr)
-	}
-	return s.cancelSingleNode()
-}
-
-// cancelMultiNode cancels a running multi-node export by aborting all
-// participating nodes and writing CANCELLED metadata.
-func (s *Scheduler) cancelMultiNode(ctx context.Context, principal *models.Principal, backendStore modulecapabilities.BackupBackend, backend, id, bucket, path string, metaErr error) error {
-	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
-	if planErr != nil {
-		// No plan and no metadata → export doesn't exist
-		if metaErr != nil {
-			return ErrExportNotFound
-		}
-		// Metadata exists but no plan and non-terminal status — unusual but cancel anyway
-	}
-
-	if plan != nil {
-		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
-			return fmt.Errorf("authorization failed: %w", err)
-		}
-
-		// Build node info from plan for abort
+		// Build node info from plan for abort.
 		nodes := make([]exportNodeInfo, 0, len(plan.NodeAssignments))
 		for nodeName := range plan.NodeAssignments {
 			ni := exportNodeInfo{
@@ -327,30 +324,23 @@ func (s *Scheduler) cancelMultiNode(ctx context.Context, principal *models.Princ
 			nodes = append(nodes, ni)
 		}
 		s.abortAll(id, nodes)
+	} else {
+		cancelPtr := s.cancelExport.Load()
+		if cancelPtr == nil {
+			return ErrExportNotFound
+		}
+		(*cancelPtr)(errExportCancelled)
 	}
 
 	cancelStatus := &models.ExportStatusResponse{
-		ID:      id,
-		Backend: backend,
-		Status:  string(export.Cancelled),
-		Error:   "export was cancelled",
-	}
-	if plan != nil {
-		cancelStatus.Classes = plan.Classes
-		cancelStatus.StartedAt = strfmt.DateTime(plan.StartedAt)
+		ID:        id,
+		Backend:   backend,
+		Status:    string(export.Cancelled),
+		Error:     "export was cancelled",
+		Classes:   plan.Classes,
+		StartedAt: strfmt.DateTime(plan.StartedAt),
 	}
 	s.writeMetadata(backendStore, id, bucket, path, cancelStatus)
-	return nil
-}
-
-// cancelSingleNode cancels a running single-node export by invoking the
-// cancel-cause function stored during Export().
-func (s *Scheduler) cancelSingleNode() error {
-	cancelPtr := s.cancelExport.Load()
-	if cancelPtr == nil {
-		return ErrExportNotFound
-	}
-	(*cancelPtr)(errExportCancelled)
 	return nil
 }
 
@@ -648,6 +638,21 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 		shards[className] = shardNames
 	}
 
+	plan := &ExportPlan{
+		ID:              exportID,
+		Backend:         status.Backend,
+		Classes:         classes,
+		NodeAssignments: map[string]map[string][]string{s.localNode: shards},
+		StartedAt:       time.Time(status.StartedAt),
+	}
+	if err := s.writeExportPlan(ctx, backend, exportID, bucket, path, plan); err != nil {
+		s.clearCancelState(cancel)
+		status.Status = string(export.Failed)
+		status.Error = fmt.Sprintf("failed to write export plan: %v", err)
+		s.writeMetadata(backend, exportID, bucket, path, status)
+		return
+	}
+
 	req := &ExportRequest{
 		ID:       exportID,
 		Backend:  status.Backend,
@@ -837,16 +842,13 @@ func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapab
 		return fmt.Errorf("check existing export: %w", err)
 	}
 
-	// In multi-node mode also check the plan file, which is written before
-	// metadata in the happy path.
-	if s.isMultiNode() {
-		_, err := s.getExportPlan(ctx, backend, exportID, bucket, path)
-		if err == nil {
-			return fmt.Errorf("export %q already exists at %q", exportID, home)
-		}
-		if !errors.As(err, &backup.ErrNotFound{}) {
-			return fmt.Errorf("check existing export: %w", err)
-		}
+	// Also check the plan file, which is written before metadata in both paths.
+	_, err = s.getExportPlan(ctx, backend, exportID, bucket, path)
+	if err == nil {
+		return fmt.Errorf("export %q already exists at %q", exportID, home)
+	}
+	if !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("check existing export: %w", err)
 	}
 
 	return nil
