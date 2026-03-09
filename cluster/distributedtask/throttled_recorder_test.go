@@ -75,24 +75,10 @@ func TestThrottledRecorder_CompletionNeverThrottled(t *testing.T) {
 		mock.Anything, "ns", "task", uint64(1), "node", "su-2", "err",
 	).Return(nil).Once()
 
-	inner.EXPECT().RecordDistributedTaskNodeCompletion(
-		mock.Anything, "ns", "task", uint64(1),
-	).Return(nil).Once()
-
-	inner.EXPECT().RecordDistributedTaskNodeFailure(
-		mock.Anything, "ns", "task", uint64(1), "err",
-	).Return(nil).Once()
-
 	err := recorder.RecordDistributedTaskSubUnitCompletion(context.Background(), "ns", "task", 1, "node", "su-1")
 	require.NoError(t, err)
 
 	err = recorder.RecordDistributedTaskSubUnitFailure(context.Background(), "ns", "task", 1, "node", "su-2", "err")
-	require.NoError(t, err)
-
-	err = recorder.RecordDistributedTaskNodeCompletion(context.Background(), "ns", "task", 1)
-	require.NoError(t, err)
-
-	err = recorder.RecordDistributedTaskNodeFailure(context.Background(), "ns", "task", 1, "err")
 	require.NoError(t, err)
 }
 

@@ -26,19 +26,12 @@
 //   - [Provider] is the extension point. Each task namespace (e.g. "reindex", "compaction")
 //     registers a Provider that knows how to execute that type of work locally.
 //
-// # Tracking modes
+// # Sub-unit tracking
 //
-// A task uses one of two mutually exclusive tracking modes, chosen at creation time:
-//
-// Legacy (node-level): each node reports "I'm done" via RecordNodeCompletion. The task
-// finishes when all cluster nodes have reported. Use this for operations where every node
-// must participate (e.g. a cluster-wide config change).
-//
-// Sub-unit: the task declares a set of named [SubUnit] items (e.g. one per shard). Each
+// Every task declares a set of named [SubUnit] items (e.g. one per shard). Each
 // sub-unit progresses independently through PENDING → IN_PROGRESS → COMPLETED/FAILED.
-// The task finishes when all sub-units reach a terminal state. Use this for operations
-// where work is divided into independent pieces that may be distributed unevenly across
-// nodes.
+// The task finishes when all sub-units reach a terminal state. Sub-units are always
+// required when creating a task.
 //
 // # Sub-unit assignment
 //
@@ -177,10 +170,10 @@
 // To add a new kind of distributed task:
 //
 //  1. Define a namespace constant (e.g. "my-reindex").
-//  2. Implement [Provider] (or [SubUnitAwareProvider] if you need sub-unit tracking).
+//  2. Implement [Provider] (or [SubUnitAwareProvider] if you need group-level callbacks).
 //  3. Register the provider in configure_api.go's MakeAppState, keyed by your namespace.
 //  4. Create tasks via the Raft endpoint [cluster.Raft.AddDistributedTask], passing
-//     sub-unit IDs if using sub-unit tracking (nil for legacy mode).
+//     sub-unit IDs (at least one sub-unit is always required).
 //
 // See [ShardNoopProvider] for a complete working example used by acceptance tests.
 //

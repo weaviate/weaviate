@@ -53,13 +53,6 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 	for namespace, tasks := range tasksByNamespace {
 		resp[namespace] = make([]models.DistributedTask, 0, len(tasks))
 		for _, task := range tasks {
-			var finishedNodes []string
-			for node := range task.FinishedNodes {
-				finishedNodes = append(finishedNodes, node)
-			}
-			// sort so it would be more deterministic and easier to test
-			sort.Strings(finishedNodes)
-
 			// Try to unmarshal the raw payload into a generic JSON object.
 			// If we introduce sensitive information to the payload, we can
 			// add another method to Provider to unmarshal the payload and strip all the sensitive data.
@@ -69,14 +62,13 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 			}
 
 			dt := models.DistributedTask{
-				ID:            task.ID,
-				Version:       int64(task.Version),
-				Status:        task.Status.String(),
-				Error:         task.Error,
-				StartedAt:     strfmt.DateTime(task.StartedAt),
-				FinishedAt:    strfmt.DateTime(task.FinishedAt),
-				FinishedNodes: finishedNodes,
-				Payload:       payload,
+				ID:         task.ID,
+				Version:    int64(task.Version),
+				Status:     task.Status.String(),
+				Error:      task.Error,
+				StartedAt:  strfmt.DateTime(task.StartedAt),
+				FinishedAt: strfmt.DateTime(task.FinishedAt),
+				Payload:    payload,
 			}
 
 			dt.SubUnits = mapSubUnits(task)
@@ -89,10 +81,6 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 }
 
 func mapSubUnits(task *distributedtask.Task) []*models.DistributedTaskSubUnit {
-	if !task.HasSubUnits() {
-		return nil
-	}
-
 	subUnits := make([]*models.DistributedTaskSubUnit, 0, len(task.SubUnits))
 	for _, su := range task.SubUnits {
 		subUnits = append(subUnits, &models.DistributedTaskSubUnit{

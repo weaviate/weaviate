@@ -82,7 +82,6 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		Payload:        r.Payload,
 		Status:         TaskStatusStarted,
 		StartedAt:      time.UnixMilli(r.SubmittedAtUnixMillis),
-		FinishedNodes:  map[string]bool{},
 	}
 
 	if len(r.SubUnitSpecs) > 0 {
@@ -102,44 +101,11 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 				Status: SubUnitStatusPending,
 			}
 		}
+	} else {
+		return fmt.Errorf("task %s/%s must have at least one sub-unit", r.Namespace, r.Id)
 	}
 
 	m.setTaskWithLock(newTask)
-
-	return nil
-}
-
-func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCluster int) error {
-	var r api.RecordDistributedTaskNodeCompletionRequest
-	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
-		return fmt.Errorf("unmarshal record task node completion request: %w", err)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
-	if err != nil {
-		return err
-	}
-
-	if task.Status != TaskStatusStarted {
-		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
-	}
-
-	if r.Error != nil {
-		task.Status = TaskStatusFailed
-		task.Error = *r.Error
-		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
-		return nil
-	}
-
-	task.FinishedNodes[r.NodeId] = true
-	if len(task.FinishedNodes) == numberOfNodesInTheCluster {
-		task.Status = TaskStatusFinished
-		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
-		return nil
-	}
 
 	return nil
 }
@@ -154,10 +120,6 @@ func (m *Manager) findStartedSubUnitWithLock(namespace, taskID string, version u
 
 	if task.Status != TaskStatusStarted {
 		return nil, nil, errTaskNotRunning(namespace, taskID, task.Version)
-	}
-
-	if !task.HasSubUnits() {
-		return nil, nil, fmt.Errorf("task %s/%s/%d does not have sub-units", namespace, taskID, task.Version)
 	}
 
 	su, ok := task.SubUnits[subUnitID]

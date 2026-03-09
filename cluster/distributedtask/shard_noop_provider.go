@@ -129,17 +129,10 @@ func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
 
 	handle := &shardNoopTaskHandle{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 
-	if task.HasSubUnits() {
-		enterrors.GoWrapper(func() {
-			defer close(handle.doneCh)
-			p.processSubUnits(task, handle)
-		}, p.logger)
-	} else {
-		enterrors.GoWrapper(func() {
-			defer close(handle.doneCh)
-			p.processLegacyTask(task, handle)
-		}, p.logger)
-	}
+	enterrors.GoWrapper(func() {
+		defer close(handle.doneCh)
+		p.processSubUnits(task, handle)
+	}, p.logger)
 
 	return handle, nil
 }
@@ -412,18 +405,6 @@ func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, h
 			p.logger.WithError(err).Error("shard-noop provider: failed to write processing marker")
 		}
 	}
-}
-
-func (p *ShardNoopProvider) processLegacyTask(task *Task, handle *shardNoopTaskHandle) {
-	select {
-	case <-handle.stopCh:
-		return
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	_ = p.recorder.RecordDistributedTaskNodeCompletion(
-		context.Background(), task.Namespace, task.ID, task.Version,
-	)
 }
 
 type shardNoopTaskHandle struct {

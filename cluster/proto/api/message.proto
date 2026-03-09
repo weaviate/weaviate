@@ -97,7 +97,7 @@ message ApplyRequest {
 
     TYPE_DISTRIBUTED_TASK_ADD = 300;
     TYPE_DISTRIBUTED_TASK_CANCEL = 301;
-    TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED = 302;
+    TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED = 302; // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs.
     TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
     TYPE_DISTRIBUTED_TASK_RECORD_SUB_UNIT_COMPLETED = 304;
     TYPE_DISTRIBUTED_TASK_UPDATE_SUB_UNIT_PROGRESS = 305;
@@ -215,6 +215,7 @@ message AddDistributedTaskRequest {
   repeated SubUnitSpec sub_unit_specs = 7;
 }
 
+// Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
 message RecordDistributedTaskNodeCompletionRequest {
   string namespace = 1;
   string id = 2;

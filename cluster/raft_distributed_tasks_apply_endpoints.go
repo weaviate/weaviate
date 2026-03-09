@@ -69,25 +69,6 @@ func (s *Raft) AddDistributedTaskWithGroups(
 	})
 }
 
-func (s *Raft) RecordDistributedTaskNodeCompletion(ctx context.Context, namespace, taskID string, version uint64) error {
-	return s.recordDistributedTaskNodeCompletion(ctx, namespace, taskID, version, nil)
-}
-
-func (s *Raft) RecordDistributedTaskNodeFailure(ctx context.Context, namespace, taskID string, version uint64, failureReason string) error {
-	return s.recordDistributedTaskNodeCompletion(ctx, namespace, taskID, version, &failureReason)
-}
-
-func (s *Raft) recordDistributedTaskNodeCompletion(ctx context.Context, namespace, taskID string, version uint64, failureReason *string) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED, &cmd.RecordDistributedTaskNodeCompletionRequest{
-		Namespace:            namespace,
-		Id:                   taskID,
-		Version:              version,
-		NodeId:               s.nodeSelector.LocalName(),
-		Error:                failureReason,
-		FinishedAtUnixMillis: time.Now().UnixMilli(),
-	})
-}
-
 func (s *Raft) CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL, &cmd.CancelDistributedTaskRequest{
 		Namespace:             namespace,

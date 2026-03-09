@@ -13,7 +13,6 @@ package distributedtask
 
 import (
 	"context"
-	"maps"
 	"time"
 )
 
@@ -29,8 +28,6 @@ type TaskCleaner interface {
 
 // TaskCompletionRecorder is an interface for recording the completion of a distributed task.
 type TaskCompletionRecorder interface {
-	RecordDistributedTaskNodeCompletion(ctx context.Context, namespace, taskID string, version uint64) error
-	RecordDistributedTaskNodeFailure(ctx context.Context, namespace, taskID string, version uint64, errMsg string) error
 	RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string) error
 	RecordDistributedTaskSubUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error
 	UpdateDistributedTaskSubUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string, progress float32) error
@@ -151,14 +148,11 @@ type TaskDescriptor struct {
 
 // Task represents a distributed task tracked across the cluster via Raft consensus.
 //
-// A task operates in one of two tracking modes, determined at creation time:
-//   - Legacy (SubUnits == nil): completion is tracked per-node via FinishedNodes. The task
-//     finishes when all cluster nodes report completion.
-//   - Sub-unit (SubUnits != nil): completion is tracked per-sub-unit. The task finishes when
-//     all sub-units reach a terminal state. A single sub-unit failure immediately fails the
-//     entire task — remaining in-flight sub-units are NOT waited for.
+// Completion is tracked per-sub-unit. The task finishes when all sub-units reach a terminal
+// state. A single sub-unit failure immediately fails the entire task — remaining in-flight
+// sub-units are NOT waited for.
 //
-// The tracking mode cannot change after creation and is preserved across snapshots.
+// Sub-units are always required when creating a task.
 type Task struct {
 	// Namespace is the namespace of distributed tasks which are managed by different Provider implementations
 	Namespace string `json:"namespace"`
@@ -181,16 +175,12 @@ type Task struct {
 	// Error is an optional field to store the error which moved the task to FAILED status.
 	Error string `json:"error,omitempty"`
 
-	// FinishedNodes is a map of nodeIDs that successfully finished the task.
-	FinishedNodes map[string]bool `json:"finishedNodes"`
-
-	// SubUnits tracks per-sub-unit progress. nil means legacy node-level tracking.
+	// SubUnits tracks per-sub-unit progress. Always non-nil for valid tasks.
 	SubUnits map[string]*SubUnit `json:"subUnits,omitempty"`
 }
 
 func (t *Task) Clone() *Task {
 	clone := *t
-	clone.FinishedNodes = maps.Clone(t.FinishedNodes)
 	if t.SubUnits != nil {
 		clone.SubUnits = make(map[string]*SubUnit, len(t.SubUnits))
 		for k, v := range t.SubUnits {
@@ -200,9 +190,6 @@ func (t *Task) Clone() *Task {
 	}
 	return &clone
 }
-
-// HasSubUnits returns true if the task uses sub-unit tracking (as opposed to legacy node-level tracking).
-func (t *Task) HasSubUnits() bool { return t.SubUnits != nil }
 
 // AllSubUnitsTerminal returns true if all sub-units are in a terminal state (COMPLETED or FAILED).
 func (t *Task) AllSubUnitsTerminal() bool {

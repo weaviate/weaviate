@@ -47,14 +47,6 @@ func NewThrottledRecorder(inner TaskCompletionRecorder, interval time.Duration, 
 	}
 }
 
-func (r *ThrottledRecorder) RecordDistributedTaskNodeCompletion(ctx context.Context, namespace, taskID string, version uint64) error {
-	return r.inner.RecordDistributedTaskNodeCompletion(ctx, namespace, taskID, version)
-}
-
-func (r *ThrottledRecorder) RecordDistributedTaskNodeFailure(ctx context.Context, namespace, taskID string, version uint64, errMsg string) error {
-	return r.inner.RecordDistributedTaskNodeFailure(ctx, namespace, taskID, version, errMsg)
-}
-
 func (r *ThrottledRecorder) RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string) error {
 	r.cleanupThrottleEntry(namespace, taskID, version, subUnitID)
 	return r.inner.RecordDistributedTaskSubUnitCompletion(ctx, namespace, taskID, version, nodeID, subUnitID)

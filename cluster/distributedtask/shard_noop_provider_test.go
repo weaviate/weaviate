@@ -51,7 +51,6 @@ type mockRecorder struct {
 	progresses map[string]float32 // suID → last progress
 	completed  []string           // suIDs that completed
 	failed     map[string]string  // suID → error message
-	nodesDone  bool
 }
 
 func newMockRecorder() *mockRecorder {
@@ -79,17 +78,6 @@ func (r *mockRecorder) RecordDistributedTaskSubUnitFailure(_ context.Context, _,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.failed[suID] = errMsg
-	return nil
-}
-
-func (r *mockRecorder) RecordDistributedTaskNodeFailure(_ context.Context, _, _ string, _ uint64, _ string) error {
-	return nil
-}
-
-func (r *mockRecorder) RecordDistributedTaskNodeCompletion(_ context.Context, _, _ string, _ uint64) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.nodesDone = true
 	return nil
 }
 
@@ -311,22 +299,6 @@ func TestShardNoopProvider_CollectionAware_EmptyPayloadFallsBackToSynthetic(t *t
 
 	assert.ElementsMatch(t, []string{"su-1"}, completed,
 		"only su-1 should be processed in synthetic mode (su-2 belongs to node2)")
-}
-
-func TestShardNoopProvider_LegacyTask_NoSubUnits(t *testing.T) {
-	f := newProviderFixture(t, "node1", nil)
-	task := f.newTask(nil)
-	task.SubUnits = nil
-
-	handle, err := f.provider.StartTask(task)
-	require.NoError(t, err)
-	defer handle.Terminate()
-
-	require.Eventually(t, func() bool {
-		f.recorder.mu.Lock()
-		defer f.recorder.mu.Unlock()
-		return f.recorder.nodesDone
-	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func TestShardNoopProvider_OnGroupCompleted(t *testing.T) {

@@ -192,10 +192,7 @@ func (s *Scheduler) filterStartedTasks(tasks map[TaskDescriptor]*Task) map[TaskD
 		if task.Status != TaskStatusStarted {
 			return false
 		}
-		if task.HasSubUnits() {
-			return task.NodeHasNonTerminalSubUnits(s.localNode)
-		}
-		return !task.FinishedNodes[s.localNode]
+		return task.NodeHasNonTerminalSubUnits(s.localNode)
 	})
 }
 
@@ -297,9 +294,6 @@ func (s *Scheduler) tick() {
 		// OnTaskCompleted fires once when the task reaches terminal state.
 		if suProvider, ok := provider.(SubUnitAwareProvider); ok {
 			for desc, task := range tasks {
-				if !task.HasSubUnits() {
-					continue
-				}
 				if task.Status == TaskStatusCancelled {
 					continue
 				}
