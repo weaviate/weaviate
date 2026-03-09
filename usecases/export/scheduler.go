@@ -243,7 +243,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		if meta.Status != export.Cancelled {
 			meta.Status = export.Failed
 			if meta.Error == "" {
-				meta.Error = fmt.Sprintf("export plan not found: %v", err)
+				meta.Error = fmt.Sprintf("export plan not found: %v", planErr)
 			}
 		}
 		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
