@@ -112,6 +112,9 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
+// Start wires up providers with a [ThrottledRecorder], performs an initial task listing to
+// bootstrap any already-active tasks, and spawns the background tick loop. It is safe to call
+// exactly once. Use [Scheduler.Close] to stop the loop and terminate all running tasks.
 func (s *Scheduler) Start(ctx context.Context) error {
 	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 30*time.Second, s.clock)
 
@@ -390,6 +393,8 @@ func (s *Scheduler) setRunningTaskHandleWithLock(namespace string, desc TaskDesc
 	s.runningTasks[namespace][desc] = handle
 }
 
+// Close stops the background tick loop and terminates all running task handles. It blocks
+// until all handles have been signalled. After Close returns, no new ticks will fire.
 func (s *Scheduler) Close() {
 	close(s.stopCh)
 

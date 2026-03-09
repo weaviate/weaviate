@@ -56,6 +56,9 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 }
 
+// AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
+// Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
+// the same namespace/ID is already running, or if no sub-units are provided.
 func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	var r api.AddDistributedTaskRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -224,6 +227,8 @@ func (m *Manager) UpdateSubUnitProgress(c *api.ApplyRequest) error {
 	return nil
 }
 
+// CancelTask transitions a running task to CANCELLED. In-flight sub-units are not waited
+// for — the [Scheduler] will terminate their local handles on the next tick.
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -247,6 +252,9 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	return nil
 }
 
+// CleanUpTask removes a terminal task from the Manager's state. It refuses to clean up tasks
+// that are still running or whose completedTaskTTL has not yet elapsed, preventing premature
+// removal of status information that other nodes may still need to observe.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -273,6 +281,8 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	return nil
 }
 
+// ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is
+// cloned, so callers may read the returned values without holding the Manager's lock.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -337,6 +347,8 @@ type snapshot struct {
 	Tasks map[string][]*Task `json:"tasks,omitempty"`
 }
 
+// Snapshot serialises the full task state to JSON for Raft snapshotting. The inverse
+// operation is [Manager.Restore].
 func (m *Manager) Snapshot() ([]byte, error) {
 	tasks, err := m.ListDistributedTasks(context.Background())
 	if err != nil {
@@ -353,6 +365,9 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	return bytes, nil
 }
 
+// Restore replaces the Manager's in-memory state from a Raft snapshot produced by
+// [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
+// a snapshot from the leader.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
