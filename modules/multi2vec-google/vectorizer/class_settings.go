@@ -48,7 +48,7 @@ var (
 	availableVideoIntervalSeconds = []int64{4, 8, 15, defaultVideoIntervalSeconds}
 )
 
-var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty, basesettings.VideoFieldsProperty}
+var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty, basesettings.VideoFieldsProperty, basesettings.AudioFieldsProperty}
 
 type classSettings struct {
 	base *basesettings.BaseClassMultiModalSettings
@@ -117,6 +117,14 @@ func (ic *classSettings) VideoField(property string) bool {
 
 func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
 	return ic.base.VideoFieldsWeights()
+}
+
+func (ic *classSettings) AudioField(property string) bool {
+	return ic.base.AudioField(property)
+}
+
+func (ic *classSettings) AudioFieldsWeights() ([]float32, error) {
+	return ic.base.AudioFieldsWeights()
 }
 
 func (ic *classSettings) Properties() ([]string, error) {
