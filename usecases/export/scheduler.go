@@ -325,8 +325,14 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		assembled, assembleErr := s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
 		if assembleErr == nil {
 			switch export.Status(assembled.Status) {
-			case export.Success, export.Failed:
+			case export.Success:
+				// All nodes completed successfully — nothing to cancel.
 				return ErrExportAlreadyFinished
+			case export.Failed:
+				// The assembled FAILED status may come from liveness checks
+				// (node unreachable / not running) rather than actual completion.
+				// Proceed with best-effort aborts so nodes that are still running
+				// get a cancellation signal.
 			case export.Started, export.Transferring, export.Cancelled:
 			}
 		}
