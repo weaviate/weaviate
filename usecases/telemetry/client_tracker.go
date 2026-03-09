@@ -180,8 +180,6 @@ func (ct *ClientTracker) Stop() {
 	})
 }
 
-// identifyClient attempts to identify the client SDK from the HTTP request.
-// It checks X-Weaviate-Client header, which follows the pattern:
 const maxClientHeaderLen = 128
 
 // SanitizeClientHeader caps length of user-controlled client header values
@@ -193,6 +191,8 @@ func SanitizeClientHeader(raw string) string {
 	return raw
 }
 
+// identifyClient attempts to identify the client SDK from the HTTP request.
+// It checks X-Weaviate-Client header, which follows the pattern:
 // weaviate-client-{sdk}/{version}
 // where sdk is one of: python, java, typescript, go, csharp
 func identifyClient(r *http.Request) ClientInfo {

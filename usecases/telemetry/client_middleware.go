@@ -56,11 +56,15 @@ func (ct *ClientTracker) TrackHeader(headerValue string) {
 
 // ClientTrackingUnaryInterceptor creates a gRPC unary interceptor that tracks
 // client SDK usage by reading the x-weaviate-client metadata header.
+// It also sets the sanitized header value in the context under "clientIdentifier",
+// combining both tracking and context-setting to avoid parsing metadata twice.
 func ClientTrackingUnaryInterceptor(tracker *ClientTracker) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if tracker != nil {
 			if md, ok := metadata.FromIncomingContext(ctx); ok {
 				if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
+					sanitized := SanitizeClientHeader(vals[0])
+					ctx = context.WithValue(ctx, "clientIdentifier", sanitized)
 					tracker.TrackHeader(vals[0])
 				}
 			}

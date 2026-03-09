@@ -95,9 +95,12 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
-	interceptors = append(interceptors, makeClientIdentifierInterceptor())
 	if clientTracker != nil {
+		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
+		// so no need for a separate makeClientIdentifierInterceptor.
 		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker))
+	} else {
+		interceptors = append(interceptors, makeClientIdentifierInterceptor())
 	}
 	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
 	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
