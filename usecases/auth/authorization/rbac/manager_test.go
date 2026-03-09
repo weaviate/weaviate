@@ -260,6 +260,17 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 	const concurrentReaders = 10
 	done := make(chan struct{})
 	var wg sync.WaitGroup
+
+	stopWorkers := func() {
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+		wg.Wait()
+	}
+	defer stopWorkers()
+
 	for range concurrentReaders {
 		wg.Add(1)
 		go func() {
@@ -278,8 +289,7 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 	err = m.Restore(data)
 	require.NoError(t, err)
 
-	close(done)
-	wg.Wait()
+	stopWorkers()
 
 	// After Restore and all concurrent readers have stopped, the user should
 	// not have access. If the cache still holds a stale "true", this fails.

@@ -407,7 +407,7 @@ func (m *Manager) Restore(b []byte) error {
 	// invalidate the enforce cache. Explicitly invalidate to prevent stale
 	// cached results while the new policies are being loaded below.
 	if err := m.casbin.InvalidateCache(); err != nil {
-		return fmt.Errorf("InvalidateCache: %w", err)
+		return fmt.Errorf("InvalidateCache after ClearPolicy: %w", err)
 	}
 
 	_, err := m.casbin.AddPolicies(snapshot.Policy)
@@ -444,7 +444,7 @@ func (m *Manager) Restore(b []byte) error {
 	// Enforce() calls can re-cache stale results in that gap. Invalidate once
 	// more so that any entries cached during the restore window are discarded.
 	if err := m.casbin.InvalidateCache(); err != nil {
-		return fmt.Errorf("InvalidateCache: %w", err)
+		return fmt.Errorf("InvalidateCache after LoadPolicy: %w", err)
 	}
 
 	return nil
