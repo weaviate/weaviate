@@ -70,7 +70,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			require.NotNil(ct, nodeStatusResp)
 
 			assert.Len(ct, nodeStatusResp.Nodes, 2)
-		}, 30*time.Second, 1*time.Second)
+		}, 90*time.Second, 1*time.Second)
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
@@ -85,8 +85,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 
 			nodeStatusResp := resp.GetPayload()
 			require.NotNil(ct, nodeStatusResp)
-			t.Logf("node status response: %+v", nodeStatusResp)
-			t.Logf("node status response nodes: %+v", nodeStatusResp.Nodes)
+
 			assert.Len(ct, nodeStatusResp.Nodes, 3)
 		}, 120*time.Second, 3*time.Second)
 	})

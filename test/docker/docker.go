@@ -221,7 +221,9 @@ func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 	return nil
 }
 
-// DisconnectFromNetwork disconnects a container from the network by its index
+// DisconnectFromNetwork disconnects a container from the network so it can no longer
+// communicate with other containers. Uses network ID so the Docker CLI reliably targets
+// the testcontainers-created network.
 func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, containerName string) error {
 	container := d.getContainerByName(containerName)
 	if container == nil {
@@ -232,22 +234,22 @@ func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, containerName
 		return fmt.Errorf("network is nil")
 	}
 
-	// Get the network name
-	networkName := d.network.Name
-	// Get the container ID
+	networkID := d.network.ID
+	if networkID == "" {
+		networkID = d.network.Name
+	}
 	containerID := container.container.GetContainerID()
 
-	// Execute docker network disconnect command
-	cmd := exec.CommandContext(ctx, "docker", "network", "disconnect", networkName, containerID)
+	cmd := exec.CommandContext(ctx, "docker", "network", "disconnect", networkID, containerID)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to disconnect container %s (id: %s) from network: %w", container.name, containerID, err)
+		return fmt.Errorf("failed to disconnect container %s (id: %s) from network %s: %w", container.name, containerID, networkID, err)
 	}
 	// sleep to make sure that the off node is detected by memberlist and marked failed
 	time.Sleep(3 * time.Second)
 	return nil
 }
 
-// ConnectToNetwork connects a container to the network by its index
+// ConnectToNetwork reattaches a container to the network. Uses network ID for consistency with DisconnectFromNetwork.
 func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName string) error {
 	container := d.getContainerByName(containerName)
 	if container == nil {
@@ -258,15 +260,15 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName stri
 		return fmt.Errorf("network is nil")
 	}
 
-	// Get the network name
-	networkName := d.network.Name
-	// Get the container ID
+	networkID := d.network.ID
+	if networkID == "" {
+		networkID = d.network.Name
+	}
 	containerID := container.container.GetContainerID()
 
-	// Execute docker network connect command
-	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkName, containerID)
+	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkID, containerID)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to connect container %s (id: %s) to network: %w", container.name, containerID, err)
+		return fmt.Errorf("failed to connect container %s (id: %s) to network %s: %w", container.name, containerID, networkID, err)
 	}
 
 	// sleep to make sure that the off node is detected by memberlist and connected to the network
