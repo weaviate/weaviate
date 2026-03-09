@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
 // TestCrashRecovery_SingleNodeRestart verifies that a task completes after one
@@ -36,22 +37,7 @@ func TestCrashRecovery_SingleNodeRestart(t *testing.T) {
 	defer cleanup()
 
 	restURI := compose.GetWeaviate().URI()
-	className := "CrashSingleNode"
-	createCollection(t, restURI, className, 3, 3)
-
-	placements := getShardPlacement(t, restURI, className, 9)
-	subUnitIDs, subUnitToShard, subUnitToNode := buildPerReplicaSubUnits(placements)
-	require.Len(t, subUnitIDs, 9)
-
-	taskID := "crash-single-node"
-	addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
-		ID:                taskID,
-		SubUnits:          subUnitIDs,
-		Collection:        className,
-		SubUnitToShard:    subUnitToShard,
-		SubUnitToNode:     subUnitToNode,
-		ProcessingDelayMs: 2000,
-	})
+	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashSingleNode", "crash-single-node", 2000)
 
 	// Wait until at least one sub-unit is in progress before crashing.
 	awaitAnySubUnitInProgress(t, restURI, taskID)
@@ -93,22 +79,7 @@ func TestCrashRecovery_MajorityRestart(t *testing.T) {
 	defer cleanup()
 
 	restURI := compose.GetWeaviate().URI()
-	className := "CrashMajority"
-	createCollection(t, restURI, className, 3, 3)
-
-	placements := getShardPlacement(t, restURI, className, 9)
-	subUnitIDs, subUnitToShard, subUnitToNode := buildPerReplicaSubUnits(placements)
-	require.Len(t, subUnitIDs, 9)
-
-	taskID := "crash-majority"
-	addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
-		ID:                taskID,
-		SubUnits:          subUnitIDs,
-		Collection:        className,
-		SubUnitToShard:    subUnitToShard,
-		SubUnitToNode:     subUnitToNode,
-		ProcessingDelayMs: 2000,
-	})
+	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashMajority", "crash-majority", 2000)
 
 	// Wait until at least one sub-unit is in progress.
 	awaitAnySubUnitInProgress(t, restURI, taskID)
@@ -151,22 +122,7 @@ func TestCrashRecovery_RollingRestart(t *testing.T) {
 	defer cleanup()
 
 	restURI := compose.GetWeaviate().URI()
-	className := "CrashRolling"
-	createCollection(t, restURI, className, 3, 3)
-
-	placements := getShardPlacement(t, restURI, className, 9)
-	subUnitIDs, subUnitToShard, subUnitToNode := buildPerReplicaSubUnits(placements)
-	require.Len(t, subUnitIDs, 9)
-
-	taskID := "crash-rolling"
-	addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
-		ID:                taskID,
-		SubUnits:          subUnitIDs,
-		Collection:        className,
-		SubUnitToShard:    subUnitToShard,
-		SubUnitToNode:     subUnitToNode,
-		ProcessingDelayMs: 3000,
-	})
+	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashRolling", "crash-rolling", 3000)
 
 	// Wait for processing to start.
 	awaitAnySubUnitInProgress(t, restURI, taskID)
@@ -210,22 +166,7 @@ func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 	defer cleanup()
 
 	restURI := compose.GetWeaviate().URI()
-	className := "CrashBeforeProgress"
-	createCollection(t, restURI, className, 3, 3)
-
-	placements := getShardPlacement(t, restURI, className, 9)
-	subUnitIDs, subUnitToShard, subUnitToNode := buildPerReplicaSubUnits(placements)
-	require.Len(t, subUnitIDs, 9)
-
-	taskID := "crash-before-progress"
-	addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
-		ID:                taskID,
-		SubUnits:          subUnitIDs,
-		Collection:        className,
-		SubUnitToShard:    subUnitToShard,
-		SubUnitToNode:     subUnitToNode,
-		ProcessingDelayMs: 5000, // Very slow — crash before any progress.
-	})
+	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashBeforeProgress", "crash-before-progress", 5000)
 
 	// Immediately kill node 2 before it reports any progress.
 	require.NoError(t, compose.StopAt(ctx, 1, nil))
@@ -255,6 +196,29 @@ func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Crash recovery helpers
 // ---------------------------------------------------------------------------
+
+// setupCrashRecoveryTask creates an RF3/3-shard collection and adds a task with 9 per-replica sub-units.
+func setupCrashRecoveryTask(t *testing.T, compose *docker.DockerCompose, className, taskID string, processingDelayMs int) (string, string, []string) {
+	t.Helper()
+
+	restURI := compose.GetWeaviate().URI()
+	createCollection(t, restURI, className, 3, 3)
+
+	placements := getShardPlacement(t, restURI, className, 9)
+	subUnitIDs, subUnitToShard, subUnitToNode := buildPerReplicaSubUnits(placements)
+	require.Len(t, subUnitIDs, 9)
+
+	addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
+		ID:                taskID,
+		SubUnits:          subUnitIDs,
+		Collection:        className,
+		SubUnitToShard:    subUnitToShard,
+		SubUnitToNode:     subUnitToNode,
+		ProcessingDelayMs: processingDelayMs,
+	})
+
+	return taskID, className, subUnitIDs
+}
 
 // awaitAnySubUnitInProgress polls until at least one sub-unit has IN_PROGRESS status.
 func awaitAnySubUnitInProgress(t *testing.T, restURI, taskID string) {
