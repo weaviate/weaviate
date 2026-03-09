@@ -17,7 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -42,6 +42,10 @@ var (
 	// ErrExportAlreadyFinished is returned when trying to cancel an export
 	// that has already completed (SUCCESS, FAILED, or CANCELLED).
 	ErrExportAlreadyFinished = errors.New("export has already finished")
+
+	// errExportCancelled is passed as the cause to context.WithCancelCause
+	// when an export is cancelled via the Cancel endpoint.
+	errExportCancelled = errors.New("export was cancelled")
 )
 
 const (
@@ -83,10 +87,9 @@ type Scheduler struct {
 	localNode    string       // from appState.Cluster.LocalName()
 	participant  *Participant // local participant — always present
 
-	// cancelMu guards cancelExport and exportCancelled for single-node cancellation.
-	cancelMu        sync.Mutex
-	cancelExport    context.CancelFunc
-	exportCancelled bool
+	// cancelExport stores the cancel-cause function for the active single-node
+	// export. A nil pointer means no export is running.
+	cancelExport atomic.Pointer[context.CancelCauseFunc]
 }
 
 // NewScheduler creates a new export scheduler.
@@ -182,25 +185,19 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 			return nil, err
 		}
 	} else {
-		s.cancelMu.Lock()
-		if s.cancelExport != nil {
-			s.cancelMu.Unlock()
+		exportCtx, cancel := context.WithCancelCause(s.shutdownCtx)
+		if !s.cancelExport.CompareAndSwap(nil, &cancel) {
+			cancel(nil)
 			return nil, fmt.Errorf("an export is already in progress")
 		}
-		exportCtx, cancel := context.WithCancel(s.shutdownCtx)
-		s.cancelExport = cancel
-		s.exportCancelled = false
-		s.cancelMu.Unlock()
 
 		enterrors.GoWrapper(func() {
 			defer func() {
-				s.cancelMu.Lock()
-				s.cancelExport = nil
-				s.exportCancelled = false
-				s.cancelMu.Unlock()
-				cancel()
+				// Safety net: ensure fields are cleared even on panic.
+				s.cancelExport.Store(nil)
+				cancel(nil)
 			}()
-			s.performSingleNodeExport(exportCtx, backendStore, id, status, classes, bucket, path)
+			s.performSingleNodeExport(exportCtx, cancel, backendStore, id, status, classes, bucket, path)
 		}, s.logger)
 	}
 
@@ -339,22 +336,12 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return nil
 	}
 
-	// Single-node: grab the cancel func for the active export.
-	s.cancelMu.Lock()
-	cancel := s.cancelExport
-	if cancel == nil {
-		s.cancelMu.Unlock()
-		if metaErr != nil {
-			return ErrExportNotFound
-		}
+	// Single-node: load the cancel-cause func for the active export.
+	cancelPtr := s.cancelExport.Load()
+	if cancelPtr == nil {
 		return ErrExportNotFound
 	}
-	s.exportCancelled = true
-	s.cancelMu.Unlock()
-
-	// Cancel the context. The goroutine in performSingleNodeExport will
-	// check exportCancelled and write CANCELLED metadata.
-	cancel()
+	(*cancelPtr)(errExportCancelled)
 	return nil
 }
 
@@ -620,10 +607,20 @@ func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
 	}
 }
 
+// clearCancelState clears the cancel-cause pointer and calls cancel(nil).
+// The cancel(nil) is a no-op if Cancel() already called it with
+// errExportCancelled. This must be called BEFORE writing terminal metadata
+// so that Cancel() can no longer find a non-nil pointer after metadata is
+// persisted.
+func (s *Scheduler) clearCancelState(cancel context.CancelCauseFunc) {
+	s.cancelExport.Store(nil)
+	cancel(nil)
+}
+
 // performSingleNodeExport builds shard assignments and delegates to the
 // participant's export logic, reusing the same per-shard code path as
 // multi-node exports.
-func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) {
+func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.CancelCauseFunc, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) {
 	shards := make(map[string][]string, len(classes))
 	for _, className := range classes {
 		shardNames, _, err := s.selector.ExportShardNames(className)
@@ -633,6 +630,7 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 				WithField("class", className).
 				Error(err)
 
+			s.clearCancelState(cancel)
 			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("failed to get shards for class %s: %v", className, err)
 			s.writeMetadata(backend, exportID, bucket, path, status)
@@ -651,20 +649,24 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, backend modulec
 		NodeName: s.localNode,
 	}
 
-	if err := s.participant.doExport(ctx, backend, req); err != nil {
+	exportErr := s.participant.doExport(ctx, backend, req)
+
+	// Clear the cancel state BEFORE writing metadata. This closes the race
+	// window where Cancel() could find a non-nil cancelExport after the
+	// terminal metadata has already been persisted.
+	s.clearCancelState(cancel)
+
+	if exportErr != nil {
 		s.logger.WithField("action", "export").
 			WithField("export_id", exportID).
-			Error(err)
+			Error(exportErr)
 
-		s.cancelMu.Lock()
-		cancelled := s.exportCancelled
-		s.cancelMu.Unlock()
-		if cancelled {
+		if errors.Is(context.Cause(ctx), errExportCancelled) {
 			status.Status = string(export.Cancelled)
 			status.Error = "export was cancelled"
 		} else {
 			status.Status = string(export.Failed)
-			status.Error = err.Error()
+			status.Error = exportErr.Error()
 		}
 		s.writeMetadata(backend, exportID, bucket, path, status)
 		return

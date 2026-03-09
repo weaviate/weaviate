@@ -444,13 +444,15 @@ func (p *Participant) startNodeStatusWriter(
 		data, err := json.Marshal(nodeStatus)
 		nodeStatus.mu.Unlock()
 		if err != nil {
-			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
+				Error(fmt.Errorf("marshal node status: %w", err))
 			return
 		}
 		writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := backend.Write(writeCtx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
-			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
+				Error(fmt.Errorf("write node status: %w", err))
 		}
 	}
 

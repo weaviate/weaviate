@@ -34,7 +34,7 @@ import (
 func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	shutdownCtx, shutdownCancel := context.WithCancelCause(context.Background())
 
 	// blockingSelector blocks in AcquireShardForExport until released
 	selector := &blockingSelector{
@@ -60,7 +60,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		s.performSingleNodeExport(shutdownCtx, backend, "test-export", status, []string{"TestClass"}, "", "")
+		s.performSingleNodeExport(shutdownCtx, shutdownCancel, backend, "test-export", status, []string{"TestClass"}, "", "")
 		close(done)
 	}()
 
@@ -68,7 +68,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 	selector.waitForCall(t)
 
 	// Simulate shutdown
-	shutdownCancel()
+	shutdownCancel(nil)
 
 	// Unblock the selector so it can return the context error
 	close(selector.blockCh)
@@ -533,7 +533,9 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 		Classes: []string{"TestClass"},
 	}
 
-	s.performSingleNodeExport(context.Background(), backend, "test-export", status, []string{"TestClass"}, "", "")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	s.performSingleNodeExport(ctx, cancel, backend, "test-export", status, []string{"TestClass"}, "", "")
 
 	require.Equal(t, string(export.Success), status.Status)
 
