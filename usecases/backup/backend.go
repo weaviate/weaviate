@@ -395,7 +395,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	desc.Chunks = make(map[int32][]string, 1+nShards/2)
 	var (
-		lastChunk = int32(0)
+		lastChunk atomic.Int32
 		nWorker   = u.GoPoolSize
 	)
 	if nWorker > nShards {
@@ -477,7 +477,7 @@ func (u *uploader) processShard(
 	ctx context.Context,
 	shard *backup.ShardDescriptor,
 	className string,
-	lastChunk *int32,
+	lastChunk *atomic.Int32,
 	overrideBucket, overridePath string,
 ) ([]chunkShards, error) {
 	filesInShard, err := u.createFileList(shard)
@@ -488,7 +488,7 @@ func (u *uploader) processShard(
 	var fileSizeExceeded *SplitFile
 	firstChunk := true
 	for {
-		chunk := atomic.AddInt32(lastChunk, 1)
+		chunk := lastChunk.Add(1)
 		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath)
 		if err != nil {
 			return results, err

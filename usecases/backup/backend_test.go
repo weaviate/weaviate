@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -432,7 +433,7 @@ func TestProcessShard(t *testing.T) {
 				log: logrus.New(),
 			}
 
-			lastChunk := int32(0)
+			var lastChunk atomic.Int32
 			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "")
 			require.NoError(t, err)
 			require.Len(t, results, tt.expectChunks, "expected %d chunks", tt.expectChunks)
@@ -442,7 +443,7 @@ func TestProcessShard(t *testing.T) {
 				assert.Equal(t, int32(i+1), r.chunk, "chunk ID at index %d", i)
 				assert.Equal(t, []string{"shard1"}, r.shards)
 			}
-			assert.Equal(t, int32(tt.expectChunks), lastChunk)
+			assert.Equal(t, int32(tt.expectChunks), lastChunk.Load())
 			assert.Len(t, chunkKeys, tt.expectChunks, "backend.Write call count")
 
 			// Verify BigFilesChunk tracking.
@@ -479,7 +480,7 @@ func TestProcessShard(t *testing.T) {
 			log:       logrus.New(),
 		}
 
-		lastChunk := int32(0)
+		var lastChunk atomic.Int32
 
 		results1, err := u.processShard(context.Background(),
 			&backup.ShardDescriptor{
@@ -503,7 +504,7 @@ func TestProcessShard(t *testing.T) {
 
 		assert.Equal(t, int32(1), results1[0].chunk)
 		assert.Equal(t, int32(2), results2[0].chunk)
-		assert.Equal(t, int32(2), lastChunk)
+		assert.Equal(t, int32(2), lastChunk.Load())
 	})
 }
 
@@ -600,7 +601,7 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 				log:       logrus.New(),
 			}
 
-			lastChunk := int32(0)
+			var lastChunk atomic.Int32
 			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "")
 			require.NoError(t, err)
 

@@ -72,6 +72,13 @@ type zip struct {
 	splitFileSizeBytes  int64
 }
 
+// NewZip creates a new zip writer for backup chunks. There are three size thresholds:
+//
+//   - bigFileThreshold: files >= this size get their own dedicated chunk (auto-calculated
+//     from the 100 biggest files in the shard).
+//   - splitFileSize: files exceeding this size are split across multiple chunks.
+//     Must be >= bigFileThreshold.
+//   - chunkTargetSize: the target size for chunks that pack multiple small files together.
 func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
@@ -113,9 +120,9 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshol
 	if splitFileSize == 0 {
 		splitFileSize = int64(1<<63 - 1) // effectively no limit
 	}
-	// splitFileSize must be at least chunkTargetSize, otherwise the split logic would never kick in.
-	if splitFileSize < chunkTargetSizeInBytes {
-		splitFileSize = chunkTargetSizeInBytes
+	// splitFileSize must be at least bigFileThreshold, there would be no splitting.
+	if splitFileSize < bigFileThreshold {
+		splitFileSize = bigFileThreshold
 	}
 
 	return zip{
