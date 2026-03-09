@@ -376,6 +376,11 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 		return nil, err
 	}
 
+	if includeEmpty {
+		// Positions are meaningful: nils indicate missing objects; do not compact.
+		return out, nil
+	}
+
 	// fix gaps in the output array
 	j := 0
 	for i := range out {
