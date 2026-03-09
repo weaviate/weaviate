@@ -39,12 +39,10 @@ func TestCrashRecovery_SingleNodeRestart(t *testing.T) {
 	awaitAnySubUnitInProgress(t, restURI, taskID)
 
 	// Kill node 2 (index 1, non-leader).
+	// Note: StopAt sleeps 3s for memberlist failure detection.
 	require.NoError(t, compose.StopAt(ctx, 1, nil))
 
-	// Let the surviving nodes finish their sub-units.
-	time.Sleep(5 * time.Second)
-
-	// Restart node 2.
+	// Restart node 2 — its sub-units are re-launched by the scheduler on startup.
 	require.NoError(t, compose.StartAt(ctx, 1))
 
 	// Task must complete — the restarted node re-processes its sub-units.
@@ -64,14 +62,15 @@ func TestCrashRecovery_MajorityRestart(t *testing.T) {
 	awaitAnySubUnitInProgress(t, restURI, taskID)
 
 	// Kill nodes 1 and 2 (indices 1 and 2), leaving node 0 (leader) alive.
+	// Note: StopAt already sleeps 3s for memberlist failure detection.
 	require.NoError(t, compose.StopAt(ctx, 1, nil))
 	require.NoError(t, compose.StopAt(ctx, 2, nil))
 
-	// Wait for surviving node to finish its sub-units.
-	time.Sleep(8 * time.Second)
-
-	// Restart the crashed nodes.
+	// Restart node 1 first to restore Raft quorum (2/3 nodes = majority).
+	// Once quorum is restored, the cluster can process Raft commands again.
 	require.NoError(t, compose.StartAt(ctx, 1))
+
+	// Now restart node 2 — it joins an already-healthy cluster.
 	require.NoError(t, compose.StartAt(ctx, 2))
 
 	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
@@ -114,10 +113,8 @@ func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashBeforeProgress", "crash-before-progress", 5000)
 
 	// Immediately kill node 2 before it reports any progress.
+	// Note: StopAt sleeps 3s for memberlist failure detection.
 	require.NoError(t, compose.StopAt(ctx, 1, nil))
-
-	// Let the other nodes finish their sub-units.
-	time.Sleep(10 * time.Second)
 
 	// Restart node 2.
 	require.NoError(t, compose.StartAt(ctx, 1))
@@ -129,13 +126,16 @@ func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 // Crash recovery helpers
 // ---------------------------------------------------------------------------
 
-// startCrashRecoveryTest creates a 3-node DTM cluster with a 5-minute context
-// and returns everything a crash-recovery test needs. The returned cleanup
-// function tears down the cluster and cancels the context.
+// startCrashRecoveryTest creates a 3-node DTM cluster with a 7-minute context
+// and returns everything a crash-recovery test needs. The 7-minute budget
+// accounts for cluster startup (~30s), task setup (~30s), crash simulation
+// (3-6s per StopAt due to memberlist sleep), Raft quorum recovery (~30-60s
+// for nodes to rejoin and become ready), and task completion verification
+// (~120s). The returned cleanup tears down the cluster and cancels the context.
 func startCrashRecoveryTest(t *testing.T) (context.Context, *docker.DockerCompose, string, func()) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
 	compose, clusterCleanup := start3NodeDTMCluster(ctx, t)
 	restURI := compose.GetWeaviate().URI()
 
