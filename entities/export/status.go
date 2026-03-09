@@ -11,6 +11,7 @@
 
 package export
 
+// Status represents the state of a node or export-level operation.
 type Status string
 
 const (
@@ -19,7 +20,17 @@ const (
 	Success      Status = "SUCCESS"
 	Failed       Status = "FAILED"
 	Cancelled    Status = "CANCELLED"
-	Skipped      Status = "SKIPPED"
+)
+
+// ShardStatus represents the state of a single shard's export.
+// It extends Status with Skipped, which only applies at the shard level.
+type ShardStatus string
+
+const (
+	ShardTransferring ShardStatus = "TRANSFERRING"
+	ShardSuccess      ShardStatus = "SUCCESS"
+	ShardFailed       ShardStatus = "FAILED"
+	ShardSkipped      ShardStatus = "SKIPPED"
 )
 
 type CreateMeta struct {

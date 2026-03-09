@@ -327,7 +327,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 			switch export.Status(assembled.Status) {
 			case export.Success, export.Failed:
 				return ErrExportAlreadyFinished
-			case export.Started, export.Transferring, export.Cancelled, export.Skipped:
+			case export.Started, export.Transferring, export.Cancelled:
 			}
 		}
 
@@ -429,7 +429,9 @@ func (s *Scheduler) assembleStatusFromPlan(
 			lastCompleted = nodeStatus.CompletedAt
 		}
 
-		effectiveStatus := nodeStatus.Status
+		// effectiveShardStatus defaults to Transferring and is overridden to
+		// Failed when a node is unreachable or no longer running the export.
+		effectiveShardStatus := export.ShardTransferring
 		switch nodeStatus.Status {
 		case export.Success:
 		case export.Failed:
@@ -438,13 +440,13 @@ func (s *Scheduler) assembleStatusFromPlan(
 			if status.Error == "" {
 				status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
 			}
-		default:
+		case export.Started, export.Transferring, export.Cancelled:
 			// Non-terminal (Transferring/Started): verify the node is still running
 			allSuccess = false
 			host, alive := s.nodeResolver.NodeHostname(nodeName)
 			if !alive {
 				anyFailed = true
-				effectiveStatus = export.Failed
+				effectiveShardStatus = export.ShardFailed
 				if status.Error == "" {
 					status.Error = fmt.Sprintf("node %s is no longer part of the cluster", nodeName)
 				}
@@ -452,7 +454,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 				running, runErr := s.client.IsRunning(ctx, host, id)
 				if runErr != nil || !running {
 					anyFailed = true
-					effectiveStatus = export.Failed
+					effectiveShardStatus = export.ShardFailed
 					if status.Error == "" {
 						status.Error = fmt.Sprintf("node %s is no longer running export %s", nodeName, id)
 					}
@@ -470,9 +472,9 @@ func (s *Scheduler) assembleStatusFromPlan(
 				// (e.g. no status file written, or shard not started).
 				sp := nodeStatus.ShardProgress[className][shardName]
 				if sp == nil {
-					sp = &ShardProgress{Status: effectiveStatus}
-				} else if sp.Status != export.Success && sp.Status != export.Failed && sp.Status != export.Skipped {
-					sp.Status = effectiveStatus
+					sp = &ShardProgress{Status: effectiveShardStatus}
+				} else if sp.Status != export.ShardSuccess && sp.Status != export.ShardFailed && sp.Status != export.ShardSkipped {
+					sp.Status = effectiveShardStatus
 				}
 				status.ShardStatus[className][shardName] = models.ShardProgress{
 					Status:          string(sp.Status),

@@ -397,8 +397,8 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		Status:   export.Transferring,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 300},
-				"shard1": {Status: export.Transferring, ObjectsExported: 200},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 300},
+				"shard1": {Status: export.ShardTransferring, ObjectsExported: 200},
 			},
 		},
 	}
@@ -461,8 +461,8 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		Status:   export.Transferring,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 300},
-				"shard1": {Status: export.Transferring, ObjectsExported: 100},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 300},
+				"shard1": {Status: export.ShardTransferring, ObjectsExported: 100},
 			},
 		},
 	}
@@ -558,8 +558,8 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		Status:   export.Success,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 500},
-				"shard1": {Status: export.Skipped, ObjectsExported: 0},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 500},
+				"shard1": {Status: export.ShardSkipped, ObjectsExported: 0},
 			},
 		},
 	}
@@ -606,9 +606,9 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 
 	// Per-shard status is correctly reported
 	require.NotNil(t, status.ShardStatus["TestClass"])
-	assert.Equal(t, string(export.Success), status.ShardStatus["TestClass"]["shard0"].Status)
+	assert.Equal(t, string(export.ShardSuccess), status.ShardStatus["TestClass"]["shard0"].Status)
 	assert.Equal(t, int64(500), status.ShardStatus["TestClass"]["shard0"].ObjectsExported)
-	assert.Equal(t, string(export.Skipped), status.ShardStatus["TestClass"]["shard1"].Status)
+	assert.Equal(t, string(export.ShardSkipped), status.ShardStatus["TestClass"]["shard1"].Status)
 	assert.Equal(t, int64(0), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
 }
 

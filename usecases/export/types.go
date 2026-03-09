@@ -37,10 +37,10 @@ func (*bytesReadCloser) CloseWithError(error) error { return nil }
 // ShardProgress tracks the progress of exporting a single shard.
 // Used internally and in the S3 NodeStatus format.
 type ShardProgress struct {
-	Status          export.Status `json:"status"`
-	ObjectsExported int64         `json:"objectsExported"`
-	Error           string        `json:"error,omitempty"`
-	SkipReason      string        `json:"skipReason,omitempty"`
+	Status          export.ShardStatus `json:"status"`
+	ObjectsExported int64              `json:"objectsExported"`
+	Error           string             `json:"error,omitempty"`
+	SkipReason      string             `json:"skipReason,omitempty"`
 }
 
 // ExportMetadata is written to S3 alongside the parquet files
@@ -84,7 +84,7 @@ type NodeStatus struct {
 }
 
 // SetShardProgress updates a shard's export progress in a thread-safe manner.
-func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.Status, objects int64, errMsg, skipReason string) {
+func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.ShardStatus, objects int64, errMsg, skipReason string) {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
 	sp := ns.ShardProgress[className][shardName]
