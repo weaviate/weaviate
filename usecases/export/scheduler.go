@@ -594,14 +594,29 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 // abortAll sends abort to all previously prepared nodes (best-effort).
 // It uses a fresh context so abort requests reach participants even when the
 // original request context has been cancelled (e.g. client disconnect).
+// Remote aborts are retried up to 3 times on connection errors.
 func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	const maxRetries = 3
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	for _, ni := range nodes {
 		if ni.host == "" {
 			s.participant.Abort(exportID)
-		} else {
-			s.client.Abort(ctx, ni.host, exportID)
+			continue
+		}
+		for attempt := range maxRetries {
+			err := s.client.Abort(ctx, ni.host, exportID)
+			if err == nil {
+				break
+			}
+			s.logger.WithField("action", "export_abort").
+				WithField("export_id", exportID).
+				WithField("node", ni.req.NodeName).
+				WithField("attempt", attempt+1).
+				Errorf("abort failed: %v", err)
+			if attempt < maxRetries-1 {
+				time.Sleep(500 * time.Millisecond)
+			}
 		}
 	}
 }

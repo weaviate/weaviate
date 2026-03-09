@@ -335,7 +335,7 @@ func (c *fakeExportClient) Commit(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (c *fakeExportClient) Abort(_ context.Context, _, _ string) {}
+func (c *fakeExportClient) Abort(_ context.Context, _, _ string) error { return nil }
 
 func (c *fakeExportClient) IsRunning(ctx context.Context, host, exportID string) (bool, error) {
 	if c.isRunningFn != nil {
