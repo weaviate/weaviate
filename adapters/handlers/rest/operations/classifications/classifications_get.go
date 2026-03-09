@@ -45,9 +45,9 @@ func NewClassificationsGet(ctx *middleware.Context, handler ClassificationsGetHa
 /*
 	ClassificationsGet swagger:route GET /classifications/{id} classifications classificationsGet
 
-# View previously created classification
+# Get classification status
 
-Get status, results and metadata of a previously created classification
+Retrieves the status, metadata, and results (if completed) of a classification task identified by its unique ID.
 */
 type ClassificationsGet struct {
 	Context *middleware.Context

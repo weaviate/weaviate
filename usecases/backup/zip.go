@@ -50,14 +50,15 @@ type compressor interface {
 }
 
 type zip struct {
-	sourcePath          string
-	w                   *tar.Writer
-	compressorWriter    compressor
-	pipeWriter          *io.PipeWriter
-	maxChunkSizeInBytes int64
+	sourcePath            string
+	w                     *tar.Writer
+	compressorWriter      compressor
+	pipeWriter            *io.PipeWriter
+	maxChunkSizeInBytes   int64
+	minIndividualFileSize int64
 }
 
-func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, io.ReadCloser, error) {
+func NewZip(sourcePath string, level int, chunkTargetSize int64, minIndividualFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -94,22 +95,29 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64) (zip, io.ReadCl
 	}
 
 	return zip{
-		sourcePath:          sourcePath,
-		compressorWriter:    gzw,
-		w:                   tarW,
-		pipeWriter:          pw,
-		maxChunkSizeInBytes: chunkTargetSizeInBytes,
+		sourcePath:            sourcePath,
+		compressorWriter:      gzw,
+		w:                     tarW,
+		pipeWriter:            pw,
+		maxChunkSizeInBytes:   chunkTargetSizeInBytes,
+		minIndividualFileSize: minIndividualFileSize,
 	}, reader, nil
 }
 
 func (z *zip) Close() error {
+	return z.CloseWithError(nil)
+}
+
+// CloseWithError closes the zip and signals the given error to the consumer.
+// If err is non-nil, the consumer's read will return this error instead of EOF.
+func (z *zip) CloseWithError(err error) error {
 	var err1, err2, err3 error
 	err1 = z.w.Close()
 	if z.compressorWriter != nil {
 		err2 = z.compressorWriter.Close()
 	}
-	if err := z.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
-		err3 = err
+	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil && !errors.Is(closeErr, io.ErrClosedPipe) {
+		err3 = closeErr
 	}
 	if err1 != nil || err2 != nil || err3 != nil {
 		return fmt.Errorf("tar: %w, gzip: %w, pw: %w", err1, err2, err3)
@@ -118,7 +126,7 @@ func (z *zip) Close() error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64) (written int64, err error) {
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64, chunkKey string) (written int64, err error) {
 	var n int64 // temporary written bytes
 
 	// write in-memory files only for the first chunk of the shard, these files are small and we can assume that they will
@@ -148,14 +156,14 @@ func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, fil
 		}
 	}
 
-	n, err = z.WriteRegulars(ctx, filesInShard, preCompressionSize)
+	n, err = z.WriteRegulars(ctx, sd, filesInShard, preCompressionSize, chunkKey)
 	written += n
 
 	return written, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64) (written int64, err error) {
-	// Process files in filesInShard and remove them as we go (pop from front).
+func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64, chunkKey string) (written int64, err error) {
+	// Process files in sd.Files and remove them as we go (pop from front).
 	firstFile := true
 	for filesInShard.Len() > 0 {
 		relPath := filesInShard.Peek()
@@ -166,14 +174,38 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, sizeExceeded, err := z.WriteRegular(ctx, relPath, preCompressionSize, firstFile)
+		// Get pre-collected file size
+		fileSize := filesInShard.GetFileSize(relPath)
+
+		// Big files (>= minIndividualFileSize) get their own chunk
+		if z.minIndividualFileSize > 0 && fileSize >= z.minIndividualFileSize {
+			if !firstFile {
+				// Current chunk already has data; fill remaining space with small files, then return.
+				// The big file stays at the front for the next chunk.
+				n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
+				written += n
+				return written, err
+			}
+			// First file in chunk and it's big — write it alone
+			n, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, true, chunkKey)
+			if err != nil {
+				return written, err
+			}
+			filesInShard.PopFront()
+			written += n
+			return written, nil
+		}
+
+		n, sizeExceeded, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, firstFile, chunkKey)
 		if err != nil {
 			return written, err
 		}
 		if sizeExceeded {
-			// The file was not written because the current chunk is full.
-			// It will be processed on the next chunk.
-			return written, nil
+			// The file at the front doesn't fit. Scan ahead for smaller files
+			// that still fit in the remaining chunk space.
+			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
+			written += n
+			return written, err
 		}
 		// remove processed element from slice
 		filesInShard.PopFront()
@@ -183,10 +215,69 @@ func (z *zip) WriteRegulars(ctx context.Context, filesInShard *entBackup.FileLis
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSize *atomic.Int64, firstFile bool) (written int64, sizeExceeded bool, err error) {
+const maxLookahead = 100
+
+// fillChunkWithSmallFiles scans ahead in the file list for files that fit in the
+// remaining chunk space, writes them, and removes them from the list. The big
+// file(s) that didn't fit stay at the front for the next chunk.
+func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64, chunkKey string) (written int64, err error) {
+	limit := filesInShard.Len()
+	if limit > maxLookahead {
+		limit = maxLookahead
+	}
+
+	var writtenIndices []int
+	for i := 0; i < limit; i++ {
+		relPath := filesInShard.PeekAt(i)
+		if relPath == "" {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
+
+		fileSize := filesInShard.GetFileSize(relPath)
+		// Skip files whose size is unknown or that don't fit.
+		if fileSize < 0 {
+			continue
+		}
+		// Skip big files — they get their own chunk
+		if z.minIndividualFileSize > 0 && fileSize >= z.minIndividualFileSize {
+			continue
+		}
+		if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
+			continue
+		}
+
+		n, sizeExceeded, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, false, chunkKey)
+		if err != nil {
+			return written, err
+		}
+		if sizeExceeded {
+			continue
+		}
+		written += n
+		writtenIndices = append(writtenIndices, i)
+	}
+
+	filesInShard.RemoveIndices(writtenIndices)
+	return written, nil
+}
+
+func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, fileSize int64, preCompressionSize *atomic.Int64, firstFile bool, chunkKey string) (written int64, sizeExceeded bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return written, false, err
 	}
+
+	// Use pre-collected file size for chunk size decisions if available
+	// fileSize == -1 means size was not pre-collected
+	if fileSize >= 0 {
+		// always write at least one file per chunk
+		if !firstFile && preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
+			return 0, true, nil
+		}
+	}
+
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
 	// check if file exists, if not check if the collection has been deleted and is now available with the delete marker
@@ -205,9 +296,24 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	if !info.Mode().IsRegular() {
 		return 0, false, nil // ignore directories
 	}
-	// always write at least one file per chunk
-	if !firstFile && preCompressionSize.Load()+info.Size() > z.maxChunkSizeInBytes {
-		return 0, true, nil
+
+	// Use pre-collected size if available, otherwise fall back to stat
+	actualSize := fileSize
+	if actualSize < 0 {
+		actualSize = info.Size()
+		// Fallback: check chunk size if we didn't have pre-collected size
+		if !firstFile && preCompressionSize.Load()+actualSize > z.maxChunkSizeInBytes {
+			return 0, true, nil
+		}
+	}
+
+	if z.minIndividualFileSize > 0 && actualSize >= z.minIndividualFileSize {
+		if sd.BigFilesChunk == nil {
+			sd.BigFilesChunk = make(map[string]entBackup.BigFileInfo)
+		}
+		// ChunkKeys already supports that single files might need to be split across multiple chunks. However currently
+		// we only support one chunk per big file.
+		sd.BigFilesChunk[relPath] = entBackup.BigFileInfo{ChunkKeys: []string{chunkKey}, Size: actualSize, ModifiedAt: info.ModTime()}
 	}
 
 	f, err := os.Open(absPath)
@@ -216,7 +322,7 @@ func (z *zip) WriteRegular(ctx context.Context, relPath string, preCompressionSi
 	}
 	defer f.Close()
 
-	preCompressionSize.Add(info.Size())
+	preCompressionSize.Add(actualSize)
 
 	written, err = z.writeOne(ctx, info, relPath, f)
 	return written, false, err
@@ -394,7 +500,7 @@ func (v vFileInfo) IsDir() bool        { return false }
 func (v vFileInfo) Sys() interface{}   { return nil }
 
 type readCloser struct {
-	src io.ReadCloser
+	src *io.PipeReader
 	n   int64
 }
 
@@ -405,6 +511,11 @@ func (r *readCloser) Read(p []byte) (n int, err error) {
 }
 
 func (r *readCloser) Close() error { return r.src.Close() }
+
+// CloseWithError closes the reader and signals the given error to the producer.
+// If err is non-nil, the producer's write will return this error instead of
+// the generic "io: read/write on closed pipe".
+func (r *readCloser) CloseWithError(err error) error { return r.src.CloseWithError(err) }
 
 func zipLevel(level int) int {
 	if level < 0 || level > 3 {

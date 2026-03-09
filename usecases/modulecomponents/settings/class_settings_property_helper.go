@@ -31,6 +31,7 @@ type PropertyValuesHelper interface {
 	GetPropertyAsBool(cfg moduletools.ClassConfig, name string, defaultValue bool) bool
 	GetPropertyAsBoolWithNotExists(cfg moduletools.ClassConfig, name string, defaultValue, notExistsValue bool) bool
 	GetNumber(in any) (float32, error)
+	GetPropertyAsListOfStrings(cfg moduletools.ClassConfig, name string, defaultValue []string) []string
 }
 
 type classPropertyValuesHelper struct {
@@ -172,6 +173,27 @@ func (h *classPropertyValuesHelper) GetNumber(in any) (float32, error) {
 		return float32(num), err
 	default:
 		return 0.0, fmt.Errorf("unrecognized type: %T", in)
+	}
+}
+
+func (h *classPropertyValuesHelper) GetPropertyAsListOfStrings(cfg moduletools.ClassConfig, name string, defaultValue []string) []string {
+	if cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return defaultValue
+	}
+
+	value := h.GetSettings(cfg)[name]
+	switch v := value.(type) {
+	case []string:
+		return v
+	case []any:
+		val := make([]string, len(v))
+		for i := range v {
+			val[i] = fmt.Sprintf("%v", v[i])
+		}
+		return val
+	default:
+		return defaultValue
 	}
 }
 

@@ -45,12 +45,12 @@ type BatchReferencesCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help
+	/*A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help.
 	  Required: true
 	  In: body
 	*/
 	Body []*models.BatchReference
-	/*Determines how many replicas must acknowledge a request before it is considered successful
+	/*Determines how many replicas must acknowledge a request before it is considered successful.
 	  In: query
 	*/
 	ConsistencyLevel *string

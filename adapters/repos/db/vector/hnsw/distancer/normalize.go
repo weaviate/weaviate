@@ -30,3 +30,20 @@ func Normalize(v []float32) []float32 {
 
 	return out
 }
+
+// NormalizeInPlace normalizes a vector in-place without allocating.
+// Use this when you own the vector and don't need to preserve the original.
+func NormalizeInPlace(v []float32) {
+	var norm float32
+	for i := range v {
+		norm += v[i] * v[i]
+	}
+	if norm == 0 {
+		return
+	}
+
+	norm = float32(math.Sqrt(float64(norm)))
+	for i := range v {
+		v[i] = v[i] / norm
+	}
+}

@@ -97,7 +97,7 @@ func NewDeactivateUserOK() *DeactivateUserOK {
 /*
 DeactivateUserOK describes a response with status code 200, with default header values.
 
-users successfully deactivated
+User successfully deactivated.
 */
 type DeactivateUserOK struct {
 }
@@ -345,7 +345,7 @@ func NewDeactivateUserNotFound() *DeactivateUserNotFound {
 /*
 DeactivateUserNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type DeactivateUserNotFound struct {
 }
@@ -401,7 +401,7 @@ func NewDeactivateUserConflict() *DeactivateUserConflict {
 /*
 DeactivateUserConflict describes a response with status code 409, with default header values.
 
-user already deactivated
+User already deactivated.
 */
 type DeactivateUserConflict struct {
 }
@@ -457,7 +457,7 @@ func NewDeactivateUserUnprocessableEntity() *DeactivateUserUnprocessableEntity {
 /*
 DeactivateUserUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type DeactivateUserUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -591,7 +591,7 @@ swagger:model DeactivateUserBody
 */
 type DeactivateUserBody struct {
 
-	// if the key should be revoked when deactivating the user
+	// Whether the API key should be revoked when deactivating the user.
 	RevokeKey *bool `json:"revoke_key,omitempty"`
 }
 

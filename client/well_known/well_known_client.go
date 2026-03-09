@@ -47,9 +47,9 @@ type ClientService interface {
 }
 
 /*
-GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
+GetWellKnownOpenidConfiguration gets o ID c configuration
 
-OIDC Discovery page, redirects to the token issuer if one is configured
+Provides OpenID Connect (OIDC) discovery information if OIDC authentication is configured for Weaviate. Returns details like the token issuer URL, client ID, and required scopes.
 */
 func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetWellKnownOpenidConfigurationOK, error) {
 	// TODO: Validate the params before sending

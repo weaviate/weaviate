@@ -126,7 +126,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		StartedAt:     timept,
 		Version:       "1",
 		ServerVersion: "1",
-		Status:        string(backup.Success),
+		Status:        backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
@@ -160,7 +160,6 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
-		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(metadata)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -179,7 +178,6 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		req.Duration = time.Hour
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
-		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(metadata)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -205,7 +203,6 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		req.Duration = time.Hour
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
-		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(metadata)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)

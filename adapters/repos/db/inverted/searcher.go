@@ -247,6 +247,14 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
+	// invert once at the end if it's a deny list, to avoid multiple inversions in case of nested ORs
+	if dbm.isDenyList {
+		universe, universeRelease := s.bitmapFactory.GetBitmap()
+		universe.AndNotConc(dbm.docIDs, concurrency.SROAR_MERGE)
+		dbm.release()
+		return helpers.NewAllowListCloseableFromBitmap(universe, universeRelease), nil
+	}
+
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
@@ -631,9 +639,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = tokenizer.TokenizeWithWildcards(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, valueString, class.Class)
 		} else {
-			terms = tokenizer.Tokenize(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeForClass(prop.Tokenization, valueString, class.Class)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -967,8 +975,9 @@ func (it *sliceDocIDsIterator) Len() int {
 }
 
 type docBitmap struct {
-	docIDs  *sroar.Bitmap
-	release func()
+	docIDs     *sroar.Bitmap
+	isDenyList bool
+	release    func()
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
@@ -978,7 +987,7 @@ func newUninitializedDocBitmap() docBitmap {
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}}
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: false}
 }
 
 func (dbm *docBitmap) count() int {
@@ -1009,4 +1018,8 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	}
 
 	return out
+}
+
+func (dbm *docBitmap) IsDenyList() bool {
+	return dbm.isDenyList
 }

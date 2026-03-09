@@ -253,7 +253,7 @@ func (m *ObjectsGetResponse) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// ObjectsGetResponseAO2Result Results for this specific Object.
+// ObjectsGetResponseAO2Result Results for this specific object.
 //
 // swagger:model ObjectsGetResponseAO2Result
 type ObjectsGetResponseAO2Result struct {

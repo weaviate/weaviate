@@ -36,7 +36,8 @@ import (
 
 type memtable interface {
 	get(key []byte) ([]byte, error)
-	getBySecondary(pos int, key []byte) ([]byte, error)
+	getBySecondary(pos int, key []byte) ([]byte, []byte, error)
+	exists(key []byte) error
 	put(key, value []byte, opts ...SecondaryKeyOption) error
 	setTombstone(key []byte, opts ...SecondaryKeyOption) error
 	setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error
@@ -64,7 +65,7 @@ type memtable interface {
 
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	SetTombstone(docId uint64) error
-	GetPropLengths() (uint64, uint64, error)
+	GetPropLengths() (uint64, uint64)
 
 	newCursor() innerCursorReplace
 	newBlockingCursor() (innerCursorReplace, func())
@@ -141,6 +142,11 @@ type Memtable struct {
 	// the memtable. This prevents the memtable from being flushed while writers
 	// are active, ensuring data consistency during concurrent operations.
 	writerCount atomic.Int64
+
+	// Keep track of the current prop length count and sum in the memtable,
+	// so that we don't have to compute it from scratch for search, flush and compaction.
+	currPropLengthCount, currPropLengthSum uint64
+	propLengthExists                       *sroar.Bitmap
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
@@ -182,6 +188,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 
 	if m.strategy == StrategyInverted {
 		m.tombstones = sroar.NewBitmap()
+		m.propLengthExists = sroar.NewBitmap()
 	}
 
 	return m, nil
@@ -201,12 +208,25 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	return m.key.get(key)
 }
 
-func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
+// exists checks if a key exists and is not deleted, without returning the value.
+// This is more efficient than get() when only existence check is needed.
+func (m *Memtable) exists(key []byte) error {
+	if m.strategy != StrategyReplace {
+		return errors.Errorf("exists only possible with strategy 'replace'")
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.key.exists(key)
+}
+
+func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, []byte, error) {
 	start := time.Now()
 	defer m.metrics.observeGetBySecondary(start.UnixNano())
 
 	if m.strategy != StrategyReplace {
-		return nil, errors.Errorf("get only possible with strategy 'replace'")
+		return nil, nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
 	m.RLock()
@@ -214,10 +234,11 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 	primary := m.secondaryToPrimary[pos][string(key)]
 	if primary == nil {
-		return nil, lsmkv.NotFound
+		return nil, nil, lsmkv.NotFound
 	}
 
-	return m.key.get(primary)
+	v, err := m.key.get(primary)
+	return primary, v, err
 }
 
 func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
@@ -485,6 +506,15 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
+	if m.strategy == StrategyInverted && !pair.Tombstone {
+		docID := binary.LittleEndian.Uint64(pair.Key)
+		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
+		if m.propLengthExists.Set(docID) {
+			m.currPropLengthSum += uint64(fieldLength)
+			m.currPropLengthCount++
+		}
+	}
+
 	return nil
 }
 
@@ -570,34 +600,13 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
+	m.propLengthExists.Remove(docId)
 
 	return nil
 }
 
-func (m *Memtable) GetPropLengths() (uint64, uint64, error) {
-	m.RLock()
-	flatA := m.keyMap.flattenInOrder()
-	m.RUnlock()
-
-	docIdsLengths := make(map[uint64]uint32)
-	propLengthSum := uint64(0)
-	propLengthCount := uint64(0)
-
-	for _, mapNode := range flatA {
-		for j := range mapNode.values {
-			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
-			if !mapNode.values[j].Tombstone {
-				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
-				if _, ok := docIdsLengths[docId]; !ok {
-					propLengthSum += uint64(fieldLength)
-					propLengthCount++
-				}
-				docIdsLengths[docId] = uint32(fieldLength)
-			}
-		}
-	}
-
-	return propLengthSum, propLengthCount, nil
+func (m *Memtable) GetPropLengths() (uint64, uint64) {
+	return m.currPropLengthSum, m.currPropLengthCount
 }
 
 func (m *Memtable) incWriterCount() {

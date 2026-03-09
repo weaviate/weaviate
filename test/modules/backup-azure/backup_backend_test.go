@@ -26,12 +26,21 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-azure"
-	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
+// Environment variable names for Azure module configuration
+const (
+	envAzureEndpoint                = "AZURE_ENDPOINT"
+	envAzureStorageConnectionString = "AZURE_STORAGE_CONNECTION_STRING"
+	envAzureContainer               = "BACKUP_AZURE_CONTAINER"
+	// Azurite default connection string template
+	connectionString = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
+)
+
 func Test_AzureBackend_Start(t *testing.T) {
+	// Uses the shared Azurite from TestMain
 	tests := []struct {
 		name           string
 		overrideBucket string
@@ -44,7 +53,7 @@ func Test_AzureBackend_Start(t *testing.T) {
 		},
 		{
 			name:           "test bucket and path overrides",
-			overrideBucket: "testbucketoverride",
+			overrideBucket: "azure-backend-test-override",
 			overridePath:   "testBucketPathOverride",
 		},
 	}
@@ -58,18 +67,10 @@ func Test_AzureBackend_Start(t *testing.T) {
 
 func testAzureBackendBackup(overrideBucket, overridePath string) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx := context.Background()
-		compose, err := docker.New().WithAzurite().Start(ctx)
-		if err != nil {
-			t.Fatalf("cannot start: %v", err)
-		}
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %v", err)
-			}
-		}()
+		// Use the shared Azurite endpoint from TestMain
+		endpoint := GetAzuriteEndpoint()
 
-		t.Setenv(envAzureEndpoint, compose.GetAzurite().URI())
+		t.Setenv(envAzureEndpoint, endpoint)
 
 		subTests := []struct {
 			name string
@@ -151,7 +152,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 						Name: className,
 					},
 				},
-				Status:  string(backup.Started),
+				Status:  backup.Started,
 				Version: ubak.Version,
 			}
 
@@ -180,7 +181,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
-			assert.Equal(t, meta.Status, string(backup.Started))
+			assert.Equal(t, meta.Status, backup.Started)
 			assert.Empty(t, meta.Error)
 			assert.Len(t, meta.Classes, 1)
 			assert.Equal(t, meta.Classes[0].Name, className)

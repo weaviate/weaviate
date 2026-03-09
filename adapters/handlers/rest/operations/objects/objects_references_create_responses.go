@@ -28,7 +28,7 @@ import (
 const ObjectsReferencesCreateOKCode int = 200
 
 /*
-ObjectsReferencesCreateOK Successfully added the reference.
+ObjectsReferencesCreateOK Reference added successfully.
 
 swagger:response objectsReferencesCreateOK
 */
@@ -123,7 +123,7 @@ func (o *ObjectsReferencesCreateForbidden) WriteResponse(rw http.ResponseWriter,
 const ObjectsReferencesCreateUnprocessableEntityCode int = 422
 
 /*
-ObjectsReferencesCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+ObjectsReferencesCreateUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 
 swagger:response objectsReferencesCreateUnprocessableEntity
 */
@@ -168,7 +168,7 @@ func (o *ObjectsReferencesCreateUnprocessableEntity) WriteResponse(rw http.Respo
 const ObjectsReferencesCreateInternalServerErrorCode int = 500
 
 /*
-ObjectsReferencesCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+ObjectsReferencesCreateInternalServerError An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 
 swagger:response objectsReferencesCreateInternalServerError
 */

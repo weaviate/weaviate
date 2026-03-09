@@ -89,7 +89,7 @@ func NewCreateRoleCreated() *CreateRoleCreated {
 /*
 CreateRoleCreated describes a response with status code 201, with default header values.
 
-Role created successfully
+Role created successfully.
 */
 type CreateRoleCreated struct {
 }
@@ -337,7 +337,7 @@ func NewCreateRoleConflict() *CreateRoleConflict {
 /*
 CreateRoleConflict describes a response with status code 409, with default header values.
 
-Role already exists
+Role already exists.
 */
 type CreateRoleConflict struct {
 	Payload *models.ErrorResponse
@@ -405,7 +405,7 @@ func NewCreateRoleUnprocessableEntity() *CreateRoleUnprocessableEntity {
 /*
 CreateRoleUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type CreateRoleUnprocessableEntity struct {
 	Payload *models.ErrorResponse

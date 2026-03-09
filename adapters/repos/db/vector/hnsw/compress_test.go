@@ -70,7 +70,10 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -126,9 +129,12 @@ func Test_CompressAndInsertDoNotRace(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
+		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
 		},
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	t.Cleanup(func() {
@@ -196,7 +202,10 @@ func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]fl
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -373,7 +382,10 @@ func Test_CompressRQWithSlowCachePrefill(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -405,7 +417,10 @@ func Test_CompressRQWithSlowCachePrefill(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -469,7 +484,10 @@ func Test_CompressRQAfterCachePrefillCompletes(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -500,7 +518,10 @@ func Test_CompressRQAfterCachePrefillCompletes(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -565,7 +586,10 @@ func Test_CompressRQInsertDuringSlowPrefillDoesNotTrigger(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -599,7 +623,10 @@ func Test_CompressRQInsertDuringSlowPrefillDoesNotTrigger(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -655,7 +682,10 @@ func Test_CompressRQInsertAfterPrefillTriggers(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -688,7 +718,10 @@ func Test_CompressRQInsertAfterPrefillTriggers(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -747,7 +780,10 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -778,7 +814,10 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},

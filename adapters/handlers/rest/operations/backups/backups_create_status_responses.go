@@ -28,7 +28,7 @@ import (
 const BackupsCreateStatusOKCode int = 200
 
 /*
-BackupsCreateStatusOK Backup creation status successfully returned
+BackupsCreateStatusOK Successfully retrieved the status of the backup creation process.
 
 swagger:response backupsCreateStatusOK
 */
@@ -143,7 +143,7 @@ func (o *BackupsCreateStatusForbidden) WriteResponse(rw http.ResponseWriter, pro
 const BackupsCreateStatusNotFoundCode int = 404
 
 /*
-BackupsCreateStatusNotFound Not Found - Backup does not exist
+BackupsCreateStatusNotFound Backup not found on the specified backend with the given ID.
 
 swagger:response backupsCreateStatusNotFound
 */
@@ -188,7 +188,7 @@ func (o *BackupsCreateStatusNotFound) WriteResponse(rw http.ResponseWriter, prod
 const BackupsCreateStatusUnprocessableEntityCode int = 422
 
 /*
-BackupsCreateStatusUnprocessableEntity Invalid backup restoration status attempt.
+BackupsCreateStatusUnprocessableEntity Invalid request to check backup creation status.
 
 swagger:response backupsCreateStatusUnprocessableEntity
 */
@@ -233,7 +233,7 @@ func (o *BackupsCreateStatusUnprocessableEntity) WriteResponse(rw http.ResponseW
 const BackupsCreateStatusInternalServerErrorCode int = 500
 
 /*
-BackupsCreateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+BackupsCreateStatusInternalServerError An internal server error occurred while checking backup status. Check the ErrorResponse for details.
 
 swagger:response backupsCreateStatusInternalServerError
 */

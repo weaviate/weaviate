@@ -45,6 +45,8 @@ func NewDeleteAllReplications(ctx *middleware.Context, handler DeleteAllReplicat
 /*
 	DeleteAllReplications swagger:route DELETE /replication/replicate replication deleteAllReplications
 
+# Delete all replication operations
+
 Schedules all replication operations for deletion across all collections, shards, and nodes.
 */
 type DeleteAllReplications struct {

@@ -77,7 +77,7 @@ func NewSchemaObjectsGetOK() *SchemaObjectsGetOK {
 /*
 SchemaObjectsGetOK describes a response with status code 200, with default header values.
 
-Found the Class, returned as body
+Successfully retrieved the collection definition.
 */
 type SchemaObjectsGetOK struct {
 	Payload *models.Class
@@ -269,7 +269,7 @@ func NewSchemaObjectsGetNotFound() *SchemaObjectsGetNotFound {
 /*
 SchemaObjectsGetNotFound describes a response with status code 404, with default header values.
 
-This class does not exist
+Collection not found.
 */
 type SchemaObjectsGetNotFound struct {
 }
@@ -325,7 +325,7 @@ func NewSchemaObjectsGetInternalServerError() *SchemaObjectsGetInternalServerErr
 /*
 SchemaObjectsGetInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while retrieving the collection definition. Check the ErrorResponse for details.
 */
 type SchemaObjectsGetInternalServerError struct {
 	Payload *models.ErrorResponse

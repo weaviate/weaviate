@@ -83,7 +83,7 @@ func NewObjectsClassPutOK() *ObjectsClassPutOK {
 /*
 ObjectsClassPutOK describes a response with status code 200, with default header values.
 
-Successfully received.
+Object replaced successfully.
 */
 type ObjectsClassPutOK struct {
 	Payload *models.Object
@@ -275,7 +275,7 @@ func NewObjectsClassPutNotFound() *ObjectsClassPutNotFound {
 /*
 ObjectsClassPutNotFound describes a response with status code 404, with default header values.
 
-Successful query result but no resource was found.
+Object not found.
 */
 type ObjectsClassPutNotFound struct {
 }
@@ -331,7 +331,7 @@ func NewObjectsClassPutUnprocessableEntity() *ObjectsClassPutUnprocessableEntity
 /*
 ObjectsClassPutUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.
 */
 type ObjectsClassPutUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -399,7 +399,7 @@ func NewObjectsClassPutInternalServerError() *ObjectsClassPutInternalServerError
 /*
 ObjectsClassPutInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsClassPutInternalServerError struct {
 	Payload *models.ErrorResponse

@@ -30,6 +30,7 @@ import (
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -42,11 +43,12 @@ import (
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...grpc.ServerOption) *grpc.Server {
+func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -91,18 +93,26 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
-
+	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
 	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
 
+	allowAnonymous := state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled
+	authComposer := composer.New(
+		state.ServerConfig.Config.Authentication,
+		state.APIKey,
+		state.OIDC,
+	)
+
+	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
 	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1 := v1.NewService(
+	weaviateV1, drainBatch := v1.NewService(
 		state.Traverser,
 		composer.New(
 			state.ServerConfig.Config.Authentication,
@@ -113,14 +123,13 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 		&state.ServerConfig.Config,
 		state.Authorizer,
 		state.Logger,
-		shutdown,
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return s
+	return s, drainBatch
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
@@ -173,12 +182,51 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
+func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		_, err := auth.PrincipalFromContext(ss.Context())
+		if err != nil {
+			return status.Error(codes.Unauthenticated, err.Error())
+		}
+		return handler(srv, ss)
+	}
+}
+
 func makeIPInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		clientIP := getRealClientIP(ctx)
 
 		// Add IP to context
 		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+		return handler(ctx, req)
+	}
+}
+
+func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		var err error
+		switch state.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_ONLY:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrReadOnlyModeEnabled
+			}
+		case config.SCALE_OUT:
+			if config.IsGRPCWrite(info.FullMethod) {
+				err = config.ErrScaleOutModeEnabled
+			}
+		case config.WRITE_ONLY:
+			if config.IsGRPCRead(info.FullMethod) {
+				err = config.ErrWriteOnlyModeEnabled
+			}
+		default:
+			// all good
+		}
+		if err != nil {
+			st := status.New(codes.Unavailable, err.Error())
+			return nil, st.Err()
+		}
 		return handler(ctx, req)
 	}
 }

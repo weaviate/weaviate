@@ -51,12 +51,14 @@ func (suite *ReplicationTestSuite) TestReadRepair() {
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
+			Factor:           3,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
+			Factor:           3,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
 		}
 		helper.CreateClass(t, articleClass)
 	})

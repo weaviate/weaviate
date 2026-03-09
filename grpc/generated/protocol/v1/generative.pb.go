@@ -225,6 +225,7 @@ type GenerativeProvider struct {
 	//	*GenerativeProvider_Friendliai
 	//	*GenerativeProvider_Nvidia
 	//	*GenerativeProvider_Xai
+	//	*GenerativeProvider_Contextualai
 	Kind          isGenerativeProvider_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -391,6 +392,15 @@ func (x *GenerativeProvider) GetXai() *GenerativeXAI {
 	return nil
 }
 
+func (x *GenerativeProvider) GetContextualai() *GenerativeContextualAI {
+	if x != nil {
+		if x, ok := x.Kind.(*GenerativeProvider_Contextualai); ok {
+			return x.Contextualai
+		}
+	}
+	return nil
+}
+
 type isGenerativeProvider_Kind interface {
 	isGenerativeProvider_Kind()
 }
@@ -447,6 +457,10 @@ type GenerativeProvider_Xai struct {
 	Xai *GenerativeXAI `protobuf:"bytes,14,opt,name=xai,proto3,oneof"`
 }
 
+type GenerativeProvider_Contextualai struct {
+	Contextualai *GenerativeContextualAI `protobuf:"bytes,15,opt,name=contextualai,proto3,oneof"`
+}
+
 func (*GenerativeProvider_Anthropic) isGenerativeProvider_Kind() {}
 
 func (*GenerativeProvider_Anyscale) isGenerativeProvider_Kind() {}
@@ -472,6 +486,8 @@ func (*GenerativeProvider_Friendliai) isGenerativeProvider_Kind() {}
 func (*GenerativeProvider_Nvidia) isGenerativeProvider_Kind() {}
 
 func (*GenerativeProvider_Xai) isGenerativeProvider_Kind() {}
+
+func (*GenerativeProvider_Contextualai) isGenerativeProvider_Kind() {}
 
 type GenerativeAnthropic struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -1773,6 +1789,98 @@ func (x *GenerativeXAI) GetImageProperties() *TextArray {
 	return nil
 }
 
+type GenerativeContextualAI struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Model           *string                `protobuf:"bytes,1,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	Temperature     *float64               `protobuf:"fixed64,2,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP            *float64               `protobuf:"fixed64,3,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	MaxNewTokens    *int64                 `protobuf:"varint,4,opt,name=max_new_tokens,json=maxNewTokens,proto3,oneof" json:"max_new_tokens,omitempty"`
+	SystemPrompt    *string                `protobuf:"bytes,5,opt,name=system_prompt,json=systemPrompt,proto3,oneof" json:"system_prompt,omitempty"`
+	AvoidCommentary *bool                  `protobuf:"varint,6,opt,name=avoid_commentary,json=avoidCommentary,proto3,oneof" json:"avoid_commentary,omitempty"`
+	Knowledge       *TextArray             `protobuf:"bytes,7,opt,name=knowledge,proto3,oneof" json:"knowledge,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GenerativeContextualAI) Reset() {
+	*x = GenerativeContextualAI{}
+	mi := &file_v1_generative_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerativeContextualAI) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerativeContextualAI) ProtoMessage() {}
+
+func (x *GenerativeContextualAI) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_generative_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerativeContextualAI.ProtoReflect.Descriptor instead.
+func (*GenerativeContextualAI) Descriptor() ([]byte, []int) {
+	return file_v1_generative_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GenerativeContextualAI) GetModel() string {
+	if x != nil && x.Model != nil {
+		return *x.Model
+	}
+	return ""
+}
+
+func (x *GenerativeContextualAI) GetTemperature() float64 {
+	if x != nil && x.Temperature != nil {
+		return *x.Temperature
+	}
+	return 0
+}
+
+func (x *GenerativeContextualAI) GetTopP() float64 {
+	if x != nil && x.TopP != nil {
+		return *x.TopP
+	}
+	return 0
+}
+
+func (x *GenerativeContextualAI) GetMaxNewTokens() int64 {
+	if x != nil && x.MaxNewTokens != nil {
+		return *x.MaxNewTokens
+	}
+	return 0
+}
+
+func (x *GenerativeContextualAI) GetSystemPrompt() string {
+	if x != nil && x.SystemPrompt != nil {
+		return *x.SystemPrompt
+	}
+	return ""
+}
+
+func (x *GenerativeContextualAI) GetAvoidCommentary() bool {
+	if x != nil && x.AvoidCommentary != nil {
+		return *x.AvoidCommentary
+	}
+	return false
+}
+
+func (x *GenerativeContextualAI) GetKnowledge() *TextArray {
+	if x != nil {
+		return x.Knowledge
+	}
+	return nil
+}
+
 type GenerativeAnthropicMetadata struct {
 	state         protoimpl.MessageState             `protogen:"open.v1"`
 	Usage         *GenerativeAnthropicMetadata_Usage `protobuf:"bytes,1,opt,name=usage,proto3" json:"usage,omitempty"`
@@ -1782,7 +1890,7 @@ type GenerativeAnthropicMetadata struct {
 
 func (x *GenerativeAnthropicMetadata) Reset() {
 	*x = GenerativeAnthropicMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[15]
+	mi := &file_v1_generative_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1794,7 +1902,7 @@ func (x *GenerativeAnthropicMetadata) String() string {
 func (*GenerativeAnthropicMetadata) ProtoMessage() {}
 
 func (x *GenerativeAnthropicMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[15]
+	mi := &file_v1_generative_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1807,7 +1915,7 @@ func (x *GenerativeAnthropicMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeAnthropicMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeAnthropicMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{15}
+	return file_v1_generative_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GenerativeAnthropicMetadata) GetUsage() *GenerativeAnthropicMetadata_Usage {
@@ -1825,7 +1933,7 @@ type GenerativeAnyscaleMetadata struct {
 
 func (x *GenerativeAnyscaleMetadata) Reset() {
 	*x = GenerativeAnyscaleMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[16]
+	mi := &file_v1_generative_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1837,7 +1945,7 @@ func (x *GenerativeAnyscaleMetadata) String() string {
 func (*GenerativeAnyscaleMetadata) ProtoMessage() {}
 
 func (x *GenerativeAnyscaleMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[16]
+	mi := &file_v1_generative_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1850,7 +1958,7 @@ func (x *GenerativeAnyscaleMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeAnyscaleMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeAnyscaleMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{16}
+	return file_v1_generative_proto_rawDescGZIP(), []int{17}
 }
 
 type GenerativeAWSMetadata struct {
@@ -1861,7 +1969,7 @@ type GenerativeAWSMetadata struct {
 
 func (x *GenerativeAWSMetadata) Reset() {
 	*x = GenerativeAWSMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[17]
+	mi := &file_v1_generative_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1873,7 +1981,7 @@ func (x *GenerativeAWSMetadata) String() string {
 func (*GenerativeAWSMetadata) ProtoMessage() {}
 
 func (x *GenerativeAWSMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[17]
+	mi := &file_v1_generative_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1886,7 +1994,7 @@ func (x *GenerativeAWSMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeAWSMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeAWSMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{17}
+	return file_v1_generative_proto_rawDescGZIP(), []int{18}
 }
 
 type GenerativeCohereMetadata struct {
@@ -1901,7 +2009,7 @@ type GenerativeCohereMetadata struct {
 
 func (x *GenerativeCohereMetadata) Reset() {
 	*x = GenerativeCohereMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[18]
+	mi := &file_v1_generative_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1913,7 +2021,7 @@ func (x *GenerativeCohereMetadata) String() string {
 func (*GenerativeCohereMetadata) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[18]
+	mi := &file_v1_generative_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1926,7 +2034,7 @@ func (x *GenerativeCohereMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeCohereMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GenerativeCohereMetadata) GetApiVersion() *GenerativeCohereMetadata_ApiVersion {
@@ -1965,7 +2073,7 @@ type GenerativeDummyMetadata struct {
 
 func (x *GenerativeDummyMetadata) Reset() {
 	*x = GenerativeDummyMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[19]
+	mi := &file_v1_generative_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1977,7 +2085,7 @@ func (x *GenerativeDummyMetadata) String() string {
 func (*GenerativeDummyMetadata) ProtoMessage() {}
 
 func (x *GenerativeDummyMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[19]
+	mi := &file_v1_generative_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1990,7 +2098,7 @@ func (x *GenerativeDummyMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeDummyMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeDummyMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{19}
+	return file_v1_generative_proto_rawDescGZIP(), []int{20}
 }
 
 type GenerativeMistralMetadata struct {
@@ -2002,7 +2110,7 @@ type GenerativeMistralMetadata struct {
 
 func (x *GenerativeMistralMetadata) Reset() {
 	*x = GenerativeMistralMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[20]
+	mi := &file_v1_generative_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2014,7 +2122,7 @@ func (x *GenerativeMistralMetadata) String() string {
 func (*GenerativeMistralMetadata) ProtoMessage() {}
 
 func (x *GenerativeMistralMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[20]
+	mi := &file_v1_generative_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2027,7 +2135,7 @@ func (x *GenerativeMistralMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeMistralMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeMistralMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{20}
+	return file_v1_generative_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GenerativeMistralMetadata) GetUsage() *GenerativeMistralMetadata_Usage {
@@ -2045,7 +2153,7 @@ type GenerativeOllamaMetadata struct {
 
 func (x *GenerativeOllamaMetadata) Reset() {
 	*x = GenerativeOllamaMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[21]
+	mi := &file_v1_generative_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2057,7 +2165,7 @@ func (x *GenerativeOllamaMetadata) String() string {
 func (*GenerativeOllamaMetadata) ProtoMessage() {}
 
 func (x *GenerativeOllamaMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[21]
+	mi := &file_v1_generative_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2070,7 +2178,7 @@ func (x *GenerativeOllamaMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeOllamaMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeOllamaMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{21}
+	return file_v1_generative_proto_rawDescGZIP(), []int{22}
 }
 
 type GenerativeOpenAIMetadata struct {
@@ -2082,7 +2190,7 @@ type GenerativeOpenAIMetadata struct {
 
 func (x *GenerativeOpenAIMetadata) Reset() {
 	*x = GenerativeOpenAIMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[22]
+	mi := &file_v1_generative_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2094,7 +2202,7 @@ func (x *GenerativeOpenAIMetadata) String() string {
 func (*GenerativeOpenAIMetadata) ProtoMessage() {}
 
 func (x *GenerativeOpenAIMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[22]
+	mi := &file_v1_generative_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2107,7 +2215,7 @@ func (x *GenerativeOpenAIMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeOpenAIMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeOpenAIMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{22}
+	return file_v1_generative_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GenerativeOpenAIMetadata) GetUsage() *GenerativeOpenAIMetadata_Usage {
@@ -2127,7 +2235,7 @@ type GenerativeGoogleMetadata struct {
 
 func (x *GenerativeGoogleMetadata) Reset() {
 	*x = GenerativeGoogleMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[23]
+	mi := &file_v1_generative_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2139,7 +2247,7 @@ func (x *GenerativeGoogleMetadata) String() string {
 func (*GenerativeGoogleMetadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[23]
+	mi := &file_v1_generative_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2152,7 +2260,7 @@ func (x *GenerativeGoogleMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeGoogleMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GenerativeGoogleMetadata) GetMetadata() *GenerativeGoogleMetadata_Metadata {
@@ -2178,7 +2286,7 @@ type GenerativeDatabricksMetadata struct {
 
 func (x *GenerativeDatabricksMetadata) Reset() {
 	*x = GenerativeDatabricksMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[24]
+	mi := &file_v1_generative_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2190,7 +2298,7 @@ func (x *GenerativeDatabricksMetadata) String() string {
 func (*GenerativeDatabricksMetadata) ProtoMessage() {}
 
 func (x *GenerativeDatabricksMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[24]
+	mi := &file_v1_generative_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2203,7 +2311,7 @@ func (x *GenerativeDatabricksMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeDatabricksMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeDatabricksMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{24}
+	return file_v1_generative_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GenerativeDatabricksMetadata) GetUsage() *GenerativeDatabricksMetadata_Usage {
@@ -2222,7 +2330,7 @@ type GenerativeFriendliAIMetadata struct {
 
 func (x *GenerativeFriendliAIMetadata) Reset() {
 	*x = GenerativeFriendliAIMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[25]
+	mi := &file_v1_generative_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2234,7 +2342,7 @@ func (x *GenerativeFriendliAIMetadata) String() string {
 func (*GenerativeFriendliAIMetadata) ProtoMessage() {}
 
 func (x *GenerativeFriendliAIMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[25]
+	mi := &file_v1_generative_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2247,7 +2355,7 @@ func (x *GenerativeFriendliAIMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeFriendliAIMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeFriendliAIMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{25}
+	return file_v1_generative_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GenerativeFriendliAIMetadata) GetUsage() *GenerativeFriendliAIMetadata_Usage {
@@ -2266,7 +2374,7 @@ type GenerativeNvidiaMetadata struct {
 
 func (x *GenerativeNvidiaMetadata) Reset() {
 	*x = GenerativeNvidiaMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[26]
+	mi := &file_v1_generative_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2278,7 +2386,7 @@ func (x *GenerativeNvidiaMetadata) String() string {
 func (*GenerativeNvidiaMetadata) ProtoMessage() {}
 
 func (x *GenerativeNvidiaMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[26]
+	mi := &file_v1_generative_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2291,7 +2399,7 @@ func (x *GenerativeNvidiaMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeNvidiaMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeNvidiaMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{26}
+	return file_v1_generative_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GenerativeNvidiaMetadata) GetUsage() *GenerativeNvidiaMetadata_Usage {
@@ -2310,7 +2418,7 @@ type GenerativeXAIMetadata struct {
 
 func (x *GenerativeXAIMetadata) Reset() {
 	*x = GenerativeXAIMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[27]
+	mi := &file_v1_generative_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2322,7 +2430,7 @@ func (x *GenerativeXAIMetadata) String() string {
 func (*GenerativeXAIMetadata) ProtoMessage() {}
 
 func (x *GenerativeXAIMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[27]
+	mi := &file_v1_generative_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2335,7 +2443,7 @@ func (x *GenerativeXAIMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeXAIMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeXAIMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{27}
+	return file_v1_generative_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GenerativeXAIMetadata) GetUsage() *GenerativeXAIMetadata_Usage {
@@ -2369,7 +2477,7 @@ type GenerativeMetadata struct {
 
 func (x *GenerativeMetadata) Reset() {
 	*x = GenerativeMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[28]
+	mi := &file_v1_generative_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2381,7 +2489,7 @@ func (x *GenerativeMetadata) String() string {
 func (*GenerativeMetadata) ProtoMessage() {}
 
 func (x *GenerativeMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[28]
+	mi := &file_v1_generative_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2394,7 +2502,7 @@ func (x *GenerativeMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{28}
+	return file_v1_generative_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GenerativeMetadata) GetKind() isGenerativeMetadata_Kind {
@@ -2614,7 +2722,7 @@ type GenerativeReply struct {
 
 func (x *GenerativeReply) Reset() {
 	*x = GenerativeReply{}
-	mi := &file_v1_generative_proto_msgTypes[29]
+	mi := &file_v1_generative_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2626,7 +2734,7 @@ func (x *GenerativeReply) String() string {
 func (*GenerativeReply) ProtoMessage() {}
 
 func (x *GenerativeReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[29]
+	mi := &file_v1_generative_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2639,7 +2747,7 @@ func (x *GenerativeReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeReply.ProtoReflect.Descriptor instead.
 func (*GenerativeReply) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{29}
+	return file_v1_generative_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GenerativeReply) GetResult() string {
@@ -2672,7 +2780,7 @@ type GenerativeResult struct {
 
 func (x *GenerativeResult) Reset() {
 	*x = GenerativeResult{}
-	mi := &file_v1_generative_proto_msgTypes[30]
+	mi := &file_v1_generative_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2684,7 +2792,7 @@ func (x *GenerativeResult) String() string {
 func (*GenerativeResult) ProtoMessage() {}
 
 func (x *GenerativeResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[30]
+	mi := &file_v1_generative_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2697,7 +2805,7 @@ func (x *GenerativeResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeResult.ProtoReflect.Descriptor instead.
 func (*GenerativeResult) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{30}
+	return file_v1_generative_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *GenerativeResult) GetValues() []*GenerativeReply {
@@ -2716,7 +2824,7 @@ type GenerativeDebug struct {
 
 func (x *GenerativeDebug) Reset() {
 	*x = GenerativeDebug{}
-	mi := &file_v1_generative_proto_msgTypes[31]
+	mi := &file_v1_generative_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2728,7 +2836,7 @@ func (x *GenerativeDebug) String() string {
 func (*GenerativeDebug) ProtoMessage() {}
 
 func (x *GenerativeDebug) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[31]
+	mi := &file_v1_generative_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2741,7 +2849,7 @@ func (x *GenerativeDebug) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeDebug.ProtoReflect.Descriptor instead.
 func (*GenerativeDebug) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{31}
+	return file_v1_generative_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *GenerativeDebug) GetFullPrompt() string {
@@ -2763,7 +2871,7 @@ type GenerativeSearch_Single struct {
 
 func (x *GenerativeSearch_Single) Reset() {
 	*x = GenerativeSearch_Single{}
-	mi := &file_v1_generative_proto_msgTypes[32]
+	mi := &file_v1_generative_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2775,7 +2883,7 @@ func (x *GenerativeSearch_Single) String() string {
 func (*GenerativeSearch_Single) ProtoMessage() {}
 
 func (x *GenerativeSearch_Single) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[32]
+	mi := &file_v1_generative_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2825,7 +2933,7 @@ type GenerativeSearch_Grouped struct {
 
 func (x *GenerativeSearch_Grouped) Reset() {
 	*x = GenerativeSearch_Grouped{}
-	mi := &file_v1_generative_proto_msgTypes[33]
+	mi := &file_v1_generative_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2837,7 +2945,7 @@ func (x *GenerativeSearch_Grouped) String() string {
 func (*GenerativeSearch_Grouped) ProtoMessage() {}
 
 func (x *GenerativeSearch_Grouped) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[33]
+	mi := &file_v1_generative_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2891,7 +2999,7 @@ type GenerativeAnthropicMetadata_Usage struct {
 
 func (x *GenerativeAnthropicMetadata_Usage) Reset() {
 	*x = GenerativeAnthropicMetadata_Usage{}
-	mi := &file_v1_generative_proto_msgTypes[34]
+	mi := &file_v1_generative_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2903,7 +3011,7 @@ func (x *GenerativeAnthropicMetadata_Usage) String() string {
 func (*GenerativeAnthropicMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeAnthropicMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[34]
+	mi := &file_v1_generative_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2916,7 +3024,7 @@ func (x *GenerativeAnthropicMetadata_Usage) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GenerativeAnthropicMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeAnthropicMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{15, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{16, 0}
 }
 
 func (x *GenerativeAnthropicMetadata_Usage) GetInputTokens() int64 {
@@ -2944,7 +3052,7 @@ type GenerativeCohereMetadata_ApiVersion struct {
 
 func (x *GenerativeCohereMetadata_ApiVersion) Reset() {
 	*x = GenerativeCohereMetadata_ApiVersion{}
-	mi := &file_v1_generative_proto_msgTypes[35]
+	mi := &file_v1_generative_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2956,7 +3064,7 @@ func (x *GenerativeCohereMetadata_ApiVersion) String() string {
 func (*GenerativeCohereMetadata_ApiVersion) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata_ApiVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[35]
+	mi := &file_v1_generative_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2969,7 +3077,7 @@ func (x *GenerativeCohereMetadata_ApiVersion) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use GenerativeCohereMetadata_ApiVersion.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata_ApiVersion) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19, 0}
 }
 
 func (x *GenerativeCohereMetadata_ApiVersion) GetVersion() string {
@@ -3005,7 +3113,7 @@ type GenerativeCohereMetadata_BilledUnits struct {
 
 func (x *GenerativeCohereMetadata_BilledUnits) Reset() {
 	*x = GenerativeCohereMetadata_BilledUnits{}
-	mi := &file_v1_generative_proto_msgTypes[36]
+	mi := &file_v1_generative_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3017,7 +3125,7 @@ func (x *GenerativeCohereMetadata_BilledUnits) String() string {
 func (*GenerativeCohereMetadata_BilledUnits) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata_BilledUnits) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[36]
+	mi := &file_v1_generative_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3030,7 +3138,7 @@ func (x *GenerativeCohereMetadata_BilledUnits) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use GenerativeCohereMetadata_BilledUnits.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata_BilledUnits) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18, 1}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19, 1}
 }
 
 func (x *GenerativeCohereMetadata_BilledUnits) GetInputTokens() float64 {
@@ -3071,7 +3179,7 @@ type GenerativeCohereMetadata_Tokens struct {
 
 func (x *GenerativeCohereMetadata_Tokens) Reset() {
 	*x = GenerativeCohereMetadata_Tokens{}
-	mi := &file_v1_generative_proto_msgTypes[37]
+	mi := &file_v1_generative_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3083,7 +3191,7 @@ func (x *GenerativeCohereMetadata_Tokens) String() string {
 func (*GenerativeCohereMetadata_Tokens) ProtoMessage() {}
 
 func (x *GenerativeCohereMetadata_Tokens) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[37]
+	mi := &file_v1_generative_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3096,7 +3204,7 @@ func (x *GenerativeCohereMetadata_Tokens) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeCohereMetadata_Tokens.ProtoReflect.Descriptor instead.
 func (*GenerativeCohereMetadata_Tokens) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{18, 2}
+	return file_v1_generative_proto_rawDescGZIP(), []int{19, 2}
 }
 
 func (x *GenerativeCohereMetadata_Tokens) GetInputTokens() float64 {
@@ -3124,7 +3232,7 @@ type GenerativeMistralMetadata_Usage struct {
 
 func (x *GenerativeMistralMetadata_Usage) Reset() {
 	*x = GenerativeMistralMetadata_Usage{}
-	mi := &file_v1_generative_proto_msgTypes[38]
+	mi := &file_v1_generative_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3136,7 +3244,7 @@ func (x *GenerativeMistralMetadata_Usage) String() string {
 func (*GenerativeMistralMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeMistralMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[38]
+	mi := &file_v1_generative_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3149,7 +3257,7 @@ func (x *GenerativeMistralMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeMistralMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeMistralMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{20, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{21, 0}
 }
 
 func (x *GenerativeMistralMetadata_Usage) GetPromptTokens() int64 {
@@ -3184,7 +3292,7 @@ type GenerativeOpenAIMetadata_Usage struct {
 
 func (x *GenerativeOpenAIMetadata_Usage) Reset() {
 	*x = GenerativeOpenAIMetadata_Usage{}
-	mi := &file_v1_generative_proto_msgTypes[39]
+	mi := &file_v1_generative_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3196,7 +3304,7 @@ func (x *GenerativeOpenAIMetadata_Usage) String() string {
 func (*GenerativeOpenAIMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeOpenAIMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[39]
+	mi := &file_v1_generative_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3209,7 +3317,7 @@ func (x *GenerativeOpenAIMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeOpenAIMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeOpenAIMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{22, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{23, 0}
 }
 
 func (x *GenerativeOpenAIMetadata_Usage) GetPromptTokens() int64 {
@@ -3243,7 +3351,7 @@ type GenerativeGoogleMetadata_TokenCount struct {
 
 func (x *GenerativeGoogleMetadata_TokenCount) Reset() {
 	*x = GenerativeGoogleMetadata_TokenCount{}
-	mi := &file_v1_generative_proto_msgTypes[40]
+	mi := &file_v1_generative_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3255,7 +3363,7 @@ func (x *GenerativeGoogleMetadata_TokenCount) String() string {
 func (*GenerativeGoogleMetadata_TokenCount) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_TokenCount) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[40]
+	mi := &file_v1_generative_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3268,7 +3376,7 @@ func (x *GenerativeGoogleMetadata_TokenCount) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use GenerativeGoogleMetadata_TokenCount.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_TokenCount) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 0}
 }
 
 func (x *GenerativeGoogleMetadata_TokenCount) GetTotalBillableCharacters() int64 {
@@ -3295,7 +3403,7 @@ type GenerativeGoogleMetadata_TokenMetadata struct {
 
 func (x *GenerativeGoogleMetadata_TokenMetadata) Reset() {
 	*x = GenerativeGoogleMetadata_TokenMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[41]
+	mi := &file_v1_generative_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3307,7 +3415,7 @@ func (x *GenerativeGoogleMetadata_TokenMetadata) String() string {
 func (*GenerativeGoogleMetadata_TokenMetadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_TokenMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[41]
+	mi := &file_v1_generative_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3320,7 +3428,7 @@ func (x *GenerativeGoogleMetadata_TokenMetadata) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use GenerativeGoogleMetadata_TokenMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_TokenMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 1}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 1}
 }
 
 func (x *GenerativeGoogleMetadata_TokenMetadata) GetInputTokenCount() *GenerativeGoogleMetadata_TokenCount {
@@ -3346,7 +3454,7 @@ type GenerativeGoogleMetadata_Metadata struct {
 
 func (x *GenerativeGoogleMetadata_Metadata) Reset() {
 	*x = GenerativeGoogleMetadata_Metadata{}
-	mi := &file_v1_generative_proto_msgTypes[42]
+	mi := &file_v1_generative_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3358,7 +3466,7 @@ func (x *GenerativeGoogleMetadata_Metadata) String() string {
 func (*GenerativeGoogleMetadata_Metadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[42]
+	mi := &file_v1_generative_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3371,7 +3479,7 @@ func (x *GenerativeGoogleMetadata_Metadata) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GenerativeGoogleMetadata_Metadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_Metadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 2}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 2}
 }
 
 func (x *GenerativeGoogleMetadata_Metadata) GetTokenMetadata() *GenerativeGoogleMetadata_TokenMetadata {
@@ -3392,7 +3500,7 @@ type GenerativeGoogleMetadata_UsageMetadata struct {
 
 func (x *GenerativeGoogleMetadata_UsageMetadata) Reset() {
 	*x = GenerativeGoogleMetadata_UsageMetadata{}
-	mi := &file_v1_generative_proto_msgTypes[43]
+	mi := &file_v1_generative_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3404,7 +3512,7 @@ func (x *GenerativeGoogleMetadata_UsageMetadata) String() string {
 func (*GenerativeGoogleMetadata_UsageMetadata) ProtoMessage() {}
 
 func (x *GenerativeGoogleMetadata_UsageMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[43]
+	mi := &file_v1_generative_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3417,7 +3525,7 @@ func (x *GenerativeGoogleMetadata_UsageMetadata) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use GenerativeGoogleMetadata_UsageMetadata.ProtoReflect.Descriptor instead.
 func (*GenerativeGoogleMetadata_UsageMetadata) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{23, 3}
+	return file_v1_generative_proto_rawDescGZIP(), []int{24, 3}
 }
 
 func (x *GenerativeGoogleMetadata_UsageMetadata) GetPromptTokenCount() int64 {
@@ -3452,7 +3560,7 @@ type GenerativeDatabricksMetadata_Usage struct {
 
 func (x *GenerativeDatabricksMetadata_Usage) Reset() {
 	*x = GenerativeDatabricksMetadata_Usage{}
-	mi := &file_v1_generative_proto_msgTypes[44]
+	mi := &file_v1_generative_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3464,7 +3572,7 @@ func (x *GenerativeDatabricksMetadata_Usage) String() string {
 func (*GenerativeDatabricksMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeDatabricksMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[44]
+	mi := &file_v1_generative_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3477,7 +3585,7 @@ func (x *GenerativeDatabricksMetadata_Usage) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use GenerativeDatabricksMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeDatabricksMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{24, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{25, 0}
 }
 
 func (x *GenerativeDatabricksMetadata_Usage) GetPromptTokens() int64 {
@@ -3512,7 +3620,7 @@ type GenerativeFriendliAIMetadata_Usage struct {
 
 func (x *GenerativeFriendliAIMetadata_Usage) Reset() {
 	*x = GenerativeFriendliAIMetadata_Usage{}
-	mi := &file_v1_generative_proto_msgTypes[45]
+	mi := &file_v1_generative_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3524,7 +3632,7 @@ func (x *GenerativeFriendliAIMetadata_Usage) String() string {
 func (*GenerativeFriendliAIMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeFriendliAIMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[45]
+	mi := &file_v1_generative_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3537,7 +3645,7 @@ func (x *GenerativeFriendliAIMetadata_Usage) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use GenerativeFriendliAIMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeFriendliAIMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{25, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{26, 0}
 }
 
 func (x *GenerativeFriendliAIMetadata_Usage) GetPromptTokens() int64 {
@@ -3572,7 +3680,7 @@ type GenerativeNvidiaMetadata_Usage struct {
 
 func (x *GenerativeNvidiaMetadata_Usage) Reset() {
 	*x = GenerativeNvidiaMetadata_Usage{}
-	mi := &file_v1_generative_proto_msgTypes[46]
+	mi := &file_v1_generative_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3584,7 +3692,7 @@ func (x *GenerativeNvidiaMetadata_Usage) String() string {
 func (*GenerativeNvidiaMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeNvidiaMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[46]
+	mi := &file_v1_generative_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3597,7 +3705,7 @@ func (x *GenerativeNvidiaMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeNvidiaMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeNvidiaMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{26, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{27, 0}
 }
 
 func (x *GenerativeNvidiaMetadata_Usage) GetPromptTokens() int64 {
@@ -3632,7 +3740,7 @@ type GenerativeXAIMetadata_Usage struct {
 
 func (x *GenerativeXAIMetadata_Usage) Reset() {
 	*x = GenerativeXAIMetadata_Usage{}
-	mi := &file_v1_generative_proto_msgTypes[47]
+	mi := &file_v1_generative_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3644,7 +3752,7 @@ func (x *GenerativeXAIMetadata_Usage) String() string {
 func (*GenerativeXAIMetadata_Usage) ProtoMessage() {}
 
 func (x *GenerativeXAIMetadata_Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_generative_proto_msgTypes[47]
+	mi := &file_v1_generative_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3657,7 +3765,7 @@ func (x *GenerativeXAIMetadata_Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerativeXAIMetadata_Usage.ProtoReflect.Descriptor instead.
 func (*GenerativeXAIMetadata_Usage) Descriptor() ([]byte, []int) {
-	return file_v1_generative_proto_rawDescGZIP(), []int{27, 0}
+	return file_v1_generative_proto_rawDescGZIP(), []int{28, 0}
 }
 
 func (x *GenerativeXAIMetadata_Usage) GetPromptTokens() int64 {
@@ -3703,7 +3811,7 @@ const file_v1_generative_proto_rawDesc = "" +
 	"properties\x88\x01\x01\x129\n" +
 	"\aqueries\x18\x03 \x03(\v2\x1f.weaviate.v1.GenerativeProviderR\aqueries\x12\x14\n" +
 	"\x05debug\x18\x04 \x01(\bR\x05debugB\r\n" +
-	"\v_properties\"\xbf\x06\n" +
+	"\v_properties\"\x8a\a\n" +
 	"\x12GenerativeProvider\x12'\n" +
 	"\x0freturn_metadata\x18\x01 \x01(\bR\x0ereturnMetadata\x12@\n" +
 	"\tanthropic\x18\x02 \x01(\v2 .weaviate.v1.GenerativeAnthropicH\x00R\tanthropic\x12=\n" +
@@ -3723,7 +3831,8 @@ const file_v1_generative_proto_rawDesc = "" +
 	"friendliai\x18\f \x01(\v2!.weaviate.v1.GenerativeFriendliAIH\x00R\n" +
 	"friendliai\x127\n" +
 	"\x06nvidia\x18\r \x01(\v2\x1d.weaviate.v1.GenerativeNvidiaH\x00R\x06nvidia\x12.\n" +
-	"\x03xai\x18\x0e \x01(\v2\x1a.weaviate.v1.GenerativeXAIH\x00R\x03xaiB\x06\n" +
+	"\x03xai\x18\x0e \x01(\v2\x1a.weaviate.v1.GenerativeXAIH\x00R\x03xai\x12I\n" +
+	"\fcontextualai\x18\x0f \x01(\v2#.weaviate.v1.GenerativeContextualAIH\x00R\fcontextualaiB\x06\n" +
 	"\x04kind\"\x8d\x04\n" +
 	"\x13GenerativeAnthropic\x12\x1e\n" +
 	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\"\n" +
@@ -3983,7 +4092,23 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\x06_top_pB\r\n" +
 	"\v_max_tokensB\t\n" +
 	"\a_imagesB\x13\n" +
-	"\x11_image_properties\"\xb4\x01\n" +
+	"\x11_image_properties\"\xa0\x03\n" +
+	"\x16GenerativeContextualAI\x12\x19\n" +
+	"\x05model\x18\x01 \x01(\tH\x00R\x05model\x88\x01\x01\x12%\n" +
+	"\vtemperature\x18\x02 \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x18\n" +
+	"\x05top_p\x18\x03 \x01(\x01H\x02R\x04topP\x88\x01\x01\x12)\n" +
+	"\x0emax_new_tokens\x18\x04 \x01(\x03H\x03R\fmaxNewTokens\x88\x01\x01\x12(\n" +
+	"\rsystem_prompt\x18\x05 \x01(\tH\x04R\fsystemPrompt\x88\x01\x01\x12.\n" +
+	"\x10avoid_commentary\x18\x06 \x01(\bH\x05R\x0favoidCommentary\x88\x01\x01\x129\n" +
+	"\tknowledge\x18\a \x01(\v2\x16.weaviate.v1.TextArrayH\x06R\tknowledge\x88\x01\x01B\b\n" +
+	"\x06_modelB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_pB\x11\n" +
+	"\x0f_max_new_tokensB\x10\n" +
+	"\x0e_system_promptB\x13\n" +
+	"\x11_avoid_commentaryB\f\n" +
+	"\n" +
+	"_knowledge\"\xb4\x01\n" +
 	"\x1bGenerativeAnthropicMetadata\x12D\n" +
 	"\x05usage\x18\x01 \x01(\v2..weaviate.v1.GenerativeAnthropicMetadata.UsageR\x05usage\x1aO\n" +
 	"\x05Usage\x12!\n" +
@@ -4159,7 +4284,7 @@ func file_v1_generative_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_generative_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_v1_generative_proto_goTypes = []any{
 	(GenerativeOpenAI_ReasoningEffort)(0),          // 0: weaviate.v1.GenerativeOpenAI.ReasoningEffort
 	(GenerativeOpenAI_Verbosity)(0),                // 1: weaviate.v1.GenerativeOpenAI.Verbosity
@@ -4178,44 +4303,45 @@ var file_v1_generative_proto_goTypes = []any{
 	(*GenerativeFriendliAI)(nil),                   // 14: weaviate.v1.GenerativeFriendliAI
 	(*GenerativeNvidia)(nil),                       // 15: weaviate.v1.GenerativeNvidia
 	(*GenerativeXAI)(nil),                          // 16: weaviate.v1.GenerativeXAI
-	(*GenerativeAnthropicMetadata)(nil),            // 17: weaviate.v1.GenerativeAnthropicMetadata
-	(*GenerativeAnyscaleMetadata)(nil),             // 18: weaviate.v1.GenerativeAnyscaleMetadata
-	(*GenerativeAWSMetadata)(nil),                  // 19: weaviate.v1.GenerativeAWSMetadata
-	(*GenerativeCohereMetadata)(nil),               // 20: weaviate.v1.GenerativeCohereMetadata
-	(*GenerativeDummyMetadata)(nil),                // 21: weaviate.v1.GenerativeDummyMetadata
-	(*GenerativeMistralMetadata)(nil),              // 22: weaviate.v1.GenerativeMistralMetadata
-	(*GenerativeOllamaMetadata)(nil),               // 23: weaviate.v1.GenerativeOllamaMetadata
-	(*GenerativeOpenAIMetadata)(nil),               // 24: weaviate.v1.GenerativeOpenAIMetadata
-	(*GenerativeGoogleMetadata)(nil),               // 25: weaviate.v1.GenerativeGoogleMetadata
-	(*GenerativeDatabricksMetadata)(nil),           // 26: weaviate.v1.GenerativeDatabricksMetadata
-	(*GenerativeFriendliAIMetadata)(nil),           // 27: weaviate.v1.GenerativeFriendliAIMetadata
-	(*GenerativeNvidiaMetadata)(nil),               // 28: weaviate.v1.GenerativeNvidiaMetadata
-	(*GenerativeXAIMetadata)(nil),                  // 29: weaviate.v1.GenerativeXAIMetadata
-	(*GenerativeMetadata)(nil),                     // 30: weaviate.v1.GenerativeMetadata
-	(*GenerativeReply)(nil),                        // 31: weaviate.v1.GenerativeReply
-	(*GenerativeResult)(nil),                       // 32: weaviate.v1.GenerativeResult
-	(*GenerativeDebug)(nil),                        // 33: weaviate.v1.GenerativeDebug
-	(*GenerativeSearch_Single)(nil),                // 34: weaviate.v1.GenerativeSearch.Single
-	(*GenerativeSearch_Grouped)(nil),               // 35: weaviate.v1.GenerativeSearch.Grouped
-	(*GenerativeAnthropicMetadata_Usage)(nil),      // 36: weaviate.v1.GenerativeAnthropicMetadata.Usage
-	(*GenerativeCohereMetadata_ApiVersion)(nil),    // 37: weaviate.v1.GenerativeCohereMetadata.ApiVersion
-	(*GenerativeCohereMetadata_BilledUnits)(nil),   // 38: weaviate.v1.GenerativeCohereMetadata.BilledUnits
-	(*GenerativeCohereMetadata_Tokens)(nil),        // 39: weaviate.v1.GenerativeCohereMetadata.Tokens
-	(*GenerativeMistralMetadata_Usage)(nil),        // 40: weaviate.v1.GenerativeMistralMetadata.Usage
-	(*GenerativeOpenAIMetadata_Usage)(nil),         // 41: weaviate.v1.GenerativeOpenAIMetadata.Usage
-	(*GenerativeGoogleMetadata_TokenCount)(nil),    // 42: weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	(*GenerativeGoogleMetadata_TokenMetadata)(nil), // 43: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
-	(*GenerativeGoogleMetadata_Metadata)(nil),      // 44: weaviate.v1.GenerativeGoogleMetadata.Metadata
-	(*GenerativeGoogleMetadata_UsageMetadata)(nil), // 45: weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
-	(*GenerativeDatabricksMetadata_Usage)(nil),     // 46: weaviate.v1.GenerativeDatabricksMetadata.Usage
-	(*GenerativeFriendliAIMetadata_Usage)(nil),     // 47: weaviate.v1.GenerativeFriendliAIMetadata.Usage
-	(*GenerativeNvidiaMetadata_Usage)(nil),         // 48: weaviate.v1.GenerativeNvidiaMetadata.Usage
-	(*GenerativeXAIMetadata_Usage)(nil),            // 49: weaviate.v1.GenerativeXAIMetadata.Usage
-	(*TextArray)(nil),                              // 50: weaviate.v1.TextArray
+	(*GenerativeContextualAI)(nil),                 // 17: weaviate.v1.GenerativeContextualAI
+	(*GenerativeAnthropicMetadata)(nil),            // 18: weaviate.v1.GenerativeAnthropicMetadata
+	(*GenerativeAnyscaleMetadata)(nil),             // 19: weaviate.v1.GenerativeAnyscaleMetadata
+	(*GenerativeAWSMetadata)(nil),                  // 20: weaviate.v1.GenerativeAWSMetadata
+	(*GenerativeCohereMetadata)(nil),               // 21: weaviate.v1.GenerativeCohereMetadata
+	(*GenerativeDummyMetadata)(nil),                // 22: weaviate.v1.GenerativeDummyMetadata
+	(*GenerativeMistralMetadata)(nil),              // 23: weaviate.v1.GenerativeMistralMetadata
+	(*GenerativeOllamaMetadata)(nil),               // 24: weaviate.v1.GenerativeOllamaMetadata
+	(*GenerativeOpenAIMetadata)(nil),               // 25: weaviate.v1.GenerativeOpenAIMetadata
+	(*GenerativeGoogleMetadata)(nil),               // 26: weaviate.v1.GenerativeGoogleMetadata
+	(*GenerativeDatabricksMetadata)(nil),           // 27: weaviate.v1.GenerativeDatabricksMetadata
+	(*GenerativeFriendliAIMetadata)(nil),           // 28: weaviate.v1.GenerativeFriendliAIMetadata
+	(*GenerativeNvidiaMetadata)(nil),               // 29: weaviate.v1.GenerativeNvidiaMetadata
+	(*GenerativeXAIMetadata)(nil),                  // 30: weaviate.v1.GenerativeXAIMetadata
+	(*GenerativeMetadata)(nil),                     // 31: weaviate.v1.GenerativeMetadata
+	(*GenerativeReply)(nil),                        // 32: weaviate.v1.GenerativeReply
+	(*GenerativeResult)(nil),                       // 33: weaviate.v1.GenerativeResult
+	(*GenerativeDebug)(nil),                        // 34: weaviate.v1.GenerativeDebug
+	(*GenerativeSearch_Single)(nil),                // 35: weaviate.v1.GenerativeSearch.Single
+	(*GenerativeSearch_Grouped)(nil),               // 36: weaviate.v1.GenerativeSearch.Grouped
+	(*GenerativeAnthropicMetadata_Usage)(nil),      // 37: weaviate.v1.GenerativeAnthropicMetadata.Usage
+	(*GenerativeCohereMetadata_ApiVersion)(nil),    // 38: weaviate.v1.GenerativeCohereMetadata.ApiVersion
+	(*GenerativeCohereMetadata_BilledUnits)(nil),   // 39: weaviate.v1.GenerativeCohereMetadata.BilledUnits
+	(*GenerativeCohereMetadata_Tokens)(nil),        // 40: weaviate.v1.GenerativeCohereMetadata.Tokens
+	(*GenerativeMistralMetadata_Usage)(nil),        // 41: weaviate.v1.GenerativeMistralMetadata.Usage
+	(*GenerativeOpenAIMetadata_Usage)(nil),         // 42: weaviate.v1.GenerativeOpenAIMetadata.Usage
+	(*GenerativeGoogleMetadata_TokenCount)(nil),    // 43: weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	(*GenerativeGoogleMetadata_TokenMetadata)(nil), // 44: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
+	(*GenerativeGoogleMetadata_Metadata)(nil),      // 45: weaviate.v1.GenerativeGoogleMetadata.Metadata
+	(*GenerativeGoogleMetadata_UsageMetadata)(nil), // 46: weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
+	(*GenerativeDatabricksMetadata_Usage)(nil),     // 47: weaviate.v1.GenerativeDatabricksMetadata.Usage
+	(*GenerativeFriendliAIMetadata_Usage)(nil),     // 48: weaviate.v1.GenerativeFriendliAIMetadata.Usage
+	(*GenerativeNvidiaMetadata_Usage)(nil),         // 49: weaviate.v1.GenerativeNvidiaMetadata.Usage
+	(*GenerativeXAIMetadata_Usage)(nil),            // 50: weaviate.v1.GenerativeXAIMetadata.Usage
+	(*TextArray)(nil),                              // 51: weaviate.v1.TextArray
 }
 var file_v1_generative_proto_depIdxs = []int32{
-	34, // 0: weaviate.v1.GenerativeSearch.single:type_name -> weaviate.v1.GenerativeSearch.Single
-	35, // 1: weaviate.v1.GenerativeSearch.grouped:type_name -> weaviate.v1.GenerativeSearch.Grouped
+	35, // 0: weaviate.v1.GenerativeSearch.single:type_name -> weaviate.v1.GenerativeSearch.Single
+	36, // 1: weaviate.v1.GenerativeSearch.grouped:type_name -> weaviate.v1.GenerativeSearch.Grouped
 	4,  // 2: weaviate.v1.GenerativeProvider.anthropic:type_name -> weaviate.v1.GenerativeAnthropic
 	5,  // 3: weaviate.v1.GenerativeProvider.anyscale:type_name -> weaviate.v1.GenerativeAnyscale
 	6,  // 4: weaviate.v1.GenerativeProvider.aws:type_name -> weaviate.v1.GenerativeAWS
@@ -4229,68 +4355,70 @@ var file_v1_generative_proto_depIdxs = []int32{
 	14, // 12: weaviate.v1.GenerativeProvider.friendliai:type_name -> weaviate.v1.GenerativeFriendliAI
 	15, // 13: weaviate.v1.GenerativeProvider.nvidia:type_name -> weaviate.v1.GenerativeNvidia
 	16, // 14: weaviate.v1.GenerativeProvider.xai:type_name -> weaviate.v1.GenerativeXAI
-	50, // 15: weaviate.v1.GenerativeAnthropic.stop_sequences:type_name -> weaviate.v1.TextArray
-	50, // 16: weaviate.v1.GenerativeAnthropic.images:type_name -> weaviate.v1.TextArray
-	50, // 17: weaviate.v1.GenerativeAnthropic.image_properties:type_name -> weaviate.v1.TextArray
-	50, // 18: weaviate.v1.GenerativeAWS.images:type_name -> weaviate.v1.TextArray
-	50, // 19: weaviate.v1.GenerativeAWS.image_properties:type_name -> weaviate.v1.TextArray
-	50, // 20: weaviate.v1.GenerativeAWS.stop_sequences:type_name -> weaviate.v1.TextArray
-	50, // 21: weaviate.v1.GenerativeCohere.stop_sequences:type_name -> weaviate.v1.TextArray
-	50, // 22: weaviate.v1.GenerativeCohere.images:type_name -> weaviate.v1.TextArray
-	50, // 23: weaviate.v1.GenerativeCohere.image_properties:type_name -> weaviate.v1.TextArray
-	50, // 24: weaviate.v1.GenerativeOllama.images:type_name -> weaviate.v1.TextArray
-	50, // 25: weaviate.v1.GenerativeOllama.image_properties:type_name -> weaviate.v1.TextArray
-	50, // 26: weaviate.v1.GenerativeOpenAI.stop:type_name -> weaviate.v1.TextArray
-	50, // 27: weaviate.v1.GenerativeOpenAI.images:type_name -> weaviate.v1.TextArray
-	50, // 28: weaviate.v1.GenerativeOpenAI.image_properties:type_name -> weaviate.v1.TextArray
-	0,  // 29: weaviate.v1.GenerativeOpenAI.reasoning_effort:type_name -> weaviate.v1.GenerativeOpenAI.ReasoningEffort
-	1,  // 30: weaviate.v1.GenerativeOpenAI.verbosity:type_name -> weaviate.v1.GenerativeOpenAI.Verbosity
-	50, // 31: weaviate.v1.GenerativeGoogle.stop_sequences:type_name -> weaviate.v1.TextArray
-	50, // 32: weaviate.v1.GenerativeGoogle.images:type_name -> weaviate.v1.TextArray
-	50, // 33: weaviate.v1.GenerativeGoogle.image_properties:type_name -> weaviate.v1.TextArray
-	50, // 34: weaviate.v1.GenerativeDatabricks.stop:type_name -> weaviate.v1.TextArray
-	50, // 35: weaviate.v1.GenerativeXAI.images:type_name -> weaviate.v1.TextArray
-	50, // 36: weaviate.v1.GenerativeXAI.image_properties:type_name -> weaviate.v1.TextArray
-	36, // 37: weaviate.v1.GenerativeAnthropicMetadata.usage:type_name -> weaviate.v1.GenerativeAnthropicMetadata.Usage
-	37, // 38: weaviate.v1.GenerativeCohereMetadata.api_version:type_name -> weaviate.v1.GenerativeCohereMetadata.ApiVersion
-	38, // 39: weaviate.v1.GenerativeCohereMetadata.billed_units:type_name -> weaviate.v1.GenerativeCohereMetadata.BilledUnits
-	39, // 40: weaviate.v1.GenerativeCohereMetadata.tokens:type_name -> weaviate.v1.GenerativeCohereMetadata.Tokens
-	50, // 41: weaviate.v1.GenerativeCohereMetadata.warnings:type_name -> weaviate.v1.TextArray
-	40, // 42: weaviate.v1.GenerativeMistralMetadata.usage:type_name -> weaviate.v1.GenerativeMistralMetadata.Usage
-	41, // 43: weaviate.v1.GenerativeOpenAIMetadata.usage:type_name -> weaviate.v1.GenerativeOpenAIMetadata.Usage
-	44, // 44: weaviate.v1.GenerativeGoogleMetadata.metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.Metadata
-	45, // 45: weaviate.v1.GenerativeGoogleMetadata.usage_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
-	46, // 46: weaviate.v1.GenerativeDatabricksMetadata.usage:type_name -> weaviate.v1.GenerativeDatabricksMetadata.Usage
-	47, // 47: weaviate.v1.GenerativeFriendliAIMetadata.usage:type_name -> weaviate.v1.GenerativeFriendliAIMetadata.Usage
-	48, // 48: weaviate.v1.GenerativeNvidiaMetadata.usage:type_name -> weaviate.v1.GenerativeNvidiaMetadata.Usage
-	49, // 49: weaviate.v1.GenerativeXAIMetadata.usage:type_name -> weaviate.v1.GenerativeXAIMetadata.Usage
-	17, // 50: weaviate.v1.GenerativeMetadata.anthropic:type_name -> weaviate.v1.GenerativeAnthropicMetadata
-	18, // 51: weaviate.v1.GenerativeMetadata.anyscale:type_name -> weaviate.v1.GenerativeAnyscaleMetadata
-	19, // 52: weaviate.v1.GenerativeMetadata.aws:type_name -> weaviate.v1.GenerativeAWSMetadata
-	20, // 53: weaviate.v1.GenerativeMetadata.cohere:type_name -> weaviate.v1.GenerativeCohereMetadata
-	21, // 54: weaviate.v1.GenerativeMetadata.dummy:type_name -> weaviate.v1.GenerativeDummyMetadata
-	22, // 55: weaviate.v1.GenerativeMetadata.mistral:type_name -> weaviate.v1.GenerativeMistralMetadata
-	23, // 56: weaviate.v1.GenerativeMetadata.ollama:type_name -> weaviate.v1.GenerativeOllamaMetadata
-	24, // 57: weaviate.v1.GenerativeMetadata.openai:type_name -> weaviate.v1.GenerativeOpenAIMetadata
-	25, // 58: weaviate.v1.GenerativeMetadata.google:type_name -> weaviate.v1.GenerativeGoogleMetadata
-	26, // 59: weaviate.v1.GenerativeMetadata.databricks:type_name -> weaviate.v1.GenerativeDatabricksMetadata
-	27, // 60: weaviate.v1.GenerativeMetadata.friendliai:type_name -> weaviate.v1.GenerativeFriendliAIMetadata
-	28, // 61: weaviate.v1.GenerativeMetadata.nvidia:type_name -> weaviate.v1.GenerativeNvidiaMetadata
-	29, // 62: weaviate.v1.GenerativeMetadata.xai:type_name -> weaviate.v1.GenerativeXAIMetadata
-	33, // 63: weaviate.v1.GenerativeReply.debug:type_name -> weaviate.v1.GenerativeDebug
-	30, // 64: weaviate.v1.GenerativeReply.metadata:type_name -> weaviate.v1.GenerativeMetadata
-	31, // 65: weaviate.v1.GenerativeResult.values:type_name -> weaviate.v1.GenerativeReply
-	3,  // 66: weaviate.v1.GenerativeSearch.Single.queries:type_name -> weaviate.v1.GenerativeProvider
-	50, // 67: weaviate.v1.GenerativeSearch.Grouped.properties:type_name -> weaviate.v1.TextArray
-	3,  // 68: weaviate.v1.GenerativeSearch.Grouped.queries:type_name -> weaviate.v1.GenerativeProvider
-	42, // 69: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.input_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	42, // 70: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.output_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	43, // 71: weaviate.v1.GenerativeGoogleMetadata.Metadata.token_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
-	72, // [72:72] is the sub-list for method output_type
-	72, // [72:72] is the sub-list for method input_type
-	72, // [72:72] is the sub-list for extension type_name
-	72, // [72:72] is the sub-list for extension extendee
-	0,  // [0:72] is the sub-list for field type_name
+	17, // 15: weaviate.v1.GenerativeProvider.contextualai:type_name -> weaviate.v1.GenerativeContextualAI
+	51, // 16: weaviate.v1.GenerativeAnthropic.stop_sequences:type_name -> weaviate.v1.TextArray
+	51, // 17: weaviate.v1.GenerativeAnthropic.images:type_name -> weaviate.v1.TextArray
+	51, // 18: weaviate.v1.GenerativeAnthropic.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 19: weaviate.v1.GenerativeAWS.images:type_name -> weaviate.v1.TextArray
+	51, // 20: weaviate.v1.GenerativeAWS.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 21: weaviate.v1.GenerativeAWS.stop_sequences:type_name -> weaviate.v1.TextArray
+	51, // 22: weaviate.v1.GenerativeCohere.stop_sequences:type_name -> weaviate.v1.TextArray
+	51, // 23: weaviate.v1.GenerativeCohere.images:type_name -> weaviate.v1.TextArray
+	51, // 24: weaviate.v1.GenerativeCohere.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 25: weaviate.v1.GenerativeOllama.images:type_name -> weaviate.v1.TextArray
+	51, // 26: weaviate.v1.GenerativeOllama.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 27: weaviate.v1.GenerativeOpenAI.stop:type_name -> weaviate.v1.TextArray
+	51, // 28: weaviate.v1.GenerativeOpenAI.images:type_name -> weaviate.v1.TextArray
+	51, // 29: weaviate.v1.GenerativeOpenAI.image_properties:type_name -> weaviate.v1.TextArray
+	0,  // 30: weaviate.v1.GenerativeOpenAI.reasoning_effort:type_name -> weaviate.v1.GenerativeOpenAI.ReasoningEffort
+	1,  // 31: weaviate.v1.GenerativeOpenAI.verbosity:type_name -> weaviate.v1.GenerativeOpenAI.Verbosity
+	51, // 32: weaviate.v1.GenerativeGoogle.stop_sequences:type_name -> weaviate.v1.TextArray
+	51, // 33: weaviate.v1.GenerativeGoogle.images:type_name -> weaviate.v1.TextArray
+	51, // 34: weaviate.v1.GenerativeGoogle.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 35: weaviate.v1.GenerativeDatabricks.stop:type_name -> weaviate.v1.TextArray
+	51, // 36: weaviate.v1.GenerativeXAI.images:type_name -> weaviate.v1.TextArray
+	51, // 37: weaviate.v1.GenerativeXAI.image_properties:type_name -> weaviate.v1.TextArray
+	51, // 38: weaviate.v1.GenerativeContextualAI.knowledge:type_name -> weaviate.v1.TextArray
+	37, // 39: weaviate.v1.GenerativeAnthropicMetadata.usage:type_name -> weaviate.v1.GenerativeAnthropicMetadata.Usage
+	38, // 40: weaviate.v1.GenerativeCohereMetadata.api_version:type_name -> weaviate.v1.GenerativeCohereMetadata.ApiVersion
+	39, // 41: weaviate.v1.GenerativeCohereMetadata.billed_units:type_name -> weaviate.v1.GenerativeCohereMetadata.BilledUnits
+	40, // 42: weaviate.v1.GenerativeCohereMetadata.tokens:type_name -> weaviate.v1.GenerativeCohereMetadata.Tokens
+	51, // 43: weaviate.v1.GenerativeCohereMetadata.warnings:type_name -> weaviate.v1.TextArray
+	41, // 44: weaviate.v1.GenerativeMistralMetadata.usage:type_name -> weaviate.v1.GenerativeMistralMetadata.Usage
+	42, // 45: weaviate.v1.GenerativeOpenAIMetadata.usage:type_name -> weaviate.v1.GenerativeOpenAIMetadata.Usage
+	45, // 46: weaviate.v1.GenerativeGoogleMetadata.metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.Metadata
+	46, // 47: weaviate.v1.GenerativeGoogleMetadata.usage_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
+	47, // 48: weaviate.v1.GenerativeDatabricksMetadata.usage:type_name -> weaviate.v1.GenerativeDatabricksMetadata.Usage
+	48, // 49: weaviate.v1.GenerativeFriendliAIMetadata.usage:type_name -> weaviate.v1.GenerativeFriendliAIMetadata.Usage
+	49, // 50: weaviate.v1.GenerativeNvidiaMetadata.usage:type_name -> weaviate.v1.GenerativeNvidiaMetadata.Usage
+	50, // 51: weaviate.v1.GenerativeXAIMetadata.usage:type_name -> weaviate.v1.GenerativeXAIMetadata.Usage
+	18, // 52: weaviate.v1.GenerativeMetadata.anthropic:type_name -> weaviate.v1.GenerativeAnthropicMetadata
+	19, // 53: weaviate.v1.GenerativeMetadata.anyscale:type_name -> weaviate.v1.GenerativeAnyscaleMetadata
+	20, // 54: weaviate.v1.GenerativeMetadata.aws:type_name -> weaviate.v1.GenerativeAWSMetadata
+	21, // 55: weaviate.v1.GenerativeMetadata.cohere:type_name -> weaviate.v1.GenerativeCohereMetadata
+	22, // 56: weaviate.v1.GenerativeMetadata.dummy:type_name -> weaviate.v1.GenerativeDummyMetadata
+	23, // 57: weaviate.v1.GenerativeMetadata.mistral:type_name -> weaviate.v1.GenerativeMistralMetadata
+	24, // 58: weaviate.v1.GenerativeMetadata.ollama:type_name -> weaviate.v1.GenerativeOllamaMetadata
+	25, // 59: weaviate.v1.GenerativeMetadata.openai:type_name -> weaviate.v1.GenerativeOpenAIMetadata
+	26, // 60: weaviate.v1.GenerativeMetadata.google:type_name -> weaviate.v1.GenerativeGoogleMetadata
+	27, // 61: weaviate.v1.GenerativeMetadata.databricks:type_name -> weaviate.v1.GenerativeDatabricksMetadata
+	28, // 62: weaviate.v1.GenerativeMetadata.friendliai:type_name -> weaviate.v1.GenerativeFriendliAIMetadata
+	29, // 63: weaviate.v1.GenerativeMetadata.nvidia:type_name -> weaviate.v1.GenerativeNvidiaMetadata
+	30, // 64: weaviate.v1.GenerativeMetadata.xai:type_name -> weaviate.v1.GenerativeXAIMetadata
+	34, // 65: weaviate.v1.GenerativeReply.debug:type_name -> weaviate.v1.GenerativeDebug
+	31, // 66: weaviate.v1.GenerativeReply.metadata:type_name -> weaviate.v1.GenerativeMetadata
+	32, // 67: weaviate.v1.GenerativeResult.values:type_name -> weaviate.v1.GenerativeReply
+	3,  // 68: weaviate.v1.GenerativeSearch.Single.queries:type_name -> weaviate.v1.GenerativeProvider
+	51, // 69: weaviate.v1.GenerativeSearch.Grouped.properties:type_name -> weaviate.v1.TextArray
+	3,  // 70: weaviate.v1.GenerativeSearch.Grouped.queries:type_name -> weaviate.v1.GenerativeProvider
+	43, // 71: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.input_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	43, // 72: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.output_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	44, // 73: weaviate.v1.GenerativeGoogleMetadata.Metadata.token_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
+	74, // [74:74] is the sub-list for method output_type
+	74, // [74:74] is the sub-list for method input_type
+	74, // [74:74] is the sub-list for extension type_name
+	74, // [74:74] is the sub-list for extension extendee
+	0,  // [0:74] is the sub-list for field type_name
 }
 
 func init() { file_v1_generative_proto_init() }
@@ -4313,6 +4441,7 @@ func file_v1_generative_proto_init() {
 		(*GenerativeProvider_Friendliai)(nil),
 		(*GenerativeProvider_Nvidia)(nil),
 		(*GenerativeProvider_Xai)(nil),
+		(*GenerativeProvider_Contextualai)(nil),
 	}
 	file_v1_generative_proto_msgTypes[2].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[3].OneofWrappers = []any{}
@@ -4326,15 +4455,16 @@ func file_v1_generative_proto_init() {
 	file_v1_generative_proto_msgTypes[12].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[13].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[14].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[18].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[20].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[22].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[15].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[19].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[21].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[23].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[24].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[25].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[26].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[27].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[28].OneofWrappers = []any{
+	file_v1_generative_proto_msgTypes[28].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[29].OneofWrappers = []any{
 		(*GenerativeMetadata_Anthropic)(nil),
 		(*GenerativeMetadata_Anyscale)(nil),
 		(*GenerativeMetadata_Aws)(nil),
@@ -4349,10 +4479,9 @@ func file_v1_generative_proto_init() {
 		(*GenerativeMetadata_Nvidia)(nil),
 		(*GenerativeMetadata_Xai)(nil),
 	}
-	file_v1_generative_proto_msgTypes[29].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[31].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[33].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[35].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[30].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[32].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[34].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[36].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[37].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[38].OneofWrappers = []any{}
@@ -4365,13 +4494,14 @@ func file_v1_generative_proto_init() {
 	file_v1_generative_proto_msgTypes[45].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[46].OneofWrappers = []any{}
 	file_v1_generative_proto_msgTypes[47].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[48].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_generative_proto_rawDesc), len(file_v1_generative_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   48,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

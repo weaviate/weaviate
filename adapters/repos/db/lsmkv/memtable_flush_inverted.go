@@ -40,7 +40,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
-	tombstones := m.tombstones
+	tombstones := m.tombstones.Clone()
 
 	docIdsLengths := make(map[uint64]uint32)
 	propLengthSum := uint64(0)
@@ -79,6 +79,10 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	} else {
 		m.averagePropLength = (m.averagePropLength*float64(m.propLengthCount) + float64(propLengthSum)) / float64(m.propLengthCount+propLengthCount)
 		m.propLengthCount += propLengthCount
+	}
+
+	if math.IsNaN(m.averagePropLength) {
+		m.averagePropLength = 0
 	}
 
 	tombstoneBuffer := make([]byte, 0)
@@ -169,6 +173,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 			actuallyWritten++
 		}
 	}
+	keys = keys[:actuallyWritten]
 
 	tombstoneOffset := totalWritten
 
@@ -261,5 +266,5 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		return nil, nil, fmt.Errorf("write headers: %w", err)
 	}
 
-	return keys[:actuallyWritten], tombstones, nil
+	return keys, tombstones, nil
 }

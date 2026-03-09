@@ -28,7 +28,7 @@ import (
 const RotateUserAPIKeyOKCode int = 200
 
 /*
-RotateUserAPIKeyOK ApiKey successfully changed
+RotateUserAPIKeyOK API key successfully updated.
 
 swagger:response rotateUserApiKeyOK
 */
@@ -188,7 +188,7 @@ func (o *RotateUserAPIKeyForbidden) WriteResponse(rw http.ResponseWriter, produc
 const RotateUserAPIKeyNotFoundCode int = 404
 
 /*
-RotateUserAPIKeyNotFound user not found
+RotateUserAPIKeyNotFound User not found.
 
 swagger:response rotateUserApiKeyNotFound
 */
@@ -213,7 +213,7 @@ func (o *RotateUserAPIKeyNotFound) WriteResponse(rw http.ResponseWriter, produce
 const RotateUserAPIKeyUnprocessableEntityCode int = 422
 
 /*
-RotateUserAPIKeyUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+RotateUserAPIKeyUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response rotateUserApiKeyUnprocessableEntity
 */

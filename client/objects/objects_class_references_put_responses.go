@@ -89,7 +89,7 @@ func NewObjectsClassReferencesPutOK() *ObjectsClassReferencesPutOK {
 /*
 ObjectsClassReferencesPutOK describes a response with status code 200, with default header values.
 
-Successfully replaced all the references.
+References replaced successfully.
 */
 type ObjectsClassReferencesPutOK struct {
 }
@@ -337,7 +337,7 @@ func NewObjectsClassReferencesPutNotFound() *ObjectsClassReferencesPutNotFound {
 /*
 ObjectsClassReferencesPutNotFound describes a response with status code 404, with default header values.
 
-Source object doesn't exist.
+Source object not found.
 */
 type ObjectsClassReferencesPutNotFound struct {
 }
@@ -393,7 +393,7 @@ func NewObjectsClassReferencesPutUnprocessableEntity() *ObjectsClassReferencesPu
 /*
 ObjectsClassReferencesPutUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.
 */
 type ObjectsClassReferencesPutUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -461,7 +461,7 @@ func NewObjectsClassReferencesPutInternalServerError() *ObjectsClassReferencesPu
 /*
 ObjectsClassReferencesPutInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error occurred while trying to fulfill the request. Check the ErrorResponse for details.
 */
 type ObjectsClassReferencesPutInternalServerError struct {
 	Payload *models.ErrorResponse
