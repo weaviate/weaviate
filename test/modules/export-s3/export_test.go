@@ -386,7 +386,9 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	progressD, ok := shardStatus["tenantD"]
 	require.True(t, ok, "expected shard status for tenantD")
 	assert.Equal(t, "SKIPPED", progressD.Status)
-	assert.Contains(t, progressD.SkipReason, "OFFLOADED", "expected OFFLOADED in skip reason for tenantD")
+	assert.True(t,
+		strings.Contains(progressD.SkipReason, "FROZEN") || strings.Contains(progressD.SkipReason, "FREEZING"),
+		"expected FROZEN or FREEZING in skip reason for tenantD, got: %s", progressD.SkipReason)
 
 	// Verify parquet metadata
 	verifyParquetMetadata(t, exportID, className, true)

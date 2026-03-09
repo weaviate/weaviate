@@ -309,6 +309,16 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if s.isMultiNode() {
+		// In multi-node mode no terminal metadata is written on success —
+		// the overall status is computed from per-node status files.
+		assembled, assembleErr := s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
+		if assembleErr == nil {
+			switch export.Status(assembled.Status) {
+			case export.Success, export.Failed:
+				return ErrExportAlreadyFinished
+			}
+		}
+
 		// Build node info from plan for abort.
 		nodes := make([]exportNodeInfo, 0, len(plan.NodeAssignments))
 		for nodeName := range plan.NodeAssignments {
@@ -456,6 +466,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 					Status:          string(sp.Status),
 					ObjectsExported: sp.ObjectsExported,
 					Error:           sp.Error,
+					SkipReason:      sp.SkipReason,
 				}
 			}
 		}
