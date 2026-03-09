@@ -1145,3 +1145,4 @@ func (p shardFilesPayload) CheckContentTypeHeaderReq(r *http.Request) (string, b
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
 }
+

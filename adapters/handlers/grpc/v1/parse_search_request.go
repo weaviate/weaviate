@@ -367,6 +367,14 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
 	}
 
+	if req.Prefer != nil {
+		prefer, err := p.extractPrefer(req.Prefer, req.Collection, req.Tenant)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.Prefer = prefer
+	}
+
 	if len(req.After) > 0 {
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
@@ -621,6 +629,101 @@ func extractRerank(req *pb.SearchRequest) *rank.Params {
 		rerank.Query = req.Rerank.Query
 	}
 	return &rerank
+}
+
+func (p *Parser) extractPrefer(prefer *pb.Prefer, className, tenant string) (*filters.Prefer, error) {
+	if prefer == nil {
+		return nil, nil
+	}
+
+	strength := float32(0.5)
+	if prefer.Strength != nil {
+		strength = prefer.GetStrength()
+	}
+
+	conditions := make([]filters.PreferCondition, 0, len(prefer.GetConditions()))
+	for i, cond := range prefer.GetConditions() {
+		pc, err := p.extractPreferCondition(cond, className, tenant, i)
+		if err != nil {
+			return nil, err
+		}
+		conditions = append(conditions, pc)
+	}
+
+	result := &filters.Prefer{
+		Conditions: conditions,
+		Strength:   strength,
+	}
+
+	if err := filters.ValidatePrefer(result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (p *Parser) extractPreferCondition(cond *pb.PreferCondition, className, tenant string, idx int) (filters.PreferCondition, error) {
+	weight := float32(1.0)
+	if cond.Weight != nil {
+		weight = cond.GetWeight()
+	}
+
+	pc := filters.PreferCondition{
+		Weight: weight,
+	}
+
+	if cond.Filter != nil {
+		clause, err := ExtractFilters(cond.GetFilter(), p.authorizedGetClass, className, tenant)
+		if err != nil {
+			return filters.PreferCondition{}, fmt.Errorf("prefer condition[%d] filter: %w", idx, err)
+		}
+		pc.Filter = &filters.LocalFilter{Root: &clause}
+	}
+
+	if cond.Decay != nil {
+		decay, err := extractDecayFunction(cond.GetDecay(), idx)
+		if err != nil {
+			return filters.PreferCondition{}, err
+		}
+		pc.Decay = decay
+	}
+
+	return pc, nil
+}
+
+func extractDecayFunction(d *pb.DecayFunction, condIdx int) (*filters.Decay, error) {
+	if d == nil {
+		return nil, nil
+	}
+
+	path := d.GetPath()
+	if len(path) == 0 {
+		return nil, fmt.Errorf("prefer condition[%d] decay: path is required", condIdx)
+	}
+
+	curve := "exp"
+	if d.Curve != nil {
+		curve = d.GetCurve()
+	}
+
+	decayValue := float32(0.5)
+	if d.DecayValue != nil {
+		decayValue = d.GetDecayValue()
+	}
+
+	offset := "0"
+	if d.Offset != nil {
+		offset = d.GetOffset()
+	}
+
+	return &filters.Decay{
+		Path:       &filters.Path{Property: schema.PropertyName(path[0])},
+		Origin:     d.GetOrigin(),
+		Scale:      d.GetScale(),
+		Offset:     offset,
+		Curve:      curve,
+		DecayValue: decayValue,
+	}, nil
 }
 
 func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch, targetVectors []string) (*nearText2.NearTextParams, error) {

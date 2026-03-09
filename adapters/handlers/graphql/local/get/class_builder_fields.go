@@ -241,6 +241,7 @@ func buildGetClassField(classObject *graphql.Object,
 
 	field.Args["bm25"] = bm25Argument(class.Class)
 	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider, fusionEnum)
+	field.Args["prefer"] = common_filters.PreferArgument(class.Class)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
@@ -386,6 +387,22 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		sort = filters.ExtractSortFromArgs(sortArg.([]interface{}))
 	}
 
+	var preferParams *filters.Prefer
+	if prefer, ok := p.Args["prefer"]; ok {
+		preferMap, ok := prefer.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("prefer: expected object, got %T", prefer)
+		}
+		preferP, err := common_filters.ExtractPrefer(preferMap, className)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract prefer params: %w", err)
+		}
+		if err := filters.ValidatePrefer(preferP); err != nil {
+			return nil, err
+		}
+		preferParams = preferP
+	}
+
 	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %w", err)
@@ -486,6 +503,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		AdditionalProperties:    addlProps,
 		KeywordRanking:          keywordRankingParams,
 		HybridSearch:            hybridParams,
+		Prefer:                  preferParams,
 		ReplicationProperties:   replProps,
 		GroupBy:                 groupByParams,
 		Tenant:                  tenant,

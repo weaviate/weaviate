@@ -193,9 +193,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	var err error
-	var results [][]*search.Result
-	var weights []float64
-	var names []string
 	var targetVectors []string
 
 	if params.HybridSearch.NearTextParams != nil && params.HybridSearch.NearVectorParams != nil {
@@ -229,26 +226,30 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	// If the user has given any weight to the vector search, choose 1 of three possible vector searches
-	//
-	// 1. If the user hase provided nearText parameters, use them in a nearText search
-	// 2. If the user has provided nearVector parameters, use them in a nearVector search
-	// 3. (Default) Do a vector search with the default parameters (the old hybrid search)
+	vectorIdx := -1
+	keywordIdx := -1
+	idx := 0
 
-	resultsCount := 1
-	if params.HybridSearch.Alpha != 0 && params.HybridSearch.Alpha != 1 {
-		resultsCount = 2
+	if params.HybridSearch.Alpha > 0 {
+		vectorIdx = idx
+		idx++
 	}
+	if 1-params.HybridSearch.Alpha > 0 {
+		keywordIdx = idx
+		idx++
+	}
+
+	resultsCount := idx
 
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(resultsCount)
 
-	results = make([][]*search.Result, resultsCount)
-	weights = make([]float64, resultsCount)
-	names = make([]string, resultsCount)
+	results := make([][]*search.Result, resultsCount)
+	weights := make([]float64, resultsCount)
+	names := make([]string, resultsCount)
 	var belowCutoffSet map[strfmt.UUID]struct{}
 
-	if (params.HybridSearch.Alpha) > 0 {
+	if vectorIdx >= 0 {
 		eg.Go(func() error {
 			params := vectorParams
 			var err error
@@ -336,17 +337,16 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				e.logger.WithField("action", "hybrid").WithError(err).Error(errorText + " failed")
 				return err
 			} else {
-				weights[0] = params.HybridSearch.Alpha
-				results[0] = res
-				names[0] = name
+				weights[vectorIdx] = params.HybridSearch.Alpha
+				results[vectorIdx] = res
+				names[vectorIdx] = name
 			}
 
 			return nil
 		})
 	}
 
-	sparseSearchIndex := -1
-	if 1-params.HybridSearch.Alpha > 0 {
+	if keywordIdx >= 0 {
 		eg.Go(func() error {
 			// If the user has given any weight to the keyword search, do a keyword search
 			params := keywordParams
@@ -355,10 +355,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
 				return err
 			} else {
-				weights[len(weights)-1] = 1 - params.HybridSearch.Alpha
-				results[len(weights)-1] = sparseResults
-				names[len(weights)-1] = name
-				sparseSearchIndex = len(weights) - 1
+				weights[keywordIdx] = 1 - params.HybridSearch.Alpha
+				results[keywordIdx] = sparseResults
+				names[keywordIdx] = name
 			}
 
 			return nil
@@ -370,14 +369,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	// remove results with a vector distance above the cutoff from the BM25 results
-	if sparseSearchIndex >= 0 && belowCutoffSet != nil {
-		newResults := make([]*search.Result, 0, len(results[sparseSearchIndex]))
-		for i := range results[sparseSearchIndex] {
-			if _, ok := belowCutoffSet[results[sparseSearchIndex][i].ID]; ok {
-				newResults = append(newResults, results[sparseSearchIndex][i])
+	if keywordIdx >= 0 && belowCutoffSet != nil {
+		newResults := make([]*search.Result, 0, len(results[keywordIdx]))
+		for i := range results[keywordIdx] {
+			if _, ok := belowCutoffSet[results[keywordIdx][i].ID]; ok {
+				newResults = append(newResults, results[keywordIdx][i])
 			}
 		}
-		results[sparseSearchIndex] = newResults
+		results[keywordIdx] = newResults
 	}
 
 	// The postProcess function is used to limit the number of results and to resolve references

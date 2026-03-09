@@ -49,6 +49,8 @@ message SearchRequest {
   optional GenerativeSearch generative = 60;
   optional Rerank rerank = 61;
 
+  optional Prefer prefer = 62;
+
   bool uses_123_api = 100 [deprecated = true];
   bool uses_125_api = 101 [deprecated = true];
   bool uses_127_api = 102; 
@@ -185,4 +187,26 @@ message PropertiesResult {
 message RefPropertiesResult {
   repeated PropertiesResult properties = 1;
   string prop_name = 2;
+}
+
+message Prefer {
+  repeated PreferCondition conditions = 1;
+  optional float strength = 2;
+  reserved 3;
+}
+
+message PreferCondition {
+  optional Filters filter = 1;
+  optional DecayFunction decay = 2;
+  optional float weight = 3;
+}
+
+message DecayFunction {
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 1;
+  string origin = 2;
+  string scale = 3;
+  optional string offset = 4;
+  optional string curve = 5;
+  optional float decay_value = 6;
 }
