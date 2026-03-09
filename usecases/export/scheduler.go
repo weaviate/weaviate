@@ -294,7 +294,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return ErrExportNotFound
 	}
 
-	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(plan.Classes...)...); err != nil {
 		return fmt.Errorf("authorization failed: %w", err)
 	}
 
