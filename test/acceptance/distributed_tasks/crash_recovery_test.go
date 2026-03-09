@@ -247,7 +247,7 @@ func awaitTaskStatusWithTimeout(t *testing.T, restURI, taskID, expectedStatus st
 		if tasks == nil {
 			return false
 		}
-		for _, task := range tasks["shard-noop"] {
+		for _, task := range tasks[shardNoopNamespace] {
 			if task.ID == taskID && task.Status == expectedStatus {
 				return true
 			}
@@ -264,9 +264,9 @@ func findTaskSafe(t *testing.T, restURI, taskID string) *models.DistributedTask 
 	if tasks == nil {
 		return nil
 	}
-	for i := range tasks["shard-noop"] {
-		if tasks["shard-noop"][i].ID == taskID {
-			return &tasks["shard-noop"][i]
+	for i := range tasks[shardNoopNamespace] {
+		if tasks[shardNoopNamespace][i].ID == taskID {
+			return &tasks[shardNoopNamespace][i]
 		}
 	}
 	return nil

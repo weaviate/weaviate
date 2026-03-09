@@ -104,21 +104,11 @@ func TestGroupFinalizationSuite(t *testing.T) {
 	// ManyGroups verifies group finalization at scale: 20 groups with 2 sub-units
 	// each, MaxConcurrency=4.
 	t.Run("ManyGroups", func(t *testing.T) {
-		taskID := "group-many"
-		var subUnits []string
-		subUnitGroups := make(map[string]string)
-
 		const numGroups = 20
 		const subUnitsPerGroup = 2
 
-		for g := 0; g < numGroups; g++ {
-			groupID := fmt.Sprintf("grp-%03d", g)
-			for s := 0; s < subUnitsPerGroup; s++ {
-				suID := fmt.Sprintf("%s-su%d", groupID, s)
-				subUnits = append(subUnits, suID)
-				subUnitGroups[suID] = groupID
-			}
-		}
+		taskID := "group-many"
+		subUnits, subUnitGroups := buildGroupSubUnits(numGroups, subUnitsPerGroup)
 
 		addTaskJSON(t, debugURI, addTaskRequest{
 			ID:             taskID,
@@ -141,16 +131,7 @@ func TestGroupFinalizationSuite(t *testing.T) {
 			assert.Equal(t, "COMPLETED", su.Status, "sub-unit %s should be completed", su.ID)
 		}
 
-		// Spot-check a few groups for finalization markers
-		for _, g := range []int{0, 9, 19} {
-			groupID := fmt.Sprintf("grp-%03d", g)
-			var expected []string
-			for s := 0; s < subUnitsPerGroup; s++ {
-				expected = append(expected, fmt.Sprintf("%s-su%d", groupID, s))
-			}
-			awaitGroupFinalizedSubUnits(t, ctx, compose, taskID, groupID, expected)
-		}
-
+		spotCheckGroupFinalization(t, ctx, compose, taskID, subUnitsPerGroup, 0, 9, 19)
 		awaitTaskCompletedOnAnyNode(t, compose, taskID)
 	})
 
@@ -181,6 +162,35 @@ func TestGroupFinalizationSuite(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Group-specific helpers
 // ---------------------------------------------------------------------------
+
+// buildGroupSubUnits generates sub-unit IDs and group assignments for numGroups groups,
+// each with subUnitsPerGroup sub-units.
+func buildGroupSubUnits(numGroups, subUnitsPerGroup int) ([]string, map[string]string) {
+	var subUnits []string
+	subUnitGroups := make(map[string]string)
+	for g := 0; g < numGroups; g++ {
+		groupID := fmt.Sprintf("grp-%03d", g)
+		for s := 0; s < subUnitsPerGroup; s++ {
+			suID := fmt.Sprintf("%s-su%d", groupID, s)
+			subUnits = append(subUnits, suID)
+			subUnitGroups[suID] = groupID
+		}
+	}
+	return subUnits, subUnitGroups
+}
+
+// spotCheckGroupFinalization verifies finalization markers for a few selected groups.
+func spotCheckGroupFinalization(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, subUnitsPerGroup int, groups ...int) {
+	t.Helper()
+	for _, g := range groups {
+		groupID := fmt.Sprintf("grp-%03d", g)
+		var expected []string
+		for s := 0; s < subUnitsPerGroup; s++ {
+			expected = append(expected, fmt.Sprintf("%s-su%d", groupID, s))
+		}
+		awaitGroupFinalizedSubUnits(t, ctx, compose, taskID, groupID, expected)
+	}
+}
 
 // awaitGroupFinalizedSubUnits polls until expected finalization markers appear
 // under /tmp/dtm-finalize/{taskID}/{groupID}/ across all cluster nodes.

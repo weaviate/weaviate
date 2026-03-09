@@ -128,49 +128,63 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if err != nil {
 		s.logger.WithError(err).Warn("initial distributed task listing failed, scheduler will retry on next tick")
 	} else {
-		s.mu.Lock()
-		for namespace, provider := range s.providers {
-			var (
-				tasks         = tasksByNamespace[namespace]
-				startedTasks  = s.filterStartedTasks(tasks)
-				localTaskDesc = provider.GetLocalTasks()
-			)
-			for _, taskDesc := range localTaskDesc {
-				if _, ok := startedTasks[taskDesc]; ok {
-					continue
-				}
-
-				if err = provider.CleanupTask(taskDesc); err != nil {
-					s.loggerWithTask(namespace, taskDesc).WithError(err).
-						Error("failed to clean up local distributed task state")
-					continue
-				}
-
-				s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
-			}
-
-			for desc, task := range startedTasks {
-				handle, err := provider.StartTask(task)
-				if err != nil {
-					s.loggerWithTask(namespace, desc).WithError(err).
-						Error("failed to start distributed task during bootstrap")
-					continue
-				}
-
-				s.setRunningTaskHandleWithLock(namespace, desc, handle)
-				s.loggerWithTask(namespace, desc).Info("started distributed task execution")
-			}
-
-			s.tasksRunning.
-				WithLabelValues(namespace).
-				Set(float64(len(startedTasks)))
-		}
-		s.mu.Unlock()
+		s.bootstrapProviders(tasksByNamespace)
 	}
 
 	enterrors.GoWrapper(s.loop, s.logger)
 
 	return nil
+}
+
+// bootstrapProviders cleans up stale local tasks and starts tasks that are currently active,
+// based on the initial task listing from the Raft log.
+func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for namespace, provider := range s.providers {
+		startedTasks := s.filterStartedTasks(tasksByNamespace[namespace])
+
+		s.cleanupStaleTasks(namespace, provider, startedTasks)
+		s.startActiveTasks(namespace, provider, startedTasks)
+
+		s.tasksRunning.
+			WithLabelValues(namespace).
+			Set(float64(len(startedTasks)))
+	}
+}
+
+// cleanupStaleTasks removes local state for tasks that the provider knows about
+// but that are no longer active in the cluster.
+func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, startedTasks map[TaskDescriptor]*Task) {
+	for _, taskDesc := range provider.GetLocalTasks() {
+		if _, ok := startedTasks[taskDesc]; ok {
+			continue
+		}
+
+		if err := provider.CleanupTask(taskDesc); err != nil {
+			s.loggerWithTask(namespace, taskDesc).WithError(err).
+				Error("failed to clean up local distributed task state")
+			continue
+		}
+
+		s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
+	}
+}
+
+// startActiveTasks launches tasks that are currently active and have pending work on this node.
+func (s *Scheduler) startActiveTasks(namespace string, provider Provider, startedTasks map[TaskDescriptor]*Task) {
+	for desc, task := range startedTasks {
+		handle, err := provider.StartTask(task)
+		if err != nil {
+			s.loggerWithTask(namespace, desc).WithError(err).
+				Error("failed to start distributed task during bootstrap")
+			continue
+		}
+
+		s.setRunningTaskHandleWithLock(namespace, desc, handle)
+		s.loggerWithTask(namespace, desc).Info("started distributed task execution")
+	}
 }
 
 func (s *Scheduler) filterStartedTasks(tasks map[TaskDescriptor]*Task) map[TaskDescriptor]*Task {

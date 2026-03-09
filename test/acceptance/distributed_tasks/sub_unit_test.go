@@ -31,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
+const shardNoopNamespace = "shard-noop"
+
 // ---------------------------------------------------------------------------
 // Single-node tests (synthetic sub-units)
 // ---------------------------------------------------------------------------
@@ -881,7 +883,7 @@ func awaitTaskStatus(t *testing.T, restURI, taskID, expectedStatus string) {
 
 	require.Eventually(t, func() bool {
 		tasks := listTasks(t, restURI)
-		for _, task := range tasks["shard-noop"] {
+		for _, task := range tasks[shardNoopNamespace] {
 			if task.ID == taskID && task.Status == expectedStatus {
 				return true
 			}
@@ -896,7 +898,7 @@ func awaitTaskStatusOK(t *testing.T, restURI, taskID, expectedStatus string) boo
 
 	return assert.Eventually(t, func() bool {
 		tasks := listTasks(t, restURI)
-		for _, task := range tasks["shard-noop"] {
+		for _, task := range tasks[shardNoopNamespace] {
 			if task.ID == taskID && task.Status == expectedStatus {
 				return true
 			}
@@ -934,9 +936,9 @@ func findTask(t *testing.T, restURI, taskID string) *models.DistributedTask {
 	t.Helper()
 
 	tasks := listTasks(t, restURI)
-	for i := range tasks["shard-noop"] {
-		if tasks["shard-noop"][i].ID == taskID {
-			return &tasks["shard-noop"][i]
+	for i := range tasks[shardNoopNamespace] {
+		if tasks[shardNoopNamespace][i].ID == taskID {
+			return &tasks[shardNoopNamespace][i]
 		}
 	}
 	t.Fatalf("task %s not found", taskID)

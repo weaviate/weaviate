@@ -22,6 +22,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
+func errTaskNotRunning(namespace, taskID string, version uint64) error {
+	return fmt.Errorf("task %s/%s/%d is no longer running", namespace, taskID, version)
+}
+
 // Manager is responsible for managing distributed tasks across the cluster.
 type Manager struct {
 	mu    sync.Mutex
@@ -120,7 +124,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	}
 
 	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
 	if r.Error != nil {
@@ -149,7 +153,7 @@ func (m *Manager) findStartedSubUnitWithLock(namespace, taskID string, version u
 	}
 
 	if task.Status != TaskStatusStarted {
-		return nil, nil, fmt.Errorf("task %s/%s/%d is no longer running", namespace, taskID, task.Version)
+		return nil, nil, errTaskNotRunning(namespace, taskID, task.Version)
 	}
 
 	if !task.HasSubUnits() {
@@ -273,7 +277,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	}
 
 	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
 	task.Status = TaskStatusCancelled

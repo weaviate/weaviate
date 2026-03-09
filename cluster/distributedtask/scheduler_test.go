@@ -30,6 +30,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+const (
+	testSubUnitLocal  = "su-local"
+	testSubUnitRemote = "su-remote"
+)
+
 func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -1188,11 +1193,11 @@ func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
 	defer h.scheduler.Close()
 
 	var version uint64 = 10
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-local", "su-remote"})
+	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{testSubUnitLocal, testSubUnitRemote})
 
 	// Assign su-local to local node, su-remote to a remote node
-	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-local", 0.1)
-	updateProgress(t, h, namespace, "task1", version, "remote-node", "su-remote", 0.1)
+	updateProgress(t, h, namespace, "task1", version, h.localNodeID, testSubUnitLocal, 0.1)
+	updateProgress(t, h, namespace, "task1", version, "remote-node", testSubUnitRemote, 0.1)
 
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -1200,7 +1205,7 @@ func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
 	require.Equal(t, "task1", startedTask.ID)
 
 	// Complete local sub-unit
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-local")
+	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, testSubUnitLocal)
 
 	// Remote sub-unit is still pending — task is still STARTED
 	tasks := h.listManagerTasks(t)[namespace]
@@ -1208,7 +1213,7 @@ func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
 	require.Equal(t, TaskStatusStarted, tasks[0].Status)
 
 	// Complete remote sub-unit
-	completeSubUnit(t, h, namespace, "task1", version, "remote-node", "su-remote")
+	completeSubUnit(t, h, namespace, "task1", version, "remote-node", testSubUnitRemote)
 
 	// Task should now be FINISHED
 	tasks = h.listManagerTasks(t)[namespace]
@@ -1219,7 +1224,7 @@ func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
 
 	// OnGroupCompleted should fire with only the local sub-unit
 	event := recvWithTimeout(t, provider.onGroupCompletedCh)
-	require.ElementsMatch(t, []string{"su-local"}, event.LocalGroupSubUnitIDs)
+	require.ElementsMatch(t, []string{testSubUnitLocal}, event.LocalGroupSubUnitIDs)
 
 	startedTask.Terminate()
 }
