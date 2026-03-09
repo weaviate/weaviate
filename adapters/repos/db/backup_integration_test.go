@@ -630,15 +630,15 @@ func backupWithSizes(
 	var result backupChunkResult
 
 	for _, sd := range classDescs[0].Shards {
-		filesInShard := &entBackup.FileList{Files: append([]string{}, sd.Files...)}
-
-		// Collect actual file sizes for reporting.
+		fileSizes := make(map[string]int64, len(sd.Files))
 		for _, relPath := range sd.Files {
 			info, err := os.Stat(filepath.Join(sourceDataPath, relPath))
 			if err == nil && info.Mode().IsRegular() {
+				fileSizes[relPath] = info.Size()
 				result.fileSizes = append(result.fileSizes, info.Size())
 			}
 		}
+		filesInShard := &entBackup.FileList{Files: append([]string{}, sd.Files...), FileSizes: fileSizes}
 
 		var fileSizeExceeded *backupUC.SplitFile
 		firstChunk := true

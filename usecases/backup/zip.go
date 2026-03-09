@@ -110,6 +110,11 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshol
 	default:
 		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
 	}
+	// splitFileSize must be at least bigFileThreshold, otherwise there would be no splitting.
+	// Check before zero-defaults turn disabled values into MaxInt64.
+	if bigFileThreshold > 0 && splitFileSize > 0 && splitFileSize < bigFileThreshold {
+		splitFileSize = bigFileThreshold
+	}
 	chunkTargetSizeInBytes := chunkTargetSize
 	if chunkTargetSizeInBytes == 0 {
 		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
@@ -119,10 +124,6 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshol
 	}
 	if splitFileSize == 0 {
 		splitFileSize = int64(1<<63 - 1) // effectively no limit
-	}
-	// splitFileSize must be at least bigFileThreshold, there would be no splitting.
-	if splitFileSize < bigFileThreshold {
-		splitFileSize = bigFileThreshold
 	}
 
 	return zip{
