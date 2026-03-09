@@ -633,8 +633,15 @@ func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	for _, ni := range nodes {
-		if ni.host == "" {
+		if ni.req.NodeName == s.localNode {
 			s.participant.Abort(exportID)
+			continue
+		}
+		if ni.host == "" {
+			s.logger.WithField("action", "export_abort").
+				WithField("export_id", exportID).
+				WithField("node", ni.req.NodeName).
+				Warn("skipping abort: cannot resolve host for remote node")
 			continue
 		}
 		for attempt := range maxRetries {
