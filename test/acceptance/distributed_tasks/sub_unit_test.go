@@ -789,30 +789,29 @@ func collectMarkersFromCluster(t *testing.T, ctx context.Context, compose *docke
 	return all
 }
 
-// awaitProcessingMarkers polls until expected processing marker files appear across the cluster.
-func awaitProcessingMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string) {
+// awaitMarkers polls until expected marker files appear in the given subdirectory across the cluster.
+func awaitMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, subdir, taskID string, expected []string) {
 	t.Helper()
 
-	dir := fmt.Sprintf("/tmp/dtm-process/%s", taskID)
+	dir := fmt.Sprintf("/tmp/%s/%s", subdir, taskID)
 	sort.Strings(expected)
 	require.Eventually(t, func() bool {
 		all := collectMarkersFromCluster(t, ctx, compose, dir)
 		sort.Strings(all)
 		return fmt.Sprintf("%v", all) == fmt.Sprintf("%v", expected)
-	}, 60*time.Second, 500*time.Millisecond, "expected processing markers %v", expected)
+	}, 60*time.Second, 500*time.Millisecond, "expected %s markers %v", subdir, expected)
+}
+
+// awaitProcessingMarkers polls until expected processing marker files appear across the cluster.
+func awaitProcessingMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string) {
+	t.Helper()
+	awaitMarkers(t, ctx, compose, "dtm-process", taskID, expected)
 }
 
 // awaitFinalizedSubUnits polls until expected finalization marker files appear across the cluster.
 func awaitFinalizedSubUnits(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string) {
 	t.Helper()
-
-	dir := fmt.Sprintf("/tmp/dtm-finalize/%s", taskID)
-	sort.Strings(expected)
-	require.Eventually(t, func() bool {
-		all := collectMarkersFromCluster(t, ctx, compose, dir)
-		sort.Strings(all)
-		return fmt.Sprintf("%v", all) == fmt.Sprintf("%v", expected)
-	}, 60*time.Second, 500*time.Millisecond, "expected finalized sub-units %v", expected)
+	awaitMarkers(t, ctx, compose, "dtm-finalize", taskID, expected)
 }
 
 // awaitCompletionMarkers polls until the expected number of completion markers appear across the cluster.

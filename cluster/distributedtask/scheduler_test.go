@@ -894,22 +894,31 @@ func TestSubUnitTask_OnTaskCompletedFires(t *testing.T) {
 	startedTask.Terminate()
 }
 
-func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	h, provider, namespace, version := startSubUnitTest(t)
-	defer h.scheduler.Close()
-
+// launchAndFailSubUnit creates a task, assigns one sub-unit to the local node,
+// launches the task, fails the sub-unit, and returns the started testTask.
+func launchAndFailSubUnit(
+	t *testing.T, h *testHarness, provider *testSubUnitAwareProvider,
+	namespace string, version uint64,
+) *testTask {
+	t.Helper()
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
 	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
 
 	h.advanceClock(h.schedulerTickInterval)
 	startedTask := recvWithTimeout(t, provider.startedCh)
 
-	// Fail the sub-unit
 	failSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1", "oops")
-
 	h.advanceClock(h.schedulerTickInterval)
+	return startedTask
+}
+
+func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h, provider, namespace, version := startSubUnitTest(t)
+	defer h.scheduler.Close()
+
+	startedTask := launchAndFailSubUnit(t, h, provider, namespace, version)
 
 	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
 	require.Equal(t, TaskStatusFailed, completedTask.Status)
@@ -973,15 +982,7 @@ func TestSubUnitTask_OnGroupCompletedOnFailure(t *testing.T) {
 	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
-	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
-
-	h.advanceClock(h.schedulerTickInterval)
-	startedTask := recvWithTimeout(t, provider.startedCh)
-
-	// Fail one sub-unit
-	failSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1", "oops")
-	h.advanceClock(h.schedulerTickInterval)
+	startedTask := launchAndFailSubUnit(t, h, provider, namespace, version)
 
 	// OnGroupCompleted should fire on failure too
 	event := recvWithTimeout(t, provider.onGroupCompletedCh)

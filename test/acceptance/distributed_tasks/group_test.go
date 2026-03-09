@@ -14,7 +14,6 @@ package distributed_tasks
 import (
 	"context"
 	"fmt"
-	"sort"
 	"testing"
 	"time"
 
@@ -196,12 +195,5 @@ func spotCheckGroupFinalization(t *testing.T, ctx context.Context, compose *dock
 // under /tmp/dtm-finalize/{taskID}/{groupID}/ across all cluster nodes.
 func awaitGroupFinalizedSubUnits(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID, groupID string, expected []string) {
 	t.Helper()
-
-	dir := fmt.Sprintf("/tmp/dtm-finalize/%s/%s", taskID, groupID)
-	sort.Strings(expected)
-	require.Eventually(t, func() bool {
-		all := collectMarkersFromCluster(t, ctx, compose, dir)
-		sort.Strings(all)
-		return fmt.Sprintf("%v", all) == fmt.Sprintf("%v", expected)
-	}, 60*time.Second, 500*time.Millisecond, "expected group %s finalized sub-units %v", groupID, expected)
+	awaitMarkers(t, ctx, compose, fmt.Sprintf("dtm-finalize/%s", taskID), groupID, expected)
 }

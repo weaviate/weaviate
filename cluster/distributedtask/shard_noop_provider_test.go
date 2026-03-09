@@ -104,6 +104,17 @@ type providerFixture struct {
 	recorder *mockRecorder
 }
 
+// startTaskAndAssertNoProgress starts the task, waits briefly, and asserts that
+// no sub-units were completed. Returns the handle (caller should defer Terminate).
+func (f *providerFixture) startTaskAndAssertNoProgress(t *testing.T, task *Task, msg string) TaskHandle {
+	t.Helper()
+	handle, err := f.provider.StartTask(task)
+	require.NoError(t, err)
+	time.Sleep(500 * time.Millisecond)
+	assert.Empty(t, f.recorder.getCompleted(), msg)
+	return handle
+}
+
 func newProviderFixture(t *testing.T, nodeID string, lister ShardLister) *providerFixture {
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
@@ -216,13 +227,8 @@ func TestShardNoopProvider_CollectionAware_NoLocalShards(t *testing.T) {
 		},
 	)
 
-	handle, err := f.provider.StartTask(task)
-	require.NoError(t, err)
+	handle := f.startTaskAndAssertNoProgress(t, task, "no sub-units should be processed when no local shards")
 	defer handle.Terminate()
-
-	// Give it time to process — should exit quickly since there are no local shards
-	time.Sleep(500 * time.Millisecond)
-	assert.Empty(t, f.recorder.getCompleted(), "no sub-units should be processed when no local shards")
 }
 
 func TestShardNoopProvider_CollectionAware_ShardListerError(t *testing.T) {
@@ -238,13 +244,8 @@ func TestShardNoopProvider_CollectionAware_ShardListerError(t *testing.T) {
 		},
 	)
 
-	handle, err := f.provider.StartTask(task)
-	require.NoError(t, err)
+	handle := f.startTaskAndAssertNoProgress(t, task, "no sub-units should be processed on lister error")
 	defer handle.Terminate()
-
-	// Provider should return early on error — no sub-units processed
-	time.Sleep(500 * time.Millisecond)
-	assert.Empty(t, f.recorder.getCompleted(), "no sub-units should be processed on lister error")
 }
 
 func TestShardNoopProvider_CollectionAware_FailSubUnit(t *testing.T) {
@@ -344,34 +345,30 @@ func TestShardNoopProvider_PerReplicaSubUnits_OnlyProcessesLocalShards(t *testin
 	}
 	f := newProviderFixture(t, "nodeA", lister)
 
-	payload, _ := json.Marshal(ShardNoopProviderPayload{
-		Collection: "MyClass",
-		SubUnitToShard: map[string]string{
-			"s1__nodeA": "s1",
-			"s1__nodeB": "s1", // same shard, but belongs to nodeB
-			"s2__nodeA": "s2",
-			"s2__nodeC": "s2", // belongs to nodeC
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{
+			Collection: "MyClass",
+			SubUnitToShard: map[string]string{
+				"s1__nodeA": "s1",
+				"s1__nodeB": "s1", // same shard, but belongs to nodeB
+				"s2__nodeA": "s2",
+				"s2__nodeC": "s2", // belongs to nodeC
+			},
+			SubUnitToNode: map[string]string{
+				"s1__nodeA": "nodeA",
+				"s1__nodeB": "nodeB",
+				"s2__nodeA": "nodeA",
+				"s2__nodeC": "nodeC",
+			},
+			ProcessingDelayMs: 10,
 		},
-		SubUnitToNode: map[string]string{
-			"s1__nodeA": "nodeA",
-			"s1__nodeB": "nodeB",
-			"s2__nodeA": "nodeA",
-			"s2__nodeC": "nodeC",
-		},
-		ProcessingDelayMs: 10,
-	})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-per-replica", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+		map[string]*SubUnit{
 			"s1__nodeA": {Status: SubUnitStatusPending},
 			"s1__nodeB": {Status: SubUnitStatusPending},
 			"s2__nodeA": {Status: SubUnitStatusPending},
 			"s2__nodeC": {Status: SubUnitStatusPending},
 		},
-	}
+	)
 
 	// Only s1__nodeA and s2__nodeA should be processed (nodeA's sub-units per SubUnitToNode).
 	// s1__nodeB and s2__nodeC belong to other nodes.
@@ -389,30 +386,26 @@ func TestShardNoopProvider_PerReplicaSubUnits_UnknownSubUnitSkipped(t *testing.T
 	}
 	f := newProviderFixture(t, "nodeA", lister)
 
-	payload, _ := json.Marshal(ShardNoopProviderPayload{
-		Collection: "MyClass",
-		SubUnitToShard: map[string]string{
-			"s1__nodeA":     "s1",
-			"s1__otherNode": "s1",
-			// "unknown" is not in the mapping → skipped
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{
+			Collection: "MyClass",
+			SubUnitToShard: map[string]string{
+				"s1__nodeA":     "s1",
+				"s1__otherNode": "s1",
+				// "unknown" is not in the mapping → skipped
+			},
+			SubUnitToNode: map[string]string{
+				"s1__nodeA":     "nodeA",
+				"s1__otherNode": "otherNode",
+			},
+			ProcessingDelayMs: 10,
 		},
-		SubUnitToNode: map[string]string{
-			"s1__nodeA":     "nodeA",
-			"s1__otherNode": "otherNode",
-		},
-		ProcessingDelayMs: 10,
-	})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-unknown-su", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+		map[string]*SubUnit{
 			"s1__nodeA":     {Status: SubUnitStatusPending},
 			"unknown":       {Status: SubUnitStatusPending}, // not in SubUnitToShard
 			"s1__otherNode": {Status: SubUnitStatusPending}, // in mapping but wrong node
 		},
-	}
+	)
 
 	handle, completed := f.startAndAwaitCompleted(t, task, 1)
 	defer handle.Terminate()
