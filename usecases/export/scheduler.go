@@ -445,7 +445,9 @@ func (s *Scheduler) assembleStatusFromPlan(
 		effectiveShardStatus := export.ShardTransferring
 		switch nodeStatus.Status {
 		case export.Success:
+			effectiveShardStatus = export.ShardSuccess
 		case export.Failed:
+			effectiveShardStatus = export.ShardFailed
 			anyFailed = true
 			allSuccess = false
 			if status.Error == "" {
