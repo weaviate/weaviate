@@ -370,7 +370,12 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		Classes:   plan.Classes,
 		StartedAt: strfmt.DateTime(plan.StartedAt),
 	}
-	s.writeMetadata(backendStore, id, bucket, path, cancelStatus)
+	if err := s.writeMetadata(backendStore, id, bucket, path, cancelStatus); err != nil {
+		s.logger.WithField("action", "export_cancel").
+			WithField("export_id", id).
+			Errorf("failed to write cancelled metadata: %v", err)
+		return fmt.Errorf("export cancelled but failed to persist status: %w", err)
+	}
 	return nil
 }
 
