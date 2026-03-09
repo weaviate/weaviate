@@ -7544,7 +7544,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELLED",
+            "CANCELED",
             "SKIPPED"
           ]
         },
@@ -9333,7 +9333,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELLED",
+            "CANCELED",
             "SKIPPED"
           ]
         }
@@ -17723,7 +17723,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELLED",
+            "CANCELED",
             "SKIPPED"
           ]
         },
@@ -19721,7 +19721,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELLED",
+            "CANCELED",
             "SKIPPED"
           ]
         }

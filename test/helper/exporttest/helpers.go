@@ -69,7 +69,7 @@ func ExpectExportEventuallySucceeded(t *testing.T, backend, exportID string) {
 	}, deadline, interval, "export %s not succeeded after %s", exportID, deadline)
 }
 
-func ExpectExportEventuallyCancelled(t *testing.T, backend, exportID string) {
+func ExpectExportEventuallyCanceled(t *testing.T, backend, exportID string) {
 	t.Helper()
 
 	deadline := 60 * time.Second
@@ -81,6 +81,6 @@ func ExpectExportEventuallyCancelled(t *testing.T, backend, exportID string) {
 		require.NotNil(c, resp.Payload, "empty response")
 
 		status := resp.Payload.Status
-		require.Equalf(c, "CANCELLED", status, "export status (error: %s)", resp.Payload.Error)
-	}, deadline, interval, "export %s not cancelled after %s", exportID, deadline)
+		require.Equalf(c, "CANCELED", status, "export status (error: %s)", resp.Payload.Error)
+	}, deadline, interval, "export %s not canceled after %s", exportID, deadline)
 }

@@ -43,9 +43,9 @@ var (
 	// that has already completed (SUCCESS, FAILED, or CANCELLED).
 	ErrExportAlreadyFinished = errors.New("export has already finished")
 
-	// errExportCancelled is passed as the cause to context.WithCancelCause
-	// when an export is cancelled via the Cancel endpoint.
-	errExportCancelled = errors.New("export was cancelled")
+	// errExportCanceled is passed as the cause to context.WithCancelCause
+	// when an export is canceled via the Cancel endpoint.
+	errExportCanceled = errors.New("export was canceled")
 )
 
 const (
@@ -94,7 +94,7 @@ type Scheduler struct {
 
 // NewScheduler creates a new export scheduler.
 // When client and nodeResolver are nil, operates in single-node mode.
-// The shutdownCtx is cancelled on graceful server shutdown.
+// The shutdownCtx is canceled on graceful server shutdown.
 func NewScheduler(
 	shutdownCtx context.Context,
 	authorizer authorization.Authorizer,
@@ -239,8 +239,8 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 			return nil, fmt.Errorf("export %s not found: %w", id, planErr)
 		}
 		// Missing plan is always a failure — override the status and preserve
-		// any error already recorded in the metadata, unless it was cancelled.
-		if meta.Status != export.Cancelled {
+		// any error already recorded in the metadata, unless it was canceled.
+		if meta.Status != export.Canceled {
 			meta.Status = export.Failed
 			if meta.Error == "" {
 				meta.Error = fmt.Sprintf("export plan not found: %v", planErr)
@@ -254,12 +254,12 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
-	// Check if the export was cancelled or has terminal metadata.
+	// Check if the export was canceled or has terminal metadata.
 	meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
 	if metaErr != nil && !errors.As(metaErr, &backup.ErrNotFound{}) {
 		return nil, fmt.Errorf("get export metadata: %w", metaErr)
 	}
-	if metaErr == nil && meta.Status == export.Cancelled {
+	if metaErr == nil && meta.Status == export.Canceled {
 		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
 	}
 
@@ -313,7 +313,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
 	if metaErr == nil {
 		switch meta.Status {
-		case export.Success, export.Failed, export.Cancelled:
+		case export.Success, export.Failed, export.Canceled:
 			return ErrExportAlreadyFinished
 		default:
 		}
@@ -333,7 +333,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 				// (node unreachable / not running) rather than actual completion.
 				// Proceed with best-effort aborts so nodes that are still running
 				// get a cancellation signal.
-			case export.Started, export.Transferring, export.Cancelled:
+			case export.Started, export.Transferring, export.Canceled:
 			}
 		}
 
@@ -359,22 +359,22 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 			// above and now — the export is already done.
 			return ErrExportAlreadyFinished
 		}
-		(*cancelPtr)(errExportCancelled)
+		(*cancelPtr)(errExportCanceled)
 	}
 
 	cancelStatus := &models.ExportStatusResponse{
 		ID:        id,
 		Backend:   backend,
-		Status:    string(export.Cancelled),
-		Error:     "export was cancelled",
+		Status:    string(export.Canceled),
+		Error:     "export was canceled",
 		Classes:   plan.Classes,
 		StartedAt: strfmt.DateTime(plan.StartedAt),
 	}
 	if err := s.writeMetadata(backendStore, id, bucket, path, cancelStatus); err != nil {
 		s.logger.WithField("action", "export_cancel").
 			WithField("export_id", id).
-			Errorf("failed to write cancelled metadata: %v", err)
-		return fmt.Errorf("export cancelled but failed to persist status: %w", err)
+			Errorf("failed to write canceled metadata: %v", err)
+		return fmt.Errorf("export canceled but failed to persist status: %w", err)
 	}
 	return nil
 }
@@ -453,7 +453,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 			if status.Error == "" {
 				status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
 			}
-		case export.Started, export.Transferring, export.Cancelled:
+		case export.Started, export.Transferring, export.Canceled:
 			// Non-terminal (Transferring/Started): verify the node is still running
 			allSuccess = false
 			host, alive := s.nodeResolver.NodeHostname(nodeName)
@@ -633,7 +633,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 
 // abortAll sends abort to all previously prepared nodes (best-effort).
 // It uses a fresh context so abort requests reach participants even when the
-// original request context has been cancelled (e.g. client disconnect).
+// original request context has been canceled (e.g. client disconnect).
 // Remote aborts are retried up to 3 times on error.
 func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
 	const maxRetries = 3
@@ -670,7 +670,7 @@ func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
 
 // clearCancelState clears the cancel-cause pointer and calls cancel(nil).
 // The cancel(nil) is a no-op if Cancel() already called it with
-// errExportCancelled. This must be called BEFORE writing terminal metadata
+// errExportCanceled. This must be called BEFORE writing terminal metadata
 // so that Cancel() can no longer find a non-nil pointer after metadata is
 // persisted.
 func (s *Scheduler) clearCancelState(cancel context.CancelCauseFunc) {
@@ -737,9 +737,9 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 			WithField("export_id", exportID).
 			Error(exportErr)
 
-		if errors.Is(context.Cause(ctx), errExportCancelled) {
-			status.Status = string(export.Cancelled)
-			status.Error = "export was cancelled"
+		if errors.Is(context.Cause(ctx), errExportCanceled) {
+			status.Status = string(export.Canceled)
+			status.Error = "export was canceled"
 		} else {
 			status.Status = string(export.Failed)
 			status.Error = exportErr.Error()
@@ -823,7 +823,7 @@ func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter
 
 // writeMetadata writes the export metadata file (single-node path).
 // It uses a fresh context with a timeout so the write succeeds even if the
-// original context was cancelled (e.g. during graceful shutdown).
+// original context was canceled (e.g. during graceful shutdown).
 func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *models.ExportStatusResponse) error {
 	ctx := context.Background()
 

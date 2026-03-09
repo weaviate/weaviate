@@ -696,8 +696,8 @@ func TestExport_Cancel(t *testing.T) {
 			// Verify it actually succeeded
 			exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 		} else {
-			// Cancel succeeded — verify it reaches CANCELLED status
-			exporttest.ExpectExportEventuallyCancelled(t, "s3", exportID)
+			// Cancel succeeded — verify it reaches CANCELED status
+			exporttest.ExpectExportEventuallyCanceled(t, "s3", exportID)
 		}
 	})
 

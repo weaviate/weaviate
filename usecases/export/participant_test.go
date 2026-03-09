@@ -354,7 +354,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// blockingSelector blocks forever until context is cancelled
+	// blockingSelector blocks forever until context is canceled
 	selector := &blockingSelector{
 		blockCh: make(chan struct{}),
 	}

@@ -53,7 +53,7 @@ type Participant struct {
 }
 
 // NewParticipant creates a new export participant.
-// The shutdownCtx is cancelled on graceful server shutdown, allowing in-flight
+// The shutdownCtx is canceled on graceful server shutdown, allowing in-flight
 // exports to detect the shutdown and write a failed status before exiting.
 func NewParticipant(
 	shutdownCtx context.Context,
@@ -195,7 +195,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 // Abort cancels a prepared or running export.
 // If the export is still in the prepared state, the reservation is released.
-// If the export has already been committed, the running export is cancelled.
+// If the export has already been committed, the running export is canceled.
 func (p *Participant) Abort(exportID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

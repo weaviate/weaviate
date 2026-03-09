@@ -19,12 +19,12 @@ const (
 	Transferring Status = "TRANSFERRING"
 	Success      Status = "SUCCESS"
 	Failed       Status = "FAILED"
-	Cancelled    Status = "CANCELLED"
+	Canceled     Status = "CANCELED"
 )
 
 // ShardStatus represents the state of a single shard's export.
 // Unlike Status, it only covers per-shard states (TRANSFERRING, SUCCESS,
-// FAILED, SKIPPED) and does not include STARTED or CANCELLED.
+// FAILED, SKIPPED) and does not include STARTED or CANCELED.
 type ShardStatus string
 
 const (

@@ -85,8 +85,8 @@ func TestExport_Cancel_Running(t *testing.T) {
 		// Verify it actually succeeded
 		exporttest.ExpectExportEventuallySucceeded(t, backend, exportID)
 	} else {
-		// Cancel succeeded — verify it reaches CANCELLED status
-		exporttest.ExpectExportEventuallyCancelled(t, backend, exportID)
+		// Cancel succeeded — verify it reaches CANCELED status
+		exporttest.ExpectExportEventuallyCanceled(t, backend, exportID)
 	}
 }
 
