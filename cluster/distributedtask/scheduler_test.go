@@ -848,24 +848,10 @@ func initSubUnitHarness(t *testing.T, namespace string) (*testHarness, *testSubU
 func TestSubUnitTask_OnTaskCompletedFires(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
-
-	// Assign sub-units to local node via progress updates
-	for _, suID := range []string{"su-1", "su-2"} {
-		updateProgress(t, h, namespace, "task1", version, h.localNodeID, suID, 0.1)
-	}
-
-	h.advanceClock(h.schedulerTickInterval)
-
-	// Task should be started since the local node has non-terminal sub-units
-	startedTask := recvWithTimeout(t, provider.startedCh)
-	require.Equal(t, "task1", startedTask.ID)
+	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
 
 	// Complete both sub-units
 	for _, suID := range []string{"su-1", "su-2"} {
@@ -893,12 +879,9 @@ func TestSubUnitTask_OnTaskCompletedFires(t *testing.T) {
 func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
 	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
 
@@ -919,21 +902,10 @@ func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedFires(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
-
-	// Assign sub-units to local node
-	for _, suID := range []string{"su-1", "su-2"} {
-		updateProgress(t, h, namespace, "task1", version, h.localNodeID, suID, 0.1)
-	}
-
-	h.advanceClock(h.schedulerTickInterval)
-	startedTask := recvWithTimeout(t, provider.startedCh)
+	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
 
 	// Complete both sub-units
 	for _, suID := range []string{"su-1", "su-2"} {
@@ -958,17 +930,10 @@ func TestSubUnitTask_OnGroupCompletedFires(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedBeforeOnTaskCompleted(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
-	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
-
-	h.advanceClock(h.schedulerTickInterval)
-	startedTask := recvWithTimeout(t, provider.startedCh)
+	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1"})
 
 	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
 	h.advanceClock(h.schedulerTickInterval)
@@ -987,12 +952,9 @@ func TestSubUnitTask_OnGroupCompletedBeforeOnTaskCompleted(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedOnFailure(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
 	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
 
@@ -1019,12 +981,9 @@ func TestSubUnitTask_OnGroupCompletedOnFailure(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedSkipsNodesWithNoLocalSubUnits(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
 
 	// Assign the sub-unit to a DIFFERENT node
@@ -1049,17 +1008,10 @@ func TestSubUnitTask_OnGroupCompletedSkipsNodesWithNoLocalSubUnits(t *testing.T)
 func TestSubUnitTask_CallbacksFireExactlyOnce(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
-	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
-
-	h.advanceClock(h.schedulerTickInterval)
-	startedTask := recvWithTimeout(t, provider.startedCh)
+	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1"})
 
 	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
 	h.advanceClock(h.schedulerTickInterval)
@@ -1087,12 +1039,9 @@ func TestSubUnitTask_CallbacksFireExactlyOnce(t *testing.T) {
 func TestSubUnitTask_DeadHandleDetection(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -1120,12 +1069,9 @@ func TestSubUnitTask_DeadHandleDetection(t *testing.T) {
 func TestSubUnitTask_NoSpuriousRestart(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -1150,12 +1096,9 @@ func TestSubUnitTask_NoSpuriousRestart(t *testing.T) {
 func TestSubUnitTask_ProviderErrorRecovery(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -1187,12 +1130,9 @@ func TestSubUnitTask_ProviderErrorRecovery(t *testing.T) {
 func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "su-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startSubUnitTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{testSubUnitLocal, testSubUnitRemote})
 
 	// Assign su-local to local node, su-remote to a remote node
@@ -1351,29 +1291,73 @@ func addTaskWithSubUnitSpecs(t *testing.T, h *testHarness, ns, id string, versio
 	require.NoError(t, err)
 }
 
+// startSubUnitTest initialises a sub-unit harness with namespace "su-namespace",
+// starts the scheduler, and registers a cleanup. It returns the harness,
+// provider, namespace and a default version for convenience.
+func startSubUnitTest(t *testing.T) (h *testHarness, provider *testSubUnitAwareProvider, namespace string, version uint64) {
+	t.Helper()
+	namespace = "su-namespace"
+	h, provider = initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	return h, provider, namespace, 10
+}
+
+// startGroupTest is the same as startSubUnitTest but uses "group-namespace".
+func startGroupTest(t *testing.T) (h *testHarness, provider *testSubUnitAwareProvider, namespace string, version uint64) {
+	t.Helper()
+	namespace = "group-namespace"
+	h, provider = initSubUnitHarness(t, namespace)
+	h.startScheduler(t)
+	return h, provider, namespace, 10
+}
+
+// addAndLaunchSubUnitTask adds a task with the given sub-units, assigns them
+// all to the local node via progress updates, advances the clock, and returns
+// the started testTask.
+func addAndLaunchSubUnitTask(
+	t *testing.T, h *testHarness, provider *testSubUnitAwareProvider,
+	namespace, taskID string, version uint64, subUnits []string,
+) *testTask {
+	t.Helper()
+	addTaskWithSubUnits(t, h, namespace, taskID, version, subUnits)
+	for _, suID := range subUnits {
+		updateProgress(t, h, namespace, taskID, version, h.localNodeID, suID, 0.1)
+	}
+	h.advanceClock(h.schedulerTickInterval)
+	startedTask := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, taskID, startedTask.ID)
+	return startedTask
+}
+
+// addAndLaunchGroupTask adds a task with SubUnitSpecs, assigns all sub-units
+// to the local node, advances the clock, and returns the started testTask.
+func addAndLaunchGroupTask(
+	t *testing.T, h *testHarness, provider *testSubUnitAwareProvider,
+	namespace, taskID string, version uint64, specs []*cmd.SubUnitSpec,
+) *testTask {
+	t.Helper()
+	addTaskWithSubUnitSpecs(t, h, namespace, taskID, version, specs)
+	for _, spec := range specs {
+		updateProgress(t, h, namespace, taskID, version, h.localNodeID, spec.Id, 0.1)
+	}
+	h.advanceClock(h.schedulerTickInterval)
+	startedTask := recvWithTimeout(t, provider.startedCh)
+	require.Equal(t, taskID, startedTask.ID)
+	return startedTask
+}
+
 func TestGroupTask_OnGroupCompletedFiresMidFlight(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "group-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startGroupTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
-	addTaskWithSubUnitSpecs(t, h, namespace, "task1", version, []*cmd.SubUnitSpec{
+	startedTask := addAndLaunchGroupTask(t, h, provider, namespace, "task1", version, []*cmd.SubUnitSpec{
 		{Id: "su-1", GroupId: "groupA"},
 		{Id: "su-2", GroupId: "groupA"},
 		{Id: "su-3", GroupId: "groupB"},
 		{Id: "su-4", GroupId: "groupB"},
 	})
-
-	// Assign all sub-units to local node
-	for _, suID := range []string{"su-1", "su-2", "su-3", "su-4"} {
-		updateProgress(t, h, namespace, "task1", version, h.localNodeID, suID, 0.1)
-	}
-
-	h.advanceClock(h.schedulerTickInterval)
-	startedTask := recvWithTimeout(t, provider.startedCh)
 
 	// Complete groupA (su-1, su-2) but not groupB
 	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
@@ -1416,23 +1400,13 @@ func TestGroupTask_OnGroupCompletedFiresMidFlight(t *testing.T) {
 func TestGroupTask_OneGroupFails(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "group-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startGroupTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
-	addTaskWithSubUnitSpecs(t, h, namespace, "task1", version, []*cmd.SubUnitSpec{
+	startedTask := addAndLaunchGroupTask(t, h, provider, namespace, "task1", version, []*cmd.SubUnitSpec{
 		{Id: "su-1", GroupId: "groupA"},
 		{Id: "su-2", GroupId: "groupB"},
 	})
-
-	for _, suID := range []string{"su-1", "su-2"} {
-		updateProgress(t, h, namespace, "task1", version, h.localNodeID, suID, 0.1)
-	}
-
-	h.advanceClock(h.schedulerTickInterval)
-	startedTask := recvWithTimeout(t, provider.startedCh)
 
 	// Complete groupA
 	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
@@ -1460,21 +1434,11 @@ func TestGroupTask_OneGroupFails(t *testing.T) {
 func TestGroupTask_DefaultGroupPreservesOldBehavior(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	namespace := "group-namespace"
-	h, provider := initSubUnitHarness(t, namespace)
-	h.startScheduler(t)
+	h, provider, namespace, version := startGroupTest(t)
 	defer h.scheduler.Close()
 
-	var version uint64 = 10
 	// No explicit groups — all sub-units in default group ""
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
-
-	for _, suID := range []string{"su-1", "su-2"} {
-		updateProgress(t, h, namespace, "task1", version, h.localNodeID, suID, 0.1)
-	}
-
-	h.advanceClock(h.schedulerTickInterval)
-	startedTask := recvWithTimeout(t, provider.startedCh)
+	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
 
 	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
 	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-2")

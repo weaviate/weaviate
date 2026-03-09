@@ -30,13 +30,9 @@ import (
 // non-leader node crashes and restarts. The crashed node's IN_PROGRESS sub-units
 // are re-launched by the Scheduler on restart.
 func TestCrashRecovery_SingleNodeRestart(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	restURI := compose.GetWeaviate().URI()
 	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashSingleNode", "crash-single-node", 2000)
 
 	// Wait until at least one sub-unit is in progress before crashing.
@@ -52,33 +48,16 @@ func TestCrashRecovery_SingleNodeRestart(t *testing.T) {
 	require.NoError(t, compose.StartAt(ctx, 1))
 
 	// Task must complete — the restarted node re-processes its sub-units.
-	if !awaitTaskStatusWithTimeout(t, restURI, taskID, "FINISHED", 120*time.Second) {
-		dumpTaskAndLogs(t, ctx, compose, restURI, taskID)
-		t.FailNow()
-	}
-
-	task := findTask(t, restURI, taskID)
-	assert.Equal(t, "FINISHED", task.Status)
-	assert.Len(t, task.SubUnits, 9)
-
-	awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
-	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs)
-	awaitCompletionMarkers(t, ctx, compose, taskID, 3)
-
-	deleteCollection(t, restURI, className)
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
 }
 
 // TestCrashRecovery_MajorityRestart verifies that a task completes after a
 // majority of nodes (2 of 3) crash and restart while one node stays up.
 // Both crashed nodes re-launch their own sub-units on restart.
 func TestCrashRecovery_MajorityRestart(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	restURI := compose.GetWeaviate().URI()
 	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashMajority", "crash-majority", 2000)
 
 	// Wait until at least one sub-unit is in progress.
@@ -95,33 +74,16 @@ func TestCrashRecovery_MajorityRestart(t *testing.T) {
 	require.NoError(t, compose.StartAt(ctx, 1))
 	require.NoError(t, compose.StartAt(ctx, 2))
 
-	if !awaitTaskStatusWithTimeout(t, restURI, taskID, "FINISHED", 120*time.Second) {
-		dumpTaskAndLogs(t, ctx, compose, restURI, taskID)
-		t.FailNow()
-	}
-
-	task := findTask(t, restURI, taskID)
-	assert.Equal(t, "FINISHED", task.Status)
-	assert.Len(t, task.SubUnits, 9)
-
-	awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
-	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs)
-	awaitCompletionMarkers(t, ctx, compose, taskID, 3)
-
-	deleteCollection(t, restURI, className)
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
 }
 
 // TestCrashRecovery_RollingRestart verifies that a task completes despite
 // rolling restarts where nodes are cycled one after another, with overlapping
 // down-times.
 func TestCrashRecovery_RollingRestart(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	restURI := compose.GetWeaviate().URI()
 	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashRolling", "crash-rolling", 3000)
 
 	// Wait for processing to start.
@@ -139,33 +101,16 @@ func TestCrashRecovery_RollingRestart(t *testing.T) {
 	// URI may have changed after restart.
 	restURI = compose.GetWeaviate().URI()
 
-	if !awaitTaskStatusWithTimeout(t, restURI, taskID, "FINISHED", 120*time.Second) {
-		dumpTaskAndLogs(t, ctx, compose, restURI, taskID)
-		t.FailNow()
-	}
-
-	task := findTask(t, restURI, taskID)
-	assert.Equal(t, "FINISHED", task.Status)
-	assert.Len(t, task.SubUnits, 9)
-
-	awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
-	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs)
-	awaitCompletionMarkers(t, ctx, compose, taskID, 3)
-
-	deleteCollection(t, restURI, className)
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
 }
 
 // TestCrashRecovery_CrashBeforeAnyProgress verifies that a task completes when
 // a node crashes before reporting any progress. The node's sub-units remain
 // PENDING and are re-claimed on restart.
 func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, cleanup := start3NodeDTMCluster(ctx, t)
+	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	restURI := compose.GetWeaviate().URI()
 	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashBeforeProgress", "crash-before-progress", 5000)
 
 	// Immediately kill node 2 before it reports any progress.
@@ -177,6 +122,36 @@ func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 	// Restart node 2.
 	require.NoError(t, compose.StartAt(ctx, 1))
 
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
+}
+
+// ---------------------------------------------------------------------------
+// Crash recovery helpers
+// ---------------------------------------------------------------------------
+
+// startCrashRecoveryTest creates a 3-node DTM cluster with a 5-minute context
+// and returns everything a crash-recovery test needs. The returned cleanup
+// function tears down the cluster and cancels the context.
+func startCrashRecoveryTest(t *testing.T) (context.Context, *docker.DockerCompose, string, func()) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, clusterCleanup := start3NodeDTMCluster(ctx, t)
+	restURI := compose.GetWeaviate().URI()
+
+	cleanup := func() {
+		clusterCleanup()
+		cancel()
+	}
+	return ctx, compose, restURI, cleanup
+}
+
+// verifyCrashRecoveryResult waits for the task to reach FINISHED status, then
+// asserts the expected sub-unit count, processing/finalized/completion markers,
+// and finally deletes the collection.
+func verifyCrashRecoveryResult(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI, taskID, className string, subUnitIDs []string) {
+	t.Helper()
+
 	if !awaitTaskStatusWithTimeout(t, restURI, taskID, "FINISHED", 120*time.Second) {
 		dumpTaskAndLogs(t, ctx, compose, restURI, taskID)
 		t.FailNow()
@@ -192,10 +167,6 @@ func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 
 	deleteCollection(t, restURI, className)
 }
-
-// ---------------------------------------------------------------------------
-// Crash recovery helpers
-// ---------------------------------------------------------------------------
 
 // setupCrashRecoveryTask creates an RF3/3-shard collection and adds a task with 9 per-replica sub-units.
 func setupCrashRecoveryTask(t *testing.T, compose *docker.DockerCompose, className, taskID string, processingDelayMs int) (string, string, []string) {

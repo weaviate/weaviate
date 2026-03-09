@@ -109,332 +109,268 @@ func (r *mockRecorder) getFailed() map[string]string {
 	return result
 }
 
-func TestShardNoopProvider_SyntheticSubUnits_NilShardLister(t *testing.T) {
+// providerFixture bundles the provider and recorder created for each test,
+// eliminating repeated setup boilerplate.
+type providerFixture struct {
+	provider *ShardNoopProvider
+	recorder *mockRecorder
+}
+
+func newProviderFixture(t *testing.T, nodeID string, lister ShardLister) *providerFixture {
+	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
+	rec := newMockRecorder()
+	p := NewShardNoopProvider(nodeID, logger, lister)
+	p.SetCompletionRecorder(rec)
+	return &providerFixture{provider: p, recorder: rec}
+}
 
-	provider := NewShardNoopProvider("node1", logger, nil)
-	provider.SetCompletionRecorder(recorder)
-
-	task := &Task{
+// newTask creates a Task with sensible defaults (ID "test-task", Version 1,
+// ShardNoopProviderNamespace, TaskStatusStarted) and the given sub-units.
+func (f *providerFixture) newTask(subUnits map[string]*SubUnit) *Task {
+	return &Task{
 		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
 		Namespace:      ShardNoopProviderNamespace,
 		Status:         TaskStatusStarted,
-		SubUnits: map[string]*SubUnit{
-			"su-1": {Status: SubUnitStatusPending},
-			"su-2": {Status: SubUnitStatusPending},
-		},
+		SubUnits:       subUnits,
 	}
+}
 
-	handle, err := provider.StartTask(task)
+// newTaskWithPayload is like newTask but also marshals the given payload.
+func (f *providerFixture) newTaskWithPayload(payload ShardNoopProviderPayload, subUnits map[string]*SubUnit) *Task {
+	raw, _ := json.Marshal(payload)
+	return &Task{
+		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
+		Namespace:      ShardNoopProviderNamespace,
+		Status:         TaskStatusStarted,
+		Payload:        raw,
+		SubUnits:       subUnits,
+	}
+}
+
+// startAndAwaitCompleted starts the task, waits until expectedCount sub-units
+// complete, and returns the handle (caller should defer handle.Terminate()) and
+// the completed sub-unit IDs.
+func (f *providerFixture) startAndAwaitCompleted(t *testing.T, task *Task, expectedCount int) (TaskHandle, []string) {
+	t.Helper()
+	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)
-	defer handle.Terminate()
 
 	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 2
+		return len(f.recorder.getCompleted()) == expectedCount
 	}, 5*time.Second, 50*time.Millisecond)
 
-	completed := recorder.getCompleted()
+	return handle, f.recorder.getCompleted()
+}
+
+func TestShardNoopProvider_SyntheticSubUnits_NilShardLister(t *testing.T) {
+	f := newProviderFixture(t, "node1", nil)
+	task := f.newTask(map[string]*SubUnit{
+		"su-1": {Status: SubUnitStatusPending},
+		"su-2": {Status: SubUnitStatusPending},
+	})
+
+	handle, completed := f.startAndAwaitCompleted(t, task, 2)
+	defer handle.Terminate()
+
 	assert.ElementsMatch(t, []string{"su-1", "su-2"}, completed)
 }
 
 func TestShardNoopProvider_SyntheticSubUnits_SkipsOtherNodes(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
+	f := newProviderFixture(t, "node1", nil)
+	task := f.newTask(map[string]*SubUnit{
+		"su-1": {Status: SubUnitStatusPending, NodeID: "node1"},
+		"su-2": {Status: SubUnitStatusPending, NodeID: "node2"}, // belongs to another node
+		"su-3": {Status: SubUnitStatusPending},                  // unassigned → claimed by this node
+	})
 
-	provider := NewShardNoopProvider("node1", logger, nil)
-	provider.SetCompletionRecorder(recorder)
-
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		SubUnits: map[string]*SubUnit{
-			"su-1": {Status: SubUnitStatusPending, NodeID: "node1"},
-			"su-2": {Status: SubUnitStatusPending, NodeID: "node2"}, // belongs to another node
-			"su-3": {Status: SubUnitStatusPending},                  // unassigned → claimed by this node
-		},
-	}
-
-	handle, err := provider.StartTask(task)
-	require.NoError(t, err)
+	handle, completed := f.startAndAwaitCompleted(t, task, 2)
 	defer handle.Terminate()
 
-	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 2
-	}, 5*time.Second, 50*time.Millisecond)
-
-	completed := recorder.getCompleted()
 	assert.ElementsMatch(t, []string{"su-1", "su-3"}, completed)
 }
 
 func TestShardNoopProvider_CollectionAware_OnlyProcessesLocalShards(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
-
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"shardA", "shardC"},
 		},
 	}
+	f := newProviderFixture(t, "node1", lister)
 
-	provider := NewShardNoopProvider("node1", logger, lister)
-	provider.SetCompletionRecorder(recorder)
-
-	payload, _ := json.Marshal(ShardNoopProviderPayload{Collection: "MyClass"})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{Collection: "MyClass"},
+		map[string]*SubUnit{
 			"shardA": {Status: SubUnitStatusPending},
 			"shardB": {Status: SubUnitStatusPending}, // not local
 			"shardC": {Status: SubUnitStatusPending},
 		},
-	}
+	)
 
-	handle, err := provider.StartTask(task)
-	require.NoError(t, err)
+	handle, completed := f.startAndAwaitCompleted(t, task, 2)
 	defer handle.Terminate()
 
-	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 2
-	}, 5*time.Second, 50*time.Millisecond)
-
-	completed := recorder.getCompleted()
 	assert.ElementsMatch(t, []string{"shardA", "shardC"}, completed)
 }
 
 func TestShardNoopProvider_CollectionAware_NoLocalShards(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
-
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {}, // no local shards
 		},
 	}
+	f := newProviderFixture(t, "node1", lister)
 
-	provider := NewShardNoopProvider("node1", logger, lister)
-	provider.SetCompletionRecorder(recorder)
-
-	payload, _ := json.Marshal(ShardNoopProviderPayload{Collection: "MyClass"})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{Collection: "MyClass"},
+		map[string]*SubUnit{
 			"shardA": {Status: SubUnitStatusPending},
 		},
-	}
+	)
 
-	handle, err := provider.StartTask(task)
+	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)
 	defer handle.Terminate()
 
 	// Give it time to process — should exit quickly since there are no local shards
 	time.Sleep(500 * time.Millisecond)
-	assert.Empty(t, recorder.getCompleted(), "no sub-units should be processed when no local shards")
+	assert.Empty(t, f.recorder.getCompleted(), "no sub-units should be processed when no local shards")
 }
 
 func TestShardNoopProvider_CollectionAware_ShardListerError(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
-
 	lister := &mockShardLister{
 		err: fmt.Errorf("collection not found"),
 	}
+	f := newProviderFixture(t, "node1", lister)
 
-	provider := NewShardNoopProvider("node1", logger, lister)
-	provider.SetCompletionRecorder(recorder)
-
-	payload, _ := json.Marshal(ShardNoopProviderPayload{Collection: "NonExistent"})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{Collection: "NonExistent"},
+		map[string]*SubUnit{
 			"su-1": {Status: SubUnitStatusPending},
 		},
-	}
+	)
 
-	handle, err := provider.StartTask(task)
+	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)
 	defer handle.Terminate()
 
 	// Provider should return early on error — no sub-units processed
 	time.Sleep(500 * time.Millisecond)
-	assert.Empty(t, recorder.getCompleted(), "no sub-units should be processed on lister error")
+	assert.Empty(t, f.recorder.getCompleted(), "no sub-units should be processed on lister error")
 }
 
 func TestShardNoopProvider_CollectionAware_FailSubUnit(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
-
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"shardA", "shardB"},
 		},
 	}
+	f := newProviderFixture(t, "node1", lister)
 
-	provider := NewShardNoopProvider("node1", logger, lister)
-	provider.SetCompletionRecorder(recorder)
-
-	payload, _ := json.Marshal(ShardNoopProviderPayload{
-		Collection:    "MyClass",
-		FailSubUnitID: "shardA",
-	})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{
+			Collection:    "MyClass",
+			FailSubUnitID: "shardA",
+		},
+		map[string]*SubUnit{
 			"shardA": {Status: SubUnitStatusPending},
 			"shardB": {Status: SubUnitStatusPending},
 		},
-	}
+	)
 
-	handle, err := provider.StartTask(task)
+	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)
 	defer handle.Terminate()
 
 	// Wait for the failure to be recorded
 	require.Eventually(t, func() bool {
-		return len(recorder.getFailed()) > 0
+		return len(f.recorder.getFailed()) > 0
 	}, 5*time.Second, 50*time.Millisecond)
 
-	failed := recorder.getFailed()
+	failed := f.recorder.getFailed()
 	assert.Contains(t, failed, "shardA")
 	assert.Equal(t, "dummy failure", failed["shardA"])
 }
 
 func TestShardNoopProvider_CollectionAware_EmptyPayloadFallsBackToSynthetic(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
-
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"shardA"},
 		},
 	}
-
 	// Even with a ShardLister, if the payload has no Collection, synthetic mode is used
-	provider := NewShardNoopProvider("node1", logger, lister)
-	provider.SetCompletionRecorder(recorder)
+	f := newProviderFixture(t, "node1", lister)
 
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		SubUnits: map[string]*SubUnit{
-			"su-1": {Status: SubUnitStatusPending},
-			"su-2": {Status: SubUnitStatusPending, NodeID: "node2"},
-		},
-	}
+	task := f.newTask(map[string]*SubUnit{
+		"su-1": {Status: SubUnitStatusPending},
+		"su-2": {Status: SubUnitStatusPending, NodeID: "node2"},
+	})
 
-	handle, err := provider.StartTask(task)
-	require.NoError(t, err)
+	handle, completed := f.startAndAwaitCompleted(t, task, 1)
 	defer handle.Terminate()
 
-	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 1
-	}, 5*time.Second, 50*time.Millisecond)
-
-	completed := recorder.getCompleted()
 	assert.ElementsMatch(t, []string{"su-1"}, completed,
 		"only su-1 should be processed in synthetic mode (su-2 belongs to node2)")
 }
 
 func TestShardNoopProvider_LegacyTask_NoSubUnits(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
+	f := newProviderFixture(t, "node1", nil)
+	task := f.newTask(nil)
+	task.SubUnits = nil
 
-	provider := NewShardNoopProvider("node1", logger, nil)
-	provider.SetCompletionRecorder(recorder)
-
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-	}
-
-	handle, err := provider.StartTask(task)
+	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)
 	defer handle.Terminate()
 
 	require.Eventually(t, func() bool {
-		recorder.mu.Lock()
-		defer recorder.mu.Unlock()
-		return recorder.nodesDone
+		f.recorder.mu.Lock()
+		defer f.recorder.mu.Unlock()
+		return f.recorder.nodesDone
 	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func TestShardNoopProvider_OnGroupCompleted(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	provider := NewShardNoopProvider("node1", logger, nil)
+	f := newProviderFixture(t, "node1", nil)
+	task := f.newTask(nil)
 
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-	}
+	f.provider.OnGroupCompleted(task, "", []string{"su-1", "su-2"})
 
-	provider.OnGroupCompleted(task, "", []string{"su-1", "su-2"})
-
-	finalized := provider.GetFinalizedSubUnits(task.TaskDescriptor)
+	finalized := f.provider.GetFinalizedSubUnits(task.TaskDescriptor)
 	assert.ElementsMatch(t, []string{"su-1", "su-2"}, finalized)
 }
 
 func TestShardNoopProvider_OnGroupCompleted_MultipleGroups(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	provider := NewShardNoopProvider("node1", logger, nil)
+	f := newProviderFixture(t, "node1", nil)
+	task := f.newTask(nil)
 
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-	}
+	f.provider.OnGroupCompleted(task, "groupA", []string{"su-1"})
+	f.provider.OnGroupCompleted(task, "groupB", []string{"su-2", "su-3"})
 
-	provider.OnGroupCompleted(task, "groupA", []string{"su-1"})
-	provider.OnGroupCompleted(task, "groupB", []string{"su-2", "su-3"})
-
-	groups := provider.GetFinalizedGroups(task.TaskDescriptor)
+	groups := f.provider.GetFinalizedGroups(task.TaskDescriptor)
 	assert.ElementsMatch(t, []string{"su-1"}, groups["groupA"])
 	assert.ElementsMatch(t, []string{"su-2", "su-3"}, groups["groupB"])
 
 	// GetFinalizedSubUnits should return all across groups
-	all := provider.GetFinalizedSubUnits(task.TaskDescriptor)
+	all := f.provider.GetFinalizedSubUnits(task.TaskDescriptor)
 	assert.ElementsMatch(t, []string{"su-1", "su-2", "su-3"}, all)
 }
 
 func TestShardNoopProvider_OnTaskCompleted(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	provider := NewShardNoopProvider("node1", logger, nil)
+	f := newProviderFixture(t, "node1", nil)
+	task := f.newTask(nil)
 
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-	}
-
-	assert.False(t, provider.IsTaskCompleted(task.TaskDescriptor))
-	provider.OnTaskCompleted(task)
-	assert.True(t, provider.IsTaskCompleted(task.TaskDescriptor))
+	assert.False(t, f.provider.IsTaskCompleted(task.TaskDescriptor))
+	f.provider.OnTaskCompleted(task)
+	assert.True(t, f.provider.IsTaskCompleted(task.TaskDescriptor))
 }
 
 func TestShardNoopProvider_PerReplicaSubUnits_OnlyProcessesLocalShards(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
-
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"s1", "s2"}, // nodeA has both s1 and s2
 		},
 	}
-
-	provider := NewShardNoopProvider("nodeA", logger, lister)
-	provider.SetCompletionRecorder(recorder)
+	f := newProviderFixture(t, "nodeA", lister)
 
 	payload, _ := json.Marshal(ShardNoopProviderPayload{
 		Collection: "MyClass",
@@ -465,32 +401,21 @@ func TestShardNoopProvider_PerReplicaSubUnits_OnlyProcessesLocalShards(t *testin
 		},
 	}
 
-	handle, err := provider.StartTask(task)
-	require.NoError(t, err)
-	defer handle.Terminate()
-
 	// Only s1__nodeA and s2__nodeA should be processed (nodeA's sub-units per SubUnitToNode).
 	// s1__nodeB and s2__nodeC belong to other nodes.
-	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 2
-	}, 5*time.Second, 50*time.Millisecond)
+	handle, completed := f.startAndAwaitCompleted(t, task, 2)
+	defer handle.Terminate()
 
-	completed := recorder.getCompleted()
 	assert.ElementsMatch(t, []string{"s1__nodeA", "s2__nodeA"}, completed)
 }
 
 func TestShardNoopProvider_PerReplicaSubUnits_UnknownSubUnitSkipped(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
-
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"s1"},
 		},
 	}
-
-	provider := NewShardNoopProvider("nodeA", logger, lister)
-	provider.SetCompletionRecorder(recorder)
+	f := newProviderFixture(t, "nodeA", lister)
 
 	payload, _ := json.Marshal(ShardNoopProviderPayload{
 		Collection: "MyClass",
@@ -517,116 +442,77 @@ func TestShardNoopProvider_PerReplicaSubUnits_UnknownSubUnitSkipped(t *testing.T
 		},
 	}
 
-	handle, err := provider.StartTask(task)
-	require.NoError(t, err)
+	handle, completed := f.startAndAwaitCompleted(t, task, 1)
 	defer handle.Terminate()
 
-	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 1
-	}, 5*time.Second, 50*time.Millisecond)
-
-	completed := recorder.getCompleted()
 	assert.ElementsMatch(t, []string{"s1__nodeA"}, completed)
 }
 
 func TestShardNoopProvider_SlowSubUnit(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
+	f := newProviderFixture(t, "node1", nil)
 
-	provider := NewShardNoopProvider("node1", logger, nil)
-	provider.SetCompletionRecorder(recorder)
-
-	payload, _ := json.Marshal(ShardNoopProviderPayload{
-		SlowSubUnitID:      "su-slow",
-		SlowSubUnitDelayMs: 500,
-		ProcessingDelayMs:  10,
-	})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-slow", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{
+			SlowSubUnitID:      "su-slow",
+			SlowSubUnitDelayMs: 500,
+			ProcessingDelayMs:  10,
+		},
+		map[string]*SubUnit{
 			"su-fast": {Status: SubUnitStatusPending},
 			"su-slow": {Status: SubUnitStatusPending},
 		},
-	}
+	)
 
 	start := time.Now()
-	handle, err := provider.StartTask(task)
-	require.NoError(t, err)
+	handle, completed := f.startAndAwaitCompleted(t, task, 2)
 	defer handle.Terminate()
-
-	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 2
-	}, 5*time.Second, 50*time.Millisecond)
 
 	elapsed := time.Since(start)
 	assert.Greater(t, elapsed, 400*time.Millisecond, "slow sub-unit delay should be applied")
 
-	completed := recorder.getCompleted()
 	assert.ElementsMatch(t, []string{"su-fast", "su-slow"}, completed)
 }
 
 func TestShardNoopProvider_ProcessingDelayOverride(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	recorder := newMockRecorder()
+	f := newProviderFixture(t, "node1", nil)
 
-	provider := NewShardNoopProvider("node1", logger, nil)
-	provider.SetCompletionRecorder(recorder)
-
-	payload, _ := json.Marshal(ShardNoopProviderPayload{
-		ProcessingDelayMs: 10, // fast override
-	})
-	task := &Task{
-		TaskDescriptor: TaskDescriptor{ID: "test-fast-delay", Version: 1},
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-		Payload:        payload,
-		SubUnits: map[string]*SubUnit{
+	task := f.newTaskWithPayload(
+		ShardNoopProviderPayload{
+			ProcessingDelayMs: 10, // fast override
+		},
+		map[string]*SubUnit{
 			"su-1": {Status: SubUnitStatusPending},
 			"su-2": {Status: SubUnitStatusPending},
 			"su-3": {Status: SubUnitStatusPending},
 		},
-	}
+	)
 
 	start := time.Now()
-	handle, err := provider.StartTask(task)
-	require.NoError(t, err)
+	handle, completed := f.startAndAwaitCompleted(t, task, 3)
 	defer handle.Terminate()
-
-	require.Eventually(t, func() bool {
-		return len(recorder.getCompleted()) == 3
-	}, 5*time.Second, 50*time.Millisecond)
 
 	elapsed := time.Since(start)
 	// With 10ms delay per sub-unit, should be much faster than default 100ms * 3 = 300ms
 	assert.Less(t, elapsed, 200*time.Millisecond, "processing should use fast delay override")
+
+	assert.ElementsMatch(t, []string{"su-1", "su-2", "su-3"}, completed)
 }
 
 func TestShardNoopProvider_TaskLifecycle(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-	provider := NewShardNoopProvider("node1", logger, nil)
+	f := newProviderFixture(t, "node1", nil)
 
 	desc := TaskDescriptor{ID: "test-task", Version: 1}
+	assert.Empty(t, f.provider.GetLocalTasks())
 
-	assert.Empty(t, provider.GetLocalTasks())
+	task := f.newTask(nil)
+	task.SubUnits = nil
 
-	recorder := newMockRecorder()
-	provider.SetCompletionRecorder(recorder)
-
-	task := &Task{
-		TaskDescriptor: desc,
-		Namespace:      ShardNoopProviderNamespace,
-		Status:         TaskStatusStarted,
-	}
-
-	handle, err := provider.StartTask(task)
+	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)
 	defer handle.Terminate()
 
-	assert.Equal(t, []TaskDescriptor{desc}, provider.GetLocalTasks())
+	assert.Equal(t, []TaskDescriptor{desc}, f.provider.GetLocalTasks())
 
-	require.NoError(t, provider.CleanupTask(desc))
-	assert.Empty(t, provider.GetLocalTasks())
+	require.NoError(t, f.provider.CleanupTask(desc))
+	assert.Empty(t, f.provider.GetLocalTasks())
 }
