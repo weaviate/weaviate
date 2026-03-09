@@ -12,9 +12,15 @@
 package telemetry
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestIdentifyClientFromHeader(t *testing.T) {
@@ -87,4 +93,48 @@ func TestIdentifyClientFromHeader(t *testing.T) {
 			assert.Equal(t, tt.expectedVer, info.Version)
 		})
 	}
+}
+
+func TestClientTrackingUnaryInterceptor(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	tracker := NewClientTracker(logger)
+	defer tracker.Stop()
+
+	interceptor := ClientTrackingUnaryInterceptor(tracker)
+
+	handler := func(ctx context.Context, req any) (any, error) {
+		return nil, nil
+	}
+
+	// Send a gRPC request with x-weaviate-client metadata
+	md := metadata.Pairs("x-weaviate-client", "weaviate-client-python/4.10.0")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{}, handler)
+	require.NoError(t, err)
+
+	// Allow the tracker goroutine to process the event
+	assert.Eventually(t, func() bool {
+		counts := tracker.Get()
+		return counts[ClientTypePython]["4.10.0"] == 1
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestClientTrackingUnaryInterceptor_NoHeader(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	tracker := NewClientTracker(logger)
+	defer tracker.Stop()
+
+	interceptor := ClientTrackingUnaryInterceptor(tracker)
+
+	handler := func(ctx context.Context, req any) (any, error) {
+		return nil, nil
+	}
+
+	// Send a gRPC request without x-weaviate-client metadata
+	_, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{}, handler)
+	require.NoError(t, err)
+
+	counts := tracker.Get()
+	assert.Empty(t, counts)
 }

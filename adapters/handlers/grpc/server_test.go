@@ -9,28 +9,30 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package grpc
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
-func TestAddClientVersionToContext(t *testing.T) {
+func TestMakeClientVersionInterceptor(t *testing.T) {
+	interceptor := makeClientVersionInterceptor()
+
 	tests := []struct {
 		name        string
 		headerValue string
 	}{
 		{
-			name:        "python client header",
+			name:        "python client",
 			headerValue: "weaviate-client-python/4.10.0",
 		},
 		{
-			name:        "go client header",
+			name:        "go client",
 			headerValue: "weaviate-client-go/2.5.0",
 		},
 		{
@@ -41,26 +43,25 @@ func TestAddClientVersionToContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var capturedVersion interface{}
-			inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				capturedVersion = r.Context().Value("clientVersion")
-			})
-
-			handler := addClientVersionToContext(inner)
-
-			req, err := http.NewRequest("GET", "/v1/objects", nil)
-			require.NoError(t, err)
+			ctx := context.Background()
 			if tt.headerValue != "" {
-				req.Header.Set("X-Weaviate-Client", tt.headerValue)
+				md := metadata.Pairs("x-weaviate-client", tt.headerValue)
+				ctx = metadata.NewIncomingContext(ctx, md)
 			}
 
-			rr := httptest.NewRecorder()
-			handler.ServeHTTP(rr, req)
+			var capturedCtx context.Context
+			handler := func(ctx context.Context, req any) (any, error) {
+				capturedCtx = ctx
+				return nil, nil
+			}
+
+			_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{}, handler)
+			assert.NoError(t, err)
 
 			if tt.headerValue != "" {
-				assert.Equal(t, tt.headerValue, capturedVersion)
+				assert.Equal(t, tt.headerValue, capturedCtx.Value("clientVersion"))
 			} else {
-				assert.Nil(t, capturedVersion)
+				assert.Nil(t, capturedCtx.Value("clientVersion"))
 			}
 		})
 	}
