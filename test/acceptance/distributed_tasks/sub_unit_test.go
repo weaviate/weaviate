@@ -94,20 +94,28 @@ func TestSubUnitTaskLifecycle_Failure(t *testing.T) {
 	assert.Contains(t, failedSU.Error, "dummy failure")
 }
 
-func TestLegacyTask_NoSubUnits(t *testing.T) {
+func TestTask_NoSubUnits_Rejected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	restURI, debugURI, cleanup := startDTMCluster(ctx, t)
+	_, debugURI, cleanup := startDTMCluster(ctx, t)
 	defer cleanup()
 
-	taskID := "legacy-test"
-	addTaskJSON(t, debugURI, addTaskRequest{ID: taskID})
-	awaitTaskStatus(t, restURI, taskID, "FINISHED")
+	// Tasks must have at least one sub-unit; zero-sub-unit (legacy) tasks are rejected.
+	body, err := json.Marshal(addTaskRequest{ID: "no-sub-units"})
+	require.NoError(t, err)
 
-	task := findTask(t, restURI, taskID)
-	assert.Equal(t, "FINISHED", task.Status)
-	assert.Nil(t, task.SubUnits)
+	resp, err := http.Post(
+		fmt.Sprintf("http://%s/debug/distributed-tasks/add", debugURI),
+		"application/json",
+		bytes.NewReader(body),
+	)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	respBody, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, string(respBody), "must have at least one sub-unit")
 }
 
 // ---------------------------------------------------------------------------
