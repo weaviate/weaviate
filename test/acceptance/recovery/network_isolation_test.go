@@ -27,6 +27,8 @@ import (
 func TestNetworkIsolationSplitBrain(t *testing.T) {
 	ctx := context.Background()
 
+	// MEMBERLIST_FAST_FAILURE_DETECTION must be false: when true, DeadNodeReclaimTime=1s
+	// and the disconnected node is reclaimed before we reconnect, so it can never rejoin.
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
@@ -68,7 +70,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			require.NotNil(ct, nodeStatusResp)
 
 			assert.Len(ct, nodeStatusResp.Nodes, 2)
-		}, 60*time.Second, 1*time.Second)
+		}, 30*time.Second, 1*time.Second)
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
@@ -83,8 +85,9 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 
 			nodeStatusResp := resp.GetPayload()
 			require.NotNil(ct, nodeStatusResp)
-
+			t.Logf("node status response: %+v", nodeStatusResp)
+			t.Logf("node status response nodes: %+v", nodeStatusResp.Nodes)
 			assert.Len(ct, nodeStatusResp.Nodes, 3)
-		}, 360*time.Second, 3*time.Second)
+		}, 120*time.Second, 3*time.Second)
 	})
 }
