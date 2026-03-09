@@ -23,7 +23,8 @@ const (
 )
 
 // ShardStatus represents the state of a single shard's export.
-// It extends Status with Skipped, which only applies at the shard level.
+// Unlike Status, it only covers per-shard states (TRANSFERRING, SUCCESS,
+// FAILED, SKIPPED) and does not include STARTED or CANCELLED.
 type ShardStatus string
 
 const (
