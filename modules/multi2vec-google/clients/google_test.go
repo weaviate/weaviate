@@ -37,7 +37,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				assert.Equal(t, "location", location)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", model)
@@ -66,7 +66,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				assert.Equal(t, "location", location)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", model)
@@ -95,7 +95,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -118,7 +118,7 @@ func TestClient(t *testing.T) {
 		c := &google{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -137,7 +137,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -161,7 +161,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(location, projectID, model string) string {
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
