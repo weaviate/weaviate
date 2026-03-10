@@ -434,6 +434,28 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		{
+			name:  "with _additional queryVector",
+			query: "{ Get { SomeAction { _additional { queryVector } } } }",
+			expectedParams: dto.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					QueryVector: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"queryVector": []float32{0.2, 0.4, -0.1},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"queryVector": []interface{}{float32(0.2), float32(0.4), float32(-0.1)},
+				},
+			},
+		},
+		{
 			name:  "with _additional creationTimeUnix",
 			query: "{ Get { SomeAction { _additional { creationTimeUnix } } } }",
 			expectedParams: dto.GetParams{
