@@ -104,8 +104,6 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		return errors.Wrap(err, "load commit logger state")
 	}
 
-	h.cachePrefilled.Store(state == nil)
-
 	if state == nil {
 		// nothing to do
 		return nil
