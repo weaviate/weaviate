@@ -376,12 +376,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							// skip if we've already visited this neighbor
 							continue
 						}
-						if !visitedExp.Visited(nodeId) {
+						if !visitedExp.VisitIfNotVisited(nodeId) {
 							if !isMultivec {
 								if allowList.Contains(nodeId) {
 									connectionsReusable[realLen] = nodeId
 									realLen++
-									visitedExp.Visit(nodeId)
+									//visitedExp.Visit(nodeId)
 									continue
 								}
 							} else {
@@ -394,14 +394,14 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								if allowList.Contains(docID) {
 									connectionsReusable[realLen] = nodeId
 									realLen++
-									visitedExp.Visit(nodeId)
+									//visitedExp.Visit(nodeId)
 									continue
 								}
 							}
 						} else {
 							continue
 						}
-						visitedExp.Visit(nodeId)
+						//visitedExp.Visit(nodeId)
 
 						h.RLock()
 						h.shardedNodeLocks.RLock(nodeId)
@@ -414,7 +414,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						iterator := node.connections.ElementIterator(uint8(level))
 						for iterator.Next() {
 							_, expId := iterator.Current()
-							if visitedExp.Visited(expId) {
+							if visitedExp.VisitIfNotVisited(expId) {
 								continue
 							}
 							if visited.Visited(expId) {
@@ -427,11 +427,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 							if !isMultivec {
 								if allowList.Contains(expId) {
-									visitedExp.Visit(expId)
+									//visitedExp.Visit(expId)
 									connectionsReusable[realLen] = expId
 									realLen++
 								} else if hop < maxHops {
-									visitedExp.Visit(expId)
+									//visitedExp.Visit(expId)
 									pendingNextRound = append(pendingNextRound, expId)
 								}
 							} else {
@@ -442,11 +442,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 									docID, _ = h.cache.GetKeys(expId)
 								}
 								if allowList.Contains(docID) {
-									visitedExp.Visit(expId)
+									//visitedExp.Visit(expId)
 									connectionsReusable[realLen] = expId
 									realLen++
 								} else if hop < maxHops {
-									visitedExp.Visit(expId)
+									//visitedExp.Visit(expId)
 									pendingNextRound = append(pendingNextRound, expId)
 								}
 							}
@@ -570,7 +570,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedList *visited.SparseSet, allowList helpers.AllowList,
 ) {
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
