@@ -462,13 +462,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
-			if ok := visited.Visited(neighborID); ok {
+			if visited.VisitIfNotVisited(neighborID) {
 				// skip if we've already visited this neighbor
 				continue
 			}
-
-			// make sure we never visit this neighbor again
-			visited.Visit(neighborID)
 
 			if strategy == RRE && level == 0 {
 				if isMultivec {
