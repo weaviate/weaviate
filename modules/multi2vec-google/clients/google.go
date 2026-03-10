@@ -28,7 +28,10 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-func buildURL(location, projectID, model string) string {
+func buildURL(apiEndpoint, location, projectID, model string) string {
+	if apiEndpoint == "generativelanguage.googleapis.com" {
+		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", model)
+	}
 	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
 		location, projectID, location, model)
 }
@@ -38,7 +41,7 @@ type google struct {
 	useGoogleAuth bool
 	googleApiKey  *apikey.GoogleApiKey
 	httpClient    *http.Client
-	urlBuilderFn  func(location, projectID, model string) string
+	urlBuilderFn  func(apiEndpoint, location, projectID, model string) string
 	logger        logrus.FieldLogger
 }
 
@@ -80,14 +83,24 @@ func (v *google) vectorize(ctx context.Context,
 		image := v.safelyGet(images, i)
 		video := v.safelyGet(videos, i)
 		payload := v.getPayload(text, image, video, config)
-		statusCode, res, err := v.sendRequest(ctx, endpointURL, payload)
+		statusCode, res, err := v.sendRequest(ctx, endpointURL, payload, config)
 		if err != nil {
 			return nil, err
 		}
-		textVectors, imageVectors, videoVectors, err := v.getEmbeddingsFromResponse(statusCode, res)
-		if err != nil {
-			return nil, err
+
+		var textVectors, imageVectors, videoVectors [][]float32
+		if v.useGeminiApi(config) {
+			textVectors, imageVectors, videoVectors, err = v.getEmbeddingsFromGeminiResponse(statusCode, res, text, image, video)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			textVectors, imageVectors, videoVectors, err = v.getEmbeddingsFromVertexResponse(statusCode, res)
+			if err != nil {
+				return nil, err
+			}
 		}
+
 		textEmbeddings = append(textEmbeddings, textVectors...)
 		imageEmbeddings = append(imageEmbeddings, imageVectors...)
 		videoEmbeddings = append(videoEmbeddings, videoVectors...)
@@ -104,50 +117,61 @@ func (v *google) safelyGet(input []string, i int) string {
 }
 
 func (v *google) sendRequest(ctx context.Context,
-	endpointURL string, payload embeddingsRequest,
-) (int, embeddingsResponse, error) {
+	endpointURL string, payload any,
+	config ent.VectorizationConfig,
+) (int, []byte, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return 0, embeddingsResponse{}, errors.Wrapf(err, "marshal body")
+		return 0, nil, errors.Wrapf(err, "marshal body")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL,
 		bytes.NewReader(body))
 	if err != nil {
-		return 0, embeddingsResponse{}, errors.Wrap(err, "create POST request")
+		return 0, nil, errors.Wrap(err, "create POST request")
 	}
 
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return 0, embeddingsResponse{}, errors.Wrapf(err, "Google API Key")
+		return 0, nil, errors.Wrapf(err, "Google API Key")
 	}
 	req.Header.Add("Content-Type", "application/json; charset=utf-8")
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	if v.useGeminiApi(config) {
+		req.Header.Add("x-goog-api-key", apiKey)
+	} else {
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	}
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return 0, embeddingsResponse{}, errors.Wrap(err, "send POST request")
+		return 0, nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return 0, embeddingsResponse{}, errors.Wrap(err, "read response body")
+		return 0, nil, errors.Wrap(err, "read response body")
 	}
 
-	var resBody embeddingsResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return 0, embeddingsResponse{}, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
-	}
-
-	return res.StatusCode, resBody, nil
+	return res.StatusCode, bodyBytes, nil
 }
 
 func (v *google) getURL(config ent.VectorizationConfig) string {
-	return v.urlBuilderFn(config.Location, config.ProjectID, config.Model)
+	return v.urlBuilderFn(config.ApiEndpoint, config.Location, config.ProjectID, config.Model)
 }
 
-func (v *google) getPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
+func (v *google) useGeminiApi(config ent.VectorizationConfig) bool {
+	return config.ApiEndpoint == "generativelanguage.googleapis.com"
+}
+
+func (v *google) getPayload(text, img, vid string, config ent.VectorizationConfig) any {
+	if v.useGeminiApi(config) {
+		return v.getGeminiPayload(text, img, vid, config)
+	}
+	return v.getVertexPayload(text, img, vid, config)
+}
+
+func (v *google) getVertexPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
 	inst := instance{}
 	if text != "" {
 		inst.Text = &text
@@ -158,16 +182,41 @@ func (v *google) getPayload(text, img, vid string, config ent.VectorizationConfi
 	if vid != "" {
 		inst.Video = &video{
 			BytesBase64Encoded: vid,
-			VideoSegmentConfig: videoSegmentConfig{IntervalSec: &config.VideoIntervalSeconds},
+			VideoSegmentConfig: videoSegmentConfig{IntervalSec: config.VideoIntervalSeconds},
 		}
 	}
 	req := embeddingsRequest{
 		Instances: []instance{inst},
 	}
 	if inst.Video == nil {
-		req.Parameters = parameters{Dimension: config.Dimensions}
+		req.Parameters = &parameters{Dimension: config.Dimensions}
 	}
 	return req
+}
+
+func (v *google) getGeminiPayload(text, img, vid string, config ent.VectorizationConfig) *batchEmbedContents {
+	var parts []contentPart
+	if text != "" {
+		parts = append(parts, contentPart{Text: &text})
+	}
+	if img != "" {
+		parts = append(parts, contentPart{InlineData: &inlineData{MimeType: "image/jpeg", Data: img}})
+	}
+	if vid != "" {
+		parts = append(parts, contentPart{InlineData: &inlineData{MimeType: "video/mp4", Data: vid}})
+	}
+
+	var requests []embedContentRequest
+	for _, p := range parts {
+		requests = append(requests, embedContentRequest{
+			Model:                fmt.Sprintf("models/%s", config.Model),
+			Content:              embedContent{Parts: []contentPart{p}},
+			OutputDimensionality: config.Dimensions,
+		})
+	}
+	return &batchEmbedContents{
+		Requests: requests,
+	}
 }
 
 func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
@@ -185,12 +234,17 @@ func (v *google) getApiKey(ctx context.Context) (string, error) {
 	return v.googleApiKey.GetApiKey(ctx, v.apiKey, false, v.useGoogleAuth)
 }
 
-func (v *google) getEmbeddingsFromResponse(statusCode int, resBody embeddingsResponse) (
+func (v *google) getEmbeddingsFromVertexResponse(statusCode int, bodyBytes []byte) (
 	textEmbeddings [][]float32,
 	imageEmbeddings [][]float32,
 	videoEmbeddings [][]float32,
 	err error,
 ) {
+	var resBody embeddingsResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	}
+
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
 		err = respErr
 		return textEmbeddings, imageEmbeddings, videoEmbeddings, err
@@ -223,6 +277,41 @@ func (v *google) getEmbeddingsFromResponse(statusCode int, resBody embeddingsRes
 	return textEmbeddings, imageEmbeddings, videoEmbeddings, err
 }
 
+func (v *google) getEmbeddingsFromGeminiResponse(statusCode int, bodyBytes []byte,
+	text, image, video string,
+) (
+	textEmbeddings [][]float32,
+	imageEmbeddings [][]float32,
+	videoEmbeddings [][]float32,
+	err error,
+) {
+	var resBody batchEmbedResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	}
+
+	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
+		err = respErr
+		return textEmbeddings, imageEmbeddings, videoEmbeddings, err
+	}
+
+	if len(resBody.Embeddings) == 0 {
+		err = errors.Errorf("empty embeddings response")
+		return textEmbeddings, imageEmbeddings, videoEmbeddings, err
+	}
+
+	for _, p := range resBody.Embeddings {
+		if text != "" && len(textEmbeddings) == 0 {
+			textEmbeddings = append(textEmbeddings, p.Values)
+		} else if image != "" && len(imageEmbeddings) == 0 {
+			imageEmbeddings = append(imageEmbeddings, p.Values)
+		} else if video != "" && len(videoEmbeddings) == 0 {
+			videoEmbeddings = append(videoEmbeddings, p.Values)
+		}
+	}
+	return textEmbeddings, imageEmbeddings, videoEmbeddings, err
+}
+
 func (v *google) getResponse(textVectors, imageVectors, videoVectors [][]float32) (*ent.VectorizationResult, error) {
 	return &ent.VectorizationResult{
 		TextVectors:  textVectors,
@@ -232,12 +321,12 @@ func (v *google) getResponse(textVectors, imageVectors, videoVectors [][]float32
 }
 
 type embeddingsRequest struct {
-	Instances  []instance `json:"instances,omitempty"`
-	Parameters parameters `json:"parameters,omitempty"`
+	Instances  []instance  `json:"instances,omitempty"`
+	Parameters *parameters `json:"parameters,omitempty"`
 }
 
 type parameters struct {
-	Dimension int64 `json:"dimension,omitempty"`
+	Dimension *int64 `json:"dimension,omitempty"`
 }
 
 type instance struct {
@@ -283,4 +372,41 @@ type googleApiError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Status  string `json:"status"`
+}
+
+// Gemini request
+type batchEmbedContents struct {
+	Requests []embedContentRequest `json:"requests,omitempty"`
+}
+
+type embedContentRequest struct {
+	Model                string       `json:"model"`
+	Content              embedContent `json:"content"`
+	TaskType             *string      `json:"taskType,omitempty"`
+	Title                string       `json:"title,omitempty"`
+	OutputDimensionality *int64       `json:"outputDimensionality,omitempty"`
+}
+
+type embedContent struct {
+	Parts []contentPart `json:"parts"`
+}
+
+type contentPart struct {
+	InlineData *inlineData `json:"inline_data,omitempty"`
+	Text       *string     `json:"text,omitempty"`
+}
+
+type inlineData struct {
+	MimeType string `json:"mime_type"`
+	Data     string `json:"data"`
+}
+
+// Gemini response
+type batchEmbedResponse struct {
+	Embeddings []embedContentEmbedding `json:"embeddings,omitempty"`
+	Error      *googleApiError         `json:"error,omitempty"`
+}
+
+type embedContentEmbedding struct {
+	Values []float32 `json:"values"`
 }
