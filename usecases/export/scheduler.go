@@ -351,7 +351,9 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 			}
 			nodes = append(nodes, ni)
 		}
-		s.abortAll(id, nodes)
+		if err := s.abortAll(id, nodes); err != nil {
+			return fmt.Errorf("abort nodes: %w", err)
+		}
 	} else {
 		cancelPtr := s.cancelExport.Load()
 		if cancelPtr == nil {
@@ -635,10 +637,11 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 // It uses a fresh context so abort requests reach participants even when the
 // original request context has been canceled (e.g. client disconnect).
 // Remote aborts are retried up to 3 times on error.
-func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
+func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) error {
 	const maxRetries = 3
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	var returnErr error
 	for _, ni := range nodes {
 		if ni.req.NodeName == s.localNode {
 			s.participant.Abort(exportID)
@@ -651,21 +654,28 @@ func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) {
 				Warn("skipping abort: cannot resolve host for remote node")
 			continue
 		}
+		var nodeErr error
 		for attempt := range maxRetries {
-			err := s.client.Abort(ctx, ni.host, exportID)
-			if err == nil {
+			attemptErr := s.client.Abort(ctx, ni.host, exportID)
+			if attemptErr == nil {
+				nodeErr = nil
 				break
 			}
 			s.logger.WithField("action", "export_abort").
 				WithField("export_id", exportID).
 				WithField("node", ni.req.NodeName).
 				WithField("attempt", attempt+1).
-				Errorf("abort failed: %v", err)
+				Errorf("abort failed: %v", attemptErr)
+			nodeErr = fmt.Errorf("attempt %d: %w: %w", attempt+1, attemptErr, nodeErr)
 			if attempt < maxRetries-1 {
 				time.Sleep(500 * time.Millisecond)
 			}
 		}
+		if nodeErr != nil {
+			returnErr = fmt.Errorf("node %s: %w: %w", ni.req.NodeName, nodeErr, returnErr)
+		}
 	}
+	return returnErr
 }
 
 // clearCancelState clears the cancel-cause pointer and calls cancel(nil).
