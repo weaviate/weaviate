@@ -748,12 +748,12 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 			Error(exportErr)
 
 		if errors.Is(context.Cause(ctx), errExportCanceled) {
-			status.Status = string(export.Canceled)
-			status.Error = "export was canceled"
-		} else {
-			status.Status = string(export.Failed)
-			status.Error = exportErr.Error()
+			// Cancel() already writes the CANCELED metadata, so skip the
+			// duplicate write here.
+			return
 		}
+		status.Status = string(export.Failed)
+		status.Error = exportErr.Error()
 		s.writeMetadata(backend, exportID, bucket, path, status)
 		return
 	}
