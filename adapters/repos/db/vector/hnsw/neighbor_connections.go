@@ -116,7 +116,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited *visited.SparseSet, level, top int) error {
 	if top <= 0 {
 		return nil
 	}
