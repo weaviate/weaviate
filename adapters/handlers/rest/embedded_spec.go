@@ -2563,6 +2563,77 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.export.status"
         ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Cancel an export",
+        "operationId": "export.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional bucket name where the export is stored.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional path prefix within the bucket.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
+        ]
       }
     },
     "/graphql": {
@@ -7473,6 +7544,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
+            "CANCELED",
             "SKIPPED"
           ]
         },
@@ -9261,6 +9333,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
+            "CANCELED",
             "SKIPPED"
           ]
         }
@@ -12386,6 +12459,77 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.local.export.status"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Cancel an export",
+        "operationId": "export.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional bucket name where the export is stored.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional path prefix within the bucket.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
         ]
       }
     },
@@ -17579,6 +17723,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
+            "CANCELED",
             "SKIPPED"
           ]
         },
@@ -19576,6 +19721,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
+            "CANCELED",
             "SKIPPED"
           ]
         }

@@ -381,12 +381,14 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	progressB, ok := shardStatus["tenantB"]
 	require.True(t, ok, "expected shard status for tenantB")
 	assert.Equal(t, "SKIPPED", progressB.Status)
-	assert.NotEmpty(t, progressB.SkipReason, "expected skip reason for cold tenantB")
+	assert.Contains(t, progressB.SkipReason, "COLD", "expected COLD in skip reason for tenantB")
 
 	progressD, ok := shardStatus["tenantD"]
 	require.True(t, ok, "expected shard status for tenantD")
 	assert.Equal(t, "SKIPPED", progressD.Status)
-	assert.Contains(t, progressD.SkipReason, "OFFLOADED", "expected OFFLOADED in skip reason for tenantD")
+	assert.True(t,
+		strings.Contains(progressD.SkipReason, "FROZEN") || strings.Contains(progressD.SkipReason, "FREEZING"),
+		"expected FROZEN or FREEZING in skip reason for tenantD, got: %s", progressD.SkipReason)
 
 	// Verify parquet metadata
 	verifyParquetMetadata(t, exportID, className, true)
@@ -660,4 +662,78 @@ func readParquetRows(t *testing.T, data []byte) []pqexport.ParquetRow {
 	require.Equal(t, int(reader.NumRows()), n, "did not read all parquet rows")
 
 	return rows[:n]
+}
+
+func TestExport_Cancel(t *testing.T) {
+	t.Run("running", func(t *testing.T) {
+		className := t.Name()
+		exportID := strings.ToLower(t.Name())
+
+		helper.CreateClass(t, &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{Name: "text", DataType: []string{"text"}},
+			},
+			ShardingConfig: map[string]interface{}{
+				"desiredCount": float64(1),
+			},
+		})
+		defer helper.DeleteClass(t, className)
+
+		// Create enough objects to make the export take some time
+		objects := makeObjects(className, "", 200)
+		helper.CreateObjectsBatch(t, objects)
+
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		require.NoError(t, err)
+
+		// Immediately try to cancel
+		_, cancelErr := exporttest.CancelExport(t, "s3", exportID)
+		if cancelErr != nil {
+			// 409 means the export finished before we could cancel — that's OK
+			require.Contains(t, cancelErr.Error(), "409",
+				"expected either success or 409, got: %v", cancelErr)
+			// Verify it actually succeeded
+			exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+		} else {
+			// Cancel succeeded — verify it reaches CANCELED status
+			exporttest.ExpectExportEventuallyCanceled(t, "s3", exportID)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		_, err := exporttest.CancelExport(t, "s3", "nonexistent-export-id")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "404")
+	})
+}
+
+func TestExport_Cancel_AlreadyFinished(t *testing.T) {
+	className := t.Name()
+	exportID := strings.ToLower(t.Name())
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": float64(1),
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	objects := makeObjects(className, "", 5)
+	helper.CreateObjectsBatch(t, objects)
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	// Wait for the export to finish
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	// Now try to cancel — should get 409
+	_, cancelErr := exporttest.CancelExport(t, "s3", exportID)
+	require.Error(t, cancelErr)
+	require.Contains(t, cancelErr.Error(), "409")
 }

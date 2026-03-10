@@ -53,7 +53,7 @@ type Participant struct {
 }
 
 // NewParticipant creates a new export participant.
-// The shutdownCtx is cancelled on graceful server shutdown, allowing in-flight
+// The shutdownCtx is canceled on graceful server shutdown, allowing in-flight
 // exports to detect the shutdown and write a failed status before exiting.
 func NewParticipant(
 	shutdownCtx context.Context,
@@ -195,7 +195,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 // Abort cancels a prepared or running export.
 // If the export is still in the prepared state, the reservation is released.
-// If the export has already been committed, the running export is cancelled.
+// If the export has already been committed, the running export is canceled.
 func (p *Participant) Abort(exportID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -287,7 +287,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		nodeStatus.ShardProgress[className] = make(map[string]*ShardProgress)
 		for _, shardName := range shardNames {
 			nodeStatus.ShardProgress[className][shardName] = &ShardProgress{
-				Status: export.Transferring,
+				Status: export.ShardTransferring,
 			}
 		}
 	}
@@ -340,23 +340,23 @@ func (p *Participant) exportClassShards(
 
 			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
 			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error(), "")
+				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
 				return fmt.Errorf("acquire shard %s: %w", shardName, err)
 			}
 
 			if shard == nil {
-				nodeStatus.SetShardProgress(className, shardName, export.Skipped, 0, "", skipReason)
+				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, 0, "", skipReason)
 				return nil
 			}
 			defer release()
 
 			objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard, isMT)
 			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.Failed, 0, err.Error(), "")
+				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
 				return fmt.Errorf("export shard %s: %w", shardName, err)
 			}
 
-			nodeStatus.SetShardProgress(className, shardName, export.Success, objects, "", "")
+			nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, objects, "", "")
 			return nil
 		}, shardName)
 	}
@@ -444,13 +444,15 @@ func (p *Participant) startNodeStatusWriter(
 		data, err := json.Marshal(nodeStatus)
 		nodeStatus.mu.Unlock()
 		if err != nil {
-			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
+				Error(fmt.Errorf("marshal node status: %w", err))
 			return
 		}
 		writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := backend.Write(writeCtx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
-			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).Error(err)
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
+				Error(fmt.Errorf("write node status: %w", err))
 		}
 	}
 
