@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -800,62 +799,6 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
 		Info("export completed successfully")
-}
-
-// exportShardData exports all objects from a single shard to a ParquetWriter.
-// This is a standalone function shared by both the scheduler and the participant.
-func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter, className string, logger logrus.FieldLogger) error {
-	store := shard.Store()
-	if store == nil {
-		return fmt.Errorf("store not found for shard %s", shard.Name())
-	}
-
-	bucket := store.Bucket("objects")
-	if bucket == nil {
-		return fmt.Errorf("objects bucket not found for shard %s", shard.Name())
-	}
-
-	cursor := bucket.Cursor()
-	defer cursor.Close()
-
-	key, val := cursor.First()
-
-	objectCount := 0
-	logger.WithField("shard", shard.Name()).
-		WithField("class", className).
-		Debug("starting to iterate objects")
-
-	for key != nil {
-		objectCount++
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		obj, err := storobj.FromBinary(val)
-		if err != nil {
-			logger.WithField("action", "export").
-				WithField("shard", shard.Name()).
-				WithField("class", className).
-				Warnf("failed to deserialize object, skipping: %v", err)
-			key, val = cursor.Next()
-			continue
-		}
-
-		if err := writer.WriteObject(obj); err != nil {
-			return fmt.Errorf("write object to parquet: %w", err)
-		}
-
-		key, val = cursor.Next()
-	}
-
-	logger.WithField("shard", shard.Name()).
-		WithField("class", className).
-		WithField("object_count", objectCount).
-		Info("completed shard iteration")
-
-	return nil
 }
 
 // writeMetadata writes the export metadata file (single-node path).
