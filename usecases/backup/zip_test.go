@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -569,11 +570,15 @@ func TestRenamingDuringBackup(t *testing.T) {
 			// start backup process
 			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0)
 			require.NoError(t, err)
+			// Use assert (not require) in goroutines: require calls t.FailNow() which
+			// invokes runtime.Goexit(), terminating the goroutine without running
+			// deferred cleanup (z.Close). That would leave the pipe writer open and
+			// deadlock the main goroutine on io.Copy.
 			go func() {
+				defer z.Close()
 				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
 				_, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
-				require.NoError(t, err)
-				require.NoError(t, z.Close())
+				assert.NoError(t, err)
 			}()
 
 			// rename files concurrently
@@ -600,9 +605,9 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 			uz, wc := NewUnzip(dir2, compressionType)
 			go func() {
+				defer wc.Close()
 				_, err := io.Copy(wc, compressBuf)
-				require.NoError(t, err)
-				require.NoError(t, wc.Close())
+				assert.NoError(t, err)
 			}()
 			_, err = uz.ReadChunk()
 			require.NoError(t, err)
