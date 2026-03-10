@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	maxPostingSizeFloor uint32 = 8 // Minimum vectors per posting
-	minPostingSizeFloor uint32 = 3 // Minimum vectors for split threshold
+	maxPostingSizeFloor uint32 = 192 // Minimum vectors per posting
+	minPostingSizeFloor uint32 = 3   // Minimum vectors for split threshold
 )
 
 type Config struct {
