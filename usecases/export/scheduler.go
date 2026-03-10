@@ -40,7 +40,7 @@ var (
 	ErrExportNotFound = errors.New("export not found")
 
 	// ErrExportAlreadyFinished is returned when trying to cancel an export
-	// that has already completed (SUCCESS, FAILED, or CANCELLED).
+	// that has already completed (SUCCESS, FAILED, or CANCELED).
 	ErrExportAlreadyFinished = errors.New("export has already finished")
 
 	// errExportCanceled is passed as the cause to context.WithCancelCause
@@ -233,7 +233,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 			return nil, fmt.Errorf("get export plan: %w", planErr)
 		}
 		// Plan may not exist if the export failed before/during plan writing.
-		// Fall back to reading the metadata file which may contain the FAILED/CANCELLED state.
+		// Fall back to reading the metadata file which may contain the FAILED/CANCELED state.
 		meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
 		if metaErr != nil {
 			return nil, fmt.Errorf("export %s not found: %w", id, planErr)
