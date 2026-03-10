@@ -166,10 +166,9 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	n.graph.shardedNodeLocks.Unlock(from)
 	pending := make([]uint64, 0, min(16, len(connections)))
 	for _, id := range connections {
-		if visited.Visited(id) {
+		if visited.VisitIfNotVisited(id) {
 			continue
 		}
-		visited.Visit(id)
 		if n.denyList.Contains(id) {
 			pending = append(pending, id)
 			continue

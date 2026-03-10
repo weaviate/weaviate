@@ -18,41 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPoolWithoutLimit(t *testing.T) {
-	// pool with two liss
-	pool := NewPool(2, 2, -1)
-	assert.Equal(t, 2, pool.Len())
-
-	// get first list
-	l1 := pool.Borrow()
-	assert.Equal(t, 2, l1.Len())
-	assert.Equal(t, 1, pool.Len())
-
-	// get second list
-	l2 := pool.Borrow()
-	assert.Equal(t, 0, pool.Len())
-
-	// get third list from empty pool and return it back
-	l3 := pool.Borrow()
-	assert.Equal(t, 0, pool.Len())
-	pool.Return(l3)
-	assert.Equal(t, 1, pool.Len())
-
-	// get same list again and modify its size
-	// so that it is not accepted when returned to the pool
-	l3 = pool.Borrow()
-	l3.Visit(2)
-	pool.Return(l3)
-	assert.Equal(t, 0, pool.Len())
-
-	// add two list and destroy the pool
-	pool.Return(l1)
-	pool.Return(l2)
-	assert.Equal(t, 2, pool.Len())
-	pool.Destroy()
-	assert.Equal(t, 0, pool.Len())
-}
-
 func TestPoolWithLimit(t *testing.T) {
 	type test struct {
 		initialSize int
@@ -87,7 +52,7 @@ func TestPoolWithLimit(t *testing.T) {
 				tt.maxStorage = tt.borrowCount
 			}
 
-			lists := make([]ListSet, 0, 30)
+			lists := make([]*SparseSet, 0, 30)
 
 			// Borrow all lists up to the limit
 			for i := 0; i < tt.maxStorage; i++ {
