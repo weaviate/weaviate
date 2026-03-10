@@ -32,6 +32,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -418,6 +419,131 @@ func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []strin
 		return nil, err
 	}
 	return commitLogFileNames(l.rootPath, l.id, files), nil
+}
+
+// compactCommitLogsOnStartup performs forced compaction of all commit logs into a single condensed file.
+// It writes to a temporary directory, fsyncs, then atomically renames the directory.
+func (l *hnswCommitLogger) compactCommitLogsOnStartup(state *DeserializationResult, logger logrus.FieldLogger) error {
+	commitLogDir := commitLogDirectory(l.rootPath, l.id)
+	tempCommitLogDir := commitLogDir + ".tmp"
+	backupCommitLogDir := commitLogDir + ".old"
+	markerFile := filepath.Join(l.rootPath, l.id+".hnsw.force-compacted")
+
+	if _, err := l.fs.Stat(markerFile); err == nil {
+		logger.WithField("action", "hnsw_forced_compaction").Info("skipping: already force-compacted")
+		return nil
+	}
+
+	if _, err := l.fs.Stat(commitLogDir); os.IsNotExist(err) {
+		if _, err := l.fs.Stat(backupCommitLogDir); err == nil {
+			logger.WithField("action", "hnsw_forced_compaction").Info("recovering: restoring from backup directory")
+			if err := l.fs.Rename(backupCommitLogDir, commitLogDir); err != nil {
+				return errors.Wrapf(err, "restore backup commit log directory")
+			}
+		}
+	}
+
+	if err := l.fs.RemoveAll(tempCommitLogDir); err != nil {
+		return errors.Wrapf(err, "remove existing temporary commit log directory")
+	}
+
+	logger.WithField("action", "hnsw_forced_compaction").Info("starting forced compaction")
+
+	allFiles, err := getCommitFiles(l.rootPath, l.id, 0, l.fs)
+	if err != nil {
+		return errors.Wrapf(err, "get commit log files")
+	}
+	if len(allFiles) < 10 {
+		logger.WithFields(logrus.Fields{
+			"action":     "hnsw_forced_compaction",
+			"file_count": len(allFiles),
+			"required":   10,
+		}).Info("skipping compaction: insufficient commit log files")
+		return nil
+	}
+
+	// Clean up all existing snapshots (as we are compacting)
+	if err := l.cleanupSnapshots(time.Now().Unix()); err != nil {
+		return errors.Wrapf(err, "cleanup existing snapshots")
+	}
+
+	// Create temporary directory
+	if err := l.fs.MkdirAll(tempCommitLogDir, 0o755); err != nil {
+		return errors.Wrapf(err, "create temporary commit log directory")
+	}
+
+	// Generate timestamp for the condensed file
+	timestamp := time.Now().Unix()
+	condensedFileName := filepath.Join(tempCommitLogDir, fmt.Sprintf("%d.condensed", timestamp))
+
+	// Write condensed commit log using MemoryCondensor
+	condensor := NewMemoryCondensor(l.logger)
+	if err := condensor.DoFromState(state, condensedFileName); err != nil {
+		// Clean up temp directory on error
+		_ = l.fs.RemoveAll(tempCommitLogDir)
+		return errors.Wrapf(err, "write condensed commit log")
+	}
+
+	logger.WithFields(logrus.Fields{
+		"action":         "hnsw_forced_compaction",
+		"condensed_file": condensedFileName,
+	}).Info("condensed commit log written, performing atomic directory swap")
+
+	l.Lock()
+	if err := l.commitLogger.Close(); err != nil {
+		l.Unlock()
+		return errors.Wrapf(err, "close commit logger before directory swap")
+	}
+	l.Unlock()
+
+	// rm dir.old, rename dir -> dir.old
+	if _, err := l.fs.Stat(commitLogDir); err == nil {
+		if err := l.fs.RemoveAll(backupCommitLogDir); err != nil {
+			_ = l.fs.RemoveAll(tempCommitLogDir)
+			return errors.Wrapf(err, "remove existing backup commit log directory")
+		}
+		if err := l.fs.Rename(commitLogDir, backupCommitLogDir); err != nil {
+			_ = l.fs.RemoveAll(tempCommitLogDir)
+			return errors.Wrapf(err, "rename original commit log directory to backup")
+		}
+	}
+
+	// rename dir.tmp -> dir
+	if err := l.fs.Rename(tempCommitLogDir, commitLogDir); err != nil {
+		// try to rename dir.old -> dir
+		if _, err2 := l.fs.Stat(backupCommitLogDir); err2 == nil {
+			_ = l.fs.Rename(backupCommitLogDir, commitLogDir)
+		}
+		_ = l.fs.RemoveAll(tempCommitLogDir)
+		return errors.Wrapf(err, "atomically rename commit log directory")
+	}
+
+	// rm dir.old
+	if err := l.fs.RemoveAll(backupCommitLogDir); err != nil {
+		logger.WithError(err).Warn("failed to remove backup commit log directory, but swap was successful")
+	}
+
+	fileName := fmt.Sprintf("%d", timestamp+1)
+	fd, err := l.fs.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return errors.Wrapf(err, "create new commit log file after compaction")
+	}
+
+	l.Lock()
+	l.commitLogger = commitlog.NewLoggerWithFile(fd)
+	l.Unlock()
+
+	// Write marker file to indicate successful compaction
+	markerFd, err := l.fs.OpenFile(markerFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		logger.WithError(err).Warn("failed to create force-compacted marker file")
+	} else {
+		_ = markerFd.Close()
+	}
+
+	logger.WithField("action", "hnsw_forced_compaction").Info("forced compaction completed successfully")
+	return nil
 }
 
 // cleanupSnapshots removes all snapshots, checkpoints and temporary files older than the given timestamp.
