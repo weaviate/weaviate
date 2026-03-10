@@ -38,6 +38,9 @@ function main() {
   run_acceptance_go_client_named_vectors_single_node=false
   run_acceptance_go_client_named_vectors_cluster=false
   run_acceptance_lsmkv=false
+  run_acceptance_compaction_recovery=false
+  run_acceptance_compaction=false
+  run_acceptance_recovery=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -74,6 +77,9 @@ function main() {
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
           --acceptance-module-tests-except-offload|--modules-except-offload|-meo) run_all_tests=false; run_module_tests=true; run_module_except_offload_tests=true; echo $run_module_except_offload_tests ;;
           --acceptance-lsmkv|--lsmkv) run_all_tests=false; run_acceptance_lsmkv=true;;
+          --acceptance-compaction-recovery|-acr) run_all_tests=false; run_acceptance_compaction_recovery=true;;
+          --acceptance-compaction|-ac) run_all_tests=false; run_acceptance_compaction=true;;
+          --acceptance-recovery|-ar) run_all_tests=false; run_acceptance_recovery=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -102,6 +108,9 @@ function main() {
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
               "--acceptance-lsmkv | --lsmkv"\
+              "--acceptance-compaction-recovery | -acr"\
+              "--acceptance-compaction | -ac"\
+              "--acceptance-recovery | -ar"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -172,6 +181,7 @@ function main() {
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
     fi
+
   fi
 
   if $run_acceptance_only_python || $run_all_tests
@@ -209,6 +219,16 @@ function main() {
   if $run_acceptance_lsmkv || $run_acceptance_tests || $run_all_tests; then
   echo "running lsmkv acceptance lsmkv tests"
     run_acceptance_lsmkv "$@"
+  fi
+
+  if $run_acceptance_compaction_recovery || $run_acceptance_compaction || $run_acceptance_tests || $run_all_tests; then
+    echo "running compaction acceptance tests"
+    run_acceptance_compaction
+  fi
+
+  if $run_acceptance_compaction_recovery || $run_acceptance_recovery || $run_acceptance_tests || $run_all_tests; then
+    echo "running recovery acceptance tests"
+    run_acceptance_recovery
   fi
   echo "Done!"
 }
@@ -357,6 +377,8 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/graphql_resolvers' \
     | grep -v 'test/acceptance_lsmkv' \
     | grep -v 'test/acceptance/authz' \
+    | grep -v 'test/acceptance/compaction' \
+    | grep -v 'test/acceptance/recovery' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -474,6 +496,32 @@ function run_acceptance_only_fast_group() {
       ;;
     *) echo_red "Invalid group: $GROUP (must be 1..4)"; return 1 ;;
   esac
+}
+
+function run_acceptance_compaction_recovery() {
+  echo_green "acceptance — compaction + recovery"
+  run_aof_group "compaction-recovery" \
+    test/acceptance/compaction \
+    test/acceptance/recovery
+}
+
+function run_acceptance_compaction() {
+  echo_green "acceptance — compaction"
+  run_aof_group "compaction" test/acceptance/compaction
+}
+
+function run_acceptance_recovery() {
+  echo_green "acceptance — recovery: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — recovery"
+  run_aof_group "recovery" test/acceptance/recovery
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

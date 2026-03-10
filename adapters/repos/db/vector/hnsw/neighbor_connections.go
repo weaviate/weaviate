@@ -346,7 +346,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// upgrade neighbor level if the level is out of sync due to a delete re-assign
 		neighbor.upgradeToLevelNoLock(level)
 	}
-	currentConnections := neighbor.connectionsAtLevelNoLock(level)
+	// Reuse connectionsBuf to avoid allocations
+	n.connectionsBuf = neighbor.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+	currentConnections := n.connectionsBuf
 
 	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {

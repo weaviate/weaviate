@@ -618,6 +618,163 @@
       },
       "type": "object"
     },
+    "ExportCreateRequest": {
+      "description": "Request to create a new export operation",
+      "type": "object",
+      "required": ["id", "file_format"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this export. Must be URL-safe."
+        },
+        "file_format": {
+          "type": "string",
+          "description": "Output file format for the export.",
+          "enum": ["parquet"]
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collection names to include in the export. Cannot be used with 'exclude'."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collection names to exclude from the export. Cannot be used with 'include'."
+        },
+        "config": {
+          "type": "object",
+          "description": "Backend-specific configuration",
+          "properties": {
+            "bucket": {
+              "type": "string",
+              "description": "Bucket, container, or volume name for cloud storage backends"
+            },
+            "path": {
+              "type": "string",
+              "description": "Path prefix within the bucket or filesystem"
+            }
+          }
+        }
+      }
+    },
+    "ExportCreateResponse": {
+      "description": "Response from creating an export operation",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this export"
+        },
+        "backend": {
+          "type": "string",
+          "description": "The backend storage system used"
+        },
+        "path": {
+          "type": "string",
+          "description": "Full path where the export is being written"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current status of the export",
+          "enum": ["STARTED"]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export started"
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collections being exported"
+        }
+      }
+    },
+    "ExportStatusResponse": {
+      "description": "Current status of an export operation",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this export"
+        },
+        "backend": {
+          "type": "string",
+          "description": "The backend storage system used"
+        },
+        "path": {
+          "type": "string",
+          "description": "Full path where the export is stored"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current status of the export",
+          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "CANCELED", "SKIPPED"]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export started"
+        },
+        "tookInMs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Duration of the export in milliseconds"
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collections in this export"
+        },
+        "shardStatus": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardProgress"
+            }
+          },
+          "description": "Per-shard progress: className -> shardName -> status"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if export failed"
+        }
+      }
+    },
+    "ShardProgress": {
+      "description": "Progress information for exporting a single shard",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Status of this shard's export",
+          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "CANCELED", "SKIPPED"]
+        },
+        "objectsExported": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Number of objects exported from this shard"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if this shard's export failed"
+        },
+        "skipReason": {
+          "type": "string",
+          "description": "Reason why this shard was skipped (e.g. tenant status)"
+        }
+      }
+    },
     "GraphQLError": {
       "description": "An error response caused by a GraphQL query.",
       "properties": {
@@ -1728,8 +1885,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         },
@@ -1777,8 +1936,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -1900,6 +2061,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "incremental_base_backup_id": {
+          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
+          "type": "string",
+          "x-nullable": true,
+          "default": null
         }
       }
     },
@@ -1941,8 +2108,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -1972,8 +2141,10 @@
               "STARTED",
               "TRANSFERRING",
               "TRANSFERRED",
+              "FINALIZING",
               "SUCCESS",
               "FAILED",
+              "CANCELLING",
               "CANCELED"
             ]
           },
@@ -2064,8 +2235,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -3345,7 +3518,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.36.0-rc.0"
+    "version": "1.37.0-dev"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -9199,6 +9372,210 @@
         }
       }
     },
+    "/export/{backend}": {
+      "post": {
+        "summary": "Start a new export",
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
+        "operationId": "export.create",
+        "x-serviceIds": [
+          "weaviate.local.export.create"
+        ],
+        "tags": [
+          "export"
+        ],
+        "parameters": [
+          {
+            "name": "backend",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The backend storage system to use for the export (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ExportCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully started export operation",
+            "schema": {
+              "$ref": "#/definitions/ExportCreateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid export request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while starting export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/export/{backend}/{id}": {
+      "get": {
+        "summary": "Get export status",
+        "description": "Retrieves the current status of an export operation, including progress for each collection being exported.",
+        "operationId": "export.status",
+        "x-serviceIds": [
+          "weaviate.local.export.status"
+        ],
+        "tags": [
+          "export"
+        ],
+        "parameters": [
+          {
+            "name": "backend",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The backend storage system where the export is stored."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The unique identifier of the export."
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved export status",
+            "schema": {
+              "$ref": "#/definitions/ExportStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while retrieving export status",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel an export",
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "operationId": "export.cancel",
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
+        ],
+        "tags": [
+          "export"
+        ],
+        "parameters": [
+          {
+            "name": "backend",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The backend storage system where the export is stored."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The unique identifier of the export to cancel."
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional bucket name where the export is stored."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional path prefix within the bucket."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/cluster/statistics": {
       "get": {
         "summary": "Get cluster statistics",
@@ -9537,6 +9914,10 @@
     {
       "name": "backups",
       "description": "Operations related to creating and managing backups of Weaviate data. This feature allows you to create snapshots of your collections and store them on external storage backends such as cloud object storage (S3, GCS, Azure) or a shared filesystem. These endpoints enable you to initiate backup and restore processes, monitor their status, list available backups on a backend, and delete unwanted backups. Backups are essential for disaster recovery, data migration, and maintaining point-in-time copies of your vector database."
+    },
+    {
+      "name": "exports",
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata."
     },
     {
       "name": "users",

@@ -12,7 +12,6 @@
 package compressionhelpers
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/bits"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -430,9 +430,7 @@ func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []ui
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
 	slice := make([]byte, len(compressed)*8)
-	for i := range compressed {
-		binary.LittleEndian.PutUint64(slice[i*8:], compressed[i])
-	}
+	byteops.CopySliceToBytes(slice, compressed)
 	return slice
 }
 
@@ -442,10 +440,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytes(compressed []byte) []u
 		l++
 	}
 	slice := make([]uint64, l)
-
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 
@@ -461,9 +456,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesInto(compressed []byte,
 		buffer = buffer[:l]
 	}
 
-	for i := range buffer {
-		buffer[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(buffer, compressed)
 
 	return buffer
 }
@@ -482,9 +475,7 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(comp
 	slice := (*buffer)[len(*buffer)-l:]
 	*buffer = (*buffer)[:len(*buffer)-l]
 
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 

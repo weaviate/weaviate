@@ -30,15 +30,24 @@ const (
 	postingSequenceKey = "posting_seq"
 )
 
+// The shared bucket is used to store various metadata. It is used by multiple stores
+// and the data is namespaced by using different prefixes for the keys.
+// The shared bucket format itself is versioned, so that we can make non-compatible changes in the future if needed.
+const (
+	sharedBucketVersionV1 = 1
+)
+
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
-const (
-	indexMetadataBucketPrefix  = 'i'
-	versionMapBucketPrefix     = 'v'
-	postingMapBucketPrefix     = 'm'
-	postingVersionBucketPrefix = 'l'
-	reassignBucketKey          = "pending_reassignments"
+var (
+	indexMetadataBucketPrefix  = []byte{sharedBucketVersionV1, 0}
+	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
+	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
+	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
 )
+
+// reassignBucketKey is used to track vectors that need to be reassigned to new postings.
+var reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
@@ -71,9 +80,9 @@ func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
 }
 
 func (i *IndexMetadataStore) key(suffix string) []byte {
-	buf := make([]byte, 1+len(suffix))
-	buf[0] = indexMetadataBucketPrefix
-	copy(buf[1:], suffix)
+	buf := make([]byte, len(indexMetadataBucketPrefix)+len(suffix))
+	copy(buf, indexMetadataBucketPrefix)
+	copy(buf[len(indexMetadataBucketPrefix):], suffix)
 	return buf
 }
 

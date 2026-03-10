@@ -37,7 +37,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	ucfg "github.com/weaviate/weaviate/usecases/config"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -1069,7 +1068,7 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		jsonBytes, err := json.Marshal(skipSensitiveConfig(appState.ServerConfig.Config))
+		jsonBytes, err := json.Marshal(appState.ServerConfig.Config)
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1098,6 +1097,11 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		expiration := r.URL.Query().Get("expiration")
 		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
 
@@ -1114,12 +1118,7 @@ func setupDebugHandlers(appState *state.State) {
 			expirationTime = time.Now()
 		}
 
-		targetOwnNode := false
-		if targetOwnNodeStr != "" {
-			if targetOwnNodeStr == "true" {
-				targetOwnNode = true
-			}
-		}
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
 
 		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
 		if err != nil {
@@ -1128,6 +1127,30 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
+
+		aborted, err := appState.ObjectTTLCoordinator.Abort(context.Background(), targetOwnNode)
+		var errMsg string
+		if err != nil {
+			errMsg = err.Error()
+		}
+		resp := map[string]any{"aborted": aborted, "error": errMsg}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}))
 
 	// Debug endpoint to hold/release/check a consistent view of segments on a bucket.
@@ -1231,24 +1254,6 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		}
 	}))
-}
-
-// skipSensitiveConfig creates a copy of the config with Authentication and Authorization
-// sections set to zero values for security purposes
-func skipSensitiveConfig(cfg ucfg.Config) ucfg.Config {
-	safe := cfg
-
-	// Skip Authentication section entirely by setting to zero value
-	safe.Authentication = ucfg.Authentication{}
-
-	// Skip Authorization section entirely by setting to zero value
-	safe.Authorization = ucfg.Authorization{}
-
-	// Skip Cluster BasicAuth credentials
-	safe.Cluster.AuthConfig.BasicAuth.Username = ""
-	safe.Cluster.AuthConfig.BasicAuth.Password = ""
-
-	return safe
 }
 
 // cleanEmptyValues recursively removes empty values from a JSON map.

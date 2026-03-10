@@ -72,6 +72,7 @@ type ShardLike interface {
 	Store() *lsmkv.Store                                                                           // Get the underlying store
 	NotifyReady()                                                                                  // Set shard status to ready
 	GetStatus() storagestate.Status                                                                // Return the shard status
+	GetStatusReason() string                                                                       // Return the reason for the current status
 	UpdateStatus(status, reason string) error                                                      // Set shard status
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
@@ -100,7 +101,7 @@ type ShardLike interface {
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
-	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
+	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
@@ -347,7 +348,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
-	reason := "UpdateVectorIndexConfig"
+	reason := statusReasonVectorIndexUpdate
 	err := s.SetStatusReadonly(reason)
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)

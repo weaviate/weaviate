@@ -93,3 +93,28 @@ func TestHFreshUserConfigUpdates(t *testing.T) {
 		}
 	})
 }
+
+func TestComputeMaxPostingSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		dims     int
+		expected uint32
+	}{
+		{name: "zero dims", dims: 0, expected: 1967},
+		{name: "single dim", dims: 1, expected: 1957},
+		{name: "small dims", dims: 8, expected: 1891},
+		{name: "typical dims 768", dims: 768, expected: 407},
+		{name: "odd dims 769", dims: 769, expected: 406},
+		{name: "typical dims 1024", dims: 1024, expected: 322},
+		{name: "typical dims 2048", dims: 2048, expected: 175},
+		{name: "typical dims 3072", dims: 3072, expected: 121},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &HFresh{maxPostingSizeKB: 48}
+			got := h.computeMaxPostingSize(tt.dims)
+			require.Equal(t, tt.expected, got)
+		})
+	}
+}

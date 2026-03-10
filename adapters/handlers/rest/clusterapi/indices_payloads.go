@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"time"
 
@@ -548,10 +547,7 @@ func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
 	read += 8
 
 	dists := make([]float32, distsLength)
-	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-		read += 4
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return dists, nil
 }
@@ -560,9 +556,8 @@ func (p vectorDistanceResultsPayload) Marshal(dists []float32) ([]byte, error) {
 	buf := byteops.NewReadWriter(make([]byte, 8+len(dists)*4))
 	buf.WriteUint64(uint64(len(dists)))
 
-	for _, dist := range dists {
-		buf.WriteUint32(math.Float32bits(dist))
-	}
+	byteops.CopySliceToBytes(buf.Buffer[buf.Position:buf.Position+uint64(len(dists))*byteops.Uint32Len], dists)
+	buf.MoveBufferPositionForward(uint64(len(dists)) * byteops.Uint32Len)
 
 	return buf.Buffer, nil
 }
@@ -713,10 +708,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	read += 8
 
 	dists := make([]float32, distsLength)
-	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-		read += 4
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return objs, dists, nil
 }
@@ -742,10 +734,7 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 	out = append(out, reusableLengthBuf...)
 
 	distsBuf := make([]byte, distsLength*4)
-	for i, dist := range dists {
-		distUint32 := math.Float32bits(dist)
-		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
-	}
+	byteops.CopySliceToBytes(distsBuf, dists)
 	out = append(out, distsBuf...)
 
 	return out, nil
@@ -775,10 +764,7 @@ func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 	out = append(out, reusableLengthBuf...)
 
 	distsBuf := make([]byte, distsLength*4)
-	for i, dist := range dists {
-		distUint32 := math.Float32bits(dist)
-		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
-	}
+	byteops.CopySliceToBytes(distsBuf, dists)
 	out = append(out, distsBuf...)
 
 	return out, nil

@@ -39,6 +39,23 @@ func (i Indices) ByProp(propName string) (Index, bool) {
 	return index, ok
 }
 
+func (i Indices) ShutdownGeoIndices(ctx context.Context) error {
+	for propName, index := range i {
+		if index.Type != schema.DataTypeGeoCoordinates {
+			continue
+		}
+
+		if err := index.GeoIndex.Flush(); err != nil {
+			return errors.Wrapf(err, "flush property %s", propName)
+		}
+
+		if err := index.GeoIndex.Shutdown(ctx); err != nil {
+			return errors.Wrapf(err, "shutdown property %s", propName)
+		}
+	}
+	return nil
+}
+
 func (i Indices) DropAll(ctx context.Context, keepFiles bool) error {
 	for propName, index := range i {
 		if index.Type != schema.DataTypeGeoCoordinates {
