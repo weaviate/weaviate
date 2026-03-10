@@ -575,7 +575,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 			// deferred cleanup (z.Close). That would leave the pipe writer open and
 			// deadlock the main goroutine on io.Copy.
 			go func() {
-				defer z.Close()
+				defer func() { assert.NoError(t, z.Close()) }()
 				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
 				_, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				assert.NoError(t, err)
@@ -605,7 +605,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 			uz, wc := NewUnzip(dir2, compressionType)
 			go func() {
-				defer wc.Close()
+				defer func() { assert.NoError(t, wc.Close()) }()
 				_, err := io.Copy(wc, compressBuf)
 				assert.NoError(t, err)
 			}()
