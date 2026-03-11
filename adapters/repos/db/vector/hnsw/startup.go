@@ -105,7 +105,9 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	}
 
 	if state == nil {
-		// nothing to do
+		// Mark the cache as prefilled for fresh indexes so that compression
+		// (e.g. RQ via checkAndCompress) can proceed immediately.
+		h.cachePrefilled.Store(true)
 		return nil
 	}
 
@@ -490,16 +492,14 @@ func (h *hnsw) PostStartup(ctx context.Context) {
 	h.prefillCache(ctx)
 }
 
-// PostCopy initialises commit-log maintenance and marks the cache as
-// prefilled. It is intended for the dynamic index upgrade path where the
-// vectors have already been copied into the HNSW via AddBatch so a full
-// cache prefill is unnecessary.
-func (h *hnsw) PostCopy() {
-	h.commitLog.InitMaintenance()
-	h.cachePrefilled.Store(true)
-}
-
 func (h *hnsw) prefillCache(ctx context.Context) {
+	// If the cache is already marked as prefilled (e.g. fresh index with no
+	// commit-log state), there is nothing to do. Skipping avoids launching a
+	// goroutine that could race with checkAndCompress on h.cache/h.compressor.
+	if h.cachePrefilled.Load() {
+		return
+	}
+
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
