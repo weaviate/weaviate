@@ -13,6 +13,7 @@ package selection
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -30,12 +31,19 @@ type Selector interface {
 // New returns the Selector described by sel, wired up with the index-level
 // helpers it needs. Returns nil when sel is nil or no known strategy is set,
 // meaning the caller should skip post-processing.
-func New(sel *searchparams.Selection, provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32]) Selector {
+func New(sel *searchparams.Selection, provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], k int) (Selector, error) {
 	if sel == nil {
-		return nil
+		return nil, nil
 	}
 	if sel.MMR != nil {
-		return newMMRSelector(provider, vecForID, int(sel.MMR.Limit), sel.MMR.Balance)
+		if sel.MMR.Balance < 0 || sel.MMR.Balance > 1 {
+			return nil, fmt.Errorf("MMR balance must be between 0 and 1")
+		}
+		mmrLimit := int(sel.MMR.Limit)
+		if mmrLimit < k {
+			mmrLimit = k
+		}
+		return newMMRSelector(provider, vecForID, mmrLimit, sel.MMR.Balance), nil
 	}
-	return nil
+	return nil, nil
 }

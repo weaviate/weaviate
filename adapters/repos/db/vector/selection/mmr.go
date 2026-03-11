@@ -98,7 +98,7 @@ func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances [
 		bestScore := -float32(math.MaxFloat32)
 		bestIdx = -1
 
-		for i := range n {
+		for i := 0; i < n; i++ {
 			if removed[i] {
 				continue
 			}

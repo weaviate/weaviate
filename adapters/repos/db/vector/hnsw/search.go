@@ -87,7 +87,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
-		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
+		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList, selector)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
 	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList, selector)
@@ -918,11 +918,14 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 	h.pools.pqResults.Put(res)
 
-	return h.applySelector(ctx, selector, ids, dists)
+	return h.applySelector(ctx, selector, ids, dists, k)
 }
 
-func (h *hnsw) applySelector(ctx context.Context, selector *searchparams.Selection, ids []uint64, dists []float32) ([]uint64, []float32, error) {
-	sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk)
+func (h *hnsw) applySelector(ctx context.Context, selector *searchparams.Selection, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
+	sel, err := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk, k)
+	if err != nil {
+		return nil, nil, err
+	}
 	if sel == nil {
 		return ids, dists, nil
 	}

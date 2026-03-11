@@ -37,7 +37,7 @@ message VectorForTarget {
 
 message Selection {
   message MMR {
-    optional float limit = 1;
+    optional uint32 limit = 1;
     optional float balance = 2;
   }
   oneof selection {

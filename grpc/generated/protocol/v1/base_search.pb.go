@@ -1549,7 +1549,7 @@ func (x *BM25) GetSearchOperator() *SearchOperatorOptions {
 
 type Selection_MMR struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Limit         *float32               `protobuf:"fixed32,1,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
+	Limit         *uint32                `protobuf:"varint,1,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
 	Balance       *float32               `protobuf:"fixed32,2,opt,name=balance,proto3,oneof" json:"balance,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1585,7 +1585,7 @@ func (*Selection_MMR) Descriptor() ([]byte, []int) {
 	return file_v1_base_search_proto_rawDescGZIP(), []int{3, 0}
 }
 
-func (x *Selection_MMR) GetLimit() float32 {
+func (x *Selection_MMR) GetLimit() uint32 {
 	if x != nil && x.Limit != nil {
 		return *x.Limit
 	}
@@ -1678,7 +1678,7 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\tSelection\x12.\n" +
 	"\x03mmr\x18\x01 \x01(\v2\x1a.weaviate.v1.Selection.MMRH\x00R\x03mmr\x1aU\n" +
 	"\x03MMR\x12\x19\n" +
-	"\x05limit\x18\x01 \x01(\x02H\x00R\x05limit\x88\x01\x01\x12\x1d\n" +
+	"\x05limit\x18\x01 \x01(\rH\x00R\x05limit\x88\x01\x01\x12\x1d\n" +
 	"\abalance\x18\x02 \x01(\x02H\x01R\abalance\x88\x01\x01B\b\n" +
 	"\x06_limitB\n" +
 	"\n" +
