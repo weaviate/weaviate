@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 
@@ -34,10 +35,8 @@ type Server struct {
 }
 
 const (
-	PB_OVERHEAD       = 16 * 1024       // 16kB for any extra overhead
-	DEFAULT_MSG_SIZE  = 4 * 1024 * 1024 // 4MB default from grpc
-	READ_BUFFER_SIZE  = 4 << 20         // 4 MB
-	WRITE_BUFFER_SIZE = 4 << 20         // 4 MB
+	READ_BUFFER_SIZE  = 1 << 20 // 1 MB
+	WRITE_BUFFER_SIZE = 1 << 20 // 1 MB
 )
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
@@ -45,16 +44,14 @@ const (
 func NewServer(state *state.State, replicationServer ReplicationServer, options ...grpc.ServerOption) *Server {
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
-	maxSize := GetMaxMessageSize(fileCopyChunkSize)
-	initialConnWindowSize := GetInitialConnWindowSize(
-		fileCopyChunkSize, state.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
-	)
+	maxSize := GetMaxMessageSize(state)
+	windowSize := GetInitialConnWindowSize(state)
 
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(maxSize),
 		grpc.MaxSendMsgSize(maxSize),
-		grpc.InitialWindowSize(int32(maxSize)),
-		grpc.InitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.InitialWindowSize(int32(windowSize)),
+		grpc.InitialConnWindowSize(int32(windowSize)),
 		grpc.ReadBufferSize(READ_BUFFER_SIZE),
 		grpc.WriteBufferSize(WRITE_BUFFER_SIZE),
 	}
@@ -184,12 +181,14 @@ func validateBasicAuth(md metadata.MD, ok bool, expectedUsername, expectedPasswo
 	return nil
 }
 
-func GetMaxMessageSize(fileCopyChunkSize int) int {
-	return max(DEFAULT_MSG_SIZE, fileCopyChunkSize+PB_OVERHEAD)
+func GetMaxMessageSize(state *state.State) int {
+	return state.ServerConfig.Config.GRPC.MaxMsgSize
 }
 
-func GetInitialConnWindowSize(fileCopyChunkSize, fileCopyWorkers int) int {
-	return GetMaxMessageSize(fileCopyChunkSize) * fileCopyWorkers
+func GetInitialConnWindowSize(state *state.State) int {
+	// ratio of 8:1 between max message size and initial connection window size is a balance between
+	// throughput backpressure and memory usage. It allows for efficient streaming of large messages without overwhelming the server's memory.
+	return min(state.ServerConfig.Config.GRPC.MaxMsgSize/8, math.MaxInt32)
 }
 
 func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
