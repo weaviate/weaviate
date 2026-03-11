@@ -422,12 +422,6 @@ func (p *DataPermission) WithTenant(tenant string) *DataPermission {
 	return p
 }
 
-// WithObject is a no-op. Object-level RBAC is not supported;
-// the object segment is always wildcarded.
-func (p *DataPermission) WithObject(_ string) *DataPermission {
-	return p
-}
-
 func (p *DataPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
