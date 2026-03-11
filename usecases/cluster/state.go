@@ -230,7 +230,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if len(joinAddr) > 0 {
-		joinHost := extractJoinHost(joinAddr[0])
+		joinHost := extractHost(joinAddr[0])
 		_, err := net.LookupIP(joinHost)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -414,10 +414,10 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	return "", false
 }
 
-// extractJoinHost extracts the host portion from a join address string,
+// extractHost extracts the host portion from an address string,
 // correctly handling IPv6 bracket notation (e.g., "[2001:db8::1]:7946" → "2001:db8::1").
 // Falls back to the original string if it doesn't contain a port.
-func extractJoinHost(addr string) string {
+func extractHost(addr string) string {
 	if h, _, err := net.SplitHostPort(addr); err == nil {
 		return h
 	}
@@ -432,14 +432,7 @@ func (s *State) NodeAddress(id string) string {
 		return ""
 	}
 
-	// Use net.SplitHostPort to correctly handle both IPv4 and IPv6 addresses.
-	// strings.Split on ":" breaks IPv6 addresses like "2803:6082:...:7946".
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		// addr might not have a port, return as-is
-		return addr
-	}
-	return host
+	return extractHost(addr)
 }
 
 // AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses

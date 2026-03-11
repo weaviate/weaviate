@@ -516,7 +516,7 @@ func TestGetConfigType(t *testing.T) {
 	}
 }
 
-func TestExtractJoinHost(t *testing.T) {
+func TestExtractHost(t *testing.T) {
 	tests := []struct {
 		name     string
 		addr     string
@@ -561,14 +561,14 @@ func TestExtractJoinHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractJoinHost(tt.addr)
+			result := extractHost(tt.addr)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestExtractJoinHostPreservesValidIPForLookup(t *testing.T) {
-	// Verify that extractJoinHost returns a value that net.ParseIP accepts.
+func TestExtractHostPreservesValidIPForLookup(t *testing.T) {
+	// Verify that extractHost returns a value that net.ParseIP accepts.
 	// This is the critical property: the old code using strings.Split(":")[0]
 	// would return "[2803" for bracketed IPv6, which is not a valid IP.
 	ipv6Addrs := []string{
@@ -579,10 +579,10 @@ func TestExtractJoinHostPreservesValidIPForLookup(t *testing.T) {
 
 	for _, addr := range ipv6Addrs {
 		t.Run(addr, func(t *testing.T) {
-			host := extractJoinHost(addr)
+			host := extractHost(addr)
 			// The extracted host must be parseable as an IP address
 			ip := net.ParseIP(host)
-			assert.NotNil(t, ip, "extractJoinHost(%q) = %q, which is not a valid IP", addr, host)
+			assert.NotNil(t, ip, "extractHost(%q) = %q, which is not a valid IP", addr, host)
 		})
 	}
 
