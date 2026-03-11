@@ -490,6 +490,15 @@ func (h *hnsw) PostStartup(ctx context.Context) {
 	h.prefillCache(ctx)
 }
 
+// PostCopy initialises commit-log maintenance and marks the cache as
+// prefilled. It is intended for the dynamic index upgrade path where the
+// vectors have already been copied into the HNSW via AddBatch so a full
+// cache prefill is unnecessary.
+func (h *hnsw) PostCopy() {
+	h.commitLog.InitMaintenance()
+	h.cachePrefilled.Store(true)
+}
+
 func (h *hnsw) prefillCache(ctx context.Context) {
 	limit := 0
 	if h.compressed.Load() {

@@ -559,6 +559,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		return err
 	}
 
+	// The vectors are now in the HNSW index via AddBatch. Start commit-log
+	// maintenance and mark the cache as prefilled so that compression (e.g. RQ)
+	// can proceed on subsequent inserts.
+	index.PostCopy()
+
 	// end of read-only zone
 	dynamic.RUnlock()
 
