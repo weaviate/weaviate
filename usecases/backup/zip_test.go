@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -855,10 +856,14 @@ func TestRenamingDuringBackup(t *testing.T) {
 			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0)
 			require.NoError(t, err)
 			fileList := newFileList(t, dir, sd.Files)
+			// Use assert (not require) in goroutines: require calls t.FailNow() which
+			// invokes runtime.Goexit(), terminating the goroutine without running
+			// deferred cleanup (z.Close). That would leave the pipe writer open and
+			// deadlock the main goroutine on io.Copy.
 			go func() {
+				defer func() { assert.NoError(t, z.Close()) }()
 				_, _, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
-				require.NoError(t, err)
-				require.NoError(t, z.Close())
+				assert.NoError(t, err)
 			}()
 
 			// rename files concurrently
@@ -885,9 +890,9 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 			uz, wc := NewUnzip(dir2, compressionType)
 			go func() {
+				defer func() { assert.NoError(t, wc.Close()) }()
 				_, err := io.Copy(wc, compressBuf)
-				require.NoError(t, err)
-				require.NoError(t, wc.Close())
+				assert.NoError(t, err)
 			}()
 			_, err = uz.ReadChunk()
 			require.NoError(t, err)
@@ -1444,6 +1449,50 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 		_, err := copyFile(target, h, bytes.NewReader([]byte("abc")))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "copy split")
+	})
+
+	t.Run("concurrent split parts", func(t *testing.T) {
+		const numParts = 4
+		const partSize = 1024
+
+		// Build the original data: numParts * partSize bytes.
+		original := make([]byte, numParts*partSize)
+		for i := range original {
+			original[i] = byte(i % 251) // deterministic fill
+		}
+
+		dir := t.TempDir()
+		target := filepath.Join(dir, "concurrent.bin")
+
+		// Launch numParts goroutines that each write their part concurrently.
+		var wg sync.WaitGroup
+		errs := make([]error, numParts)
+		for p := range numParts {
+			wg.Add(1)
+			go func(part int) {
+				defer wg.Done()
+				offset := int64(part) * partSize
+				data := original[offset : offset+partSize]
+				h := &tar.Header{
+					Name: "concurrent.bin",
+					Size: partSize,
+					Mode: 0o644,
+					PAXRecords: map[string]string{
+						PAXRecordSplitFileOffsetName: strconv.FormatInt(offset, 10),
+					},
+				}
+				_, errs[part] = copyFile(target, h, bytes.NewReader(data))
+			}(p)
+		}
+		wg.Wait()
+
+		for i, err := range errs {
+			require.NoError(t, err, "part %d failed", i)
+		}
+
+		got, err := os.ReadFile(target)
+		require.NoError(t, err)
+		require.Equal(t, original, got, "reassembled file content mismatch")
 	})
 }
 
