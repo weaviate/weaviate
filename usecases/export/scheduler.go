@@ -941,6 +941,11 @@ func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilitie
 // checkIfExportExists checks if an export already exists in the backend by
 // looking for any known artifact (metadata or plan). If either file exists the
 // export folder is considered occupied regardless of its status.
+//
+// This is intentional: export IDs are not reusable even after cancellation or
+// failure. Each export attempt must use a unique ID. Allowing reuse would risk
+// mixing artifacts from different runs in the same backend directory and make
+// it ambiguous which status/plan files belong to which attempt.
 func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) error {
 	home := backend.HomeDir(exportID, bucket, path)
 
