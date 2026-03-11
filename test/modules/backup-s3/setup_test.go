@@ -13,7 +13,9 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -131,4 +133,41 @@ func GetMinioURI() string {
 // GetS3Region returns the S3 region used for tests.
 func GetS3Region() string {
 	return defaultS3Region
+}
+
+// dumpGoroutineStacksOnFailure registers a t.Cleanup that fetches goroutine
+// stacktraces from all 3 Weaviate nodes via their pprof debug endpoints
+// when the test has failed.
+func dumpGoroutineStacksOnFailure(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+
+		compose := GetSharedCompose()
+		if compose == nil {
+			return
+		}
+
+		for i := 1; i <= 3; i++ {
+			node := compose.GetWeaviateNode(i)
+			if node == nil {
+				t.Logf("node %d: container not available, skipping goroutine dump", i)
+				continue
+			}
+			debugURI := node.DebugURI()
+			if debugURI == "" {
+				t.Logf("node %d: debug endpoint not available, skipping goroutine dump", i)
+				continue
+			}
+			url := fmt.Sprintf("http://%s/debug/pprof/goroutine?debug=2", debugURI)
+			out, err := exec.Command("curl", "-s", "--max-time", "10", url).CombinedOutput()
+			if err != nil {
+				t.Logf("node %d: failed to fetch goroutine stacks: %v\n%s", i, err, string(out))
+				continue
+			}
+			t.Logf("=== Goroutine stacks for node %d ===\n%s", i, string(out))
+		}
+	})
 }

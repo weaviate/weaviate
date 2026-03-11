@@ -28,6 +28,7 @@ func TestS3Backup_SingleTenant(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {
@@ -42,6 +43,7 @@ func TestS3Backup_MultiTenant(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {
@@ -60,6 +62,7 @@ func TestS3Backup_SingleTenant_WithPQ(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {
@@ -74,6 +77,7 @@ func TestS3Backup_MultiTenant_WithPQ(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {
@@ -92,6 +96,7 @@ func TestS3Backup_SingleTenant_WithRQ(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {
@@ -106,6 +111,7 @@ func TestS3Backup_MultiTenant_WithRQ(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {
@@ -124,6 +130,7 @@ func TestS3Backup_Cancellation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {
@@ -142,6 +149,7 @@ func TestS3Backup_Incremental(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	dumpGoroutineStacksOnFailure(t)
 
 	compose := GetSharedCompose()
 	if compose == nil {

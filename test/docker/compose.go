@@ -551,6 +551,7 @@ func (d *Compose) WithWeaviateCluster(size int) *Compose {
 	}
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = size
+	d.withWeaviateExposeDebugPort = true
 	return d
 }
 
