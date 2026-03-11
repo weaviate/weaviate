@@ -22,7 +22,7 @@ import (
 )
 
 type SelectionMMR struct {
-	Limit   float32 `json:"limit"`
+	Limit   uint32  `json:"limit"`
 	Balance float32 `json:"balance"`
 }
 
