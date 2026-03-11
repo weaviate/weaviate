@@ -432,13 +432,13 @@ func (p *Participant) exportShardToFile(
 	return writer.ObjectsWritten(), nil
 }
 
-// checkSiblingHealth checks whether any sibling node has reported a Failed
+// siblingHasFailed checks whether any sibling node has reported a Failed
 // status by reading their status files from the storage backend. Returns true
 // if any sibling has failed. Not-found errors are silently ignored (sibling
 // may not have written its status yet). Other backend errors are logged at
 // warn level but do not trigger cancellation to avoid false positives during
 // transient outages.
-func (p *Participant) checkSiblingHealth(
+func (p *Participant) siblingHasFailed(
 	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
@@ -525,7 +525,7 @@ func (p *Participant) startNodeStatusWriter(
 			select {
 			case <-ticker.C:
 				flush()
-				if p.checkSiblingHealth(exportCtx, backend, req) {
+				if p.siblingHasFailed(exportCtx, backend, req) {
 					p.mu.Lock()
 					if p.cancelExport != nil {
 						p.cancelExport()

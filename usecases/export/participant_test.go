@@ -518,7 +518,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				SiblingNodes: tc.siblingNodes,
 			}
 
-			failed := p.checkSiblingHealth(context.Background(), backend, req)
+			failed := p.siblingHasFailed(context.Background(), backend, req)
 			assert.Equal(t, tc.expectFailed, failed)
 		})
 	}
