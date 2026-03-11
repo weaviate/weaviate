@@ -439,7 +439,7 @@ func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
 	selector.waitForCall(t)
 
 	// Test checkSiblingHealth directly to verify it detects the failure.
-	failed := p.checkSiblingHealth(backend, req)
+	failed := p.checkSiblingHealth(context.Background(), backend, req)
 	assert.True(t, failed, "expected sibling failure to be detected")
 
 	// Clean up by aborting
@@ -513,7 +513,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				SiblingNodes: tc.siblingNodes,
 			}
 
-			failed := p.checkSiblingHealth(backend, req)
+			failed := p.checkSiblingHealth(context.Background(), backend, req)
 			assert.Equal(t, tc.expectFailed, failed)
 		})
 	}

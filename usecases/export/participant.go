@@ -14,6 +14,7 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -293,7 +295,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		}
 	}
 
-	stopWriter := p.startNodeStatusWriter(backend, req, nodeStatus)
+	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
 	for _, className := range req.Classes {
@@ -427,20 +429,29 @@ func (p *Participant) exportShardToFile(
 }
 
 // checkSiblingHealth checks whether any sibling node has reported a Failed
-// status by reading their status files from S3. Returns true if any sibling
-// has failed. Errors reading from S3 are logged and treated as "no failure
-// detected" to avoid false-positive cancellations during transient S3 outages.
+// status by reading their status files from the storage backend. Returns true
+// if any sibling has failed. Not-found errors are silently ignored (sibling
+// may not have written its status yet). Other backend errors are logged at
+// warn level but do not trigger cancellation to avoid false positives during
+// transient outages.
 func (p *Participant) checkSiblingHealth(
+	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
 ) bool {
 	for _, nodeName := range req.SiblingNodes {
-		readCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		key := fmt.Sprintf("node_%s_status.json", nodeName)
 		data, err := backend.GetObject(readCtx, req.ID, key, req.Bucket, req.Path)
 		cancel()
 		if err != nil {
-			// Sibling may not have written its status yet — skip.
+			var errNotFound backup.ErrNotFound
+			if !errors.As(err, &errNotFound) {
+				p.logger.WithField("action", "export_sibling_check").
+					WithField("export_id", req.ID).
+					WithField("sibling", nodeName).
+					Warn(fmt.Errorf("read sibling status: %w", err))
+			}
 			continue
 		}
 
@@ -469,6 +480,7 @@ func (p *Participant) checkSiblingHealth(
 // The returned stop function triggers one final flush and blocks until the
 // write completes.
 func (p *Participant) startNodeStatusWriter(
+	exportCtx context.Context,
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
 	nodeStatus *NodeStatus,
@@ -505,7 +517,7 @@ func (p *Participant) startNodeStatusWriter(
 			select {
 			case <-ticker.C:
 				flush()
-				if p.checkSiblingHealth(backend, req) {
+				if p.checkSiblingHealth(exportCtx, backend, req) {
 					p.mu.Lock()
 					if p.cancelExport != nil {
 						p.cancelExport()
