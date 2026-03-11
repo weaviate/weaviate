@@ -781,6 +781,11 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 
 	// source files are compressed
 	eg.SetLimit(fw.GoPoolSize)
+	fw.logger.WithField("num_chunks", len(desc.Chunks)).
+		WithField("class", desc.Name).
+		WithField("pool_size", fw.GoPoolSize).
+		Info("restore: starting compressed chunk download")
+	chunkStart := time.Now()
 	for k := range desc.Chunks {
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
@@ -793,10 +798,12 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	}
 
 	// fetch files from base backup(s)
+	var numBaseChunks int
 	for _, shard := range desc.Shards {
 		for backupId, incrementalBackupInfos := range shard.IncrementalBackupInfo.FilesPerBackup { // can be multiple incremental backups
 			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
 				for _, chunkId := range incrementalBackupInfo.ChunkKeys { // chunks for file
+					numBaseChunks++
 					eg.Go(func() error {
 						return fw.readAndUnzipChunk(classTempDir, compressionType, chunkId,
 							func(w io.WriteCloser) error {
@@ -808,7 +815,17 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			}
 		}
 	}
-	return eg.Wait()
+	if numBaseChunks > 0 {
+		fw.logger.WithField("num_base_chunks", numBaseChunks).
+			WithField("class", desc.Name).
+			Info("restore: also fetching chunks from base backups")
+	}
+	err = eg.Wait()
+	fw.logger.WithField("class", desc.Name).
+		WithField("took", time.Since(chunkStart)).
+		WithField("err", err).
+		Info("restore: all chunks downloaded and unzipped")
+	return err
 }
 
 func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
@@ -841,6 +858,8 @@ func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescri
 // It propagates errors from both the download and the unzip so that partial
 // downloads are never silently accepted.
 func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType backup.CompressionType, chunkName string, readFn func(w io.WriteCloser) error) error {
+	chunkStart := time.Now()
+	fw.logger.WithField("chunk", chunkName).Debug("restore: starting chunk read+unzip")
 	uz, w := NewUnzip(classTempDir, compressionType)
 
 	readErrCh := make(chan error, 1)
@@ -852,13 +871,24 @@ func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType bac
 		readErrCh <- err
 	}, fw.logger)
 
-	_, unzipErr := uz.ReadChunk()
+	written, unzipErr := uz.ReadChunk()
 	if unzipErr != nil {
+		fw.logger.WithField("chunk", chunkName).
+			WithField("took", time.Since(chunkStart)).
+			WithField("written_bytes", written).
+			Errorf("restore: unzip failed: %v", unzipErr)
 		return fmt.Errorf("unzip chunk %s: %w", chunkName, unzipErr)
 	}
 	if readErr := <-readErrCh; readErr != nil {
+		fw.logger.WithField("chunk", chunkName).
+			WithField("took", time.Since(chunkStart)).
+			Errorf("restore: backend read failed: %v", readErr)
 		return fmt.Errorf("read chunk %s from backend: %w", chunkName, readErr)
 	}
+	fw.logger.WithField("chunk", chunkName).
+		WithField("took", time.Since(chunkStart)).
+		WithField("written_bytes", written).
+		Debug("restore: chunk read+unzip completed")
 	return nil
 }
 

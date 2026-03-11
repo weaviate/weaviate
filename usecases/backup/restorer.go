@@ -89,11 +89,15 @@ func (r *restorer) restore(
 
 	f := func() {
 		var err error
+		restoreStart := time.Now().UTC()
 		status := Status{
 			Path:      destPath,
-			StartedAt: time.Now().UTC(),
+			StartedAt: restoreStart,
 			Status:    backup.Transferring,
 		}
+		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID, "node": r.node}
+		r.logger.WithFields(logFields).WithField("expiration", expiration).
+			Info("node restore goroutine started, waiting for coordinator")
 		defer func() {
 			status.CompletedAt = time.Now().UTC()
 			if err == nil {
@@ -104,6 +108,10 @@ func (r *restorer) restore(
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
 			r.lastOp.reset()
+			r.logger.WithFields(logFields).
+				WithField("status", status.Status).
+				WithField("total_took", time.Since(restoreStart)).
+				Info("node restore goroutine finished")
 		}()
 
 		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
@@ -112,17 +120,18 @@ func (r *restorer) restore(
 			r.lastAsyncError = err
 			return
 		}
+		r.logger.WithFields(logFields).WithField("waited", time.Since(restoreStart)).
+			Info("coordinator commit received, starting restoreAll")
 
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
+		restoreAllStart := time.Now()
 		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
-		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
-		if err != nil {
-			r.logger.WithFields(logFields).Error(err)
-		} else {
-			r.logger.WithFields(logFields).Info("backup restored successfully")
-		}
+		r.logger.WithFields(logFields).WithField("took", time.Since(restoreAllStart)).
+			WithField("num_classes", len(desc.Classes)).
+			WithField("err", err).
+			Info("restoreAll completed")
 	}
 	enterrors.GoWrapper(f, r.logger)
 
@@ -151,13 +160,26 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 	}
 
-	for _, cdesc := range desc.Classes {
+	for i, cdesc := range desc.Classes {
+		classStart := time.Now()
+		numShards := len(cdesc.Shards)
+		numChunks := len(cdesc.Chunks)
+		r.logger.WithField("action", "restore").
+			WithField("backup_id", desc.ID).
+			WithField("class", cdesc.Name).
+			WithField("class_index", fmt.Sprintf("%d/%d", i+1, len(desc.Classes))).
+			WithField("num_shards", numShards).
+			WithField("num_chunks", numChunks).
+			WithField("compressed", compressed).
+			Info("restoring class")
 		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
 			WithField("backup_id", desc.ID).
-			WithField("class", cdesc.Name).Info("successfully restored")
+			WithField("class", cdesc.Name).
+			WithField("took", time.Since(classStart)).
+			Info("successfully restored class")
 	}
 	return nil
 }

@@ -273,9 +273,18 @@ func (c *coordinator) Restore(
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, true)
-		c.restoreClasses(ctx, schema, req)
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
+		c.log.WithFields(logFields).WithField("nodes", nodes).Info("coordinator: starting commit phase")
+		commitStart := time.Now()
+		c.commit(ctx, &statusReq, nodes, true)
+		c.log.WithFields(logFields).WithField("took", time.Since(commitStart)).
+			WithField("descriptor_status", c.descriptor.Status).
+			Info("coordinator: commit phase completed")
+		restoreClassesStart := time.Now()
+		c.restoreClasses(ctx, schema, req)
+		c.log.WithFields(logFields).WithField("took", time.Since(restoreClassesStart)).
+			WithField("descriptor_status", c.descriptor.Status).
+			Info("coordinator: restoreClasses completed")
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
@@ -440,12 +449,24 @@ func (c *coordinator) commit(ctx context.Context,
 		node2Host[k] = v
 	}
 	nFailures := c.commitAll(ctx, req, node2Host)
+	c.log.WithField("action", req.Method).WithField("backup_id", req.ID).
+		WithField("commit_failures", nFailures).
+		WithField("remaining_nodes", len(node2Host)).
+		Info("coordinator: commitAll done, starting poll loop")
 	retryAfter := c.timeoutNextRound / 5 // 2s for first time
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+	pollRound := 0
 	for canContinue {
 		<-time.After(retryAfter)
 		retryAfter = c.timeoutNextRound
+		pollRound++
 		nFailures += c.queryAll(ctx, req, node2Host)
+		c.log.WithField("action", req.Method).WithField("backup_id", req.ID).
+			WithField("poll_round", pollRound).
+			WithField("remaining_nodes", len(node2Host)).
+			WithField("total_failures", nFailures).
+			WithField("participants", c.Participants).
+			Info("coordinator: poll round completed")
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
 	if !toleratePartialFailure && nFailures > 0 {
