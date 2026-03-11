@@ -12,7 +12,9 @@
 package backup
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -21,6 +23,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -725,4 +728,63 @@ func TestCalculateTop100Size(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// TestReadAndUnzipChunk_TrailingBytes verifies that readAndUnzipChunk does not
+// deadlock when the backend sends trailing bytes after a valid compressed tar
+// stream. This reproduces a real-world hang where the gzip/zstd decompressor
+// detects end-of-stream and ReadChunk returns, but io.Copy in the readFn
+// goroutine is still trying to write remaining bytes to the pipe. Without the
+// fix (closing the pipe reader after ReadChunk), the write blocks forever
+// because nobody reads from the pipe anymore.
+func TestReadAndUnzipChunk_TrailingBytes(t *testing.T) {
+	// Build a valid gzip-compressed tar archive containing one small file.
+	var archiveBuf bytes.Buffer
+	gw := gzip.NewWriter(&archiveBuf)
+	tw := tar.NewWriter(gw)
+	fileContent := []byte("hello world")
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name: "testfile.txt",
+		Mode: 0o644,
+		Size: int64(len(fileContent)),
+	}))
+	_, err := tw.Write(fileContent)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	// Append trailing bytes after the valid gzip stream. This simulates
+	// extra data on the wire (padding, second gzip member, etc.) that the
+	// decompressor does not need. The pipe write of these bytes will block
+	// if the pipe reader is not closed after ReadChunk returns.
+	trailing := make([]byte, 4096)
+	archiveBuf.Write(trailing)
+	archiveData := archiveBuf.Bytes()
+
+	destDir := t.TempDir()
+	fw := &fileWriter{
+		logger: logrus.New(),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- fw.readAndUnzipChunk(destDir, backup.CompressionGZIP, "test-chunk",
+			func(w io.WriteCloser) error {
+				defer w.Close()
+				_, err := io.Copy(w, bytes.NewReader(archiveData))
+				return err
+			})
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("readAndUnzipChunk deadlocked: pipe reader was not closed after ReadChunk returned")
+	}
+
+	// Verify the file was extracted correctly.
+	got, err := os.ReadFile(filepath.Join(destDir, "testfile.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, fileContent, got)
 }

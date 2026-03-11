@@ -845,18 +845,35 @@ func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType bac
 
 	readErrCh := make(chan error, 1)
 	enterrors.GoWrapper(func() {
-		err := readFn(w)
+		var err error
+		// Ensure readErrCh is always signaled even if readFn panics,
+		// otherwise the receiver on readErrCh will hang forever.
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in readFn: %v", r)
+				readErrCh <- err
+				panic(r) // re-panic so GoWrapper still logs the full stack
+			}
+			readErrCh <- err
+		}()
+		err = readFn(w)
 		if err != nil {
 			fw.logger.WithField("chunk", chunkName).Errorf("failed to read chunk from backend: %v", err)
 		}
-		readErrCh <- err
 	}, fw.logger)
 
 	_, unzipErr := uz.ReadChunk()
+	// Close the pipe reader so any in-progress pw.Write() in readFn unblocks
+	// with ErrClosedPipe. Without this, readFn can hang forever if the
+	// decompressor detected end-of-stream before io.Copy finished writing all
+	// bytes from the backend.
+	uz.Close()
+	// Always drain readErrCh to prevent leaking the readFn goroutine.
+	readErr := <-readErrCh
 	if unzipErr != nil {
 		return fmt.Errorf("unzip chunk %s: %w", chunkName, unzipErr)
 	}
-	if readErr := <-readErrCh; readErr != nil {
+	if readErr != nil && !errors.Is(readErr, io.ErrClosedPipe) {
 		return fmt.Errorf("read chunk %s from backend: %w", chunkName, readErr)
 	}
 	return nil
