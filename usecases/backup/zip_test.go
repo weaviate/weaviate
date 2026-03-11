@@ -855,13 +855,13 @@ func TestRenamingDuringBackup(t *testing.T) {
 			// start backup process
 			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0)
 			require.NoError(t, err)
+			fileList := newFileList(t, dir, sd.Files)
 			// Use assert (not require) in goroutines: require calls t.FailNow() which
 			// invokes runtime.Goexit(), terminating the goroutine without running
 			// deferred cleanup (z.Close). That would leave the pipe writer open and
 			// deadlock the main goroutine on io.Copy.
 			go func() {
 				defer func() { assert.NoError(t, z.Close()) }()
-				fileList := &backup.FileList{Files: append([]string{}, sd.Files...)}
 				_, _, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
 				assert.NoError(t, err)
 			}()
