@@ -267,8 +267,13 @@ func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDe
 		if err != nil {
 			return written, err
 		}
-		// Skip big files — they get their own chunk
-		if fileSize >= z.bigFileThreshold {
+		// Skip big files — they get their own chunk.
+		// Also skip files that exceed the split threshold: WriteRegular
+		// would split them and return a SplitFile that we cannot propagate
+		// from here, so they must be handled by the main WriteRegulars loop.
+		// NewZip already enforces splitFileSize >= bigFileThreshold, so the
+		// first check normally covers this; the second is a defensive guard.
+		if fileSize >= z.bigFileThreshold || fileSize > z.splitFileSizeBytes {
 			continue
 		}
 		if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
