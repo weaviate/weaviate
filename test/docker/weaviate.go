@@ -33,6 +33,12 @@ const (
 	SecondWeaviate = "second-weaviate"
 )
 
+type stdoutLogConsumer struct{}
+
+func (lc *stdoutLogConsumer) Accept(l testcontainers.Log) {
+	fmt.Print(string(l.Content))
+}
+
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
@@ -132,6 +138,7 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
+	g := stdoutLogConsumer{}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -163,6 +170,12 @@ func startWeaviate(ctx context.Context,
 					},
 				},
 			},
+		},
+		LogConsumerCfg: &testcontainers.LogConsumerConfig{
+			Opts: []testcontainers.LogProductionOption{
+				testcontainers.WithLogProductionTimeout(10 * time.Second),
+			},
+			Consumers: []testcontainers.LogConsumer{&g},
 		},
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
