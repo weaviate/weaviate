@@ -273,56 +273,114 @@ Nested Property Filtering — Design Summary
         │ d124 cars[1].tires[0] │ radiuses=[] (empty)             │ none        │ gets own l10 │
         └───────────────────────┴─────────────────────────────────┴─────────────┴──────────────┘
 
-    ---
-    4. Bitmap Operations
+---
+4. Bitmap Operations
 
-    ┌──────────────┬──────────────────────────────────────────────┬───────────────────────────────────────────────────────────┐
-    │    Operation     │                                    Mechanics                                     │                                                When to use                                                │
-    ├──────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-    │ Direct AND     │ Positions match exactly (root+leaf+docID)        │ Same-element; ancestor-descendant; doc-level scalar + any │
-    ├──────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-    │ MaskPosition │ Zeros bits 47-32 (leaf), keeps root+docID        │ Cross-sibling subtrees under same level                                     │
-    ├──────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-    │ Strip                │ Zeros bits 63-32, keeps docID only                     │ Final result extraction                                                                     │
-    ├──────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-    │ ANDNOT             │ Raw position subtraction                                         │ Negation (preserves per-element precision)                                │
-    ├──────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-    │ _idx loop        │ Iterate element positions via _idx per index │ Cross-sibling under intermediate array                                        │
-    └──────────────┴──────────────────────────────────────────────┴───────────────────────────────────────────────────────────┘
+    ┌──────────────┬──────────────────────────────────────────────────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────┐
+    │  Operation   │                                      Mechanics                                       │                             When to use                             │
+    ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+    │ Direct AND   │ Position match (root+leaf+docID)                                                     │ When one operand's positions ⊇ the other's for matching elements    │
+    ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+    │ MaskPosition │ Zero bits 47-32 (leaf), keep root+docID                                              │ Erase leaf differences to check same root+document                  │
+    ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+    │ Strip        │ Zero bits 63-32, keep docID only                                                     │ Final result → docIDs                                               │
+    ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+    │ ANDNOT       │ Raw position subtraction                                                             │ Negation (preserves per-element precision)                          │
+    ├──────────────┼──────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+    │ _idx loop    │ For each index N in _idx.{path}, AND both operands with _idx positions, check both   │ Verify both operands fall under the same element of an intermediate │
+    │              │ non-empty                                                                            │  array                                                              │
+    └──────────────┴──────────────────────────────────────────────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────┘
 
     NOTE: 
-        - MaskPosition() and Strip() methods have to be added to sroar library
-        - "Direct AND" and "ANDNOT" are respectively sroar's And() and AndNot()
-        - "_idx loop" process of traversing through _idx entries to verify whether filtered values belong to the same element of nested (intermediate, not root) array.
+    - MaskPosition() and Strip() methods have to be added to the sroar library
+    - "Direct AND" and "ANDNOT" are respectively sroar's And() and AndNot() methods
+
+    When to use Direct AND
+
+        Direct AND works when at least one operand's positions are a superset of the other's for matching elements. Three cases:
+
+        ┌───────────────────────────────────────────┬────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────────────────┐
+        │                   Case                    │              Why it works              │                                     Example                                     │
+        ├───────────────────────────────────────────┼────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────┤
+        │ Same leaf element                         │ Identical positions                    │ addresses.city="Madrid" AND addresses.postcode="28001" → both {l2|d124}         │
+        ├───────────────────────────────────────────┼────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────┤
+        │ Ancestor → descendant                     │ Ancestor inherits descendant positions │ cars.tires.width=205 AND cars.tires.radiuses=17 → width {l7,l8} ⊇ radiuses {l7} │
+        ├───────────────────────────────────────────┼────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────┤
+        │ Parent-level scalar + any sibling subtree │ Scalar inherits ALL parent descendants │ cars.make="BMW" AND cars.colors="black" → make {l7..l10} ⊇ colors {l9}          │
+        └───────────────────────────────────────────┴────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────┘
+
+    When to use MaskPosition + AND
+
+        When operands are in different subtrees and neither's positions contain the other's. MaskPosition erases leaf differences to check same root+docID.
+
+        Sufficient when the lowest common ancestor (LCA) of both operands is the document root:
+
+        addresses.city="Berlin" AND cars.make="BMW"
+        → MaskPos({r1|l3..l4|d123}) AND MaskPos({r1|l7..l10|d123}) → {r1|d123} ✓
+
+    When to use MaskPosition + _idx loop
+
+        When the LCA is an intermediate array (not the root). MaskPosition alone is too coarse — it confirms same document but not same array element. The _idx loop verifies both
+        operands fall under the same element of the intermediate parent.
+
+        Which _idx to use: the intermediate array that is the LCA of both operands.
+
+        ┌──────────────────────────────────────────────────────────────────────────┬────────────┬─────────────────┐
+        │                                 Operands                                 │ LCA array  │  _idx to loop   │
+        ├──────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+        │ cars.tires.width + cars.colors                                           │ cars       │ _idx.cars       │
+        ├──────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+        │ cars.tires.radiuses + cars.accessories.type                              │ cars       │ _idx.cars       │
+        ├──────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+        │ cars.tires.radiuses (value1) + cars.tires.radiuses (value2) on same tire │ cars.tires │ _idx.cars.tires │
+        ├──────────────────────────────────────────────────────────────────────────┼────────────┼─────────────────┤
+        │ addresses.numbers (value1) + addresses.numbers (value2) on same address  │ addresses  │ _idx.addresses  │
+        └──────────────────────────────────────────────────────────────────────────┴────────────┴─────────────────┘
+
+        Example — cars.tires.width=205 AND cars.colors="white" (LCA = cars):
+        A=width=205 → {r1|l7..l8|d124}, B=colors="white" → {r1|l11|d124}
+        MaskPos pre-filter → {r1|d124} → candidate d124
+        _idx.cars loop:
+        _idx.cars[0]={l7..l9}: A∩={l7..l8}✓, B∩=∅ ✗ (Audi has no colors)
+        _idx.cars[1]={l10..l11}: A∩=∅ ✗
+        → no same-car match → {} ✓ (205 is Audi, white is Kia)
+
+    Decision flowchart
+
+        Given filter conditions A and B:
+
+        1. Is one operand an ancestor of the other, or a scalar at the parent level of the other? → Direct AND
+        2. Are they properties of the same leaf element? → Direct AND
+        3. Otherwise find the lowest common ancestor array:
+        - LCA = document root → MaskPos(A) AND MaskPos(B)
+        - LCA = intermediate array → MaskPos pre-filter + _idx.{LCA} loop
+
+    Compound operations
+
+        ┌──────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────┐
+        │         Pattern          │                                         Operation                                         │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ ANY(prop = X)            │ filter + Strip (default)                                                                  │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ ALL(prop = X)            │ failing = _exists.prop ANDNOT passing; failDocs = Strip(failing); allDocs ANDNOT failDocs │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ NONE(prop = X)           │ matchDocs = Strip(match); allDocs ANDNOT matchDocs                                        │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ Position arr[N]          │ filter AND _idx.arr[N+1]                                                                  │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ ContainsAll [X,Y]        │ MaskPos(val=X) AND MaskPos(val=Y) — or _idx loop if array under intermediate              │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ ContainsAny [X,Y]        │ Union(val=X, val=Y) + Strip                                                               │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ IS NULL (doc-level)      │ allDocs ANDNOT Strip(_exists.prop)                                                        │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ IS NULL (element-level)  │ _exists.parent ANDNOT _exists.prop                                                        │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ Negation (doc-level)     │ allDocs ANDNOT Strip(match)                                                               │
+        ├──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
+        │ Negation (element-level) │ _exists.prop ANDNOT match                                                                 │
+        └──────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────┘
     
-
-    Decision table:
-
-    ┌──────────────────────────────────────┬────────────────────────────────────────────────────────────────┐
-    │                         Relationship                         │                                                     Operation                                                        │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ Same property, same element                    │ Direct AND                                                                                                         │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ Ancestor → descendant (same subtree) │ Direct AND                                                                                                         │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ Doc-level scalar + any nested                │ Direct AND (full propagation)                                                                    │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ Sibling subtrees under root                    │ MaskPosition + AND                                                                                         │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ Sibling arrays under intermediate        │ MaskPosition pre-filter + _idx loop                                                        │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ Negation                                                         │ ANDNOT on raw positions                                                                                │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ ANY                                                                    │ Default — filter + Strip                                                                             │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ ALL                                                                    │ allElements ANDNOT passing → failDocs; allDocs ANDNOT failDocs │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ NONE                                                                 │ Strip(matching) → matchDocs; allDocs ANDNOT matchDocs                    │
-    ├──────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
-    │ Position access arr[N]                             │ filter AND _idx[N]                                                                                         │
-    └──────────────────────────────────────┴────────────────────────────────────────────────────────────────┘
-
-
 ---
 5. Complete Index
 
