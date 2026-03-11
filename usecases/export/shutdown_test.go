@@ -34,7 +34,7 @@ import (
 func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	shutdownCtx, shutdownCancel := context.WithCancelCause(context.Background())
 
 	// blockingSelector blocks in AcquireShardForExport until released
 	selector := &blockingSelector{
@@ -60,7 +60,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		s.performSingleNodeExport(shutdownCtx, backend, "test-export", status, []string{"TestClass"}, "", "")
+		s.performSingleNodeExport(shutdownCtx, shutdownCancel, backend, "test-export", status, []string{"TestClass"}, "", "")
 		close(done)
 	}()
 
@@ -68,7 +68,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 	selector.waitForCall(t)
 
 	// Simulate shutdown
-	shutdownCancel()
+	shutdownCancel(nil)
 
 	// Unblock the selector so it can return the context error
 	close(selector.blockCh)
@@ -335,7 +335,7 @@ func (c *fakeExportClient) Commit(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (c *fakeExportClient) Abort(_ context.Context, _, _ string) {}
+func (c *fakeExportClient) Abort(_ context.Context, _, _ string) error { return nil }
 
 func (c *fakeExportClient) IsRunning(ctx context.Context, host, exportID string) (bool, error) {
 	if c.isRunningFn != nil {
@@ -397,8 +397,8 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		Status:   export.Transferring,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 300},
-				"shard1": {Status: export.Transferring, ObjectsExported: 200},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 300},
+				"shard1": {Status: export.ShardTransferring, ObjectsExported: 200},
 			},
 		},
 	}
@@ -461,8 +461,8 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		Status:   export.Transferring,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 300},
-				"shard1": {Status: export.Transferring, ObjectsExported: 100},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 300},
+				"shard1": {Status: export.ShardTransferring, ObjectsExported: 100},
 			},
 		},
 	}
@@ -533,7 +533,9 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 		Classes: []string{"TestClass"},
 	}
 
-	s.performSingleNodeExport(context.Background(), backend, "test-export", status, []string{"TestClass"}, "", "")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	s.performSingleNodeExport(ctx, cancel, backend, "test-export", status, []string{"TestClass"}, "", "")
 
 	require.Equal(t, string(export.Success), status.Status)
 
@@ -556,8 +558,8 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		Status:   export.Success,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 500},
-				"shard1": {Status: export.Skipped, ObjectsExported: 0},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 500},
+				"shard1": {Status: export.ShardSkipped, ObjectsExported: 0},
 			},
 		},
 	}
@@ -604,9 +606,9 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 
 	// Per-shard status is correctly reported
 	require.NotNil(t, status.ShardStatus["TestClass"])
-	assert.Equal(t, string(export.Success), status.ShardStatus["TestClass"]["shard0"].Status)
+	assert.Equal(t, string(export.ShardSuccess), status.ShardStatus["TestClass"]["shard0"].Status)
 	assert.Equal(t, int64(500), status.ShardStatus["TestClass"]["shard0"].ObjectsExported)
-	assert.Equal(t, string(export.Skipped), status.ShardStatus["TestClass"]["shard1"].Status)
+	assert.Equal(t, string(export.ShardSkipped), status.ShardStatus["TestClass"]["shard1"].Status)
 	assert.Equal(t, int64(0), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
 }
 
