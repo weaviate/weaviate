@@ -253,9 +253,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	h.resetTombstoneMetric()
 
 	// make sure the visited list pool fits the current size
-	h.pools.visitedLists.Destroy()
-	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
+	h.pools.visitedLists = visited.NewPool(len(h.nodes) + 512)
 
 	return nil
 }
