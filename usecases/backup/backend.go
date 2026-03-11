@@ -845,11 +845,21 @@ func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType bac
 
 	readErrCh := make(chan error, 1)
 	enterrors.GoWrapper(func() {
-		err := readFn(w)
+		var err error
+		// Ensure readErrCh is always signaled even if readFn panics,
+		// otherwise the receiver on readErrCh will hang forever.
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in readFn: %v", r)
+				readErrCh <- err
+				panic(r) // re-panic so GoWrapper still logs the full stack
+			}
+			readErrCh <- err
+		}()
+		err = readFn(w)
 		if err != nil {
 			fw.logger.WithField("chunk", chunkName).Errorf("failed to read chunk from backend: %v", err)
 		}
-		readErrCh <- err
 	}, fw.logger)
 
 	_, unzipErr := uz.ReadChunk()
