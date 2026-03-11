@@ -25,7 +25,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -249,17 +248,6 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}
-	}
-
-	// Start periodic rejoin if we have join addresses and an expected cluster size.
-	// This handles the case where a node gets network-isolated long enough for
-	// memberlist to purge all knowledge of it (and vice versa). Without periodic
-	// rejoin, such a node can never re-discover the cluster because memberlist only
-	// calls Join() once at startup.
-	if len(joinAddr) > 0 && userConfig.RaftBootstrapExpect > 1 {
-		enterrors.GoWrapper(func() {
-			state.periodicRejoin(joinAddr, userConfig.RaftBootstrapExpect, logger)
-		}, logger)
 	}
 
 	return &state, nil
@@ -543,49 +531,6 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
-}
-
-// periodicRejoin attempts to rejoin the cluster when the number of known
-// members drops below the expected count. This handles the scenario where a
-// network partition lasts long enough for memberlist to fully purge dead nodes
-// (after GossipToTheDeadTime). Without this, the isolated node and the rest of
-// the cluster lose all knowledge of each other and can never reconnect because
-// memberlist only calls Join() at startup.
-func (s *State) periodicRejoin(joinAddr []string, expectedNodes int, logger logrus.FieldLogger) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		if s.list == nil {
-			return
-		}
-
-		currentMembers := s.list.NumMembers()
-		if currentMembers >= expectedNodes {
-			continue
-		}
-
-		logger.WithFields(logrus.Fields{
-			"action":           "periodic_rejoin",
-			"current_members":  currentMembers,
-			"expected_members": expectedNodes,
-			"join_addresses":   joinAddr,
-		}).Info("member count below expected, attempting rejoin")
-
-		n, err := s.list.Join(joinAddr)
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"action":         "periodic_rejoin",
-				"join_addresses": joinAddr,
-			}).WithError(err).Debug("rejoin attempt failed (will retry)")
-		} else if n > 0 {
-			logger.WithFields(logrus.Fields{
-				"action":         "periodic_rejoin",
-				"nodes_joined":   n,
-				"join_addresses": joinAddr,
-			}).Info("successfully rejoined cluster")
-		}
-	}
 }
 
 // validateClusterConfig validates the cluster configuration
