@@ -405,12 +405,13 @@ func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
 		blockCh: make(chan struct{}),
 	}
 
-	p := NewParticipant(
-		context.Background(),
-		selector,
-		&fakeBackendProvider{backend: backend},
-		logger,
-	)
+	p := &Participant{
+		shutdownCtx:    context.Background(),
+		selector:       selector,
+		backends:       &fakeBackendProvider{backend: backend},
+		logger:         logger,
+		statusInterval: 50 * time.Millisecond,
+	}
 
 	// Write a Failed status for the sibling node
 	siblingStatus := &NodeStatus{
@@ -438,15 +439,19 @@ func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
 	// Wait for the export goroutine to start
 	selector.waitForCall(t)
 
-	// Test checkSiblingHealth directly to verify it detects the failure.
-	failed := p.checkSiblingHealth(context.Background(), backend, req)
-	assert.True(t, failed, "expected sibling failure to be detected")
-
-	// Clean up by aborting
-	p.Abort("test-export")
+	// The status writer goroutine should detect the sibling failure and
+	// auto-cancel the export without an explicit Abort call.
 	require.Eventually(t, func() bool {
 		return !p.IsRunning("test-export")
-	}, 5*time.Second, 10*time.Millisecond)
+	}, 5*time.Second, 10*time.Millisecond, "expected export to stop after sibling failure")
+
+	// Verify failed status was written for the local node
+	written := backend.getWritten("node_node1_status.json")
+	require.NotNil(t, written, "expected node status to be written")
+
+	var nodeStatus NodeStatus
+	require.NoError(t, json.Unmarshal(written, &nodeStatus))
+	assert.Equal(t, export.Failed, nodeStatus.Status)
 }
 
 func TestParticipant_CheckSiblingHealth(t *testing.T) {

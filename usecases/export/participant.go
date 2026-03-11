@@ -28,7 +28,10 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-const reservationTimeout = 30 * time.Second
+const (
+	reservationTimeout    = 30 * time.Second
+	defaultStatusInterval = 30 * time.Second
+)
 
 // Participant handles export requests on a single node.
 // It exports its assigned shards directly to S3 and writes status files.
@@ -39,10 +42,11 @@ const reservationTimeout = 30 * time.Second
 //  2. Commit: cancels the timer and starts the actual export work.
 //  3. Abort: releases the reservation immediately.
 type Participant struct {
-	shutdownCtx context.Context
-	selector    Selector
-	backends    BackendProvider
-	logger      logrus.FieldLogger
+	shutdownCtx    context.Context
+	selector       Selector
+	backends       BackendProvider
+	logger         logrus.FieldLogger
+	statusInterval time.Duration // interval for status writes and sibling checks; 0 uses defaultStatusInterval
 
 	// mu guards preparedReq, abortTimer, and cancelExport, which are set
 	// during Prepare/Commit and consumed during Commit/Abort.
@@ -510,7 +514,11 @@ func (p *Participant) startNodeStatusWriter(
 
 	enterrors.GoWrapper(func() {
 		defer close(done)
-		ticker := time.NewTicker(30 * time.Second)
+		interval := p.statusInterval
+		if interval == 0 {
+			interval = defaultStatusInterval
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
