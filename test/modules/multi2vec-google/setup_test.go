@@ -45,6 +45,23 @@ func TestMulti2VecGoogle_Vertex_SingleNode(t *testing.T) {
 	t.Run("multi2vec-palm", testMulti2VecGoogleVertex(endpoint, gcpProject, location, "multi2vec-palm"))
 }
 
+func TestMulti2VecGoogle_AIStudio_SingleNode(t *testing.T) {
+	googleApiKey := os.Getenv("GOOGLE_AISTUDIO_APIKEY")
+	if googleApiKey == "" {
+		t.Skip("skipping, GOOGLE_AISTUDIO_APIKEY environment variable not present")
+	}
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironment(ctx, googleApiKey)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+
+	t.Run("multi2vec-google", testMulti2VecGoogleAIStudio(endpoint, "multi2vec-google"))
+	t.Run("multi2vec-palm", testMulti2VecGoogleAIStudio(endpoint, "multi2vec-palm"))
+}
+
 func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(googleApiKey).
