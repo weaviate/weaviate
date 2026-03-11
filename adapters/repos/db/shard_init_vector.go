@@ -110,6 +110,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
 				DistanceProvider:                  distProv,
+				IterateVectorsThunk: func(ctx context.Context, fn func(id uint64, vector []float32) error) error {
+					return s.iterateOnLSMVectors(ctx, 0, targetVector, fn)
+				},
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -205,6 +208,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
 			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+			IterateVectorsThunk: func(ctx context.Context, fn func(id uint64, vector []float32) error) error {
+				return s.iterateOnLSMVectors(ctx, 0, targetVector, fn)
+			},
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -276,6 +282,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 					TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
 					DistanceProvider:                  distProv,
+					IterateVectorsThunk: func(ctx context.Context, fn func(id uint64, vector []float32) error) error {
+						return s.iterateOnLSMVectors(ctx, 0, targetVector, fn)
+					},
 					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 						return hnsw.NewCommitLogger(s.path(), spfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,

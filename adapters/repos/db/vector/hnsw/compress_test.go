@@ -97,6 +97,134 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func Test_CompressionSentinelClearedAfterSuccessfulCompress(t *testing.T) {
+	dimensions := 20
+	vectorsSize := 50
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	dummyStore := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+
+	uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+	cfg := indexConfig("sentinel_test", tempDir, logger, vectors, dist)
+
+	index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+
+	require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+		return index.Add(ctx, uint64(id), vectors[id])
+	}))
+
+	// Before compression, sentinel should not be set.
+	require.False(t, index.compressionIncomplete(), "sentinel should not exist before compression")
+
+	// Compress with PQ.
+	require.NoError(t, index.compress(uc))
+
+	// After successful compression, sentinel should be cleared.
+	require.False(t, index.compressionIncomplete(), "sentinel should be cleared after successful compression")
+	require.True(t, index.compressed.Load(), "index should be compressed")
+}
+
+func Test_CompressionSentinelDetectedWhenNotCleared(t *testing.T) {
+	dimensions := 20
+	vectorsSize := 50
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	dummyStore := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+
+	uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+	cfg := indexConfig("sentinel_incomplete", tempDir, logger, vectors, dist)
+
+	index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+
+	require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+		return index.Add(ctx, uint64(id), vectors[id])
+	}))
+
+	// Compress to create the compressor and the compressed bucket.
+	require.NoError(t, index.compress(uc))
+	require.True(t, index.compressed.Load())
+
+	// Simulate an interrupted re-compression by marking in progress without clearing.
+	index.markCompressionInProgress()
+	require.True(t, index.compressionIncomplete(), "sentinel should be detected as incomplete")
+
+	// Clearing should remove it.
+	index.clearCompressionSentinel()
+	require.False(t, index.compressionIncomplete(), "sentinel should be cleared after explicit clear")
+}
+
+func Test_CompressionSentinelRecoveryOnRestart(t *testing.T) {
+	dimensions := 20
+	vectorsSize := 50
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, 1, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	dummyStore := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+
+	uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+	cfg := indexConfig("sentinel_recovery", tempDir, logger, vectors, dist)
+
+	// Phase 1: build index, compress, then simulate interrupted re-compression.
+	index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+
+	require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+		return index.Add(ctx, uint64(id), vectors[id])
+	}))
+
+	require.NoError(t, index.compress(uc))
+
+	// Record search results before the simulated crash.
+	control, _, err := index.SearchByVector(ctx, queries[0], 10, nil)
+	require.NoError(t, err)
+
+	// Simulate interrupted re-compression: set sentinel, then shutdown.
+	index.markCompressionInProgress()
+	require.NoError(t, index.Flush())
+	require.NoError(t, index.Shutdown(ctx))
+	dummyStore.FlushMemtables(ctx)
+
+	// Phase 2: restart with IterateVectorsThunk to enable recovery.
+	restartCfg := indexConfig("sentinel_recovery", tempDir, logger, vectors, dist)
+	restartCfg.WaitForCachePrefill = true
+	restartCfg.IterateVectorsThunk = func(ctx context.Context, fn func(id uint64, vector []float32) error) error {
+		for i, v := range vectors {
+			if err := fn(uint64(i), v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	index, err = New(restartCfg, uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+
+	// PostStartup should detect the sentinel and trigger recovery.
+	index.PostStartup(ctx)
+
+	// After recovery, sentinel should be cleared.
+	require.False(t, index.compressionIncomplete(), "sentinel should be cleared after recovery")
+	require.True(t, index.compressed.Load(), "index should still be compressed")
+
+	// Search should return correct results.
+	results, _, err := index.SearchByVector(ctx, queries[0], 10, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, control, results, "search results should match after recovery")
+}
+
 func Test_CompressAndInsertDoNotRace(t *testing.T) {
 	efConstruction := 64
 	ef := 32
