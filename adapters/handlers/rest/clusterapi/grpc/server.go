@@ -72,6 +72,8 @@ func NewServer(state *state.State, replicationServer ReplicationServer, options 
 			multiServiceBasicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
+	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 
 	s := grpc.NewServer(o...)
 
@@ -188,4 +190,22 @@ func GetMaxMessageSize(fileCopyChunkSize int) int {
 
 func GetInitialConnWindowSize(fileCopyChunkSize, fileCopyWorkers int) int {
 	return GetMaxMessageSize(fileCopyChunkSize) * fileCopyWorkers
+}
+
+func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if maintenanceModeEnabledForLocalhost() {
+			return nil, status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if maintenanceModeEnabledForLocalhost() {
+			return status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
+		return handler(srv, ss)
+	}
 }
