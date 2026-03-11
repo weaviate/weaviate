@@ -918,11 +918,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 	h.pools.pqResults.Put(res)
 
-	if sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk); sel != nil {
-		view := h.GetViewThunk()
-		defer view.ReleaseView()
+	view := h.GetViewThunk()
+	defer view.ReleaseView()
+	if sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk, view); sel != nil {
 		var err error
-		ids, dists, err = sel.Select(ctx, ids, dists, view)
+		ids, dists, err = sel.Select(ctx, ids, dists)
 		if err != nil {
 			return nil, nil, err
 		}

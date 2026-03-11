@@ -13,45 +13,42 @@ package selection
 
 import (
 	"context"
-	"errors"
 	"math"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-// mmr implements Maximal Marginal Relevance for diversifying search results.
-// It greedily selects k items from ids that balance relevance (low query
-// distance) with diversity (high distance from already-selected items).
-//
-// Scoring formula per candidate:
+// Scoring formula:
 //
 //	score = -lambda * queryDist + (1-lambda) * minDistToSelected
 //
-// lambda=1 gives pure relevance ranking, lambda=0 gives pure diversity.
-func mmr(
-	ctx context.Context,
-	provider distancer.Provider,
-	vecForID common.TempVectorForIDWithView[float32],
-	ids []uint64,
-	queryDistances []float32,
-	k int,
-	lambda float64,
-	view common.BucketView,
-) ([]uint64, []float32, error) {
+// lambda=1 pure relevance ranking, lambda=0 pure diversity.
+type MMRSelector struct {
+	provider distancer.Provider
+	vecForID common.TempVectorForIDWithView[float32]
+	k        int
+	lambda   float32
+	view     common.BucketView
+}
+
+func newMMRSelector(provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], k int, lambda float32, view common.BucketView) *MMRSelector {
+	return &MMRSelector{provider: provider, vecForID: vecForID, k: k, lambda: lambda, view: view}
+}
+
+func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error) {
 	n := len(ids)
+	k := s.k
 	if n == 0 || k <= 0 {
-		return nil, nil, errors.New("invalid parameters: n must be greater than 0 and k must be greater than 0")
+		return nil, nil, nil
 	}
 	if k > n {
 		k = n
 	}
 
-	// Phase 1: Load all candidate vectors into contiguous memory.
-	// A single VectorSlice is reused across all disk reads to minimize allocations.
 	container := &common.VectorSlice{Buff8: make([]byte, 8)}
 
-	firstVec, err := vecForID(ctx, ids[0], container, view)
+	firstVec, err := s.vecForID(ctx, ids[0], container, s.view)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,17 +58,13 @@ func mmr(
 	copy(vectors[:dim], firstVec)
 
 	for i := 1; i < n; i++ {
-		vec, err := vecForID(ctx, ids[i], container, view)
+		vec, err := s.vecForID(ctx, ids[i], container, s.view)
 		if err != nil {
 			return nil, nil, err
 		}
 		copy(vectors[i*dim:], vec)
 	}
 
-	// Phase 2: Greedy MMR selection.
-
-	// First selection: lowest query distance (most relevant).
-	// When S is empty the diversity term is undefined, so we pick by pure relevance.
 	bestIdx := 0
 	for i := 1; i < n; i++ {
 		if queryDistances[i] < queryDistances[bestIdx] {
@@ -100,13 +93,9 @@ func mmr(
 	}
 
 	lastSelectedVec := vectors[bestIdx*dim : (bestIdx+1)*dim]
-	lambdaF := float32(lambda)
-	oneMinusLambdaF := float32(1 - lambda)
 
-	// Greedily select k-1 more candidates. Each iteration fuses the
-	// diversity distance update (against the last selected vector) with
-	// scoring, so we touch each remaining candidate exactly once per round.
-	for s := 1; s < k; s++ {
+	// Greedily select k-1 more candidates
+	for round := 1; round < k; round++ {
 		bestScore := -float32(math.MaxFloat32)
 		bestIdx = -1
 
@@ -115,8 +104,7 @@ func mmr(
 				continue
 			}
 
-			// Update min diversity distance against the last selected candidate.
-			dist, err := provider.SingleDist(lastSelectedVec, vectors[i*dim:(i+1)*dim])
+			dist, err := s.provider.SingleDist(lastSelectedVec, vectors[i*dim:(i+1)*dim])
 			if err != nil {
 				return nil, nil, err
 			}
@@ -126,7 +114,7 @@ func mmr(
 
 			// MMR score: prefer low query distance (relevant) and high min
 			// distance to selected set (diverse).
-			score := -lambdaF*queryDistances[i] + oneMinusLambdaF*minDist[i]
+			score := -s.lambda*queryDistances[i] + (1-s.lambda)*minDist[i]
 			if score > bestScore {
 				bestScore = score
 				bestIdx = i
