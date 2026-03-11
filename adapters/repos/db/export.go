@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -31,10 +32,10 @@ type ExportShardLike = interface {
 }
 
 // ShardOwnership returns a map of node name to shard names for a given class.
-// Only the primary owner (BelongsToNodes[0]) is included for each shard,
-// ensuring replicated shards are never exported twice.
+// Shards are distributed across their replica nodes using a least-loaded
+// strategy so that export work is balanced across the cluster.
 func (db *DB) ShardOwnership(ctx context.Context, className string) (map[string][]string, error) {
-	result := make(map[string][]string)
+	shardNodes := make(map[string][]string)
 
 	err := db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
@@ -45,8 +46,7 @@ func (db *DB) ShardOwnership(ctx context.Context, className string) (map[string]
 			if len(shard.BelongsToNodes) == 0 {
 				return fmt.Errorf("shard %s of class %s has no assigned nodes", shardName, className)
 			}
-			primaryNode := shard.BelongsToNodes[0]
-			result[primaryNode] = append(result[primaryNode], shardName)
+			shardNodes[shardName] = shard.BelongsToNodes
 		}
 
 		return nil
@@ -55,7 +55,44 @@ func (db *DB) ShardOwnership(ctx context.Context, className string) (map[string]
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
 
-	return result, nil
+	return assignShardsToNodes(shardNodes), nil
+}
+
+// assignShardsToNodes distributes shards across their replica nodes using a
+// least-loaded strategy. For each shard (processed in sorted order for
+// determinism), it picks the replica node with the fewest already-assigned
+// shards. Ties are broken by lexicographic node name order.
+func assignShardsToNodes(shards map[string][]string) map[string][]string {
+	result := make(map[string][]string)
+	if len(shards) == 0 {
+		return result
+	}
+
+	// Process shards in sorted order for determinism.
+	shardNames := make([]string, 0, len(shards))
+	for name := range shards {
+		shardNames = append(shardNames, name)
+	}
+	sort.Strings(shardNames)
+
+	for _, shardName := range shardNames {
+		nodes := shards[shardName]
+
+		// Pick the node with the least load; break ties lexicographically.
+		best := nodes[0]
+		bestLoad := len(result[best])
+		for _, node := range nodes[1:] {
+			nl := len(result[node])
+			if nl < bestLoad || (nl == bestLoad && node < best) {
+				best = node
+				bestLoad = nl
+			}
+		}
+
+		result[best] = append(result[best], shardName)
+	}
+
+	return result
 }
 
 // ExportShardNames returns all shard names for a class and whether the class is MT.
