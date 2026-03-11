@@ -401,6 +401,14 @@ func (m *Manager) Restore(b []byte) error {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
+	// Invalidate the enforce cache before clearing policies so that no stale
+	// pre-restore cached decisions can be served between ClearPolicy() and the
+	// new policies being loaded. ClearPolicy() is not overridden by
+	// SyncedCachedEnforcer, so it does not invalidate the cache on its own.
+	if err := m.casbin.InvalidateCache(); err != nil {
+		return fmt.Errorf("InvalidateCache before ClearPolicy: %w", err)
+	}
+
 	// we need to clear the policies before adding the new ones
 	m.casbin.ClearPolicy()
 
@@ -432,6 +440,13 @@ func (m *Manager) Restore(b []byte) error {
 	// Load the policies to ensure they are in memory
 	if err := m.casbin.LoadPolicy(); err != nil {
 		return fmt.Errorf("load policies: %w", err)
+	}
+
+	// LoadPolicy() clears the cache before reloading the model, but concurrent
+	// Enforce() calls can re-cache stale results in that gap. Invalidate once
+	// more so that any entries cached during the restore window are discarded.
+	if err := m.casbin.InvalidateCache(); err != nil {
+		return fmt.Errorf("InvalidateCache after LoadPolicy: %w", err)
 	}
 
 	return nil
