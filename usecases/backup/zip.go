@@ -567,6 +567,22 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 	}
 }
 
+// offsetWriter wraps an *os.File and implements io.Writer using WriteAt
+// (pwrite) so that each Write lands at a deterministic offset without
+// touching the shared file-descriptor seek position. This makes it safe
+// for multiple goroutines to write different regions of the same file
+// concurrently.
+type offsetWriter struct {
+	f      *os.File
+	offset int64
+}
+
+func (w *offsetWriter) Write(p []byte) (int, error) {
+	n, err := w.f.WriteAt(p, w.offset)
+	w.offset += int64(n)
+	return n, err
+}
+
 func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err error) {
 	part, isSplitFile := h.PAXRecords[PAXRecordSplitFileOffsetName]
 	if isSplitFile {
@@ -582,13 +598,10 @@ func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err err
 		}
 		defer f.Close()
 
-		// seek to the chunk start
-		if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
-			return 0, fmt.Errorf("seek: %w", err)
-		}
-
-		// write exactly the number of bytes this tar entry contains
-		n, err := io.CopyN(f, r, h.Size)
+		// Use pwrite semantics (WriteAt) instead of seek+write so that
+		// concurrent goroutines can safely write different parts of the
+		// same file without racing on the shared file-descriptor offset.
+		n, err := io.CopyN(&offsetWriter{f: f, offset: startOffset}, r, h.Size)
 		if err != nil {
 			return n, fmt.Errorf("copy split: %w", err)
 		}

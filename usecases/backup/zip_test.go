@@ -1450,6 +1450,50 @@ func TestCopyFileSplitPAXRecords(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "copy split")
 	})
+
+	t.Run("concurrent split parts", func(t *testing.T) {
+		const numParts = 4
+		const partSize = 1024
+
+		// Build the original data: numParts * partSize bytes.
+		original := make([]byte, numParts*partSize)
+		for i := range original {
+			original[i] = byte(i % 251) // deterministic fill
+		}
+
+		dir := t.TempDir()
+		target := filepath.Join(dir, "concurrent.bin")
+
+		// Launch numParts goroutines that each write their part concurrently.
+		var wg sync.WaitGroup
+		errs := make([]error, numParts)
+		for p := range numParts {
+			wg.Add(1)
+			go func(part int) {
+				defer wg.Done()
+				offset := int64(part) * partSize
+				data := original[offset : offset+partSize]
+				h := &tar.Header{
+					Name: "concurrent.bin",
+					Size: partSize,
+					Mode: 0o644,
+					PAXRecords: map[string]string{
+						PAXRecordSplitFileOffsetName: strconv.FormatInt(offset, 10),
+					},
+				}
+				_, errs[part] = copyFile(target, h, bytes.NewReader(data))
+			}(p)
+		}
+		wg.Wait()
+
+		for i, err := range errs {
+			require.NoError(t, err, "part %d failed", i)
+		}
+
+		got, err := os.ReadFile(target)
+		require.NoError(t, err)
+		require.Equal(t, original, got, "reassembled file content mismatch")
+	})
 }
 
 // TestFirstFileBelowSplitThresholdWrittenWhole tests that when the first file
