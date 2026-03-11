@@ -575,7 +575,6 @@ func TestExtractJoinHostPreservesValidIPForLookup(t *testing.T) {
 		"[2803:6082:5088:4fc9:9efc:a9d7:143a:0a00]:7946",
 		"[2001:db8::1]:8300",
 		"[::1]:7946",
-		"[fe80::1%25eth0]:7946",
 	}
 
 	for _, addr := range ipv6Addrs {
@@ -586,6 +585,16 @@ func TestExtractJoinHostPreservesValidIPForLookup(t *testing.T) {
 			assert.NotNil(t, ip, "extractJoinHost(%q) = %q, which is not a valid IP", addr, host)
 		})
 	}
+
+	// IPv6 with zone ID: net.SplitHostPort preserves the zone encoding as-is.
+	// net.ParseIP does not accept zone IDs, but the extracted host is still
+	// usable for net.Dial and net.LookupIP which handle zones.
+	t.Run("IPv6 with zone ID", func(t *testing.T) {
+		host := extractJoinHost("[fe80::1%25eth0]:7946")
+		assert.Equal(t, "fe80::1%25eth0", host)
+		// Zone IDs are not parseable by net.ParseIP, but that's expected.
+		assert.Nil(t, net.ParseIP(host))
+	})
 
 	// Verify the old buggy behavior would fail
 	buggyHost := func(addr string) string {

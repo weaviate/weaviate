@@ -414,7 +414,6 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	return "", false
 }
 
-// NodeAddress is used to resolve the node name into an ip address without the port
 // extractJoinHost extracts the host portion from a join address string,
 // correctly handling IPv6 bracket notation (e.g., "[2001:db8::1]:7946" → "2001:db8::1").
 // Falls back to the original string if it doesn't contain a port.
@@ -425,6 +424,7 @@ func extractJoinHost(addr string) string {
 	return addr
 }
 
+// NodeAddress resolves a node name to its IP address without the port.
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	addr, ok := s.NodeHostname(id)
