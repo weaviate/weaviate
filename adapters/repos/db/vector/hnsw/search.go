@@ -918,17 +918,17 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 	h.pools.pqResults.Put(res)
 
+	return h.applySelector(ctx, selector, ids, dists)
+}
+
+func (h *hnsw) applySelector(ctx context.Context, selector *searchparams.Selection, ids []uint64, dists []float32) ([]uint64, []float32, error) {
 	view := h.GetViewThunk()
 	defer view.ReleaseView()
-	if sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk, view); sel != nil {
-		var err error
-		ids, dists, err = sel.Select(ctx, ids, dists)
-		if err != nil {
-			return nil, nil, err
-		}
+	sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk, view)
+	if sel == nil {
+		return ids, dists, nil
 	}
-
-	return ids, dists, nil
+	return sel.Select(ctx, ids, dists)
 }
 
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
