@@ -191,13 +191,23 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 			return nil, fmt.Errorf("an export is already in progress")
 		}
 
+		// Resolve shards and write the export plan synchronously so that
+		// the plan exists on the backend before the API response is returned. This
+		// prevents Cancel from getting a 404 when called right after Create.
+		shards, err := s.prepareSingleNodePlan(ctx, backendStore, id, status, classes, bucket, path)
+		if err != nil {
+			s.cancelExport.Store(nil)
+			cancel(nil)
+			return nil, err
+		}
+
 		enterrors.GoWrapper(func() {
 			defer func() {
 				// Safety net: ensure fields are cleared even on panic.
 				s.cancelExport.Store(nil)
 				cancel(nil)
 			}()
-			s.performSingleNodeExport(exportCtx, cancel, backendStore, id, status, classes, bucket, path)
+			s.performSingleNodeExport(exportCtx, cancel, backendStore, id, status, classes, shards, bucket, path)
 		}, s.logger)
 	}
 
@@ -700,24 +710,15 @@ func (s *Scheduler) clearCancelState(cancel context.CancelCauseFunc) {
 	cancel(nil)
 }
 
-// performSingleNodeExport builds shard assignments and delegates to the
-// participant's export logic, reusing the same per-shard code path as
-// multi-node exports.
-func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.CancelCauseFunc, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) {
+// prepareSingleNodePlan resolves shard names and writes the export plan to S3.
+// It is called synchronously from Export() so that the plan is available before
+// the API response is returned, allowing Cancel() to find it immediately.
+func (s *Scheduler) prepareSingleNodePlan(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) (map[string][]string, error) {
 	shards := make(map[string][]string, len(classes))
 	for _, className := range classes {
 		shardNames, _, err := s.selector.ExportShardNames(className)
 		if err != nil {
-			s.logger.WithField("action", "export").
-				WithField("export_id", exportID).
-				WithField("class", className).
-				Error(err)
-
-			s.clearCancelState(cancel)
-			status.Status = string(export.Failed)
-			status.Error = fmt.Sprintf("failed to get shards for class %s: %v", className, err)
-			s.writeMetadata(backend, exportID, bucket, path, status)
-			return
+			return nil, fmt.Errorf("failed to get shards for class %s: %w", className, err)
 		}
 		shards[className] = shardNames
 	}
@@ -730,13 +731,16 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 		StartedAt:       time.Time(status.StartedAt),
 	}
 	if err := s.writeExportPlan(ctx, backend, exportID, bucket, path, plan); err != nil {
-		s.clearCancelState(cancel)
-		status.Status = string(export.Failed)
-		status.Error = fmt.Sprintf("failed to write export plan: %v", err)
-		s.writeMetadata(backend, exportID, bucket, path, status)
-		return
+		return nil, fmt.Errorf("failed to write export plan: %w", err)
 	}
 
+	return shards, nil
+}
+
+// performSingleNodeExport delegates to the participant's export logic, reusing
+// the same per-shard code path as multi-node exports. Shards must already be
+// resolved via prepareSingleNodePlan.
+func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.CancelCauseFunc, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, shards map[string][]string, bucket, path string) {
 	req := &ExportRequest{
 		ID:       exportID,
 		Backend:  status.Backend,
