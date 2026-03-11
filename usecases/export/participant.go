@@ -14,6 +14,7 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -21,12 +22,16 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-const reservationTimeout = 30 * time.Second
+const (
+	reservationTimeout    = 30 * time.Second
+	defaultStatusInterval = 30 * time.Second
+)
 
 // Participant handles export requests on a single node.
 // It exports its assigned shards directly to S3 and writes status files.
@@ -37,10 +42,11 @@ const reservationTimeout = 30 * time.Second
 //  2. Commit: cancels the timer and starts the actual export work.
 //  3. Abort: releases the reservation immediately.
 type Participant struct {
-	shutdownCtx context.Context
-	selector    Selector
-	backends    BackendProvider
-	logger      logrus.FieldLogger
+	shutdownCtx    context.Context
+	selector       Selector
+	backends       BackendProvider
+	logger         logrus.FieldLogger
+	statusInterval time.Duration // interval for status writes and sibling checks; 0 uses defaultStatusInterval
 
 	// mu guards preparedReq, abortTimer, and cancelExport, which are set
 	// during Prepare/Commit and consumed during Commit/Abort.
@@ -207,9 +213,10 @@ func (p *Participant) Abort(exportID string) {
 	if p.cancelExport != nil {
 		// Export is running — cancel it. The goroutine will detect context
 		// cancellation, write a failed status, and call clearAndRelease()
-		// via its defer.
+		// via its defer. We intentionally leave cancelExport non-nil so
+		// that concurrent or repeated Abort calls still take this branch
+		// instead of the "prepared" branch below.
 		p.cancelExport()
-		p.cancelExport = nil
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", exportID).
 			Info("participant aborted running export")
@@ -292,7 +299,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		}
 	}
 
-	stopWriter := p.startNodeStatusWriter(backend, req, nodeStatus)
+	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
 	for _, className := range req.Classes {
@@ -425,10 +432,59 @@ func (p *Participant) exportShardToFile(
 	return writer.ObjectsWritten(), nil
 }
 
+// siblingHasFailed checks whether any sibling node has reported a Failed
+// status by reading their status files from the storage backend. Returns true
+// if any sibling has failed. Not-found errors are silently ignored (sibling
+// may not have written its status yet). Other backend errors are logged at
+// warn level but do not trigger cancellation to avoid false positives during
+// transient outages.
+func (p *Participant) siblingHasFailed(
+	ctx context.Context,
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+) bool {
+	for _, nodeName := range req.SiblingNodes {
+		readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		key := fmt.Sprintf("node_%s_status.json", nodeName)
+		data, err := backend.GetObject(readCtx, req.ID, key, req.Bucket, req.Path)
+		cancel()
+		if err != nil {
+			var errNotFound backup.ErrNotFound
+			if !errors.As(err, &errNotFound) {
+				p.logger.WithField("action", "export_sibling_check").
+					WithField("export_id", req.ID).
+					WithField("sibling", nodeName).
+					Warn(fmt.Errorf("read sibling status: %w", err))
+			}
+			continue
+		}
+
+		var siblingStatus NodeStatus
+		if err := json.Unmarshal(data, &siblingStatus); err != nil {
+			p.logger.WithField("action", "export_sibling_check").WithField("sibling", nodeName).
+				Error(fmt.Errorf("unmarshal sibling status: %w", err))
+			continue
+		}
+
+		if siblingStatus.Status == export.Failed {
+			p.logger.WithField("action", "export_sibling_check").
+				WithField("export_id", req.ID).
+				WithField("sibling", nodeName).
+				Warn("sibling node failed, canceling local export")
+			return true
+		}
+	}
+
+	return false
+}
+
 // startNodeStatusWriter launches a background goroutine that periodically
-// snapshots nodeStatus under mu and writes it to S3. The returned stop function
-// triggers one final flush and blocks until the write completes.
+// snapshots nodeStatus under mu and writes it to S3. It also checks sibling
+// nodes' status and cancels the local export if any sibling has failed.
+// The returned stop function triggers one final flush and blocks until the
+// write completes.
 func (p *Participant) startNodeStatusWriter(
+	exportCtx context.Context,
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
 	nodeStatus *NodeStatus,
@@ -458,12 +514,24 @@ func (p *Participant) startNodeStatusWriter(
 
 	enterrors.GoWrapper(func() {
 		defer close(done)
-		ticker := time.NewTicker(30 * time.Second)
+		interval := p.statusInterval
+		if interval == 0 {
+			interval = defaultStatusInterval
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ticker.C:
 				flush()
+				if p.siblingHasFailed(exportCtx, backend, req) {
+					p.mu.Lock()
+					if p.cancelExport != nil {
+						p.cancelExport()
+					}
+					p.mu.Unlock()
+				}
 			case <-quit:
 				flush()
 				return
