@@ -9,6 +9,16 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// Casbin's SyncedCachedEnforcer caches Enforce() results keyed by the full
+// request tuple (user, resource, action). When the resource path contained a
+// unique object UUID (the old behaviour), virtually every call produced a
+// distinct cache key — turning the cache into a write-only memory leak with no
+// hit-rate benefit.
+//
+// By wildcarding the object segment (objects/*), all requests for the same
+// (collection, shard) share a single cache entry. Benchmarks below show this
+// yields ~30x lower latency, ~10x fewer allocations, and flat scaling as the
+// number of policy rules grows. See PR #10688 for full results.
 package rbac
 
 import (
