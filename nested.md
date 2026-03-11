@@ -19,7 +19,7 @@ Nested Property Filtering — Design Summary
     Limits: 65,535 (2^16) roots × 65,535 (2^16) leaves per root × ~4B (2^32) docIDs
     Notation: r{root}|l{leaf}|d{docID} — e.g., r1|l3|d124 = (root_idx=1 << 48) + (leaf_idx=3 << 32) + docId=124 = 281_487_861_612_668
 
-    RoaringSet mapping: high 32 bits (root|leaf) = container key; low 32 bits (docID) = value within container. Operations on container keys are O(containers).
+    RoaringSet mapping: high 32 bits (root|leaf) = container key; low 32 bits (docID) = value within container (lowest 16 bits) and container key (highest 16 bits). Operations on container keys are O(containers).
 
     Why positions, not just docIDs? Positions encode element identity within arrays, enabling:
     - Same-element filtering (city=X AND postcode=Y on the same address)
@@ -28,8 +28,10 @@ Nested Property Filtering — Design Summary
     - ALL/NONE operators & per-element negation
 
     NOTE: 
-        32 bits to store docID limits max docID in the bitmap to 4,294,967,296. If number of supported roots and leaves per root would be decreased to 16,384 (2^14), there will be 36 bits left for docID bringing max supported docID to 68,719,476,736.
-        If 68B (2^36) is still too low, sroar library can be modified to use additional 16 bits of containers' keys (keys are uin64 values with lowest 16 bits set to 0). That change would allow to use 16 bits for root_idx (65,535), 16 bits for leaf_idx (65,535) and 48 bits for docID (281,474,976,710,656).
+        32 bits to store docID limits max docID in the bitmap to 4,294,967,296 (4B). By decreasing number of supported roots and leaves per root numbers, max docID can be increased:
+        - root_idx and leaf_idx = 16,384 (2^14) => max docID = 68,719,476,736 (2^36 = 68B)
+        - root_idx and leaf_idx = 4,096 (2^12) => max docID = 1,099,511,627,776 (2^40 = 1T)
+        If those values are still to strict, sroar library can be modified to use additional 16 bits of containers' keys (keys are uin64 values with lowest 16 bits set to 0). Such change would allow to use 16 bits for root_idx (65,535), 16 bits for leaf_idx (65,535) and 48 bits for docID (281,474,976,710,656).
 
 
 ---
