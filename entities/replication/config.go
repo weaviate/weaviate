@@ -24,4 +24,6 @@ type GlobalConfig struct {
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
 
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
+
+	ReplicationGRPCEnabled bool `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 }

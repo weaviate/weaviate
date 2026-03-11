@@ -427,11 +427,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 	appState.GRPCConnManager = grpcConnManager
 
-	// Create hybrid replication client (gRPC first, REST fallback on Unimplemented)
+	// Create switch replication client (gRPC or REST based on REPLICATION_GRPC_ENABLED env var)
 	grpcReplicationClient := clients.NewGRPCReplicationClient(grpcConnManager)
-	replicationClient := clients.NewHybridReplicationClient(
+	replicationClient := clients.NewSwitchReplicationClient(
 		grpcReplicationClient,
 		restReplicationClient,
+		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled,
 	)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
