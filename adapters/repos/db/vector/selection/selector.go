@@ -24,18 +24,18 @@ import (
 // construction time so that the call site stays uniform regardless of which
 // strategy is active.
 type Selector interface {
-	Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error)
+	Select(ctx context.Context, ids []uint64, queryDistances []float32, view common.BucketView) ([]uint64, []float32, error)
 }
 
 // New returns the Selector described by sel, wired up with the index-level
 // helpers it needs. Returns nil when sel is nil or no known strategy is set,
 // meaning the caller should skip post-processing.
-func New(sel *searchparams.Selection, provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], view common.BucketView) Selector {
+func New(sel *searchparams.Selection, provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32]) Selector {
 	if sel == nil {
 		return nil
 	}
 	if sel.MMR != nil {
-		return newMMRSelector(provider, vecForID, int(sel.MMR.Limit), sel.MMR.Balance, view)
+		return newMMRSelector(provider, vecForID, int(sel.MMR.Limit), sel.MMR.Balance)
 	}
 	return nil
 }

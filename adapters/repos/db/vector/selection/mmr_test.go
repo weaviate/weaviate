@@ -39,7 +39,7 @@ func makeVecForID(vecs map[uint64][]float32) common.TempVectorForIDWithView[floa
 }
 
 func mmrSelect(provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], ids []uint64, queryDistances []float32, k int, lambda float32) ([]uint64, []float32, error) {
-	return newMMRSelector(provider, vecForID, k, lambda, stubView{}).Select(context.Background(), ids, queryDistances)
+	return newMMRSelector(provider, vecForID, k, lambda).Select(context.Background(), ids, queryDistances, stubView{})
 }
 
 func TestMMR_EmptyInput(t *testing.T) {

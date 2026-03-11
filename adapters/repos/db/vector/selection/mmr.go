@@ -29,14 +29,13 @@ type MMRSelector struct {
 	vecForID common.TempVectorForIDWithView[float32]
 	k        int
 	lambda   float32
-	view     common.BucketView
 }
 
-func newMMRSelector(provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], k int, lambda float32, view common.BucketView) *MMRSelector {
-	return &MMRSelector{provider: provider, vecForID: vecForID, k: k, lambda: lambda, view: view}
+func newMMRSelector(provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], k int, lambda float32) *MMRSelector {
+	return &MMRSelector{provider: provider, vecForID: vecForID, k: k, lambda: lambda}
 }
 
-func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error) {
+func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances []float32, view common.BucketView) ([]uint64, []float32, error) {
 	n := len(ids)
 	k := s.k
 	if n == 0 || k <= 0 {
@@ -48,7 +47,7 @@ func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances [
 
 	container := &common.VectorSlice{Buff8: make([]byte, 8)}
 
-	firstVec, err := s.vecForID(ctx, ids[0], container, s.view)
+	firstVec, err := s.vecForID(ctx, ids[0], container, view)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -58,7 +57,7 @@ func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances [
 	copy(vectors[:dim], firstVec)
 
 	for i := 1; i < n; i++ {
-		vec, err := s.vecForID(ctx, ids[i], container, s.view)
+		vec, err := s.vecForID(ctx, ids[i], container, view)
 		if err != nil {
 			return nil, nil, err
 		}

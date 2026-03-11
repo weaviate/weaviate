@@ -922,13 +922,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 }
 
 func (h *hnsw) applySelector(ctx context.Context, selector *searchparams.Selection, ids []uint64, dists []float32) ([]uint64, []float32, error) {
-	view := h.GetViewThunk()
-	defer view.ReleaseView()
-	sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk, view)
+	sel := selection.New(selector, h.distancerProvider, h.TempVectorForIDWithViewThunk)
 	if sel == nil {
 		return ids, dists, nil
 	}
-	return sel.Select(ctx, ids, dists)
+	view := h.GetViewThunk()
+	defer view.ReleaseView()
+	return sel.Select(ctx, ids, dists, view)
 }
 
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
