@@ -46,7 +46,19 @@ func (db *DB) ShardOwnership(ctx context.Context, className string) (map[string]
 			if len(shard.BelongsToNodes) == 0 {
 				return fmt.Errorf("shard %s of class %s has no assigned nodes", shardName, className)
 			}
-			shardNodes[shardName] = shard.BelongsToNodes
+
+			// Filter out empty node names to avoid assigning shards to an invalid node.
+			validNodes := make([]string, 0, len(shard.BelongsToNodes))
+			for _, node := range shard.BelongsToNodes {
+				if node != "" {
+					validNodes = append(validNodes, node)
+				}
+			}
+			if len(validNodes) == 0 {
+				return fmt.Errorf("shard %s of class %s has only empty assigned nodes", shardName, className)
+			}
+
+			shardNodes[shardName] = validNodes
 		}
 
 		return nil
