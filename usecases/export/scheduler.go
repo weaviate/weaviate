@@ -341,6 +341,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		}
 	}
 
+	var abortErr error
 	if s.isMultiNode() {
 		// In multi-node mode no terminal metadata is written on success —
 		// the overall status is computed from per-node status files.
@@ -378,8 +379,13 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 			}
 			nodes = append(nodes, ni)
 		}
-		if err := s.abortAll(id, nodes); err != nil {
-			return fmt.Errorf("abort nodes: %w", err)
+		if abortErr = s.abortAll(id, nodes); abortErr != nil {
+			// abortAll is best-effort (retries 3x per node). If it still
+			// fails, those nodes are likely unreachable. Continue to write
+			// CANCELED metadata so that Status() reflects the user's intent.
+			s.logger.WithField("action", "export_cancel").
+				WithField("export_id", id).
+				Errorf("best-effort abort encountered errors: %v", abortErr)
 		}
 	} else {
 		cancelPtr := s.cancelExport.Load()
@@ -391,11 +397,15 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		(*cancelPtr)(errExportCanceled)
 	}
 
+	cancelErr := "export was canceled"
+	if abortErr != nil {
+		cancelErr = fmt.Sprintf("export was canceled but some nodes could not be reached: %v", abortErr)
+	}
 	cancelStatus := &models.ExportStatusResponse{
 		ID:        id,
 		Backend:   backend,
 		Status:    string(export.Canceled),
-		Error:     "export was canceled",
+		Error:     cancelErr,
 		Classes:   plan.Classes,
 		StartedAt: strfmt.DateTime(plan.StartedAt),
 	}
