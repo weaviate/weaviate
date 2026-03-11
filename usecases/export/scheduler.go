@@ -412,7 +412,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	if err := s.writeMetadata(backendStore, id, bucket, path, cancelStatus); err != nil {
 		s.logger.WithField("action", "export_cancel").
 			WithField("export_id", id).
-			Errorf("failed to write canceled metadata: %v", err)
+			Errorf("failed to persist canceled metadata: %v", err)
 		return fmt.Errorf("export canceled but failed to persist status: %w", err)
 	}
 	return nil
@@ -905,8 +905,20 @@ func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, expo
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
 
-	_, err = backend.Write(ctx, exportID, exportMetadataFile, bucket, path, newBytesReadCloser(data))
-	return err
+	const maxRetries = 3
+	for attempt := range maxRetries {
+		_, err = backend.Write(ctx, exportID, exportMetadataFile, bucket, path, newBytesReadCloser(data))
+		if err == nil {
+			return nil
+		}
+		if attempt < maxRetries-1 {
+			s.logger.WithField("action", "export_write_metadata").
+				WithField("export_id", exportID).
+				Warnf("metadata write attempt %d failed, retrying: %v", attempt+1, err)
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return fmt.Errorf("write metadata after %d attempts: %w", maxRetries, err)
 }
 
 // writeExportPlan writes the export plan to S3 (multi-node path)
