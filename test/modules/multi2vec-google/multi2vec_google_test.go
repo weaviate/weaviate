@@ -40,6 +40,23 @@ func testMulti2VecGoogleVertex(host, gcpProject, location, vectorizerName string
 	}
 }
 
+func testMulti2VecGoogleAIStudio(host, vectorizerName string) func(t *testing.T) {
+	return func(t *testing.T) {
+		helper.SetupClient(host)
+		// Define tests
+		tests := []testCase{
+			{
+				name:        "gemini-embedding-2-preview",
+				model:       "gemini-embedding-2-preview",
+				apiEndpoint: "generativelanguage.googleapis.com",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, multimodalTests(tt, "", "", vectorizerName))
+		}
+	}
+}
+
 type testCase struct {
 	name         string
 	model        string
