@@ -294,7 +294,7 @@ Nested Property Filtering — Design Summary
     └──────────────┴──────────────────────────────────────────────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────┘
 
     NOTE: 
-    - MaskPosition() and Strip() methods have to be added to the sroar library
+    - MaskPosition() and Strip() methods have to be added to the sroar library (final names yet to be decided)
     - "Direct AND" and "ANDNOT" are respectively sroar's And() and AndNot() methods
 
     When to use Direct AND
