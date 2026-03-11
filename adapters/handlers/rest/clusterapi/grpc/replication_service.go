@@ -22,6 +22,7 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -67,6 +68,9 @@ func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectReq
 	}
 
 	resp := s.server.ReplicateObject(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), obj, req.GetSchemaVersion())
+	if localIndexNotReady(resp) {
+		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+	}
 	return &pb.PutObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
@@ -77,6 +81,9 @@ func (s *ReplicationService) PutObjects(ctx context.Context, req *pb.PutObjectsR
 	}
 
 	resp := s.server.ReplicateObjects(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), objs, req.GetSchemaVersion())
+	if localIndexNotReady(resp) {
+		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+	}
 	return &pb.PutObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
@@ -87,6 +94,9 @@ func (s *ReplicationService) MergeObject(ctx context.Context, req *pb.MergeObjec
 	}
 
 	resp := s.server.ReplicateUpdate(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), &mergeDoc, req.GetSchemaVersion())
+	if localIndexNotReady(resp) {
+		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+	}
 	return &pb.MergeObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
@@ -95,6 +105,9 @@ func (s *ReplicationService) DeleteObject(ctx context.Context, req *pb.DeleteObj
 
 	resp := s.server.ReplicateDeletion(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		strfmt.UUID(req.GetUuid()), deletionTime, req.GetSchemaVersion())
+	if localIndexNotReady(resp) {
+		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+	}
 	return &pb.DeleteObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
@@ -104,6 +117,9 @@ func (s *ReplicationService) DeleteObjects(ctx context.Context, req *pb.DeleteOb
 
 	resp := s.server.ReplicateDeletions(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		uuids, deletionTime, req.GetDryRun(), req.GetSchemaVersion())
+	if localIndexNotReady(resp) {
+		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+	}
 	return &pb.DeleteObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
@@ -114,6 +130,9 @@ func (s *ReplicationService) AddReferences(ctx context.Context, req *pb.AddRefer
 	}
 
 	resp := s.server.ReplicateReferences(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), refs, req.GetSchemaVersion())
+	if localIndexNotReady(resp) {
+		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+	}
 	return &pb.AddReferencesResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
@@ -275,7 +294,20 @@ func replicationErrorToGRPC(err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.As(err, &enterrors.ErrUnprocessable{}) {
+		return status.Errorf(codes.FailedPrecondition, "%v", err)
+	}
 	return status.Errorf(codes.Internal, "%v", err)
+}
+
+func localIndexNotReady(resp replica.SimpleResponse) bool {
+	if err := resp.FirstError(); err != nil {
+		var replicaErr *replica.Error
+		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
+			return true
+		}
+	}
+	return false
 }
 
 func stringsToUUIDs(ss []string) []strfmt.UUID {

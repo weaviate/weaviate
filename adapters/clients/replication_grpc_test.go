@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -154,7 +155,11 @@ func (f *fakeGRPCReplicationServer) Commit(_ context.Context, req *pb.CommitRequ
 
 	switch req.GetRequestId() {
 	case RequestInternalError:
-		return nil, status.Error(codes.Internal, "internal server error")
+		remaining := f.internalErrorCount.Add(-1)
+		if remaining >= 0 {
+			return nil, status.Error(codes.Internal, "internal server error")
+		}
+		return &pb.CommitResponse{Payload: f.commitPayload}, nil
 	case RequestError:
 		payload, _ := json.Marshal(replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}})
 		return &pb.CommitResponse{Payload: payload}, nil
@@ -173,7 +178,11 @@ func (f *fakeGRPCReplicationServer) Abort(_ context.Context, req *pb.AbortReques
 
 	switch req.GetRequestId() {
 	case RequestInternalError:
-		return nil, status.Error(codes.Internal, "internal server error")
+		remaining := f.internalErrorCount.Add(-1)
+		if remaining >= 0 {
+			return nil, status.Error(codes.Internal, "internal server error")
+		}
+		return &pb.AbortResponse{Response: &pb.SimpleReplicaResponse{}}, nil
 	case "RIDUnavailable":
 		return nil, status.Error(codes.Unavailable, "service unavailable")
 	case RequestError:
@@ -242,9 +251,16 @@ func setupGRPCTestServer(t *testing.T, fake *fakeGRPCReplicationServer) (*grpcRe
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
 
+	retryInterceptor := grpc_retry.UnaryClientInterceptor(
+		grpc_retry.WithMax(3),
+		grpc_retry.WithBackoff(grpc_retry.BackoffLinearWithJitter(time.Millisecond, 0.1)),
+		grpc_retry.WithCodes(codes.Internal, codes.Unavailable, codes.ResourceExhausted),
+	)
+
 	connMgr, err := grpcconn.NewConnManager(10, time.Minute, reg, logger,
 		grpc.WithContextDialer(dialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(retryInterceptor),
 	)
 	require.NoError(t, err)
 
@@ -306,9 +322,9 @@ func TestGRPCReplicationPutObject(t *testing.T) {
 
 	t.Run("ServerInternalError", func(t *testing.T) {
 		fake.internalErrorCount.Store(1)
-		_, err := client.PutObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, obj, 0)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		resp, err := client.PutObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, obj, 0)
+		assert.Nil(t, err)
+		assert.Empty(t, resp.Errors)
 	})
 
 	t.Run("ServerUnavailable", func(t *testing.T) {
@@ -353,9 +369,9 @@ func TestGRPCReplicationPutObjects(t *testing.T) {
 
 	t.Run("ServerInternalError", func(t *testing.T) {
 		fake.internalErrorCount.Store(1)
-		_, err := client.PutObjects(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, objs, 123)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		resp, err := client.PutObjects(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, objs, 123)
+		assert.Nil(t, err)
+		assert.Empty(t, resp.Errors)
 	})
 
 	t.Run("ServerUnavailable", func(t *testing.T) {
@@ -390,9 +406,9 @@ func TestGRPCReplicationMergeObject(t *testing.T) {
 
 	t.Run("ServerInternalError", func(t *testing.T) {
 		fake.internalErrorCount.Store(1)
-		_, err := client.MergeObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, doc, 0)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		resp, err := client.MergeObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, doc, 0)
+		assert.Nil(t, err)
+		assert.Empty(t, resp.Errors)
 	})
 
 	t.Run("ServerUnavailable", func(t *testing.T) {
@@ -428,9 +444,9 @@ func TestGRPCReplicationDeleteObject(t *testing.T) {
 
 	t.Run("ServerInternalError", func(t *testing.T) {
 		fake.internalErrorCount.Store(1)
-		_, err := client.DeleteObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, uuid, deletionTime, 0)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		resp, err := client.DeleteObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, uuid, deletionTime, 0)
+		assert.Nil(t, err)
+		assert.Empty(t, resp.Errors)
 	})
 
 	t.Run("ServerUnavailable", func(t *testing.T) {
@@ -466,9 +482,9 @@ func TestGRPCReplicationDeleteObjects(t *testing.T) {
 
 	t.Run("ServerInternalError", func(t *testing.T) {
 		fake.internalErrorCount.Store(1)
-		_, err := client.DeleteObjects(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, uuids, deletionTime, false, 123)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		resp, err := client.DeleteObjects(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, uuids, deletionTime, false, 123)
+		assert.Nil(t, err)
+		assert.Empty(t, resp.Errors)
 	})
 
 	t.Run("ServerUnavailable", func(t *testing.T) {
@@ -503,9 +519,9 @@ func TestGRPCReplicationAddReferences(t *testing.T) {
 
 	t.Run("ServerInternalError", func(t *testing.T) {
 		fake.internalErrorCount.Store(1)
-		_, err := client.AddReferences(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, refs, 0)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		resp, err := client.AddReferences(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, refs, 0)
+		assert.Nil(t, err)
+		assert.Empty(t, resp.Errors)
 	})
 
 	t.Run("ServerUnavailable", func(t *testing.T) {
@@ -549,8 +565,7 @@ func TestGRPCReplicationCommit(t *testing.T) {
 		fake.internalErrorCount.Store(1)
 		resp := replica.SimpleResponse{}
 		err := client.Commit(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, &resp)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		assert.Nil(t, err)
 	})
 }
 
@@ -577,9 +592,9 @@ func TestGRPCReplicationAbort(t *testing.T) {
 
 	t.Run("ServerInternalError", func(t *testing.T) {
 		fake.internalErrorCount.Store(1)
-		_, err := client.Abort(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "Internal")
+		resp, err := client.Abort(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError)
+		assert.Nil(t, err)
+		assert.Empty(t, resp.Errors)
 	})
 
 	t.Run("ServerUnavailable", func(t *testing.T) {
@@ -844,21 +859,19 @@ func TestGRPCReplicationRetryOnTransient(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// Server will fail 3 times with Internal, then succeed.
+	// Server will fail 2 times with Internal, then succeed.
+	// WithMax(3) means 3 total attempts (not 3 retries), so 2 failures + 1 success fits.
 	fake := newFakeGRPCReplicationServer(t)
-	fake.internalErrorCount.Store(3)
+	fake.internalErrorCount.Store(2)
 	client, cleanup := setupGRPCTestServer(t, fake)
 	defer cleanup()
 
 	obj := &storobj.Object{MarshallerVersion: 1, Object: anyObject(UUID1)}
 
-	// This test documents that the gRPC client currently does NOT retry.
-	// When retries are implemented, this test should change:
-	// the call should succeed because the server eventually returns success.
-	_, err := client.PutObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, obj, 0)
-	// Currently fails because gRPC client has no retries.
-	// Once retries are added, this should be: assert.Nil(t, err)
-	assert.NotNil(t, err, "gRPC client does not retry transient errors yet")
+	// The server fails 2 times with Internal, then succeeds on the 3rd attempt.
+	resp, err := client.PutObject(ctx, "passthrough:bufnet", "C1", "S1", RequestInternalError, obj, 0)
+	assert.Nil(t, err)
+	assert.Empty(t, resp.Errors)
 }
 
 func TestGRPCReplicationNoRetryOnPermanent(t *testing.T) {
@@ -889,9 +902,16 @@ func TestGRPCReplicationNoRetryOnPermanent(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
 
+	retryInterceptor := grpc_retry.UnaryClientInterceptor(
+		grpc_retry.WithMax(3),
+		grpc_retry.WithBackoff(grpc_retry.BackoffLinearWithJitter(time.Millisecond, 0.1)),
+		grpc_retry.WithCodes(codes.Internal, codes.Unavailable, codes.ResourceExhausted),
+	)
+
 	connMgr, err := grpcconn.NewConnManager(10, time.Minute, reg, logger,
 		grpc.WithContextDialer(dialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(retryInterceptor),
 	)
 	require.NoError(t, err)
 	defer connMgr.Close()
@@ -899,6 +919,7 @@ func TestGRPCReplicationNoRetryOnPermanent(t *testing.T) {
 	client := NewGRPCReplicationClient(connMgr)
 	obj := &storobj.Object{MarshallerVersion: 1, Object: anyObject(UUID1)}
 
+	// InvalidArgument is not in the retryable codes set, so it fails immediately.
 	_, err = client.PutObject(ctx, "passthrough:bufnet", "C1", "S1", "any", obj, 0)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "InvalidArgument")

@@ -97,7 +97,8 @@ type State struct {
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
 
-	GRPCConnManager *grpcconn.ConnManager
+	GRPCConnManager     *grpcconn.ConnManager
+	ReplGRPCConnManager *grpcconn.ConnManager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
