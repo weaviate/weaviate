@@ -853,10 +853,17 @@ func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType bac
 	}, fw.logger)
 
 	_, unzipErr := uz.ReadChunk()
+	// Close the pipe reader so any in-progress pw.Write() in readFn unblocks
+	// with ErrClosedPipe. Without this, readFn can hang forever if the
+	// decompressor detected end-of-stream before io.Copy finished writing all
+	// bytes from the backend.
+	uz.Close()
+	// Always drain readErrCh to prevent leaking the readFn goroutine.
+	readErr := <-readErrCh
 	if unzipErr != nil {
 		return fmt.Errorf("unzip chunk %s: %w", chunkName, unzipErr)
 	}
-	if readErr := <-readErrCh; readErr != nil {
+	if readErr != nil && !errors.Is(readErr, io.ErrClosedPipe) {
 		return fmt.Errorf("read chunk %s from backend: %w", chunkName, readErr)
 	}
 	return nil
