@@ -542,17 +542,29 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 	}
 
 	// Build per-node requests and resolve hostnames.
+	allNodeNames := make([]string, 0, len(nodeAssignments))
+	for node := range nodeAssignments {
+		allNodeNames = append(allNodeNames, node)
+	}
+
 	nodes := make([]exportNodeInfo, 0, len(nodeAssignments))
 	for node, classShards := range nodeAssignments {
+		var siblings []string
+		for _, n := range allNodeNames {
+			if n != node {
+				siblings = append(siblings, n)
+			}
+		}
 		ni := exportNodeInfo{
 			req: &ExportRequest{
-				ID:       exportID,
-				Backend:  status.Backend,
-				Classes:  classes,
-				Shards:   classShards,
-				Bucket:   bucket,
-				Path:     path,
-				NodeName: node,
+				ID:           exportID,
+				Backend:      status.Backend,
+				Classes:      classes,
+				Shards:       classShards,
+				Bucket:       bucket,
+				Path:         path,
+				NodeName:     node,
+				SiblingNodes: siblings,
 			},
 		}
 		if node != s.localNode {

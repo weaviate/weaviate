@@ -425,9 +425,48 @@ func (p *Participant) exportShardToFile(
 	return writer.ObjectsWritten(), nil
 }
 
+// checkSiblingHealth checks whether any sibling node has reported a Failed
+// status by reading their status files from S3. Returns true if any sibling
+// has failed. Errors reading from S3 are logged and treated as "no failure
+// detected" to avoid false-positive cancellations during transient S3 outages.
+func (p *Participant) checkSiblingHealth(
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+) bool {
+	for _, nodeName := range req.SiblingNodes {
+		readCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		key := fmt.Sprintf("node_%s_status.json", nodeName)
+		data, err := backend.GetObject(readCtx, req.ID, key, req.Bucket, req.Path)
+		cancel()
+		if err != nil {
+			// Sibling may not have written its status yet — skip.
+			continue
+		}
+
+		var siblingStatus NodeStatus
+		if err := json.Unmarshal(data, &siblingStatus); err != nil {
+			p.logger.WithField("action", "export_sibling_check").WithField("sibling", nodeName).
+				Error(fmt.Errorf("unmarshal sibling status: %w", err))
+			continue
+		}
+
+		if siblingStatus.Status == export.Failed {
+			p.logger.WithField("action", "export_sibling_check").
+				WithField("export_id", req.ID).
+				WithField("sibling", nodeName).
+				Warn("sibling node failed, canceling local export")
+			return true
+		}
+	}
+
+	return false
+}
+
 // startNodeStatusWriter launches a background goroutine that periodically
-// snapshots nodeStatus under mu and writes it to S3. The returned stop function
-// triggers one final flush and blocks until the write completes.
+// snapshots nodeStatus under mu and writes it to S3. It also checks sibling
+// nodes' status and cancels the local export if any sibling has failed.
+// The returned stop function triggers one final flush and blocks until the
+// write completes.
 func (p *Participant) startNodeStatusWriter(
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
@@ -460,10 +499,19 @@ func (p *Participant) startNodeStatusWriter(
 		defer close(done)
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ticker.C:
 				flush()
+				if p.checkSiblingHealth(backend, req) {
+					p.mu.Lock()
+					if p.cancelExport != nil {
+						p.cancelExport()
+						p.cancelExport = nil
+					}
+					p.mu.Unlock()
+				}
 			case <-quit:
 				flush()
 				return

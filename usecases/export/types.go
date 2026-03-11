@@ -63,13 +63,14 @@ type exportNodeInfo struct {
 
 // ExportRequest is sent from coordinator to participant nodes
 type ExportRequest struct {
-	ID       string              `json:"id"`
-	Backend  string              `json:"backend"`
-	Classes  []string            `json:"classes"`
-	Shards   map[string][]string `json:"shards"` // className → []shardName
-	Bucket   string              `json:"bucket"`
-	Path     string              `json:"path"`
-	NodeName string              `json:"nodeName"`
+	ID           string              `json:"id"`
+	Backend      string              `json:"backend"`
+	Classes      []string            `json:"classes"`
+	Shards       map[string][]string `json:"shards"` // className → []shardName
+	Bucket       string              `json:"bucket"`
+	Path         string              `json:"path"`
+	NodeName     string              `json:"nodeName"`
+	SiblingNodes []string            `json:"siblingNodes,omitempty"` // other node names in the same export
 }
 
 // NodeStatus is written to S3 by each participant node.
