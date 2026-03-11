@@ -433,16 +433,17 @@ func (p *Participant) exportShardToFile(
 }
 
 // siblingHasFailed checks whether any sibling node has reported a Failed
-// status by reading their status files from the storage backend. Returns true
-// if any sibling has failed. Not-found errors are silently ignored (sibling
-// may not have written its status yet). Other backend errors are logged at
-// warn level but do not trigger cancellation to avoid false positives during
-// transient outages.
+// status by reading their status files from the storage backend. If a sibling
+// has failed it returns the sibling name and its error string so the caller
+// can surface an actionable message. Not-found errors are silently ignored
+// (sibling may not have written its status yet). Other backend errors are
+// logged at warn level but do not trigger cancellation to avoid false
+// positives during transient outages.
 func (p *Participant) siblingHasFailed(
 	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
-) bool {
+) (failedSibling string, siblingErr string, failed bool) {
 	for _, nodeName := range req.SiblingNodes {
 		readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		key := fmt.Sprintf("node_%s_status.json", nodeName)
@@ -470,12 +471,13 @@ func (p *Participant) siblingHasFailed(
 			p.logger.WithField("action", "export_sibling_check").
 				WithField("export_id", req.ID).
 				WithField("sibling", nodeName).
+				WithField("sibling_error", siblingStatus.Error).
 				Warn("sibling node failed, canceling local export")
-			return true
+			return nodeName, siblingStatus.Error, true
 		}
 	}
 
-	return false
+	return "", "", false
 }
 
 // startNodeStatusWriter launches a background goroutine that periodically
@@ -525,7 +527,11 @@ func (p *Participant) startNodeStatusWriter(
 			select {
 			case <-ticker.C:
 				flush()
-				if p.siblingHasFailed(exportCtx, backend, req) {
+				if failedSibling, siblingErr, failed := p.siblingHasFailed(exportCtx, backend, req); failed {
+					nodeStatus.mu.Lock()
+					nodeStatus.Error = fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr)
+					nodeStatus.mu.Unlock()
+
 					p.mu.Lock()
 					if p.cancelExport != nil {
 						p.cancelExport()

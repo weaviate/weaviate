@@ -191,6 +191,17 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 			return nil, fmt.Errorf("an export is already in progress")
 		}
 
+		// Safety net: clear cancelExport on panic during the synchronous
+		// phase so that a recovered panic does not permanently block future
+		// exports.
+		defer func() {
+			if r := recover(); r != nil {
+				s.cancelExport.Store(nil)
+				cancel(nil)
+				panic(r) // re-panic after cleanup
+			}
+		}()
+
 		// Resolve shards and write the export plan synchronously so that
 		// the plan exists on the backend before the API response is returned. This
 		// prevents Cancel from getting a 404 when called right after Create.
@@ -710,7 +721,7 @@ func (s *Scheduler) clearCancelState(cancel context.CancelCauseFunc) {
 	cancel(nil)
 }
 
-// prepareSingleNodePlan resolves shard names and writes the export plan to S3.
+// prepareSingleNodePlan resolves shard names and writes the export plan using the configured backup backend.
 // It is called synchronously from Export() so that the plan is available before
 // the API response is returned, allowing Cancel() to find it immediately.
 func (s *Scheduler) prepareSingleNodePlan(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) (map[string][]string, error) {
