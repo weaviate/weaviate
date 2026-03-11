@@ -207,9 +207,10 @@ func (p *Participant) Abort(exportID string) {
 	if p.cancelExport != nil {
 		// Export is running — cancel it. The goroutine will detect context
 		// cancellation, write a failed status, and call clearAndRelease()
-		// via its defer.
+		// via its defer. We intentionally leave cancelExport non-nil so
+		// that concurrent or repeated Abort calls still take this branch
+		// instead of the "prepared" branch below.
 		p.cancelExport()
-		p.cancelExport = nil
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", exportID).
 			Info("participant aborted running export")
@@ -508,7 +509,6 @@ func (p *Participant) startNodeStatusWriter(
 					p.mu.Lock()
 					if p.cancelExport != nil {
 						p.cancelExport()
-						p.cancelExport = nil
 					}
 					p.mu.Unlock()
 				}
