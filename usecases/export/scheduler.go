@@ -285,8 +285,24 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if s.isMultiNode() {
-		resp, _, err := s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
-		return resp, err
+		assembled, _, err := s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
+		if err != nil {
+			return nil, err
+		}
+		// Promote: if all nodes reached a terminal state, persist the final
+		// metadata so future Status() calls (and Cancel()) see it directly
+		// without re-assembling from per-node files.
+		switch export.Status(assembled.Status) {
+		case export.Success, export.Failed:
+			if writeErr := s.writeMetadata(backendStore, id, bucket, path, assembled); writeErr != nil {
+				s.logger.WithField("action", "export_status").
+					WithField("export_id", id).
+					Warnf("failed to promote assembled status to metadata: %v", writeErr)
+			}
+		default:
+			// Non-terminal or already canceled — nothing to promote.
+		}
+		return assembled, nil
 	}
 
 	// Single-node: metadata has the terminal status.

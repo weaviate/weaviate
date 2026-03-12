@@ -285,3 +285,94 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, string(export.Failed), resp.Status)
 }
+
+func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		nodeStatus     export.Status
+		expectedStatus export.Status
+	}{
+		{"success", export.Success, export.Success},
+		{"failed", export.Failed, export.Failed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			// Write export plan — required for Status() to enter assemble path.
+			plan := &ExportPlan{
+				ID:      "test-export",
+				Backend: "s3",
+				Classes: []string{"TestClass"},
+				NodeAssignments: map[string]map[string][]string{
+					"node1": {"TestClass": {"shard0"}},
+				},
+				StartedAt: time.Now().UTC().Add(-10 * time.Second),
+			}
+			planData, err := json.Marshal(plan)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
+			require.NoError(t, err)
+
+			// Write STARTED metadata — the stale state we want promoted.
+			startedMeta := &ExportMetadata{
+				ID:      "test-export",
+				Backend: "s3",
+				Status:  export.Started,
+				Classes: []string{"TestClass"},
+			}
+			metaData, err := json.Marshal(startedMeta)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", exportMetadataFile, "", "", newBytesReadCloser(metaData))
+			require.NoError(t, err)
+
+			// Write node status showing terminal state.
+			ns := &NodeStatus{
+				NodeName:    "node1",
+				Status:      tc.nodeStatus,
+				CompletedAt: time.Now().UTC(),
+				ShardProgress: map[string]map[string]*ShardProgress{
+					"TestClass": {
+						"shard0": {Status: export.ShardSuccess, ObjectsExported: 100},
+					},
+				},
+			}
+			if tc.nodeStatus == export.Failed {
+				ns.Error = "disk full"
+				ns.ShardProgress["TestClass"]["shard0"].Status = export.ShardFailed
+			}
+			nsData, err := json.Marshal(ns)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", "node_node1_status.json", "", "", newBytesReadCloser(nsData))
+			require.NoError(t, err)
+
+			resolver := &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}
+			client := &fakeExportClient{
+				isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+					return false, nil
+				},
+			}
+
+			s := &Scheduler{
+				shutdownCtx:  context.Background(),
+				logger:       logger,
+				authorizer:   mocks.NewMockAuthorizer(),
+				backends:     &fakeBackendProvider{backend: backend},
+				client:       client,
+				nodeResolver: resolver,
+			}
+
+			status, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+			require.NoError(t, err)
+			assert.Equal(t, string(tc.expectedStatus), status.Status)
+
+			// Verify that terminal metadata was promoted (written to backend).
+			written := backend.getWritten(exportMetadataFile)
+			require.NotNil(t, written, "expected metadata to be promoted")
+
+			var meta ExportMetadata
+			require.NoError(t, json.Unmarshal(written, &meta))
+			assert.Equal(t, tc.expectedStatus, meta.Status)
+		})
+	}
+}
