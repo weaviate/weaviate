@@ -67,7 +67,7 @@ Nested Property Filtering — Design Summary
 ---
 3. Position Assignment
 
-    Reference documents (property of type object):    
+    Reference documents (property of type object)  
 
         doc123: {
             "name": "subdoc_123"
@@ -487,6 +487,7 @@ Nested Property Filtering — Design Summary
 
         // _exists entries (key = hash8("_exists." + path)):
 
+        hash8("_exists")                            → {r1|l1..l10|d123, r1|l1..l11|d124, r1|l1..l9|d125}
         hash8("_exists.name")                       → {r1|l1..l10|d123, r1|l1..l11|d124, r1|l1..l9|d125}
         hash8("_exists.owner")                      → {r1|l1|d123, r1|l2|d123, r1|l1|d124, r1|l1|d125}
         hash8("_exists.owner.firstname")            → {r1|l1|d123, r1|l2|d123, r1|l1|d124, r1|l1|d125}
@@ -516,222 +517,762 @@ Nested Property Filtering — Design Summary
 
     1.1 Exact match on scalar array values
 
-    a) tags = "german"
-    → {r1|l5|d123, r1|l4|d124} → Strip → {d123, d124}
+        a) tags = "german"
+        → {r1|l5|d123, r1|l4|d124} → Strip → {d123, d124}
 
-    b) owner.nicknames = "M&M"
-    → {r1|l2|d123} → Strip → {d123}
+        b) owner.nicknames = "M&M"
+        → {r1|l2|d123} → Strip → {d123}
 
-    c) addresses.numbers = 124
-    → {r1|l2|d124} → Strip → {d124}
+        c) addresses.numbers = 124
+        → {r1|l2|d124} → Strip → {d124}
 
     1.2 Contains semantics
 
-    a) tags ContainsAll ["german", "premium"]
-    → MaskPos(tags="german") AND MaskPos(tags="premium") → {r1|d123}
-    → Strip → {d123}
+        a) tags ContainsAll ["german", "premium"]
+        → MaskPos(tags="german") AND MaskPos(tags="premium") → {r1|d123}
+        → Strip → {d123}
 
-    b) cars.tires.radiuses ContainsAny [19, 20]
-    → radiuses=19 ∪ radiuses=20 → {r1|l8|d123, r1|l5|d125, r1|l6|d125}
-    → Strip → {d123, d125}
+        b) cars.tires.radiuses ContainsAny [19, 20]
+        → radiuses=19 ∪ radiuses=20 → {r1|l8|d123, r1|l5|d125, r1|l6|d125}
+        → Strip → {d123, d125}
 
-    c) tags ContainsAll ["german", "japanese"]
-    → MaskPos(tags="german") AND MaskPos(tags="japanese") → {r1|d124}
-    → Strip → {d124}
+        c) tags ContainsAll ["german", "japanese"]
+        → MaskPos(tags="german") AND MaskPos(tags="japanese") → {r1|d124}
+        → Strip → {d124}
 
     1.3 Position within array
 
-    a) tags[0] = "german" (→ _idx.tags BE16(1))
-    → tags="german" AND _idx.tags[0] → {r1|l5|d123, r1|l4|d124}
-    → Strip → {d123, d124}
+        a) tags[0] = "german" (→ _idx.tags BE16(1))
+        → tags="german" AND _idx.tags[0] → {r1|l5|d123, r1|l4|d124}
+        → Strip → {d123, d124}
 
-    b) cars.tires.radiuses[2] = 20 (→ _idx.cars.tires.radiuses BE16(3))
-    → radiuses=20 AND _idx.cars.tires.radiuses[2] → {r1|l6|d125}
-    → Strip → {d125}
+        b) cars.tires.radiuses[2] = 20 (→ _idx.cars.tires.radiuses BE16(3))
+        → radiuses=20 AND _idx.cars.tires.radiuses[2] → {r1|l6|d125}
+        → Strip → {d125}
 
-    c) owner.nicknames[1] = "M&M" (→ _idx.owner.nicknames BE16(2))
-    → nicknames="M&M" AND _idx.owner.nicknames[1] → {r1|l2|d123}
-    → Strip → {d123}
+        c) owner.nicknames[1] = "M&M" (→ _idx.owner.nicknames BE16(2))
+        → nicknames="M&M" AND _idx.owner.nicknames[1] → {r1|l2|d123}
+        → Strip → {d123}
 
     1.4 Multiple conditions on same array field
 
-    a) tags = "german" AND tags = "premium" (same array, different elements)
-    → MaskPos(tags="german") AND MaskPos(tags="premium") → {r1|d123}
-    → Strip → {d123}
+        a) tags = "german" AND tags = "premium" (same array, different elements)
+        → MaskPos(tags="german") AND MaskPos(tags="premium") → {r1|d123}
+        → Strip → {d123}
 
-    b) cars.tires.radiuses = 18 AND cars.tires.radiuses = 19 (same radiuses array)
-    → A=radiuses=18 → {r1|l7|d123, r1|l8|d124, r1|l4|d125}
-    → B=radiuses=19 → {r1|l8|d123, r1|l5|d125}
-    → MaskPos(A) AND MaskPos(B) → {r1|d123, r1|d125}
-    → Strip → {d123, d125}
+        b) cars.tires.radiuses = 18 AND cars.tires.radiuses = 19 (same radiuses array)
+        → A=radiuses=18 → {r1|l7|d123, r1|l8|d124, r1|l4|d125}
+        → B=radiuses=19 → {r1|l8|d123, r1|l5|d125}
+        → MaskPos(A) AND MaskPos(B) → {r1|d123, r1|d125}
+        → Strip → {d123, d125}
 
-    But wait — this says "same radiuses array" but MaskPos matches at doc level, not per-tire. Radiuses 18 and 19 could be on different tires! For same tire:
-    → Need _idx.cars.tires loop (tires is intermediate parent of radiuses):
-    - d123: _idx.cars.tires[0]={l7,l8}. A∩={l7} ✓, B∩={l8} ✓ → same tire MATCH
-    - d125: _idx.cars.tires[0]={l4..l6}. A∩={l4} ✓, B∩={l5} ✓ → same tire MATCH
-    → {d123, d125} ✓ (both have a single tire with radiuses 18 AND 19)
+        But wait — this says "same radiuses array" but MaskPos matches at doc level, not per-tire. Radiuses 18 and 19 could be on different tires! For same tire:
+        → Need _idx.cars.tires loop (tires is intermediate parent of radiuses):
+        - d123: _idx.cars.tires[0]={l7,l8}. A∩={l7} ✓, B∩={l8} ✓ → same tire MATCH
+        - d125: _idx.cars.tires[0]={l4..l6}. A∩={l4} ✓, B∩={l5} ✓ → same tire MATCH
+        → {d123, d125} ✓ (both have a single tire with radiuses 18 AND 19)
 
-    c) addresses.numbers = 123 AND addresses.numbers = 1123
-    → A={r1|l3|d123}, B={r1|l4|d123}
-    → MaskPos(A) AND MaskPos(B) → {r1|d123}
-    → Strip → {d123} (Berlin address has both numbers)
+        c) addresses.numbers = 123 AND addresses.numbers = 1123
+        → A={r1|l3|d123}, B={r1|l4|d123}
+        → MaskPos(A) AND MaskPos(B) → {r1|d123}
+        → Strip → {d123} (Berlin address has both numbers)
 
-    For same-address verification: _idx.addresses loop:
-    - d123: _idx.addresses[0]={l3,l4}. A∩={l3} ✓, B∩={l4} ✓ → same address MATCH ✓
+        For same-address verification: _idx.addresses loop:
+        - d123: _idx.addresses[0]={l3,l4}. A∩={l3} ✓, B∩={l4} ✓ → same address MATCH ✓
 
     1.5 Presence check
 
-    a) HAS(owner.nicknames) — owners with at least one nickname
-    → _exists.owner.nicknames → Strip → {d123, d124} (Anna has none)
+        a) HAS(owner.nicknames) — owners with at least one nickname
+        → _exists.owner.nicknames → Strip → {d123, d124} (Anna has none)
 
-    b) HAS(cars.accessories)
-    → _exists.cars.accessories → Strip → {d125}
+        b) HAS(cars.accessories)
+        → _exists.cars.accessories → Strip → {d125}
 
-    c) HAS(addresses.numbers) — docs where any address has numbers
-    → _exists.addresses.numbers → Strip → {d123, d124, d125}
-    (London address has no numbers, but Madrid address does → d124 matches)
+        c) HAS(addresses.numbers) — docs where any address has numbers
+        → _exists.addresses.numbers → Strip → {d123, d124, d125}
+        (London address has no numbers, but Madrid address does → d124 matches)
 
     1.6 Negation
 
-    a) tags != "german" (docs where NO tag is "german")
-    → failDocs = Strip(tags="german") → {d123, d124}
-    → allDocs ANDNOT failDocs → {d125}
+        a) tags != "german" (docs where NO tag is "german")
+        → failDocs = Strip(tags="german") → {d123, d124}
+        → allDocs ANDNOT failDocs → {d125}
 
-    b) owner.nicknames NOT IN ["watch"]
-    → failDocs = Strip(nicknames="watch") → {d124}
-    → allDocs ANDNOT failDocs → {d123, d125}
+        b) owner.nicknames NOT IN ["watch"]
+        → failDocs = Strip(nicknames="watch") → {d124}
+        → allDocs ANDNOT failDocs → {d123, d125}
 
-    c) Per-element: cars.colors != "black" (color elements that are not black)
-    → all = _exists.cars.colors, match = colors="black"
-    → all ANDNOT match → {r1|l10|d123, r1|l11|d124, r1|l9|d125}
-    (orange, white, yellow remain)
+        c) Per-element: cars.colors != "black" (color elements that are not black)
+        → all = _exists.cars.colors, match = colors="black"
+        → all ANDNOT match → {r1|l10|d123, r1|l11|d124, r1|l9|d125}
+        (orange, white, yellow remain)
 
     1.7 Null state
 
-    a) owner.nicknames IS NULL (docs where owner has no nicknames)
-    → hasProp = Strip(_exists.owner.nicknames) → {d123, d124}
-    → allDocs ANDNOT hasProp → {d125} (Anna has no nicknames)
+        a) owner.nicknames IS NULL (docs where owner has no nicknames)
+        → hasProp = Strip(_exists.owner.nicknames) → {d123, d124}
+        → allDocs ANDNOT hasProp → {d125} (Anna has no nicknames)
 
-    b) cars.colors IS NULL (docs where no car has colors)
-    → hasProp = Strip(_exists.cars.colors) → {d123, d124, d125}
-    → allDocs ANDNOT hasProp → {} (all have at least one car with colors)
+        b) cars.colors IS NULL (docs where no car has colors)
+        → hasProp = Strip(_exists.cars.colors) → {d123, d124, d125}
+        → allDocs ANDNOT hasProp → {} (all have at least one car with colors)
 
-    c) addresses.numbers IS NULL per address element (which addresses lack numbers?)
-    → allAddr = _exists.addresses
-    → hasNum = _exists.addresses.numbers
-    → allAddr ANDNOT hasNum → {r1|l3|d124} (London address)
-    → Strip → {d124}
+        c) addresses.numbers IS NULL per address element (which addresses lack numbers?)
+        → allAddr = _exists.addresses
+        → hasNum = _exists.addresses.numbers
+        → allAddr ANDNOT hasNum → {r1|l3|d124} (London address)
+        → Strip → {d124}
 
-    ---
+    
     User Story 2: Nested Objects
 
     2.1 Exact match on scalar values in a path
 
-    a) addresses.city = "Berlin"
-    → {r1|l3|d123, r1|l4|d123} → Strip → {d123}
+        a) addresses.city = "Berlin"
+        → {r1|l3|d123, r1|l4|d123} → Strip → {d123}
 
-    b) owner.firstname = "Justin"
-    → {r1|l1|d124} → Strip → {d124}
+        b) owner.firstname = "Justin"
+        → {r1|l1|d124} → Strip → {d124}
 
-    c) cars.tires.width = 245
-    → {r1|l4..l6|d125} → Strip → {d125}
+        c) cars.tires.width = 245
+        → {r1|l4..l6|d125} → Strip → {d125}
 
     2.2 Multiple conditions on scalars in a path (same element)
 
-    a) addresses.city = "Madrid" AND addresses.postcode = "28001" (same address)
-    → A={r1|l2|d124}, B={r1|l2|d124}
-    → Direct AND → {r1|l2|d124} → Strip → {d124} ✓
+        a) addresses.city = "Madrid" AND addresses.postcode = "28001" (same address)
+        → A={r1|l2|d124}, B={r1|l2|d124}
+        → Direct AND → {r1|l2|d124} → Strip → {d124} ✓
 
-    b) owner.firstname = "Marsha" AND owner.lastname = "Mallow" (same owner)
-    → A={r1|l1|d123, r1|l2|d123}, B={r1|l1|d123, r1|l2|d123}
-    → Direct AND → {r1|l1|d123, r1|l2|d123} → Strip → {d123} ✓
+        b) owner.firstname = "Marsha" AND owner.lastname = "Mallow" (same owner)
+        → A={r1|l1|d123, r1|l2|d123}, B={r1|l1|d123, r1|l2|d123}
+        → Direct AND → {r1|l1|d123, r1|l2|d123} → Strip → {d123} ✓
 
-    c) cars.tires.width = 205 AND cars.tires.radiuses = 17 (same tire, ancestor-descendant)
-    → A=width=205→{r1|l7|d124, r1|l8|d124}, B=radiuses=17→{r1|l7|d124}
-    → Direct AND → {r1|l7|d124} → Strip → {d124} ✓ (Audi's first tire)
+        c) cars.tires.width = 205 AND cars.tires.radiuses = 17 (same tire, ancestor-descendant)
+        → A=width=205→{r1|l7|d124, r1|l8|d124}, B=radiuses=17→{r1|l7|d124}
+        → Direct AND → {r1|l7|d124} → Strip → {d124} ✓ (Audi's first tire)
 
     2.3 Multiple conditions on a document (cross-subtree)
 
-    a) addresses.city = "Berlin" AND cars.make = "BMW" (sibling subtrees under root)
-    → MaskPos({r1|l3|d123, r1|l4|d123}) AND MaskPos({r1|l7..l10|d123})
-    → {r1|d123} → Strip → {d123}
+        a) addresses.city = "Berlin" AND cars.make = "BMW" (sibling subtrees under root)
+        → MaskPos({r1|l3|d123, r1|l4|d123}) AND MaskPos({r1|l7..l10|d123})
+        → {r1|d123} → Strip → {d123}
 
-    b) owner.firstname = "Justin" AND tags = "japanese" (doc-level owner + tags)
-    → A=firstname="Justin"→{r1|l1|d124}, B=tags="japanese"→{r1|l5|d124}
-    → MaskPos(A) AND MaskPos(B) → {r1|d124} → Strip → {d124}
+        b) owner.firstname = "Justin" AND tags = "japanese" (doc-level owner + tags)
+        → A=firstname="Justin"→{r1|l1|d124}, B=tags="japanese"→{r1|l5|d124}
+        → MaskPos(A) AND MaskPos(B) → {r1|d124} → Strip → {d124}
 
-    c) owner.firstname = "Anna" AND cars.accessories.type = "charger" (owner scalar + deep nested)
-    → A=firstname="Anna"→{r1|l1|d125}, B=acc.type="charger"→{r1|l7|d125}
-    → MaskPos(A) AND MaskPos(B) → {r1|d125} → Strip → {d125}
+        c) owner.firstname = "Anna" AND cars.accessories.type = "charger" (owner scalar + deep nested)
+        → A=firstname="Anna"→{r1|l1|d125}, B=acc.type="charger"→{r1|l7|d125}
+        → MaskPos(A) AND MaskPos(B) → {r1|d125} → Strip → {d125}
 
     2.4 Contains semantics (partial/complete document match)
 
-    a) addresses contains {city:"Berlin", numbers:[123]} (same address, ancestor-descendant)
-    → A=city="Berlin"→{r1|l3|d123, r1|l4|d123}, B=numbers=123→{r1|l3|d123}
-    → Direct AND → {r1|l3|d123} → Strip → {d123} ✓
+        a) addresses contains {city:"Berlin", numbers:[123]} (same address, ancestor-descendant)
+        → A=city="Berlin"→{r1|l3|d123, r1|l4|d123}, B=numbers=123→{r1|l3|d123}
+        → Direct AND → {r1|l3|d123} → Strip → {d123} ✓
 
-    b) cars contains {make:"BMW", colors:["black"]} (same car, cross-sibling)
-    → A=make="BMW"→{r1|l7..l10|d123}, B=colors="black"→{r1|l9|d123}
-    → Direct AND → {r1|l9|d123} → Strip → {d123} ✓
-    (Works with Direct AND because make inherits all car descendants including colors positions)
+        b) cars contains {make:"BMW", colors:["black"]} (same car, cross-sibling)
+        → A=make="BMW"→{r1|l7..l10|d123}, B=colors="black"→{r1|l9|d123}
+        → Direct AND → {r1|l9|d123} → Strip → {d123} ✓
+        (Works with Direct AND because make inherits all car descendants including colors positions)
 
-    c) cars.tires contains {width:225, radiuses:[18]} (same tire, ancestor-descendant)
-    → A=width=225→{r1|l7|d123, r1|l8|d123, r1|l9|d124}, B=radiuses=18→{r1|l7|d123, r1|l8|d124, r1|l4|d125}
-    → Direct AND → {r1|l7|d123} → Strip → {d123} ✓
-    (BMW's tire: width=225 has positions {l7,l8}, radius=18 at l7, AND gives l7)
+        c) cars.tires contains {width:225, radiuses:[18]} (same tire, ancestor-descendant)
+        → A=width=225→{r1|l7|d123, r1|l8|d123, r1|l9|d124}, B=radiuses=18→{r1|l7|d123, r1|l8|d124, r1|l4|d125}
+        → Direct AND → {r1|l7|d123} → Strip → {d123} ✓
+        (BMW's tire: width=225 has positions {l7,l8}, radius=18 at l7, AND gives l7)
 
     2.5 Negation
 
-    a) addresses.city != "London" (docs where NO address has city London)
-    → failDocs = Strip(city="London") → {d124}
-    → allDocs ANDNOT failDocs → {d123, d125}
+        a) addresses.city != "London" (docs where NO address has city London)
+        → failDocs = Strip(city="London") → {d124}
+        → allDocs ANDNOT failDocs → {d123, d125}
 
-    b) cars.make NOT IN ["BMW", "Kia"]
-    → failDocs = Strip(make="BMW" ∪ make="Kia") → {d123, d124}
-    → allDocs ANDNOT failDocs → {d125}
+        b) cars.make NOT IN ["BMW", "Kia"]
+        → failDocs = Strip(make="BMW" ∪ make="Kia") → {d123, d124}
+        → allDocs ANDNOT failDocs → {d125}
 
-    c) Per-element: cars.make != "Audi" (car elements that are NOT Audi)
-    → all = _exists.cars.make, match = cars.make="Audi"
-    → all ANDNOT match → {r1|l7..l10|d123, r1|l10|d124, r1|l11|d124, r1|l4..l9|d125}
-    (BMW, Kia, Tesla remain) → Strip → {d123, d124, d125}
+        c) Per-element: cars.make != "Audi" (car elements that are NOT Audi)
+        → all = _exists.cars.make, match = cars.make="Audi"
+        → all ANDNOT match → {r1|l7..l10|d123, r1|l10|d124, r1|l11|d124, r1|l4..l9|d125}
+        (BMW, Kia, Tesla remain) → Strip → {d123, d124, d125}
 
-    ---
+    
     User Story 3: Arrays of Objects (additional requirements)
 
     3.1 Filtering at any arbitrary level
 
-    a) cars.tires.radiuses = 18 (3 levels deep)
-    → {r1|l7|d123, r1|l8|d124, r1|l4|d125} → Strip → {d123, d124, d125}
+        a) cars.tires.radiuses = 18 (3 levels deep)
+        → {r1|l7|d123, r1|l8|d124, r1|l4|d125} → Strip → {d123, d124, d125}
 
-    b) cars.tires.width = 205 AND cars.colors = "white" (cross-sibling under intermediate cars)
-    → A=width=205→{r1|l7|d124, r1|l8|d124}, B=colors="white"→{r1|l11|d124}
-    → MaskPos pre-filter → {r1|d124} → candidate d124
-    → _idx.cars loop:
-    - _idx.cars[0]={l7..l9}: A∩={l7,l8} ✓, B∩=∅ ✗ (Audi has no colors)
-    - _idx.cars[1]={l10,l11}: A∩=∅ ✗
-    → No car has both → {} ✓ (205 is Audi, white is Kia — different cars)
+        b) cars.tires.width = 205 AND cars.colors = "white" (cross-sibling under intermediate cars)
+        → A=width=205→{r1|l7|d124, r1|l8|d124}, B=colors="white"→{r1|l11|d124}
+        → MaskPos pre-filter → {r1|d124} → candidate d124
+        → _idx.cars loop:
+        - _idx.cars[0]={l7..l9}: A∩={l7,l8} ✓, B∩=∅ ✗ (Audi has no colors)
+        - _idx.cars[1]={l10,l11}: A∩=∅ ✗
+        → No car has both → {} ✓ (205 is Audi, white is Kia — different cars)
 
-    c) cars.tires.width = 245 AND cars.accessories.type = "charger" (cross-sibling under intermediate)
-    → A=width=245→{r1|l4..l6|d125}, B=acc="charger"→{r1|l7|d125}
-    → MaskPos pre-filter → {r1|d125}
-    → _idx.cars loop:
-    - _idx.cars[0]={l4..l9}: A∩={l4..l6} ✓, B∩={l7} ✓ → same car MATCH
-    → Strip → {d125}
+        c) cars.tires.width = 245 AND cars.accessories.type = "charger" (cross-sibling under intermediate)
+        → A=width=245→{r1|l4..l6|d125}, B=acc="charger"→{r1|l7|d125}
+        → MaskPos pre-filter → {r1|d125}
+        → _idx.cars loop:
+        - _idx.cars[0]={l4..l9}: A∩={l4..l6} ✓, B∩={l7} ✓ → same car MATCH
+        → Strip → {d125}
 
     3.2 Any/All/None
 
-    a) ALL(cars.tires.width > 200) — every tire must be wider than 200
-    → passing = width>200 → {r1|l7|d123, r1|l8|d123, r1|l7|d124, r1|l8|d124, r1|l9|d124, r1|l4..l6|d125}
-    → allTires = _exists.cars.tires.width → {r1|l7|d123, r1|l8|d123, r1|l7..l10|d124, r1|l4..l6|d125}
-    → failing = allTires ANDNOT passing → {r1|l10|d124} (Kia's 195 tire)
-    → failDocs = Strip → {d124}
-    → allDocs ANDNOT failDocs → {d123, d125}
+        a) ALL(cars.tires.width > 200) — every tire must be wider than 200
+        → passing = width>200 → {r1|l7|d123, r1|l8|d123, r1|l7|d124, r1|l8|d124, r1|l9|d124, r1|l4..l6|d125}
+        → allTires = _exists.cars.tires.width → {r1|l7|d123, r1|l8|d123, r1|l7..l10|d124, r1|l4..l6|d125}
+        → failing = allTires ANDNOT passing → {r1|l10|d124} (Kia's 195 tire)
+        → failDocs = Strip → {d124}
+        → allDocs ANDNOT failDocs → {d123, d125}
 
-    b) NONE(cars.colors = "white") — no car has white color
-    → matchDocs = Strip(colors="white") → {d124}
-    → allDocs ANDNOT matchDocs → {d123, d125}
+        b) NONE(cars.colors = "white") — no car has white color
+        → matchDocs = Strip(colors="white") → {d124}
+        → allDocs ANDNOT matchDocs → {d123, d125}
 
-    c) ANY(cars.accessories.type = "charger")
-    → Strip(acc="charger") → {d125}
+        c) ANY(cars.accessories.type = "charger")
+        → Strip(acc="charger") → {d125}
     
 
+---
+7. Position Assignment (2)
+
+    Reference documents (property of type []object)
+
+        doc998: [{
+            "name": "subdoc_123"
+            "owner":{
+                "firstname":"Marsha",
+                "lastname":"Mallow",
+                "nicknames":["Marshmallow", "M&M"]
+            }
+            "addresses":[{
+                "city":"Berlin",
+                "postcode":"10115",
+                "numbers":[123, 1123]
+            }],
+            "tags":["german","premium"],
+            "cars":[{
+                "make":"BMW",
+                "tires":[{
+                "width":225
+                "radiuses":[18,19]
+                }],
+                "colors":["black","orange"]
+            }]
+        }]
+        doc999: [{
+            "name": "subdoc_124"
+            "owner":{
+                "firstname":"Justin",
+                "lastname":"Time",
+                "nicknames":["watch"]
+            }
+            "addresses":[{
+                "city":"Madrid",
+                "postcode":"28001"
+                "numbers":[124]
+            },{
+                "city":"London",
+                "postcode":"SW1"
+            }],
+            "tags":["german","japanese","sedan"],
+            "cars":[{
+                "make":"Audi",
+                "tires":[{
+                    "width":205,
+                    "radiuses":[17,18]
+                },{
+                    "width":225
+                }]
+            },{
+                "make":"Kia",
+                "tires":[{
+                    "width":195
+                    "radiuses":[]
+                }],
+                "colors":["white"]
+            }]
+        }, {
+            "name": "subdoc_125"
+            "owner":{
+                "firstname":"Anna",
+                "lastname":"Wanna"
+            }
+            "addresses":[{
+                "city":"Paris",
+                "postcode":"75001",
+                "numbers":[125]
+            }],
+            "tags":["electric"],
+            "cars":[{
+                "make":"Tesla",
+                "tires":[{
+                    "width":245
+                    "radiuses":[18,19,20]
+                }],
+                "accessories":[{
+                    "type":"charger"
+                },{
+                    "type":"mats"
+                }],
+                "colors":["yellow"]
+            }]
+        }]
+
+
+        ┌─────────────────────┬────────────┐
+        │       Subdoc        │  Encoding  │
+        ├─────────────────────┼────────────┤
+        │ subdoc_123 (Marsha) │ r1|l*|d998 │
+        ├─────────────────────┼────────────┤
+        │ subdoc_124 (Justin) │ r1|l*|d999 │
+        ├─────────────────────┼────────────┤
+        │ subdoc_125 (Anna)   │ r2|l*|d999 │
+        └─────────────────────┴────────────┘
+
+        Justin and Anna share docID 999 but have different roots. Marsha has her own docID 998.
+
+    Assignments:
+  
+    - doc998, root 1 (subdoc_123 / Marsha) — 10 leaves
+
+    owner (intermediate) → {l1, l2}       ── r1|l*|d998
+    ├─ firstname="Marsha" → {l1, l2}
+    ├─ lastname="Mallow" → {l1, l2}
+    ├─ nicknames[0]="Marshmallow" → l1
+    └─ nicknames[1]="M&M" → l2
+    addresses[0] (intermediate) → {l3, l4}
+    ├─ city="Berlin" → {l3, l4}
+    ├─ postcode="10115" → {l3, l4}
+    ├─ numbers[0]=123 → l3
+    └─ numbers[1]=1123 → l4
+    tags[0]="german" → l5
+    tags[1]="premium" → l6
+    cars[0] (intermediate) → {l7..l10}
+    ├─ make="BMW" → {l7..l10}
+    ├─ tires[0] (intermediate) → {l7, l8}
+    │  ├─ width=225 → {l7, l8}
+    │  ├─ radiuses[0]=18 → l7
+    │  └─ radiuses[1]=19 → l8
+    ├─ colors[0]="black" → l9
+    └─ colors[1]="orange" → l10
+    name="subdoc_123" → {l1..l10}
+
+    - doc999, root 1 (subdoc_124 / Justin) — 11 leaves
+
+    owner (intermediate) → {l1}           ── r1|l*|d999
+    ├─ firstname="Justin" → {l1}
+    ├─ lastname="Time" → {l1}
+    └─ nicknames[0]="watch" → l1
+    addresses[0] (intermediate) → {l2}
+    ├─ city="Madrid" → {l2}
+    ├─ postcode="28001" → {l2}
+    └─ numbers[0]=124 → l2
+    addresses[1] (leaf, no numbers) → l3
+    ├─ city="London" → {l3}
+    └─ postcode="SW1" → {l3}
+    tags[0]="german" → l4
+    tags[1]="japanese" → l5
+    tags[2]="sedan" → l6
+    cars[0] (intermediate) → {l7..l9}
+    ├─ make="Audi" → {l7..l9}
+    ├─ tires[0] (intermediate) → {l7, l8}
+    │  ├─ width=205 → {l7, l8}
+    │  ├─ radiuses[0]=17 → l7
+    │  └─ radiuses[1]=18 → l8
+    └─ tires[1] (leaf, no radiuses) → l9
+        └─ width=225 → {l9}
+    cars[1] (intermediate) → {l10, l11}
+    ├─ make="Kia" → {l10, l11}
+    ├─ tires[0] (leaf, radiuses=[]) → l10
+    │  └─ width=195 → {l10}
+    └─ colors[0]="white" → l11
+    name="subdoc_124" → {l1..l11}
+
+    - doc999, root 2 (subdoc_125 / Anna) — 9 leaves
+
+    owner (leaf, no nicknames) → l1       ── r2|l*|d999
+    ├─ firstname="Anna" → {l1}
+    └─ lastname="Wanna" → {l1}
+    addresses[0] (intermediate) → {l2}
+    ├─ city="Paris" → {l2}
+    ├─ postcode="75001" → {l2}
+    └─ numbers[0]=125 → l2
+    tags[0]="electric" → l3
+    cars[0] (intermediate) → {l4..l9}
+    ├─ make="Tesla" → {l4..l9}
+    ├─ tires[0] (intermediate) → {l4..l6}
+    │  ├─ width=245 → {l4..l6}
+    │  ├─ radiuses[0]=18 → l4
+    │  ├─ radiuses[1]=19 → l5
+    │  └─ radiuses[2]=20 → l6
+    ├─ accessories[0] (leaf) → l7
+    │  └─ type="charger" → {l7}
+    ├─ accessories[1] (leaf) → l8
+    │  └─ type="mats" → {l8}
+    └─ colors[0]="yellow" → l9
+    name="subdoc_125" → {l1..l9}
+
+  
+---
+8. Complete Index (2)
+
+    Values Bucket (for filterable index)
+
+        // key = hash8(path) + encoded_value → RoaringSet bitmap
+
+        hash8("name") + "subdoc_123"                → {r1|l1..l10|d998}
+        hash8("name") + "subdoc_124"                → {r1|l1..l11|d999}
+        hash8("name") + "subdoc_125"                → {r2|l1..l9|d999}
+
+        hash8("owner.firstname") + "Marsha"         → {r1|l1|d998, r1|l2|d998}
+        hash8("owner.firstname") + "Justin"         → {r1|l1|d999}
+        hash8("owner.firstname") + "Anna"           → {r2|l1|d999}
+
+        hash8("owner.lastname") + "Mallow"          → {r1|l1|d998, r1|l2|d998}
+        hash8("owner.lastname") + "Time"            → {r1|l1|d999}
+        hash8("owner.lastname") + "Wanna"           → {r2|l1|d999}
+
+        hash8("owner.nicknames") + "Marshmallow"    → {r1|l1|d998}
+        hash8("owner.nicknames") + "M&M"            → {r1|l2|d998}
+        hash8("owner.nicknames") + "watch"          → {r1|l1|d999}
+
+        hash8("addresses.city") + "Berlin"          → {r1|l3|d998, r1|l4|d998}
+        hash8("addresses.city") + "Madrid"          → {r1|l2|d999}
+        hash8("addresses.city") + "London"          → {r1|l3|d999}
+        hash8("addresses.city") + "Paris"           → {r2|l2|d999}
+
+        hash8("addresses.postcode") + "10115"       → {r1|l3|d998, r1|l4|d998}
+        hash8("addresses.postcode") + "28001"       → {r1|l2|d999}
+        hash8("addresses.postcode") + "SW1"         → {r1|l3|d999}
+        hash8("addresses.postcode") + "75001"       → {r2|l2|d999}
+
+        hash8("addresses.numbers") + 123            → {r1|l3|d998}
+        hash8("addresses.numbers") + 1123           → {r1|l4|d998}
+        hash8("addresses.numbers") + 124            → {r1|l2|d999}
+        hash8("addresses.numbers") + 125            → {r2|l2|d999}
+
+        hash8("tags") + "german"                    → {r1|l5|d998, r1|l4|d999}
+        hash8("tags") + "premium"                   → {r1|l6|d998}
+        hash8("tags") + "japanese"                  → {r1|l5|d999}
+        hash8("tags") + "sedan"                     → {r1|l6|d999}
+        hash8("tags") + "electric"                  → {r2|l3|d999}
+
+        hash8("cars.make") + "BMW"                  → {r1|l7..l10|d998}
+        hash8("cars.make") + "Audi"                 → {r1|l7..l9|d999}
+        hash8("cars.make") + "Kia"                  → {r1|l10|d999, r1|l11|d999}
+        hash8("cars.make") + "Tesla"                → {r2|l4..l9|d999}
+
+        hash8("cars.tires.width") + 225             → {r1|l7|d998, r1|l8|d998, r1|l9|d999}
+        hash8("cars.tires.width") + 205             → {r1|l7|d999, r1|l8|d999}
+        hash8("cars.tires.width") + 195             → {r1|l10|d999}
+        hash8("cars.tires.width") + 245             → {r2|l4..l6|d999}
+
+        hash8("cars.tires.radiuses") + 18           → {r1|l7|d998, r1|l8|d999, r2|l4|d999}
+        hash8("cars.tires.radiuses") + 19           → {r1|l8|d998, r2|l5|d999}
+        hash8("cars.tires.radiuses") + 17           → {r1|l7|d999}
+        hash8("cars.tires.radiuses") + 20           → {r2|l6|d999}
+
+        hash8("cars.colors") + "black"              → {r1|l9|d998}
+        hash8("cars.colors") + "orange"             → {r1|l10|d998}
+        hash8("cars.colors") + "white"              → {r1|l11|d999}
+        hash8("cars.colors") + "yellow"             → {r2|l9|d999}
+
+        hash8("cars.accessories.type") + "charger"  → {r2|l7|d999}
+        hash8("cars.accessories.type") + "mats"     → {r2|l8|d999}
+
+    Metadata Bucket
+
+        // _idx entries (key = hash8("_idx." + path) + BE16(N)):
+
+        hash8("_idx.owner") + 0                     → {r1|l1|d998, r1|l2|d998, r1|l1|d999, r2|l1|d999}
+
+        hash8("_idx.owner.nicknames") + 0           → {r1|l1|d998, r1|l1|d999}
+        hash8("_idx.owner.nicknames") + 1           → {r1|l2|d998}
+
+        hash8("_idx.addresses") + 0                 → {r1|l3|d998, r1|l4|d998, r1|l2|d999, r2|l2|d999}
+        hash8("_idx.addresses") + 1                 → {r1|l3|d999}
+
+        hash8("_idx.addresses.numbers") + 0         → {r1|l3|d998, r1|l2|d999, r2|l2|d999}
+        hash8("_idx.addresses.numbers") + 1         → {r1|l4|d998}
+
+        hash8("_idx.tags") + 0                      → {r1|l5|d998, r1|l4|d999, r2|l3|d999}
+        hash8("_idx.tags") + 1                      → {r1|l6|d998, r1|l5|d999}
+        hash8("_idx.tags") + 2                      → {r1|l6|d999}
+
+        hash8("_idx.cars") + 0                      → {r1|l7..l10|d998, r1|l7..l9|d999, r2|l4..l9|d999}
+        hash8("_idx.cars") + 1                      → {r1|l10|d999, r1|l11|d999}
+
+        hash8("_idx.cars.tires") + 0                → {r1|l7|d998, r1|l8|d998, r1|l7|d999, r1|l8|d999, r1|l10|d999, r2|l4..l6|d999}
+        hash8("_idx.cars.tires") + 1                → {r1|l9|d999}
+
+        hash8("_idx.cars.tires.radiuses") + 0       → {r1|l7|d998, r1|l7|d999, r2|l4|d999}
+        hash8("_idx.cars.tires.radiuses") + 1       → {r1|l8|d998, r1|l8|d999, r2|l5|d999}
+        hash8("_idx.cars.tires.radiuses") + 2       → {r2|l6|d999}
+
+        hash8("_idx.cars.colors") + 0               → {r1|l9|d998, r1|l11|d999, r2|l9|d999}
+        hash8("_idx.cars.colors") + 1               → {r1|l10|d998}
+
+        hash8("_idx.cars.accessories") + 0          → {r2|l7|d999}
+        hash8("_idx.cars.accessories") + 1          → {r2|l8|d999}
+
+        // _exists entries (key = hash8("_exists." + path)):
+
+        hash8("_exists")                            → {r1|l1..l10|d998, r1|l1..l11|d999, r2|l1..l9|d999}
+        hash8("_exists.name")                       → {r1|l1..l10|d998, r1|l1..l11|d999, r2|l1..l9|d999}
+        hash8("_exists.owner")                      → {r1|l1|d998, r1|l2|d998, r1|l1|d999, r2|l1|d999}
+        hash8("_exists.owner.firstname")            → {r1|l1|d998, r1|l2|d998, r1|l1|d999, r2|l1|d999}
+        hash8("_exists.owner.lastname")             → {r1|l1|d998, r1|l2|d998, r1|l1|d999, r2|l1|d999}
+        hash8("_exists.owner.nicknames")            → {r1|l1|d998, r1|l2|d998, r1|l1|d999}
+        hash8("_exists.addresses")                  → {r1|l3|d998, r1|l4|d998, r1|l2|d999, r1|l3|d999, r2|l2|d999}
+        hash8("_exists.addresses.city")             → {r1|l3|d998, r1|l4|d998, r1|l2|d999, r1|l3|d999, r2|l2|d999}
+        hash8("_exists.addresses.postcode")         → {r1|l3|d998, r1|l4|d998, r1|l2|d999, r1|l3|d999, r2|l2|d999}
+        hash8("_exists.addresses.numbers")          → {r1|l3|d998, r1|l4|d998, r1|l2|d999, r2|l2|d999}
+        hash8("_exists.tags")                       → {r1|l5|d998, r1|l6|d998, r1|l4..l6|d999, r2|l3|d999}
+        hash8("_exists.cars")                       → {r1|l7..l10|d998, r1|l7..l11|d999, r2|l4..l9|d999}
+        hash8("_exists.cars.make")                  → {r1|l7..l10|d998, r1|l7..l11|d999, r2|l4..l9|d999}
+        hash8("_exists.cars.tires")                 → {r1|l7|d998, r1|l8|d998, r1|l7..l10|d999, r2|l4..l6|d999}
+        hash8("_exists.cars.tires.width")           → {r1|l7|d998, r1|l8|d998, r1|l7..l10|d999, r2|l4..l6|d999}
+        hash8("_exists.cars.tires.radiuses")        → {r1|l7|d998, r1|l8|d998, r1|l7|d999, r1|l8|d999, r2|l4..l6|d999}
+        hash8("_exists.cars.colors")                → {r1|l9|d998, r1|l10|d998, r1|l11|d999, r2|l9|d999}
+        hash8("_exists.cars.accessories")           → {r2|l7|d999, r2|l8|d999}
+        hash8("_exists.cars.accessories.type")      → {r2|l7|d999, r2|l8|d999}
+
+
+---
+9. Filtering Examples (2)
+
+    Two levels of result: MaskPos → matching root elements; Strip → matching documents.
+    allRoots = MaskPos(_exists) → {r1|d998, r1|d999, r2|d999}
+
+    User Story 1: Scalar Arrays
+
+    1.1 Exact match
+
+        a) tags = "german"
+        → {r1|l5|d998, r1|l4|d999} → MaskPos → {r1|d998, r1|d999} → Strip → {d998, d999}
+
+        b) owner.nicknames = "M&M"
+        → {r1|l2|d998} → MaskPos → {r1|d998} → Strip → {d998}
+
+        c) addresses.numbers = 124
+        → {r1|l2|d999} → MaskPos → {r1|d999} → Strip → {d999}
+
+    1.2 Contains semantics
+
+        a) tags ContainsAll ["german", "premium"]
+        → MaskPos(="german") AND MaskPos(="premium")
+        → {r1|d998, r1|d999} AND {r1|d998} → {r1|d998} → Strip → {d998}
+
+        b) cars.tires.radiuses ContainsAny [19, 20]
+        → =19 ∪ =20 → {r1|l8|d998, r2|l5|d999, r2|l6|d999}
+        → MaskPos → {r1|d998, r2|d999} → Strip → {d998, d999}
+
+        c) tags ContainsAll ["german", "japanese"]
+        → MaskPos(="german") AND MaskPos(="japanese")
+        → {r1|d998, r1|d999} AND {r1|d999} → {r1|d999} → Strip → {d999}
+
+    1.3 Position within array
+
+        a) tags[0] = "german"
+        → tags="german" AND _idx.tags[0] → {r1|l5|d998, r1|l4|d999}
+        → MaskPos → {r1|d998, r1|d999} → Strip → {d998, d999}
+
+        b) cars.tires.radiuses[2] = 20
+        → =20 AND _idx.cars.tires.radiuses[2] → {r2|l6|d999}
+        → MaskPos → {r2|d999} → Strip → {d999}
+
+        c) owner.nicknames[1] = "M&M"
+        → ="M&M" AND _idx.owner.nicknames[1] → {r1|l2|d998}
+        → MaskPos → {r1|d998} → Strip → {d998}
+
+    1.4 Multiple conditions on same array
+
+        a) tags = "german" AND tags = "premium"
+        → MaskPos(="german") AND MaskPos(="premium") → {r1|d998} → Strip → {d998}
+
+        b) cars.tires.radiuses = 18 AND radiuses = 19 (same tire — _idx.cars.tires loop)
+        → A={r1|l7|d998, r1|l8|d999, r2|l4|d999}, B={r1|l8|d998, r2|l5|d999}
+        → MaskPos(A) AND MaskPos(B) → {r1|d998, r2|d999}
+        → _idx.cars.tires loop:
+        - r1|d998: tires[0]={l7,l8}: A∩={l7}✓ B∩={l8}✓ → MATCH
+        - r2|d999: tires[0]={l4..l6}: A∩={l4}✓ B∩={l5}✓ → MATCH
+        → {r1|d998, r2|d999} → Strip → {d998, d999}
+
+        c) addresses.numbers = 123 AND numbers = 1123 (same address — _idx.addresses loop)
+        → A={r1|l3|d998}, B={r1|l4|d998}
+        → MaskPos pre-filter → {r1|d998}
+        → _idx.addresses[1]={r1|l3, r1|l4|d998}: A∩✓ B∩✓ → MATCH
+        → {r1|d998} → Strip → {d998}
+
+    1.5 Presence check
+
+        a) HAS(owner.nicknames)
+        → MaskPos(_exists.owner.nicknames) → {r1|d998, r1|d999} → Strip → {d998, d999}
+
+        b) HAS(cars.accessories)
+        → MaskPos(_exists.cars.accessories) → {r2|d999} → Strip → {d999}
+
+        c) HAS(addresses.numbers)
+        → MaskPos(_exists.addresses.numbers) → {r1|d998, r1|d999, r2|d999} → Strip → {d998, d999}
+
+    1.6 Negation
+
+        a) tags != "german" (root elements where NO tag is german)
+        → failRoots = MaskPos(="german") → {r1|d998, r1|d999}
+        → allRoots ANDNOT failRoots → {r2|d999} → Strip → {d999}
+
+        b) owner.nicknames NOT IN ["watch"]
+        → failRoots = MaskPos(="watch") → {r1|d999}
+        → allRoots ANDNOT failRoots → {r1|d998, r2|d999} → Strip → {d998, d999}
+
+        c) Per-element: cars.colors != "black"
+        → _exists.cars.colors ANDNOT colors="black"
+        → {r1|l10|d998, r1|l11|d999, r2|l9|d999} (orange, white, yellow)
+
+    1.7 Null state
+
+        a) owner.nicknames IS NULL
+        → hasNick = MaskPos(_exists.owner.nicknames) → {r1|d998, r1|d999}
+        → allRoots ANDNOT hasNick → {r2|d999} → Strip → {d999}
+
+        b) cars.colors IS NULL (root elements where no car has colors)
+        → hasColors = MaskPos(_exists.cars.colors) → {r1|d998, r1|d999, r2|d999}
+        → allRoots ANDNOT hasColors → {}
+
+        c) Per-element: which address elements lack numbers?
+        → _exists.addresses ANDNOT _exists.addresses.numbers → {r1|l3|d999} (London)
+        → MaskPos → {r1|d999} → Strip → {d999}
+
+    
+    User Story 2: Nested Objects
+
+    2.1 Exact match on scalar in path
+
+        a) addresses.city = "Berlin"
+        → {r1|l3|d998, r1|l4|d998} → MaskPos → {r1|d998} → Strip → {d998}
+
+        b) owner.firstname = "Justin"
+        → {r1|l1|d999} → MaskPos → {r1|d999} → Strip → {d999}
+
+        c) cars.tires.width = 245
+        → {r2|l4..l6|d999} → MaskPos → {r2|d999} → Strip → {d999}
+
+    2.2 Multiple conditions on same element
+
+        a) addresses.city = "Madrid" AND addresses.postcode = "28001"
+        → Direct AND → {r1|l2|d999} → MaskPos → {r1|d999} → Strip → {d999}
+
+        b) owner.firstname = "Marsha" AND owner.lastname = "Mallow"
+        → Direct AND → {r1|l1|d998, r1|l2|d998} → MaskPos → {r1|d998} → Strip → {d998}
+
+        c) cars.tires.width = 205 AND cars.tires.radiuses = 17 (ancestor-descendant)
+        → A={r1|l7|d999, r1|l8|d999}, B={r1|l7|d999}
+        → Direct AND → {r1|l7|d999} → MaskPos → {r1|d999} → Strip → {d999}
+
+    2.3 Cross-subtree
+
+        a) addresses.city = "Berlin" AND cars.make = "BMW" (siblings under root)
+        → MaskPos({r1|l3, r1|l4|d998}) AND MaskPos({r1|l7..l10|d998})
+        → {r1|d998} AND {r1|d998} → {r1|d998} → Strip → {d998}
+
+        b) owner.firstname = "Justin" AND tags = "japanese"
+        → MaskPos({r1|l1|d999}) AND MaskPos({r1|l5|d999})
+        → {r1|d999} → Strip → {d999}
+
+        c) owner.firstname = "Anna" AND cars.accessories.type = "charger"
+        → MaskPos({r2|l1|d999}) AND MaskPos({r2|l7|d999})
+        → {r2|d999} → Strip → {d999}
+
+    2.4 Contains semantics
+
+        a) addresses contains {city:"Berlin", numbers:[123]}
+        → A=city="Berlin"→{r1|l3, r1|l4|d998}, B=numbers=123→{r1|l3|d998}
+        → Direct AND → {r1|l3|d998} → MaskPos → {r1|d998} → Strip → {d998}
+
+        b) cars contains {make:"BMW", colors:["black"]}
+        → A=make="BMW"→{r1|l7..l10|d998}, B=colors="black"→{r1|l9|d998}
+        → Direct AND → {r1|l9|d998} → MaskPos → {r1|d998} → Strip → {d998}
+
+        c) cars.tires contains {width:225, radiuses:[18]}
+        → A=width=225→{r1|l7|d998, r1|l8|d998, r1|l9|d999}
+        → B=radiuses=18→{r1|l7|d998, r1|l8|d999, r2|l4|d999}
+        → Direct AND → {r1|l7|d998} → MaskPos → {r1|d998} → Strip → {d998}
+        (BMW's tire: width=225 at {l7,l8}, radius=18 at l7, AND gives l7 ✓)
+
+    2.5 Negation
+
+        a) addresses.city != "London"
+        → failRoots = MaskPos(="London") → {r1|d999}
+        → allRoots ANDNOT failRoots → {r1|d998, r2|d999} → Strip → {d998, d999}
+
+        b) cars.make NOT IN ["BMW", "Kia"]
+        → failRoots = MaskPos(="BMW" ∪ ="Kia") → {r1|d998, r1|d999}
+        → allRoots ANDNOT failRoots → {r2|d999} → Strip → {d999}
+
+        c) Per-element: cars.make != "Audi"
+        → _exists.cars.make ANDNOT make="Audi"
+        → {r1|l7..l10|d998, r1|l10|d999, r1|l11|d999, r2|l4..l9|d999}
+        (BMW, Kia, Tesla) → MaskPos → {r1|d998, r1|d999, r2|d999}
+
+    
+    User Story 3: Arrays of Objects
+
+    3.1 Arbitrary level filtering
+
+        a) cars.tires.radiuses = 18 (3 levels deep)
+        → {r1|l7|d998, r1|l8|d999, r2|l4|d999}
+        → MaskPos → {r1|d998, r1|d999, r2|d999} → Strip → {d998, d999}
+
+        b) cars.tires.width = 205 AND cars.colors = "white" (LCA=cars)
+        → A=width=205→{r1|l7|d999, r1|l8|d999}, B=colors="white"→{r1|l11|d999}
+        → MaskPos pre-filter → {r1|d999}
+        → _idx.cars loop for r1|d999:
+        - cars[0]={l7..l9}: A∩={l7,l8}✓, B∩=∅ ✗ (Audi has no colors)
+        - cars[1]={l10,l11}: A∩=∅ ✗
+        → {} ✓ (205 is Audi, white is Kia — different cars)
+
+        c) cars.tires.width = 245 AND cars.accessories.type = "charger" (LCA=cars)
+        → A=width=245→{r2|l4..l6|d999}, B=acc="charger"→{r2|l7|d999}
+        → MaskPos pre-filter → {r2|d999}
+        → _idx.cars loop for r2|d999:
+        - cars[0]={l4..l9}: A∩={l4..l6}✓, B∩={l7}✓ → MATCH
+        → {r2|d999} → Strip → {d999}
+
+    3.2 Any/All/None
+
+        a) ALL(cars.tires.width > 200)
+        → passing = {r1|l7|d998, r1|l8|d998, r1|l7|d999, r1|l8|d999, r1|l9|d999, r2|l4..l6|d999}
+        → allTires = _exists.cars.tires.width
+        → failing = allTires ANDNOT passing → {r1|l10|d999} (Kia's 195 tire)
+        → failRoots = MaskPos → {r1|d999}
+        → allRoots ANDNOT failRoots → {r1|d998, r2|d999} → Strip → {d998, d999}
+
+        b) NONE(cars.colors = "white")
+        → matchRoots = MaskPos(="white") → {r1|d999}
+        → allRoots ANDNOT matchRoots → {r1|d998, r2|d999} → Strip → {d998, d999}
+
+        c) ANY(cars.accessories.type = "charger")
+        → MaskPos(="charger") → {r2|d999} → Strip → {d999}
+
+    
+    Verification: results are analogous across both configurations:
+
+        ┌──────────────────────────────────┬───────────────┬────────────────────┐
+        │              Query               │ Separate docs │  Two-doc object[]  │
+        ├──────────────────────────────────┼───────────────┼────────────────────┤
+        │ tags="german"                    │ {d123, d124}  │ {r1|d998, r1|d999} │
+        ├──────────────────────────────────┼───────────────┼────────────────────┤
+        │ ContainsAll [german,premium]     │ {d123}        │ {r1|d998}          │
+        ├──────────────────────────────────┼───────────────┼────────────────────┤
+        │ tags!="german"                   │ {d125}        │ {r2|d999}          │
+        ├──────────────────────────────────┼───────────────┼────────────────────┤
+        │ ALL(tires.width>200)             │ {d123, d125}  │ {r1|d998, r2|d999} │
+        ├──────────────────────────────────┼───────────────┼────────────────────┤
+        │ tires width=205 AND colors=white │ {}            │ {}                 │
+        └──────────────────────────────────┴───────────────┴────────────────────┘
+
+        Same operations, same logic, different encoding. Element isolation uses root_idx within a document and docID across documents.
