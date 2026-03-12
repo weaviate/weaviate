@@ -4,13 +4,13 @@ Nested Property Filtering — Design Summary
 1. Bitmap Value Encoding
 
     To be able to filter within the same object/element of objects/elements array, its position in the array has to be stored aside document id.
-    Document ids in filterable and rangeable indexes are stored in roaring bitmaps. Bitmaps can store uint64 values, same type that weaviate use for document ids.
+    Document ids in filterable and rangeable indexes are stored in roaring bitmaps. Bitmaps can store uint64 values, same type that weaviate uses for document ids.
     That means positions and document ids have to be combined into single uint64.
 
     Every value stored in the inverted index is a 64-bit integer encoding three components:
 
     | root_idx (16 bits) | leaf_idx (16 bits) | docID (32 bits) |
-    | bits 63-48                 | bits 47-32                 | bits 31-0             |
+    | bits 63-48         | bits 47-32         | bits 31-0       |
 
     - root_idx: 1-based. For standalone object always 1 (document = implicit 1-element array). For object[] property = element index.
     - leaf_idx: 1-based contiguous counter per root across all leaf arrays in the document.
@@ -28,22 +28,21 @@ Nested Property Filtering — Design Summary
     - ALL/NONE operators & per-element negation
 
     NOTE: 
-        32 bits to store docID limits max docID in the bitmap to 4,294,967,296 (4B). By decreasing number of supported roots and leaves per root numbers, max docID can be increased:
+        32 bits to store docID limits max docID in the bitmap to 4,294,967,296 (4B). By decreasing number of supported roots and leaves per root, max docID can be increased:
         - root_idx and leaf_idx = 16,384 (2^14) => max docID = 68,719,476,736 (2^36 = 68B)
         - root_idx and leaf_idx = 4,096 (2^12) => max docID = 1,099,511,627,776 (2^40 = 1T)
-        If those values are still to strict, sroar library can be modified to use additional 16 bits of containers' keys (keys are uin64 values with lowest 16 bits set to 0). Such change would allow to use 16 bits for root_idx (65,535), 16 bits for leaf_idx (65,535) and 48 bits for docID (281,474,976,710,656).
+        If those values are still to strict, sroar library can be modified to use additional 16 bits of containers' keys (keys are uint64 values with lowest 16 bits set to 0). Such change would allow to use 16 bits for root_idx (65,535), 16 bits for leaf_idx (65,535) and 48 bits for docID (281,474,976,710,656).
 
 
 ---
 2. Two LSM Buckets
 
-    All documents and properties share exactly 2 buckets (StrategyRoaringSet):
     To avoid unbounded number of buckets created per each object subproperty, one common Values bucket per filter type will be created for property.
     Initially only filterable index will be supported for nested objects, therefore Values bucket is of RoaringSet strategy.
     Each value stored in Values bucket will be prefixed with hashed subproperty path.
     To support rangeable index another bucket of RoaringSetRange strategy will be introduced in the future to hold Values of indexed subproperties.
 
-    NOTE: bucket of RoaringSetRange currently supports just keys of uin8 type indicating bits of indexed values. It has to be modified to support prefixes in order to store multiple subproperties in single bucket.
+    NOTE: bucket of RoaringSetRange currently supports just keys of uint8 type indicating bits of indexed values. It has to be modified to support prefixes in order to store multiple subproperties in single bucket.
 
     ┌──────────┬───────────────────────────────────────────┬─────────────────────────────────────────────────────┐
     │  Bucket  │             Key Format                    │                    Value                            │
@@ -317,8 +316,7 @@ Nested Property Filtering — Design Summary
 
         Sufficient when the lowest common ancestor (LCA) of both operands is the document root:
 
-        addresses.city="Berlin" AND cars.make="BMW"
-        → MaskPos({r1|l3..l4|d123}) AND MaskPos({r1|l7..l10|d123}) → {r1|d123} ✓
+        addresses.city="Berlin" AND cars.make="BMW" → MaskPos({r1|l3..l4|d123}) AND MaskPos({r1|l7..l10|d123}) → {r1|d123} ✓
 
     When to use MaskPosition + _idx loop
 
@@ -823,20 +821,20 @@ Nested Property Filtering — Design Summary
         }]
 
 
-        ┌─────────────────────┬────────────┐
-        │       Subdoc        │  Encoding  │
-        ├─────────────────────┼────────────┤
-        │ subdoc_123 (Marsha) │ r1|l*|d998 │
-        ├─────────────────────┼────────────┤
-        │ subdoc_124 (Justin) │ r1|l*|d999 │
-        ├─────────────────────┼────────────┤
-        │ subdoc_125 (Anna)   │ r2|l*|d999 │
-        └─────────────────────┴────────────┘
-
-        Justin and Anna share docID 999 but have different roots. Marsha has her own docID 998.
-
     Assignments:
+
+    Justin and Anna share docID 999 but have different roots. Marsha has her own docID 998.
   
+    ┌─────────────────────┬────────────┐
+    │       Subdoc        │  Encoding  │
+    ├─────────────────────┼────────────┤
+    │ subdoc_123 (Marsha) │ r1|l*|d998 │
+    ├─────────────────────┼────────────┤
+    │ subdoc_124 (Justin) │ r1|l*|d999 │
+    ├─────────────────────┼────────────┤
+    │ subdoc_125 (Anna)   │ r2|l*|d999 │
+    └─────────────────────┴────────────┘
+
     - doc998, root 1 (subdoc_123 / Marsha) — 10 leaves
 
     owner (intermediate) → {l1, l2}       ── r1|l*|d998
@@ -1289,6 +1287,7 @@ Nested Property Filtering — Design Summary
         result = result OR (MaskPos(matchA) AND MaskPos(matchB))
         
     MaskPos(matchA) AND MaskPos(matchB) ensures both operands matched under car index N in the same root+docID.
+    The pre-filter candidates = MaskPos(A) AND MaskPos(B) is an optimization — if empty, skip the loop entirely.
 
     Verifying 3.1b — cars.tires.width = 205 AND cars.colors = "white":
         A = {r1|l7|d999, r1|l8|d999},  B = {r1|l11|d999}
@@ -1314,8 +1313,6 @@ Nested Property Filtering — Design Summary
             MaskPos(matchA) AND MaskPos(matchB) = {r2|d999} AND {r2|d999} = {r2|d999} ✓
 
         result = {r2|d999} ✓
-
-    The pre-filter candidates = MaskPos(A) AND MaskPos(B) is an optimization — if empty, skip the loop entirely.
 
 
 ---
@@ -1455,7 +1452,7 @@ Nested Property Filtering — Design Summary
     
     Step 4: Flatten Nested Schema to Leaf Paths
 
-    File: adapters/repos/db/shard_init_properties.go
+        File: adapters/repos/db/shard_init_properties.go
 
         type nestedLeafPath struct {
             Path   string                  // "addresses.city"
