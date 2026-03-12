@@ -528,7 +528,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		return false, nil
 	}
 
-	if node.isUnderMaintenance() {
+	if node.isUnderMaintenance() || n.graph.hasTombstone(candidate) {
 		return false, nil
 	}
 

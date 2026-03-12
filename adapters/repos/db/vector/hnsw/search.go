@@ -110,7 +110,24 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		}
 		candidateSet := make(map[uint64]struct{})
 		for _, docID := range docIDs {
-			candidateSet[docID] = struct{}{}
+			// Check if the docID itself has any tombstoned vectors
+			// SearchByVector already filters individual vectors, but
+			// here we are working with docIDs.
+			h.RLock()
+			vecIDs := h.docIDVectors[docID]
+			h.RUnlock()
+
+			allTombstoned := true
+			for _, vecID := range vecIDs {
+				if !h.hasTombstone(vecID) {
+					allTombstoned = false
+					break
+				}
+			}
+
+			if !allTombstoned {
+				candidateSet[docID] = struct{}{}
+			}
 		}
 		return h.computeLateInteraction(vectors, k, candidateSet)
 	}
@@ -485,6 +502,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					continue
 				}
 			}
+
+			if h.hasTombstone(neighborID) {
+				continue
+			}
+
 			var distance float32
 			var err error
 			if h.compressed.Load() {
@@ -526,10 +548,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					} else if !allowList.Contains(neighborID) {
 						continue
 					}
-				}
-
-				if h.hasTombstone(neighborID) {
-					continue
 				}
 
 				results.Insert(neighborID, distance)
@@ -575,6 +593,10 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
+		if h.hasTombstone(ep.ID) {
+			continue
+		}
+
 		visitedList.Visit(ep.ID)
 		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
@@ -595,10 +617,6 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			} else if !allowList.Contains(ep.ID) {
 				continue
 			}
-		}
-
-		if h.hasTombstone(ep.ID) {
-			continue
 		}
 
 		results.Insert(ep.ID, ep.Dist)
@@ -776,6 +794,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		//
 		// If we do, however, have results, any candidate that's not nil (not
 		// deleted), and not under maintenance is a viable candidate
+		//
 		for res.Len() > 0 {
 			cand := res.Pop()
 			n := h.nodeByID(cand.ID)
@@ -788,6 +807,14 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				}
 
 				// skip the nil node, as it does not make a valid entrypoint
+				continue
+			}
+
+			// Check if the node has been deleted (tombstone) but not yet cleaned up
+			if h.hasTombstone(cand.ID) {
+				// handleDeletedNode will add the tombstone if it's not already there
+				h.handleDeletedNode(cand.ID, "knnSearchByVector-entrypoint")
+				// skip the tombstoned node, as it does not make a valid entrypoint
 				continue
 			}
 
