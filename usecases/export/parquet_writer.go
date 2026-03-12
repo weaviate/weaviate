@@ -12,8 +12,6 @@
 package export
 
 import (
-	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // ParquetRow represents a single row in the Parquet file
@@ -79,7 +78,6 @@ func (pw *ParquetWriter) WriteObject(obj *storobj.Object) error {
 // worker goroutines.
 func (pw *ParquetWriter) WriteRow(row ParquetRow) error {
 	pw.buffer = append(pw.buffer, row)
-	pw.written.Add(1)
 
 	if len(pw.buffer) >= pw.batchSize {
 		return pw.Flush()
@@ -94,11 +92,13 @@ func (pw *ParquetWriter) Flush() error {
 		return nil
 	}
 
+	n := int64(len(pw.buffer))
 	_, err := pw.writer.Write(pw.buffer)
 	if err != nil {
 		return fmt.Errorf("write batch to parquet: %w", err)
 	}
 
+	pw.written.Add(n)
 	pw.buffer = pw.buffer[:0] // Reset buffer
 	return nil
 }
@@ -165,9 +165,7 @@ func convertToParquetRow(obj *storobj.Object) (ParquetRow, error) {
 	return row, nil
 }
 
-// serializeVector converts a []float32 vector to binary format
+// serializeVector converts a []float32 vector to little-endian binary format.
 func serializeVector(vector []float32) []byte {
-	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.LittleEndian, vector)
-	return buf.Bytes()
+	return byteops.Fp32SliceToBytes(vector)
 }
