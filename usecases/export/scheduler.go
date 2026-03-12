@@ -248,26 +248,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	// Both single-node and multi-node write a plan, so try to read it first.
 	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if planErr != nil {
-		// Only fall back to metadata if the plan is genuinely missing.
-		// For other errors (connectivity, permissions) propagate them.
-		if !errors.As(planErr, &backup.ErrNotFound{}) {
-			return nil, fmt.Errorf("get export plan: %w", planErr)
-		}
-		// Plan may not exist if the export failed before/during plan writing.
-		// Fall back to reading the metadata file which may contain the FAILED/CANCELED state.
-		meta, metaErr := s.getExportMetadata(ctx, backendStore, id, bucket, path)
-		if metaErr != nil {
-			return nil, fmt.Errorf("export %s not found: %w", id, planErr)
-		}
-		// Missing plan is always a failure — override the status and preserve
-		// any error already recorded in the metadata, unless it was canceled.
-		if meta.Status != export.Canceled {
-			meta.Status = export.Failed
-			if meta.Error == "" {
-				meta.Error = fmt.Sprintf("export plan not found: %v", planErr)
-			}
-		}
-		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+		return nil, fmt.Errorf("get export plan: %w", planErr)
 	}
 
 	// Authorize using plan classes.
@@ -450,16 +431,17 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 }
 
 // statusFromMetadata builds an ExportStatusResponse from an ExportMetadata record.
-// Used for single-node exports and as a fallback when the multi-node plan is missing.
+// Used for terminal states (single-node and promoted multi-node).
 func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend, id, bucket, path string, meta *ExportMetadata) (*models.ExportStatusResponse, error) {
 	es := &models.ExportStatusResponse{
-		ID:        meta.ID,
-		Backend:   meta.Backend,
-		Path:      backend.HomeDir(id, bucket, path),
-		Status:    string(meta.Status),
-		StartedAt: strfmt.DateTime(meta.StartedAt),
-		Classes:   meta.Classes,
-		Error:     meta.Error,
+		ID:          meta.ID,
+		Backend:     meta.Backend,
+		Path:        backend.HomeDir(id, bucket, path),
+		Status:      string(meta.Status),
+		StartedAt:   strfmt.DateTime(meta.StartedAt),
+		Classes:     meta.Classes,
+		Error:       meta.Error,
+		ShardStatus: meta.ShardStatus,
 	}
 
 	if !meta.CompletedAt.IsZero() {
@@ -936,6 +918,7 @@ func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, expo
 		Status:      export.Status(status.Status),
 		Classes:     status.Classes,
 		Error:       status.Error,
+		ShardStatus: status.ShardStatus,
 		Version:     config.ServerVersion,
 	}
 
