@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -845,4 +846,58 @@ func Test_CompressBQWithSlowCachePrefill(t *testing.T) {
 	// Compression should be deferred because the cache is still prefilling.
 	assert.False(t, index.compressed.Load(),
 		"index should not be compressed while cache prefill is still in progress")
+}
+
+func Test_NoRaceRQCompressAndPrefillCache(t *testing.T) {
+	dimensions := 64
+	vectorsSize := 100
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	uc := ent.UserConfig{}
+	uc.SetDefaults()
+	uc.RQ = ent.RQConfig{Enabled: true, Bits: 1}
+	uc.VectorCacheMaxObjects = 1e12
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "rq-cache-race",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      dist,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[int(id)], nil
+		},
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			copy(container.Slice, vectors[int(id)])
+			return container.Slice, nil
+		},
+	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	defer index.Shutdown(context.Background())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		compressionhelpers.Concurrently(logger, uint64(vectorsSize), func(i uint64) {
+			index.Add(ctx, i, vectors[i])
+		})
+	}, logger)
+
+	index.PostStartup(ctx)
+	wg.Wait()
 }

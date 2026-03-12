@@ -21,14 +21,14 @@ import (
 	"github.com/weaviate/weaviate/modules/multi2vec-google/vectorizer"
 )
 
-func (m *Module) ClassConfigDefaults() map[string]interface{} {
-	return map[string]interface{}{}
+func (m *Module) ClassConfigDefaults() map[string]any {
+	return map[string]any{}
 }
 
 func (m *Module) PropertyConfigDefaults(
 	dt *schema.DataType,
-) map[string]interface{} {
-	return map[string]interface{}{}
+) map[string]any {
+	return map[string]any{}
 }
 
 func (m *Module) ValidateClass(ctx context.Context,
