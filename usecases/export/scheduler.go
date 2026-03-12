@@ -925,7 +925,7 @@ func (s *Scheduler) getExportPlan(ctx context.Context, backend modulecapabilitie
 	return &plan, nil
 }
 
-// getNodeStatus reads a node's status file from S3
+// getNodeStatus reads a node's status file from the configured backup backend.
 func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path, nodeName string) (*NodeStatus, error) {
 	key := fmt.Sprintf("node_%s_status.json", nodeName)
 	data, err := backend.GetObject(ctx, exportID, key, bucket, path)
