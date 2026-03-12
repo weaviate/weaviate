@@ -920,7 +920,8 @@ func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter
 // It uses a fresh context with a timeout so the write succeeds even if the
 // original context was canceled (e.g. during graceful shutdown).
 func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *models.ExportStatusResponse) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	completedAt := time.Time(status.CompletedAt)
 	if completedAt.IsZero() {
