@@ -346,6 +346,9 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	// results have been produced before cleanup closes the rows channels.
 	cleanupWg.Wait()
 
+	// submitJobs errors (context cancellation, shard acquisition) take
+	// precedence over cleanupErr (writer flush, upload) because cleanup
+	// failures are typically a downstream consequence of the root cause.
 	if err != nil {
 		return err
 	}
@@ -398,7 +401,6 @@ func (p *Participant) submitJobs(
 			}
 
 			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus); err != nil {
-				nodeStatus.SetFailed(className, err)
 				return err
 			}
 		}
@@ -431,6 +433,7 @@ func (p *Participant) submitShardJobs(
 		release()
 		err := fmt.Errorf("store not found for shard %s/%s", className, shardName)
 		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		nodeStatus.SetFailed(className, err)
 		return err
 	}
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
@@ -438,6 +441,7 @@ func (p *Participant) submitShardJobs(
 		release()
 		err := fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
 		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		nodeStatus.SetFailed(className, err)
 		return err
 	}
 	ranges := computeRanges(bucket)
@@ -446,6 +450,7 @@ func (p *Participant) submitShardJobs(
 	if err != nil {
 		release()
 		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		nodeStatus.SetFailed(className, err)
 		return fmt.Errorf("start shard writer %s/%s: %w", className, shardName, err)
 	}
 
