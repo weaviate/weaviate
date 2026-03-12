@@ -247,7 +247,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	// calls Join() once at startup.
 	if len(joinAddr) > 0 && userConfig.RaftBootstrapExpect > 1 {
 		enterrors.GoWrapper(func() {
-			state.periodicRejoin(joinAddr, userConfig.RaftBootstrapExpect, logger)
+			state.periodicRejoin(cfg.PushPullInterval, joinAddr, userConfig.RaftBootstrapExpect, logger)
 		}, logger)
 	}
 
@@ -540,8 +540,8 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 // (after GossipToTheDeadTime). Without this, the isolated node and the rest of
 // the cluster lose all knowledge of each other and can never reconnect because
 // memberlist only calls Join() at startup.
-func (s *State) periodicRejoin(joinAddr []string, expectedNodes int, logger logrus.FieldLogger) {
-	ticker := time.NewTicker(5 * time.Second)
+func (s *State) periodicRejoin(pushPullInterval time.Duration, joinAddr []string, expectedNodes int, logger logrus.FieldLogger) {
+	ticker := time.NewTicker(pushPullInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
