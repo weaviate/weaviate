@@ -119,8 +119,7 @@ message SearchReply {
   optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
-  reserved 6;
-  optional QueryProfile profile = 7;
+  optional QueryProfile profile = 6;
 }
 
 // QueryProfile contains per-shard profiling data for a search query.
@@ -133,10 +132,10 @@ message QueryProfile {
 message ShardProfile {
   // name is the identifier of the shard that was searched.
   string name = 1;
-  // searches maps search type (e.g., "vector", "keyword") to its profiling details.
-  map<string, SearchProfile> searches = 2;
   // node is the name of the cluster node that executed this shard search.
-  string node = 3;
+  string node = 2;
+  // searches maps search type (e.g., "vector", "keyword") to its profiling details.
+  map<string, SearchProfile> searches = 3;
 }
 
 // SearchProfile holds the profiling details for a single search type within a shard.

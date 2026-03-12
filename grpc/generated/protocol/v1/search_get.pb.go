@@ -419,9 +419,11 @@ type MetadataRequest struct {
 	ExplainScore       bool                   `protobuf:"varint,8,opt,name=explain_score,json=explainScore,proto3" json:"explain_score,omitempty"`
 	IsConsistent       bool                   `protobuf:"varint,9,opt,name=is_consistent,json=isConsistent,proto3" json:"is_consistent,omitempty"`
 	Vectors            []string               `protobuf:"bytes,10,rep,name=vectors,proto3" json:"vectors,omitempty"`
-	Profile            bool                   `protobuf:"varint,11,opt,name=profile,proto3" json:"profile,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// profile enables per-shard query profiling. When true, the response includes
+	// timing breakdowns for each shard and search type.
+	Profile       bool `protobuf:"varint,11,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MetadataRequest) Reset() {
@@ -787,7 +789,7 @@ type SearchReply struct {
 	GenerativeGroupedResult  *string           `protobuf:"bytes,3,opt,name=generative_grouped_result,json=generativeGroupedResult,proto3,oneof" json:"generative_grouped_result,omitempty"`
 	GroupByResults           []*GroupByResult  `protobuf:"bytes,4,rep,name=group_by_results,json=groupByResults,proto3" json:"group_by_results,omitempty"`
 	GenerativeGroupedResults *GenerativeResult `protobuf:"bytes,5,opt,name=generative_grouped_results,json=generativeGroupedResults,proto3,oneof" json:"generative_grouped_results,omitempty"`
-	Profile                  *QueryProfile     `protobuf:"bytes,7,opt,name=profile,proto3,oneof" json:"profile,omitempty"`
+	Profile                  *QueryProfile     `protobuf:"bytes,6,opt,name=profile,proto3,oneof" json:"profile,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -865,6 +867,8 @@ func (x *SearchReply) GetProfile() *QueryProfile {
 	return nil
 }
 
+// QueryProfile contains per-shard profiling data for a search query.
+// Only populated when MetadataRequest.profile is true.
 type QueryProfile struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Shards        []*ShardProfile        `protobuf:"bytes,1,rep,name=shards,proto3" json:"shards,omitempty"`
@@ -909,11 +913,15 @@ func (x *QueryProfile) GetShards() []*ShardProfile {
 	return nil
 }
 
+// ShardProfile holds profiling data for a single shard's contribution to a search query.
 type ShardProfile struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
-	Name          string                    `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Searches      map[string]*SearchProfile `protobuf:"bytes,2,rep,name=searches,proto3" json:"searches,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Node          string                    `protobuf:"bytes,3,opt,name=node,proto3" json:"node,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the identifier of the shard that was searched.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// node is the name of the cluster node that executed this shard search.
+	Node string `protobuf:"bytes,2,opt,name=node,proto3" json:"node,omitempty"`
+	// searches maps search type (e.g., "vector", "keyword") to its profiling details.
+	Searches      map[string]*SearchProfile `protobuf:"bytes,3,rep,name=searches,proto3" json:"searches,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -955,13 +963,6 @@ func (x *ShardProfile) GetName() string {
 	return ""
 }
 
-func (x *ShardProfile) GetSearches() map[string]*SearchProfile {
-	if x != nil {
-		return x.Searches
-	}
-	return nil
-}
-
 func (x *ShardProfile) GetNode() string {
 	if x != nil {
 		return x.Node
@@ -969,9 +970,18 @@ func (x *ShardProfile) GetNode() string {
 	return ""
 }
 
+func (x *ShardProfile) GetSearches() map[string]*SearchProfile {
+	if x != nil {
+		return x.Searches
+	}
+	return nil
+}
+
+// SearchProfile holds the profiling details for a single search type within a shard.
 type SearchProfile struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Details       map[string]string      `protobuf:"bytes,1,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// details contains human-readable profiling metrics keyed by metric name.
+	Details       map[string]string `protobuf:"bytes,1,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1686,24 +1696,24 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x06Rerank\x12\x1a\n" +
 	"\bproperty\x18\x01 \x01(\tR\bproperty\x12\x19\n" +
 	"\x05query\x18\x02 \x01(\tH\x00R\x05query\x88\x01\x01B\b\n" +
-	"\x06_query\"\xcc\x03\n" +
+	"\x06_query\"\xc6\x03\n" +
 	"\vSearchReply\x12\x12\n" +
 	"\x04took\x18\x01 \x01(\x02R\x04took\x123\n" +
 	"\aresults\x18\x02 \x03(\v2\x19.weaviate.v1.SearchResultR\aresults\x12C\n" +
 	"\x19generative_grouped_result\x18\x03 \x01(\tB\x02\x18\x01H\x00R\x17generativeGroupedResult\x88\x01\x01\x12D\n" +
 	"\x10group_by_results\x18\x04 \x03(\v2\x1a.weaviate.v1.GroupByResultR\x0egroupByResults\x12`\n" +
 	"\x1agenerative_grouped_results\x18\x05 \x01(\v2\x1d.weaviate.v1.GenerativeResultH\x01R\x18generativeGroupedResults\x88\x01\x01\x128\n" +
-	"\aprofile\x18\a \x01(\v2\x19.weaviate.v1.QueryProfileH\x02R\aprofile\x88\x01\x01B\x1c\n" +
+	"\aprofile\x18\x06 \x01(\v2\x19.weaviate.v1.QueryProfileH\x02R\aprofile\x88\x01\x01B\x1c\n" +
 	"\x1a_generative_grouped_resultB\x1d\n" +
 	"\x1b_generative_grouped_resultsB\n" +
 	"\n" +
-	"\b_profileJ\x04\b\x06\x10\a\"A\n" +
+	"\b_profile\"A\n" +
 	"\fQueryProfile\x121\n" +
 	"\x06shards\x18\x01 \x03(\v2\x19.weaviate.v1.ShardProfileR\x06shards\"\xd4\x01\n" +
 	"\fShardProfile\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12C\n" +
-	"\bsearches\x18\x02 \x03(\v2'.weaviate.v1.ShardProfile.SearchesEntryR\bsearches\x12\x12\n" +
-	"\x04node\x18\x03 \x01(\tR\x04node\x1aW\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04node\x18\x02 \x01(\tR\x04node\x12C\n" +
+	"\bsearches\x18\x03 \x03(\v2'.weaviate.v1.ShardProfile.SearchesEntryR\bsearches\x1aW\n" +
 	"\rSearchesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
 	"\x05value\x18\x02 \x01(\v2\x1a.weaviate.v1.SearchProfileR\x05value:\x028\x01\"\x8e\x01\n" +

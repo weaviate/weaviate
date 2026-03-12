@@ -127,14 +127,16 @@ func AddShardProfile(ctx context.Context, shardName, nodeName, searchType string
 		}
 	}
 
-	collector.mu.Lock()
-	collector.entries = append(collector.entries, shardEntry{
-		shardName:  shardName,
-		nodeName:   nodeName,
-		searchType: searchType,
-		details:    d,
-	})
-	collector.mu.Unlock()
+	func() {
+		collector.mu.Lock()
+		defer collector.mu.Unlock()
+		collector.entries = append(collector.entries, shardEntry{
+			shardName:  shardName,
+			nodeName:   nodeName,
+			searchType: searchType,
+			details:    d,
+		})
+	}()
 }
 
 // AddRemoteProfiles merges pre-built [ShardProfile] entries (received from a remote node)
@@ -153,18 +155,20 @@ func AddRemoteProfiles(ctx context.Context, profiles []ShardProfile) {
 		return
 	}
 
-	collector.mu.Lock()
-	for _, p := range profiles {
-		for searchType, sp := range p.Searches {
-			collector.entries = append(collector.entries, shardEntry{
-				shardName:  p.Name,
-				nodeName:   p.Node,
-				searchType: searchType,
-				details:    sp.Details,
-			})
+	func() {
+		collector.mu.Lock()
+		defer collector.mu.Unlock()
+		for _, p := range profiles {
+			for searchType, sp := range p.Searches {
+				collector.entries = append(collector.entries, shardEntry{
+					shardName:  p.Name,
+					nodeName:   p.Node,
+					searchType: searchType,
+					details:    sp.Details,
+				})
+			}
 		}
-	}
-	collector.mu.Unlock()
+	}()
 }
 
 // AttachProfileToResults calls [ExtractProfiles] and attaches the collected

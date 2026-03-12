@@ -211,6 +211,51 @@ func TestQueryProfiling(t *testing.T) {
 			"with 3 shards on 3 nodes, expected at least 2 distinct node names, got: %v", nodes)
 	})
 
+	t.Run("cluster: each node returns profiles from all shards", func(t *testing.T) {
+		// Query through each node in the 3-node cluster and verify that every node
+		// returns shard profiles from all nodes — proving cross-node profile aggregation.
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			nodeIdx := nodeIdx
+			t.Run(fmt.Sprintf("query via node %d", nodeIdx), func(t *testing.T) {
+				node := compose.GetWeaviateNode(nodeIdx)
+				nodeGrpcConn, err := helper.CreateGrpcConnectionClient(node.GrpcURI())
+				require.NoError(t, err)
+				defer nodeGrpcConn.Close()
+				nodeGrpcClient := helper.CreateGrpcWeaviateClient(nodeGrpcConn)
+
+				resp, err := nodeGrpcClient.Search(ctx, &pb.SearchRequest{
+					Collection: className,
+					Limit:      5,
+					Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, Profile: true},
+					NearVector: &pb.NearVector{
+						Vectors: []*pb.Vectors{{
+							VectorBytes: vecBytes,
+							Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
+						}},
+					},
+					Uses_127Api: true,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, resp.Profile, "profile should be present when queried via node %d", nodeIdx)
+				require.Len(t, resp.Profile.Shards, 3,
+					"should get profiles from all 3 shards when queried via node %d", nodeIdx)
+
+				nodes := make(map[string]bool)
+				for _, shard := range resp.Profile.Shards {
+					assert.NotEmpty(t, shard.Name)
+					assert.NotEmpty(t, shard.Node)
+					nodes[shard.Node] = true
+
+					vecSearch, ok := shard.Searches["vector"]
+					require.True(t, ok, "each shard should have vector search profile")
+					assert.NotEmpty(t, vecSearch.Details["total_took"])
+				}
+				assert.GreaterOrEqual(t, len(nodes), 2,
+					"querying via node %d should return profiles from multiple nodes, got: %v", nodeIdx, nodes)
+			})
+		}
+	})
+
 	t.Run("vector search with filter returns filter details", func(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection: className,
