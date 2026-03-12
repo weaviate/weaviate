@@ -59,6 +59,7 @@ type Monitor struct {
 	reservedMappings       int64
 	reservedMappingsBuffer []int64
 	lastReservationsClear  time.Time
+	mappingsBuf            []byte
 }
 
 // Refresh retrieves the current memory stats from the runtime and stores them
@@ -90,6 +91,7 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		maxMemoryMappings:      getMaxMemoryMappings(),
 		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
 		lastReservationsClear:  time.Now(),
+		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)
 	return m
@@ -177,18 +179,18 @@ func (m *Monitor) obtainCurrentUsage() {
 }
 
 func (m *Monitor) obtainCurrentMappings() {
-	used := getCurrentMappings()
+	used := getCurrentMappings(m.mappingsBuf)
 	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.usedMappings = used
 }
 
-func getCurrentMappings() int64 {
+func getCurrentMappings(buf []byte) int64 {
 	switch runtime.GOOS {
 	case "linux":
 		filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
-		return currentMappingsLinux(filePath)
+		return currentMappingsLinux(filePath, buf)
 	default:
 		return 0
 	}
@@ -196,7 +198,7 @@ func getCurrentMappings() int64 {
 
 // Counts the number of mappings by counting the number of lines within the maps file
 // Optimized version that counts newlines in chunks without string allocation
-func currentMappingsLinux(filePath string) int64 {
+func currentMappingsLinux(filePath string, buf []byte) int64 {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return 0
@@ -204,7 +206,6 @@ func currentMappingsLinux(filePath string) int64 {
 	defer file.Close()
 
 	var count int64
-	buf := make([]byte, 32*1024) // Larger buffer
 
 	for {
 		n, err := file.Read(buf[:])
@@ -297,6 +298,7 @@ func NewDummyMonitor() *Monitor {
 		maxMemoryMappings:      10000000,
 		reservedMappingsBuffer: make([]int64, mappingsEntries),
 		lastReservationsClear:  time.Now(),
+		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)
 	return m
