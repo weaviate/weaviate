@@ -70,7 +70,7 @@ func TestSparseSet_VisitIfNotVisited(t *testing.T) {
 
 	node := uint64(123)
 
-	if already := s.VisitIfNotVisited(node); already {
+	if already := s.CheckAndVisit(node); already {
 		t.Fatalf("expected first VisitIfNotVisited(%d) to return false", node)
 	}
 
@@ -78,7 +78,7 @@ func TestSparseSet_VisitIfNotVisited(t *testing.T) {
 		t.Fatalf("expected node %d to be marked visited", node)
 	}
 
-	if already := s.VisitIfNotVisited(node); !already {
+	if already := s.CheckAndVisit(node); !already {
 		t.Fatalf("expected second VisitIfNotVisited(%d) to return true", node)
 	}
 }
@@ -133,7 +133,7 @@ func TestSparseSet_ResetDoesNotAffectFutureUse(t *testing.T) {
 	}
 
 	for _, node := range secondRound {
-		if already := s.VisitIfNotVisited(node); already {
+		if already := s.CheckAndVisit(node); already {
 			t.Fatalf("expected node %d to be unvisited in second round", node)
 		}
 		if !s.Visited(node) {
@@ -152,7 +152,7 @@ func TestSparseSet_GrowBeyondInitialCapacity(t *testing.T) {
 		t.Fatalf("expected node %d to be unvisited before Visit()", node)
 	}
 
-	if already := s.VisitIfNotVisited(node); already {
+	if already := s.CheckAndVisit(node); already {
 		t.Fatalf("expected first VisitIfNotVisited(%d) to return false", node)
 	}
 
@@ -172,7 +172,7 @@ func TestSparseSet_MultipleNodesSameSegment(t *testing.T) {
 	nodes := []uint64{0, 1, 2, 10, 63}
 
 	for _, node := range nodes {
-		if already := s.VisitIfNotVisited(node); already {
+		if already := s.CheckAndVisit(node); already {
 			t.Fatalf("expected node %d first visit to return false", node)
 		}
 	}
@@ -183,7 +183,7 @@ func TestSparseSet_MultipleNodesSameSegment(t *testing.T) {
 		}
 	}
 
-	if already := s.VisitIfNotVisited(10); !already {
+	if already := s.CheckAndVisit(10); !already {
 		t.Fatalf("expected repeated visit in same segment to return true")
 	}
 }

@@ -97,7 +97,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 			}
 
 			// skip duplicates
-			if visited.VisitIfNotVisited(id) {
+			if visited.CheckAndVisit(id) {
 				continue
 			}
 

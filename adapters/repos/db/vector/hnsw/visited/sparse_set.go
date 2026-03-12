@@ -138,12 +138,12 @@ func (s *SparseSet) Reset() {
 }
 
 func (s *SparseSet) Visit(node uint64) {
-	_ = s.VisitIfNotVisited(node) // ignores return
+	_ = s.CheckAndVisit(node) // ignores return
 }
 
-// VisitIfNotVisited returns true if node was already visited; otherwise it marks it visited and returns false.
+// CheckAndVisit returns true if node was already visited; otherwise it marks it visited and returns false.
 // This fuses Visited()+Visit() into a single pass and removes duplicate cb/segment accesses.
-func (s *SparseSet) VisitIfNotVisited(node uint64) bool {
+func (s *SparseSet) CheckAndVisit(node uint64) bool {
 	if node >= s.maxNodeExclusive {
 		s.grow(node)
 		if node >= s.maxNodeExclusive {
