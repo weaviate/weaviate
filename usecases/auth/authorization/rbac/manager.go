@@ -70,6 +70,9 @@ func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy
 }
 
 func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authentication.AuthType) ([]string, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
 	roles, err := m.casbin.GetAllSubjects()
 	if err != nil {
 		return nil, err
@@ -399,17 +402,17 @@ func (m *Manager) Restore(b []byte) error {
 		return nil
 	}
 
-	// Hold the write lock for the entire restore so that concurrent Enforce()
-	// calls (which hold RLock) are blocked. Without this, a concurrent reader
-	// can evaluate against the old model, then write a stale result into the
-	// cache after our final InvalidateCache().
-	m.restoreLock.Lock()
-	defer m.restoreLock.Unlock()
-
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
+
+	// Hold the write lock only for the casbin mutation and cache invalidation
+	// so that concurrent Enforce() calls (which hold RLock) are blocked.
+	// Unmarshalling is done above without the lock since it doesn't touch
+	// shared state and can be expensive for large snapshots.
+	m.restoreLock.Lock()
+	defer m.restoreLock.Unlock()
 
 	// we need to clear the policies before adding the new ones
 	m.casbin.ClearPolicy()
