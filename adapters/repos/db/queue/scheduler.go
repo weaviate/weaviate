@@ -52,6 +52,11 @@ type SchedulerOptions struct {
 	ScheduleInterval time.Duration
 	// The interval between retries for failed tasks.
 	RetryInterval time.Duration
+	// MaxScheduleTime limits how long the scheduler drains queues per tick before
+	// yielding back to allow concurrent read operations (e.g. vector searches) to
+	// acquire index locks. Defaults to half of ScheduleInterval.
+	// Can be overridden via the QUEUE_SCHEDULER_MAX_SCHEDULE_TIME environment variable.
+	MaxScheduleTime time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
 }
@@ -100,6 +105,23 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 			ri = 5 * time.Second
 		}
 		opts.RetryInterval = ri
+	}
+
+	if opts.MaxScheduleTime == 0 {
+		var mt time.Duration
+		v := os.Getenv("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME")
+
+		if v != "" {
+			mt, err = time.ParseDuration(v)
+			if err != nil {
+				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_MAX_SCHEDULE_TIME, using default")
+			}
+		}
+
+		if mt == 0 {
+			mt = opts.ScheduleInterval / 2
+		}
+		opts.MaxScheduleTime = mt
 	}
 
 	s := Scheduler{
@@ -341,14 +363,17 @@ func (s *Scheduler) Schedule(ctx context.Context) {
 }
 
 func (s *Scheduler) schedule() {
-	// as long as there are tasks to schedule, keep running
-	// in a tight loop
+	deadline := time.Now().Add(s.MaxScheduleTime)
 	for {
 		if s.ctx.Err() != nil {
 			return
 		}
 
 		if nothingScheduled := s.scheduleQueues(); nothingScheduled {
+			return
+		}
+
+		if time.Now().After(deadline) {
 			return
 		}
 	}
