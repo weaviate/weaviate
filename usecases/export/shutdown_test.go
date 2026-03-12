@@ -60,7 +60,7 @@ func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		s.performSingleNodeExport(shutdownCtx, shutdownCancel, backend, "test-export", status, []string{"TestClass"}, "", "")
+		s.performSingleNodeExport(shutdownCtx, shutdownCancel, backend, "test-export", status, []string{"TestClass"}, map[string][]string{"TestClass": {"shard0"}}, "", "")
 		close(done)
 	}()
 
@@ -535,7 +535,7 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	s.performSingleNodeExport(ctx, cancel, backend, "test-export", status, []string{"TestClass"}, "", "")
+	s.performSingleNodeExport(ctx, cancel, backend, "test-export", status, []string{"TestClass"}, map[string][]string{"TestClass": nil}, "", "")
 
 	require.Equal(t, string(export.Success), status.Status)
 
