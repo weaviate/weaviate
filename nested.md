@@ -1276,3 +1276,43 @@ Nested Property Filtering — Design Summary
         └──────────────────────────────────┴───────────────┴────────────────────┘
 
         Same operations, same logic, different encoding. Element isolation uses root_idx within a document and docID across documents.
+
+
+---
+10. _idx loop algorithm
+
+    result = empty
+    for N = 0, 1, 2, ...:
+        carN  = _idx.cars[N]
+        matchA = A AND carN
+        matchB = B AND carN
+        result = result OR (MaskPos(matchA) AND MaskPos(matchB))
+        
+    MaskPos(matchA) AND MaskPos(matchB) ensures both operands matched under car index N in the same root+docID.
+
+    Verifying 3.1b — cars.tires.width = 205 AND cars.colors = "white":
+        A = {r1|l7|d999, r1|l8|d999},  B = {r1|l11|d999}
+
+        N=0: carN = _idx.cars[0] = {r1|l7..l10|d998, r1|l7..l9|d999, r2|l4..l9|d999}
+            matchA = A AND carN = {r1|l7|d999, r1|l8|d999}  (d998 positions don't match — different docID)
+            matchB = B AND carN = {}  (l11 not in cars[1])
+            MaskPos({...}) AND MaskPos({}) = {}
+
+        N=1: carN = _idx.cars[1] = {r1|l10|d999, r1|l11|d999}
+            matchA = A AND carN = {}  (l7,l8 not in cars[2])
+            matchB = B AND carN = {r1|l11|d999}
+            MaskPos({}) AND MaskPos({...}) = {}
+
+        result = {} ✓  (205 is Audi/cars[0], white is Kia/cars[1] — different cars)
+
+    Verifying 3.1c — cars.tires.width = 245 AND cars.accessories.type = "charger":
+        A = {r2|l4..l6|d999},  B = {r2|l7|d999}
+
+        N=0: carN = _idx.cars[0] = {r1|l7..l10|d998, r1|l7..l9|d999, r2|l4..l9|d999}
+            matchA = A AND carN = {r2|l4, r2|l5, r2|l6|d999}
+            matchB = B AND carN = {r2|l7|d999}
+            MaskPos(matchA) AND MaskPos(matchB) = {r2|d999} AND {r2|d999} = {r2|d999} ✓
+
+        result = {r2|d999} ✓
+
+    The pre-filter candidates = MaskPos(A) AND MaskPos(B) is an optimization — if empty, skip the loop entirely.
