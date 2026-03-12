@@ -47,14 +47,14 @@ func NewServer(state *state.State, replicationServer ReplicationServer, options 
 	maxSize := GetMaxMessageSize(state)
 	windowSize := GetInitialConnWindowSize(state)
 
-	o := []grpc.ServerOption{
+	o := append(options,
 		grpc.MaxRecvMsgSize(maxSize),
 		grpc.MaxSendMsgSize(maxSize),
 		grpc.InitialWindowSize(int32(windowSize)),
 		grpc.InitialConnWindowSize(int32(windowSize)),
 		grpc.ReadBufferSize(READ_BUFFER_SIZE),
 		grpc.WriteBufferSize(WRITE_BUFFER_SIZE),
-	}
+	)
 
 	// Both FileReplicationService and ReplicationService are internal cluster services
 	// that require basic auth when enabled.
@@ -64,13 +64,12 @@ func NewServer(state *state.State, replicationServer ReplicationServer, options 
 		o = append(o, grpc.UnaryInterceptor(
 			multiServiceBasicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
-
 		o = append(o, grpc.StreamInterceptor(
 			multiServiceBasicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
-	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
-	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.UnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.StreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 
 	s := grpc.NewServer(o...)
 

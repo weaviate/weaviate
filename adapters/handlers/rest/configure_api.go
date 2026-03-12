@@ -412,7 +412,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			grpc.MaxCallRecvMsgSize(maxSize),
 			grpc.MaxCallSendMsgSize(maxSize),
 		),
-		grpc.WithInitialWindowSize(int32(maxSize)),
+		grpc.WithInitialWindowSize(int32(initialConnWindowSize)),
 		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
 		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
 		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
