@@ -315,7 +315,7 @@ func (e events) NotifyJoin(node *memberlist.Node) {
 		"event":     "join",
 		"node":      node.Name,
 		"node_addr": node.Addr.String(),
-	}).Info("node joined cluster")
+	}).Debug("node joined cluster")
 }
 
 // NotifyLeave is invoked when a node is detected to have left.
@@ -329,7 +329,7 @@ func (e events) NotifyLeave(node *memberlist.Node) {
 		"event":     "leave",
 		"node":      node.Name,
 		"node_addr": node.Addr.String(),
-	}).Info("node left cluster")
+	}).Debug("node left cluster")
 	e.d.delete(node.Name)
 }
 
@@ -345,5 +345,5 @@ func (e events) NotifyUpdate(node *memberlist.Node) {
 		"event":     "update",
 		"node":      node.Name,
 		"node_addr": node.Addr.String(),
-	}).Info("node updated in cluster")
+	}).Debug("node updated in cluster")
 }
