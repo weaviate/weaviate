@@ -294,8 +294,7 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 				db.logger.WithField("action", "lazy_shard_auto_detection").
 					WithField("class", className).
 					WithField("shard", shardName).
-					WithError(err).
-					Warn("failed to load pre-calculated shard usage; falling back to on-disk size")
+					Warnf("failed to load pre-calculated shard usage; falling back to on-disk size: %v", err)
 			} else if shardUsage != nil {
 				total += shardUsage.FullShardStorageBytes
 				if sizeThresholdBytes > 0 && total > sizeThresholdBytes {
@@ -312,8 +311,7 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 			db.logger.WithField("action", "lazy_shard_auto_detection").
 				WithField("class", className).
 				WithField("shard", shardName).
-				WithError(err).
-				Warn("failed to determine shard size; ignoring shard in lazy load auto-detection")
+				Warnf("failed to determine shard size; ignoring shard in lazy load auto-detection: %v", err)
 			continue
 		}
 
