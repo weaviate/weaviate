@@ -666,9 +666,6 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 
 	if err := s.writeExportPlan(ctx, backend, exportID, bucket, path, plan); err != nil {
 		s.abortAll(exportID, prepared)
-		status.Status = string(export.Failed)
-		status.Error = fmt.Sprintf("failed to write export plan: %v", err)
-		s.writeMetadata(backend, exportID, bucket, path, status)
 		return fmt.Errorf("failed to write export plan: %w", err)
 	}
 
