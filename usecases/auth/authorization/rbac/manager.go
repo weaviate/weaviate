@@ -451,7 +451,7 @@ func (m *Manager) Restore(b []byte) error {
 	// evaluates against the freshly loaded policies. ClearPolicy() is not
 	// overridden by SyncedCachedEnforcer and does not invalidate on its own.
 	if err := m.casbin.InvalidateCache(); err != nil {
-		return fmt.Errorf("invalidate cache: %w", err)
+		return fmt.Errorf("restore snapshot: InvalidateCache: %w", err)
 	}
 
 	return nil
