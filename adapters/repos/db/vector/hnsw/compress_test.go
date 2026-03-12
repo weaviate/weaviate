@@ -897,6 +897,7 @@ func Test_NoRaceRQCompressAndPrefillCache(t *testing.T) {
 		ID:                    "rq-cache-race",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      dist,
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
