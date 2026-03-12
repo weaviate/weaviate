@@ -299,6 +299,15 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		// without re-assembling from per-node files.
 		switch export.Status(assembled.Status) {
 		case export.Success, export.Failed:
+			// Ensure CompletedAt is set from the assembled result (derived from
+			// per-node completion times) so writeMetadata doesn't fall back to
+			// time.Now(), which would record the Status() call time instead.
+			if time.Time(assembled.CompletedAt).IsZero() {
+				assembled.CompletedAt = strfmt.DateTime(time.Now().UTC())
+				s.logger.WithField("action", "export_status").
+					WithField("export_id", id).
+					Warn("assembled terminal status had no CompletedAt; falling back to now")
+			}
 			if writeErr := s.writeMetadata(backendStore, id, bucket, path, assembled); writeErr != nil {
 				s.logger.WithField("action", "export_status").
 					WithField("export_id", id).
