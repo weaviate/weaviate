@@ -373,7 +373,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							// skip if we've already visited this neighbor
 							continue
 						}
-						if !visitedExp.VisitIfNotVisited(nodeId) {
+						if !visitedExp.CheckAndVisit(nodeId) {
 							if !isMultivec {
 								if allowList.Contains(nodeId) {
 									connectionsReusable[realLen] = nodeId
@@ -408,7 +408,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						iterator := node.connections.ElementIterator(uint8(level))
 						for iterator.Next() {
 							_, expId := iterator.Current()
-							if visitedExp.VisitIfNotVisited(expId) {
+							if visitedExp.CheckAndVisit(expId) {
 								continue
 							}
 							if visited.Visited(expId) {
@@ -452,7 +452,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
-			if visited.VisitIfNotVisited(neighborID) {
+			if visited.CheckAndVisit(neighborID) {
 				// skip if we've already visited this neighbor
 				continue
 			}
