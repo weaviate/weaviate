@@ -130,7 +130,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:        visited.NewPool(1, 512, -1),
+		visitedPool:        visited.NewPool(512),
 		maxPostingSize:     uc.MaxPostingSize,
 		minPostingSize:     uc.MinPostingSize,
 		replicas:           uc.Replicas,
