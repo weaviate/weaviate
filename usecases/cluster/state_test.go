@@ -590,7 +590,7 @@ func TestExtractHostPreservesValidIPForLookup(t *testing.T) {
 	// net.ParseIP does not accept zone IDs, but the extracted host is still
 	// usable for net.Dial and net.LookupIP which handle zones.
 	t.Run("IPv6 with zone ID", func(t *testing.T) {
-		host := extractJoinHost("[fe80::1%25eth0]:7946")
+		host := extractHost("[fe80::1%25eth0]:7946")
 		assert.Equal(t, "fe80::1%25eth0", host)
 		// Zone IDs are not parseable by net.ParseIP, but that's expected.
 		assert.Nil(t, net.ParseIP(host))
