@@ -1316,3 +1316,474 @@ Nested Property Filtering — Design Summary
         result = {r2|d999} ✓
 
     The pre-filter candidates = MaskPos(A) AND MaskPos(B) is an optimization — if empty, skip the loop entirely.
+
+
+---
+11. Claude's implementation plan
+
+    Context
+
+        Nested properties (object/object[] types) are fully stored and retrieved but cannot be filtered. The schema defines IndexFilterable on NestedProperty but it's unused.
+        analyzeProps in inverted/objects.go routes nested types to extendPropertiesWithPrimitive which returns nil for unsupported types — effectively skipping them.
+
+        The design uses 64-bit position encoding in RoaringSet bitmaps to enable:
+        - Basic nested property filtering (exact match, range, contains, null, negation)
+        - Cross-sibling correlation (conditions on different properties of the same array element)
+        - ANY/ALL/NONE semantics on object arrays
+        - Positional access within nested arrays
+
+    Position Encoding
+
+        64-bit value: (root_idx:16 << 48) | (leaf_idx:16 << 32) | (docID:32)
+
+        - root_idx (bits 63-48): 1-based index into top-level object array. Always 1 for standalone objects and single object types.
+        - leaf_idx (bits 47-32): 1-based contiguous counter per root, assigned depth-first to leaf array elements.
+        - docID (bits 31-0): 32-bit internal document ID.
+
+        Notation: r{root}|l{leaf}|d{docID}. RoaringSet stores these as uint64 values (sroar.Bitmap supports uint64 natively).
+
+    Position Assignment Rules
+
+        1. Document = implicit 1-element object[] with root=1
+        2. Object = 1-element object[] (unified code path)
+        3. Walk depth-first; process nested arrays recursively before parent
+        4. Scalar array elements (text[], number[], etc.): each element gets next leaf_idx
+        5. Object array elements: recursively collect descendant leaf positions first
+        - Has descendants → intermediate node, positions = union of all descendant leaves
+        - No descendants (no sub-arrays, empty sub-arrays, or all missing) → gets own leaf_idx
+        6. Scalar properties at any level: inherit ALL leaf positions of their parent element
+
+    Bitmap Operations
+
+        - Direct AND: when one operand's positions are a superset of the other's (ancestor-descendant, same element, parent-level scalar + sibling array)
+        - MaskPosition (zero bits 47-32, keep root+docID): for cross-sibling subtrees under same document root
+        - Strip (zero bits 63-32, keep docID): final result extraction
+        - _idx loop: for same-array correlation. For each index N: result |= MaskPos(A & _idx[N]) & MaskPos(B & _idx[N])
+
+    Storage
+
+        - Value buckets (per leaf path): property_{dotted.path} — StrategyRoaringSet, keys = analyzed values, values = position bitmaps
+        - Metadata bucket (per top-level object property): nested_meta_{propName} — StrategyRoaringSet, stores:
+        - _idx.{path}\x00{BE16(N)} → positions for array element N
+        - _exists.{path} → positions where property exists
+        - _exists → root-level all-positions (for allRoots)
+
+    API Syntax
+
+        Dot-notation in a single string: path: ["addresses.city"] (GraphQL/REST) or target: { property: "addresses.city" } (gRPC). No proto or schema changes needed.
+
+    
+    Phase 1: Filterable Index
+
+    Step 1: Position Encoding Package
+
+        New package: adapters/repos/db/inverted/nested/
+
+        New file: nested/position.go
+
+        func Encode(rootIdx, leafIdx uint16, docID uint32) uint64
+        func DecodeRootIdx(pos uint64) uint16
+        func DecodeLeafIdx(pos uint64) uint16
+        func DecodeDocID(pos uint64) uint32
+        func MaskPosition(pos uint64) uint64       // zero bits 47-32
+        func StripBitmap(bm *sroar.Bitmap) *sroar.Bitmap   // extract docIDs into new bitmap
+        func MaskPosBitmap(bm *sroar.Bitmap) *sroar.Bitmap // apply MaskPosition to all values
+
+        New file: nested/position_test.go — encode/decode roundtrips, StripBitmap, MaskPosBitmap
+
+    
+    Step 2: Position Assignment Algorithm
+
+        New file: nested/assign.go
+
+        // PositionedValue: leaf value with its positions (docID=0, caller ORs in real docID)
+        type PositionedValue struct {
+            Path      string     // "addresses.city"
+            Data      []byte     // analyzed value
+            Positions []uint64   // positions with docID=0
+        }
+
+        // PositionedMeta: metadata entry with positions
+        type PositionedMeta struct {
+            BucketKey []byte     // key within metadata bucket
+            Positions []uint64   // positions with docID=0
+        }
+
+        // AssignPositions walks nested property tree depth-first, assigns positions,
+        // analyzes leaf values, and returns positioned values + metadata.
+        // Positions have docID=0; caller ORs in real docID during write.
+        func AssignPositions(
+            prop *models.Property,
+            value interface{},
+            analyzer *Analyzer,
+        ) ([]PositionedValue, []PositionedMeta, error)
+
+        The function:
+        1. Wraps value in single-element array if object type (unified path)
+        2. Iterates array elements, assigning root_idx = 1,2,3...
+        3. For each element, recursively walks nested schema depth-first
+        4. For nested arrays: recursively assigns leaf positions to elements
+        5. For scalar arrays: each element gets next leaf_idx, analyzed as Countable
+        6. For scalar primitives: inherits parent element's positions, analyzed as Countable
+        7. Emits _idx.{arrayPath} + BE16(N) for each array element
+        8. Emits _exists.{path} for each present property
+        9. Emits _exists for each root element
+
+        Uses existing Analyzer.Text(), Analyzer.Int(), etc. for leaf value analysis.
+
+        New file: nested/assign_test.go — tests with the three verified configurations:
+        - 3 separate documents (root=1 each, different docIDs)
+        - 1 document with 3-element object[] (root=1,2,3, same docID)
+        - 2 documents with 1+2 element object[] (both mechanisms combined)
+
+    
+    Step 3: Index Flag Helpers
+
+        File: adapters/repos/db/inverted/objects.go
+
+        Add near existing HasFilterableIndex:
+
+        func HasFilterableIndexNested(prop *models.NestedProperty) bool {
+            if prop.IndexFilterable == nil { return true }
+            return *prop.IndexFilterable
+        }
+
+        func HasAnyInvertedIndexNested(prop *models.NestedProperty) bool {
+            return HasFilterableIndexNested(prop)
+        }
+
+    
+    Step 4: Flatten Nested Schema to Leaf Paths
+
+    File: adapters/repos/db/shard_init_properties.go
+
+        type nestedLeafPath struct {
+            Path   string                  // "addresses.city"
+            Nested *models.NestedProperty
+        }
+
+        // flattenNestedPaths recursively walks NestedProperties and returns
+        // all primitive leaf paths with their definitions.
+        func flattenNestedPaths(prop *models.Property) []nestedLeafPath
+
+        Also needed: flattenNestedArrayPaths to enumerate all intermediate array paths for metadata bucket _idx entries. These are paths to object[] or scalar array properties at any
+        depth.
+
+    
+    Step 5: Bucket Creation
+
+        File: adapters/repos/db/shard_init_properties.go
+
+        Extend initPropertyBuckets. When property is object/object[]:
+
+        if schema.IsNested(schema.DataType(prop.DataType[0])) {
+            eg.Go(func() error {
+                return s.createNestedPropertyBuckets(ctx, &propCopy, makeBucketOptions)
+            })
+        }
+
+        New method createNestedPropertyBuckets:
+        1. Call flattenNestedPaths(prop) → leaf paths
+        2. For each leaf with HasFilterableIndexNested:
+        - store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(leaf.Path), StrategyRoaringSet)
+        3. Create metadata bucket:
+        - store.CreateOrLoadBucket(ctx, "nested_meta_"+prop.Name, StrategyRoaringSet)
+        4. For each leaf path (if IndexNullState enabled):
+        - store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameNullLSM(leaf.Path), StrategyRoaringSet)
+
+        File: adapters/repos/db/helpers/helpers.go
+
+        func NestedMetaBucketFromPropNameLSM(propName string) string {
+            return fmt.Sprintf("nested_meta_%s", propName)
+        }
+
+    
+    Step 6: Write Path — Analysis
+
+        File: adapters/repos/db/inverted/analyzer.go
+
+        Add new output types:
+
+        type NestedProperty struct {
+            Name               string            // dot-notation path
+            Items              []NestedCountable
+            HasFilterableIndex bool
+        }
+
+        type NestedCountable struct {
+            Data      []byte     // analyzed value
+            Positions []uint64   // positions with docID=0
+        }
+
+        type NestedMetadata struct {
+            BucketName string    // metadata bucket name
+            Key        []byte    // key within bucket
+            Positions  []uint64  // positions with docID=0
+        }
+
+        File: adapters/repos/db/inverted/objects.go
+
+        In analyzeProps, add nested type handling after the existing ref/array/primitive checks:
+
+        } else if dt, ok := schema.AsNested(prop.DataType); ok {
+            nestedVals, nestedMeta, err := nested.AssignPositions(prop, input[key], a)
+            if err != nil {
+                return ..., err
+            }
+            // Convert PositionedValue → NestedProperty, PositionedMeta → NestedMetadata
+            // Group by path, set HasFilterableIndex from nested schema
+            ...
+        }
+
+        Return nested analysis alongside regular analysis. Options:
+        - Option A: Add return values to Object(): ([]Property, []NestedProperty, []NestedMetadata, error)
+        - Option B: Return a result struct: type AnalysisResult struct { Properties, NilProperties, NestedProps, NestedMeta }
+
+        Option B is cleaner for extensibility. Propagate through AnalyzeObject in shard_write_inverted.go.
+
+    
+    Step 7: Write Path — LSM Write
+
+        File: adapters/repos/db/shard_write_inverted_lsm.go
+
+        New method:
+
+        func (s *Shard) extendNestedInvertedIndicesLSM(
+            nestedProps []inverted.NestedProperty,
+            nestedMeta []inverted.NestedMetadata,
+            docID uint64,
+        ) error {
+            for _, prop := range nestedProps {
+                if !prop.HasFilterableIndex { continue }
+                bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+                if bucket == nil { continue }
+                for _, item := range prop.Items {
+                    positions := orDocIDIntoPositions(item.Positions, uint32(docID))
+                    bucket.RoaringSetAddList(item.Data, positions)
+                }
+            }
+            for _, meta := range nestedMeta {
+                bucket := s.store.Bucket(meta.BucketName)
+                if bucket == nil { continue }
+                positions := orDocIDIntoPositions(meta.Positions, uint32(docID))
+                bucket.RoaringSetAddList(meta.Key, positions)
+            }
+            return nil
+        }
+
+        func orDocIDIntoPositions(partials []uint64, docID uint32) []uint64 {
+            out := make([]uint64, len(partials))
+            for i, p := range partials { out[i] = p | uint64(docID) }
+            return out
+        }
+
+        Call from extendInvertedIndicesLSM (or directly from updateInvertedIndexLSM in shard_write_put.go).
+
+    
+    Step 8: Delete Path
+
+        File: adapters/repos/db/shard_write_inverted_lsm_delete.go
+
+        New method:
+
+        func (s *Shard) deleteNestedInvertedIndicesLSM(
+            nestedProps []inverted.NestedProperty,
+            nestedMeta []inverted.NestedMetadata,
+            docID uint64,
+        ) error
+
+        Same pattern as write but calls RoaringSetRemoveOne for each position. Works automatically because delete path re-analyzes the stored object via AnalyzeObject which now returns
+        nested entries, then removes the exact positions that were written.
+
+        File: adapters/repos/db/shard_write_put.go
+
+        Update updateInvertedIndexLSM to handle nested delta. For simplicity in Phase 1: always delete all old nested entries and add all new ones (no smart delta for nested). The
+        existing DeltaSkipSearchable doesn't apply to nested properties.
+
+    
+    Step 9: Filter Validation
+
+        File: entities/filters/filters_validator.go
+
+        Add nested path validation. When property name contains .:
+
+        func (cw *clauseWrapper) validateNestedPath(class *models.Class, segments []string) error {
+            // 1. Look up first segment as top-level property
+            prop, err := schema.GetPropertyByName(class, segments[0])
+            // 2. Verify it's object/object[]
+            if !schema.IsNested(schema.DataType(prop.DataType[0])) { return error }
+            // 3. Walk remaining segments through NestedProperties
+            var current interface{ GetNestedProperties() []*models.NestedProperty } = &Property{prop}
+            for _, seg := range segments[1:] {
+                nested, err := schema.GetNestedPropertyByName(current, seg)
+                // 4. If not last segment, verify it's object/object[]
+                // 5. If last segment, verify it's primitive, validate value type match
+            }
+        }
+
+        Integrate into existing validateClause flow: check for . in property name before regular property lookup.
+
+    
+    Step 10: Filter Execution — Searcher
+
+        This is the most complex step. Two sub-phases:
+
+    Step 10a: Independent resolution (each nested condition → docIDs independently)
+
+        File: adapters/repos/db/inverted/searcher.go
+
+        In extractPropValuePair, detect nested paths:
+
+        if strings.Contains(propName, ".") {
+            return s.extractNestedPropValuePair(ctx, filter, className, propName)
+        }
+
+        extractNestedPropValuePair:
+        1. Split dotted path, walk schema to find leaf NestedProperty
+        2. Create synthetic *models.Property from leaf (Name=dottedPath, DataType=leaf.DataType, IndexFilterable=leaf.IndexFilterable)
+        3. Dispatch to existing extract methods (extractPrimitiveProp, extractTokenizableProp, etc.)
+        4. These methods produce a propValuePair that reads from bucket property_{dottedPath}
+        5. The bucket contains 64-bit positions; propValuePair.fetchDocIDs() returns a position bitmap
+        6. Post-process: wrap in a custom resolver that calls nested.StripBitmap() to extract docIDs
+
+        This gives "ANY element matches" semantics — a document matches if any nested element has the matching value. Sufficient for basic filtering (User Stories 1.*, 2.1, 2.2, 2.5).
+
+    Step 10b: Position-aware resolution (cross-sibling correlation)
+
+        New file: adapters/repos/db/inverted/nested/resolver.go
+
+        For AND/OR nodes where children target the same nested array:
+
+        // ResolveCorrelated handles filter clauses that need position-aware combination.
+        // Detects common nested ancestors, applies appropriate bitmap operations,
+        // strips to docIDs.
+        func ResolveCorrelated(
+            ctx context.Context,
+            clauses []filters.Clause,
+            operator filters.Operator,
+            readPositions func(path string, value []byte) (*sroar.Bitmap, error),
+            readMeta func(key []byte) (*sroar.Bitmap, error),
+            class *models.Class,
+        ) (*sroar.Bitmap, error)
+
+        Algorithm:
+        1. Parse all child paths to determine nesting structure
+        2. Group children by lowest common ancestor (LCA)
+        3. For each group:
+        - LCA is document root → MaskPosBitmap(A) AND MaskPosBitmap(B) → Strip
+        - LCA is intermediate array → _idx loop: for each N, result |= MaskPos(A & _idx[N]) & MaskPos(B & _idx[N]) → Strip
+        - One is ancestor → Direct AND → Strip
+        4. Combine group results with plain AND/OR on docIDs
+        5. Combine with non-nested siblings via plain AND/OR
+
+        Integration: In extractPropValuePairs (the plural version that handles boolean operands), detect when children include correlated nested paths and route to ResolveCorrelated.
+
+        New file: nested/resolver_test.go — tests for all filtering examples from the design (14 requirements x 3 examples each)
+
+    
+    Step 11: API Layer
+
+        File: adapters/handlers/grpc/v1/filters.go
+
+        Extend extractDataTypeProperty:
+
+        if strings.Contains(propName, ".") {
+            return extractNestedDataType(authorizedGetClass, className, propName)
+        }
+
+        func extractNestedDataType(authorizedGetClass, className, dottedPath string) (schema.DataType, error) {
+            segments := strings.Split(dottedPath, ".")
+            class := authorizedGetClass(className)
+            prop, _ := schema.GetPropertyByName(class, segments[0])
+            // Walk through NestedProperties for remaining segments
+            // Return leaf data type
+        }
+
+        File: adapters/handlers/graphql/local/common_filters/ — same dotted-path resolution for GraphQL
+
+    
+    Step 12: Null State for Nested Properties
+
+        File: adapters/repos/db/shard_write_inverted.go
+
+        In AnalyzeObject, extend null property tracking:
+
+        When a top-level object/object[] property is missing (null):
+        - Emit null entries for ALL leaf paths within its subtree
+        - Use the per-leaf-path null buckets
+
+        When a nested field is missing within a present object:
+        - The AssignPositions function handles this by not emitting values for that path
+        - The _exists metadata entries allow detecting missing nested fields via:
+        _exists.{parent} ANDNOT _exists.{child} → positions where parent exists but child doesn't
+
+    
+    Phase 2: Rangeable Index
+
+        Adds range query optimization for numeric/date nested properties using StrategyRoaringSetRange.
+
+        Changes from Phase 1:
+
+        1. Index flags: Add HasRangeableIndexNested(prop *models.NestedProperty) bool in objects.go
+        2. Bucket creation (shard_init_properties.go): For numeric/date leaf paths with IndexRangeFilters, create property_{path}_rangeable (StrategyRoaringSetRange)
+        3. Write path: Write positions to rangeable buckets. Note: RoaringSetRangeAdd(value, position) — position replaces docID
+        4. Delete path: RoaringSetRangeRemove(value, position)
+        5. Searcher: Range operators (>, <, >=, <=) read from rangeable bucket, return position bitmaps, feed into same resolution logic from Phase 1
+
+        The position encoding and resolution logic from Phase 1 is fully reused. Only bucket creation and value write/delete need extension.
+
+    
+    Key Files
+
+        ┌──────────────────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────────────┐
+        │                         File                         │                                   Change                                    │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/inverted/nested/position.go        │ NEW — 64-bit position encode/decode/MaskPos/Strip                           │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/inverted/nested/assign.go          │ NEW — depth-first position assignment algorithm                             │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/inverted/nested/resolver.go        │ NEW — position-aware filter resolution (Direct AND, MaskPos+AND, _idx loop) │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/inverted/objects.go                │ Has*IndexNested helpers, nested type handling in analyzeProps               │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/inverted/analyzer.go               │ NestedProperty, NestedCountable, NestedMetadata types                       │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/shard_init_properties.go           │ flattenNestedPaths, createNestedPropertyBuckets                             │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/helpers/helpers.go                 │ NestedMetaBucketFromPropNameLSM                                             │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/shard_write_inverted.go            │ AnalyzeObject returns nested analysis                                       │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/shard_write_inverted_lsm.go        │ extendNestedInvertedIndicesLSM                                              │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/shard_write_inverted_lsm_delete.go │ deleteNestedInvertedIndicesLSM                                              │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/shard_write_put.go                 │ Plumb nested analysis through update/delete paths                           │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/repos/db/inverted/searcher.go               │ extractNestedPropValuePair, route to resolver                               │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ entities/filters/filters_validator.go                │ validateNestedPath for dotted paths                                         │
+        ├──────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
+        │ adapters/handlers/grpc/v1/filters.go                 │ extractNestedDataType                                                       │
+        └──────────────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────┘
+
+    Verification
+
+        1. Unit tests (in nested/ package):
+        - Position encoding roundtrips
+        - Position assignment for all three configurations (separate docs, single object[], multi-doc object[])
+        - Edge cases: empty arrays, missing fields, deeply nested, elements with no descendants
+        2. Integration tests (adapters/repos/db/...):
+        - Write nested object + filter roundtrip
+        - Update nested object + verify index consistency
+        - Delete nested object + verify cleanup
+        3. E2E tests (new package test/acceptance/nested_filters/):
+        - Filter on nested primitive (addresses.city == "Berlin")
+        - Cross-sibling correlation (addresses.city == "Berlin" AND addresses.number == 5 matches same address)
+        - object[] ANY/ALL/NONE semantics
+        - ContainsAll/ContainsAny on nested scalar arrays
+        - Deeply nested paths (cars.tires.radiuses)
+        - Null handling (missing parent, missing field, IS NULL filter)
+        - Negation at document and element level
+        - Mixed nested + non-nested filters in same query
+        - gRPC and GraphQL filter paths
