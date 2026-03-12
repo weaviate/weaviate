@@ -285,7 +285,8 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if s.isMultiNode() {
-		return s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
+		resp, _, err := s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
+		return resp, err
 	}
 
 	// Single-node: metadata has the terminal status.
@@ -343,7 +344,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	if s.isMultiNode() {
 		// In multi-node mode no terminal metadata is written on success —
 		// the overall status is computed from per-node status files.
-		assembled, assembleErr := s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
+		assembled, allTerminal, assembleErr := s.assembleStatusFromPlan(ctx, backendStore, principal, id, bucket, path, plan)
 		if assembleErr == nil {
 			switch export.Status(assembled.Status) {
 			case export.Success:
@@ -352,8 +353,13 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 			case export.Failed:
 				// The assembled FAILED status may come from liveness checks
 				// (node unreachable / not running) rather than actual completion.
-				// Proceed with best-effort aborts so nodes that are still running
-				// get a cancellation signal.
+				// If all nodes genuinely reported a terminal status, the export
+				// is already done — do not overwrite FAILED with CANCELED.
+				if allTerminal {
+					return ErrExportAlreadyFinished
+				}
+				// Some nodes may still be running — proceed with best-effort
+				// aborts so they get a cancellation signal.
 			case export.Started, export.Transferring, export.Canceled:
 			}
 		}
@@ -422,16 +428,19 @@ func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend,
 	return es, nil
 }
 
-// assembleStatusFromPlan reads per-node status files from S3 and assembles overall status.
+// assembleStatusFromPlan reads per-node status files from the configured backup backend and assembles
+// overall status. The returned allTerminal flag is true when every node in
+// the plan has written a status file with a terminal status (Success or
+// Failed), distinguishing genuine completions from liveness-inferred failures.
 func (s *Scheduler) assembleStatusFromPlan(
 	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
 	principal *models.Principal,
 	id, bucket, path string,
 	plan *ExportPlan,
-) (*models.ExportStatusResponse, error) {
+) (_ *models.ExportStatusResponse, allTerminal bool, _ error) {
 	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
-		return nil, fmt.Errorf("authorization failed: %w", err)
+		return nil, false, fmt.Errorf("authorization failed: %w", err)
 	}
 
 	status := &models.ExportStatusResponse{
@@ -446,12 +455,17 @@ func (s *Scheduler) assembleStatusFromPlan(
 
 	allSuccess := true
 	anyFailed := false
+	allTerminal = true
 	var lastCompleted time.Time
 
 	for nodeName := range plan.NodeAssignments {
 		nodeStatus, err := s.getNodeStatus(ctx, backend, id, bucket, path, nodeName)
 		if err != nil {
+			if !errors.As(err, &backup.ErrNotFound{}) {
+				return nil, false, fmt.Errorf("get status for node %s: %w", nodeName, err)
+			}
 			// No status file yet — treat as non-terminal and check liveness below
+			allTerminal = false
 			nodeStatus = &NodeStatus{
 				NodeName:      nodeName,
 				Status:        export.Transferring,
@@ -478,6 +492,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 			}
 		case export.Started, export.Transferring, export.Canceled:
 			// Non-terminal (Transferring/Started): verify the node is still running
+			allTerminal = false
 			allSuccess = false
 			host, alive := s.nodeResolver.NodeHostname(nodeName)
 			if !alive {
@@ -532,7 +547,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 		status.TookInMs = lastCompleted.Sub(plan.StartedAt).Milliseconds()
 	}
 
-	return status, nil
+	return status, allTerminal, nil
 }
 
 // performMultiNodeExport orchestrates export across multiple nodes using
@@ -910,7 +925,7 @@ func (s *Scheduler) getExportPlan(ctx context.Context, backend modulecapabilitie
 	return &plan, nil
 }
 
-// getNodeStatus reads a node's status file from S3
+// getNodeStatus reads a node's status file from the configured backup backend.
 func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path, nodeName string) (*NodeStatus, error) {
 	key := fmt.Sprintf("node_%s_status.json", nodeName)
 	data, err := backend.GetObject(ctx, exportID, key, bucket, path)
@@ -929,6 +944,11 @@ func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilitie
 // checkIfExportExists checks if an export already exists in the backend by
 // looking for any known artifact (metadata or plan). If either file exists the
 // export folder is considered occupied regardless of its status.
+//
+// This is intentional: export IDs are not reusable even after cancellation or
+// failure. Each export attempt must use a unique ID. Allowing reuse would risk
+// mixing artifacts from different runs in the same backend directory and make
+// it ambiguous which status/plan files belong to which attempt.
 func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) error {
 	home := backend.HomeDir(exportID, bucket, path)
 

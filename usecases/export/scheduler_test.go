@@ -227,3 +227,61 @@ func TestScheduler_CancelReturnsNotFoundWhenPlanMissing(t *testing.T) {
 	err := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
 	require.ErrorIs(t, err, ErrExportNotFound)
 }
+
+// TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed verifies that
+// Cancel() returns ErrExportAlreadyFinished when all nodes have genuinely
+// reported a terminal (Failed) status, rather than overwriting the FAILED
+// status with CANCELED metadata.
+func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{
+		written: map[string][]byte{},
+	}
+
+	// Store a plan so Cancel() can find it.
+	plan := &ExportPlan{
+		ID:      "test-export",
+		Backend: "s3",
+		Classes: []string{"TestClass"},
+		NodeAssignments: map[string]map[string][]string{
+			"node1": {"TestClass": {"shard0"}},
+			"node2": {"TestClass": {"shard1"}},
+		},
+		StartedAt: time.Now().UTC(),
+	}
+	planData, err := json.Marshal(plan)
+	require.NoError(t, err)
+	backend.written[exportPlanFile] = planData
+
+	// Both nodes reported terminal Failed status.
+	for _, nodeName := range []string{"node1", "node2"} {
+		ns := &NodeStatus{
+			NodeName: nodeName,
+			Status:   export.Failed,
+			Error:    "disk full",
+		}
+		data, err := json.Marshal(ns)
+		require.NoError(t, err)
+		backend.written[fmt.Sprintf("node_%s_status.json", nodeName)] = data
+	}
+
+	s := &Scheduler{
+		shutdownCtx: context.Background(),
+		logger:      logger,
+		authorizer:  mocks.NewMockAuthorizer(),
+		backends:    &fakeBackendProvider{backend: backend},
+		client:      &fakeExportClient{},
+		nodeResolver: &fakeNodeResolver{nodes: map[string]string{
+			"node1": "host1:8080",
+			"node2": "host2:8080",
+		}},
+	}
+
+	err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+	require.ErrorIs(t, err, ErrExportAlreadyFinished)
+
+	// Verify the status is still FAILED, not overwritten with CANCELED.
+	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+	require.NoError(t, err)
+	assert.Equal(t, string(export.Failed), resp.Status)
+}
