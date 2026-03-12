@@ -230,7 +230,8 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+		joinHost := extractHost(joinAddr[0])
+		_, err := net.LookupIP(joinHost)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
@@ -265,7 +266,7 @@ func (s *State) Hostnames() []string {
 			continue
 		}
 
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
+		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
 		i++
 	}
 
@@ -309,7 +310,7 @@ func (s *State) AllHostnames() []string {
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
+		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
 	}
 
 	return out
@@ -406,14 +407,24 @@ func (s *State) ClusterHealthScore() int {
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), s.dataPort(mem)), true
+			return net.JoinHostPort(mem.Addr.String(), fmt.Sprintf("%d", s.dataPort(mem))), true
 		}
 	}
 
 	return "", false
 }
 
-// NodeAddress is used to resolve the node name into an ip address without the port
+// extractHost extracts the host portion from an address string,
+// correctly handling IPv6 bracket notation (e.g., "[2001:db8::1]:7946" → "2001:db8::1").
+// Falls back to the original string if it doesn't contain a port.
+func extractHost(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
+}
+
+// NodeAddress resolves a node name to its IP address without the port.
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	addr, ok := s.NodeHostname(id)
@@ -421,7 +432,7 @@ func (s *State) NodeAddress(id string) string {
 		return ""
 	}
 
-	return strings.Split(addr, ":")[0] // get address without port
+	return extractHost(addr)
 }
 
 // AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
@@ -439,7 +450,7 @@ func (s *State) AllOtherClusterMembers(port int) map[string]string {
 			// skip self
 			continue
 		}
-		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), port)
+		result[m.Name] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", port))
 	}
 
 	return result
