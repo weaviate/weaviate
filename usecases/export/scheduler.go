@@ -280,8 +280,13 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	if metaErr != nil && !errors.As(metaErr, &backup.ErrNotFound{}) {
 		return nil, fmt.Errorf("get export metadata: %w", metaErr)
 	}
-	if metaErr == nil && meta.Status == export.Canceled {
-		return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+	if metaErr == nil {
+		switch meta.Status {
+		case export.Success, export.Failed, export.Canceled:
+			return s.statusFromMetadata(backendStore, id, bucket, path, meta)
+		default:
+			// Non-terminal states are reconstructed from per-node status below.
+		}
 	}
 
 	if s.isMultiNode() {
