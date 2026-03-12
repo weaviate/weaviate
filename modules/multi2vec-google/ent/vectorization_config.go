@@ -12,9 +12,10 @@
 package ent
 
 type VectorizationConfig struct {
+	ApiEndpoint          string
 	Location             string
 	ProjectID            string
 	Model                string
-	Dimensions           int64
-	VideoIntervalSeconds int64
+	Dimensions           *int64
+	VideoIntervalSeconds *int64
 }

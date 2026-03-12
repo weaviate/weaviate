@@ -187,6 +187,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ServerVersion:   config.ServerVersion,
 		Leader:          leader,
 		CompressionType: compressionType,
+		BaseBackupID:    req.BaseBackupID,
 	}
 
 	for key := range c.Participants {
@@ -207,11 +208,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	statusReq := StatusRequest{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
-		Bucket:  req.Bucket,
-		Path:    req.Path,
+		Method:       OpCreate,
+		ID:           req.ID,
+		Backend:      req.Backend,
+		Bucket:       req.Bucket,
+		Path:         req.Path,
+		BaseBackupID: req.BaseBackupID,
 	}
 
 	f := func() {
@@ -514,6 +516,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Path:              req.Path,
 				UserRestoreOption: req.UserRestoreOption,
 				RbacRestoreOption: req.RbacRestoreOption,
+				BaseBackupID:      c.descriptor.BaseBackupID,
 			}
 		}
 		return nil
@@ -646,6 +649,7 @@ func (c *coordinator) commit(ctx context.Context,
 							backupId: nodeBackupID,
 							bucket:   req.Bucket,
 							path:     req.Path,
+							node:     node,
 						},
 					}
 

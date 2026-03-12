@@ -51,7 +51,7 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	})
 
 	t.Run("retrieve by initial secondary", func(t *testing.T) {
-		val, err := m.getBySecondary(0, []byte("secondary-key-initial"))
+		_, val, err := m.getBySecondary(0, []byte("secondary-key-initial"))
 		require.Nil(t, err)
 		assert.Equal(t, []byte("my-value"), val)
 	})
@@ -69,13 +69,13 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	})
 
 	t.Run("retrieve by updated secondary", func(t *testing.T) {
-		val, err := m.getBySecondary(0, []byte("different-secondary-key"))
+		_, val, err := m.getBySecondary(0, []byte("different-secondary-key"))
 		require.Nil(t, err)
 		assert.Equal(t, []byte("my-value-updated"), val)
 	})
 
 	t.Run("retrieve by initial secondary - should not find anything", func(t *testing.T) {
-		val, err := m.getBySecondary(0, []byte("secondary-key-initial"))
+		_, val, err := m.getBySecondary(0, []byte("secondary-key-initial"))
 		assert.Equal(t, lsmkv.NotFound, err)
 		assert.Nil(t, val)
 	})

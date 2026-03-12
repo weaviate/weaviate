@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,12 +27,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -64,6 +65,7 @@ type objectStore struct {
 	backupId string // use supplied backup id
 	bucket   string // Override bucket for one call
 	path     string // Override path for one call
+	node     string
 }
 
 func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
@@ -85,6 +87,10 @@ func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePa
 
 func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	return s.backend.Read(ctx, s.backupId, key, overrideBucket, overridePath, w)
+}
+
+func (s *objectStore) ReadFromOtherBackup(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
+	return s.backend.Read(ctx, fmt.Sprintf("%s/%s", backupID, s.node), key, overrideBucket, overridePath, w)
 }
 
 func (s *objectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
@@ -121,10 +127,6 @@ type nodeStore struct {
 	objectStore
 }
 
-func NewNodeStore(backend modulecapabilities.BackupBackend, backupId, bucket, path string) *nodeStore {
-	return &nodeStore{objectStore: objectStore{backend, backupId, bucket, path}}
-}
-
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
@@ -132,7 +134,7 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath} // for backward compatibility
+		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
 			if adjustBasePath {
 				s.objectStore.backupId = backupID
@@ -142,6 +144,19 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	}
 
 	return &result, err
+}
+
+func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
+	var result *backup.BackupDescriptor
+
+	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
+	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("no backup descriptor found in %s", backupID)
+	}
+	return result, nil
 }
 
 // meta marshals and uploads metadata
@@ -171,6 +186,19 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 	return &result, err
 }
 
+func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
+	var result *backup.BackupDescriptor
+
+	cs := &coordStore{objectStore{s.backend, backupID, overrideBucket, overridePath, ""}}
+	if err := cs.meta(ctx, GlobalBackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("no global backup descriptor found in %s", backupID)
+	}
+	return result, nil
+}
+
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
 	cfg            config.Backup
@@ -188,14 +216,18 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
-		cfg, sourcer, rbacSourcer, dynUserSourcer, backend,
-		backupID,
-		newZipConfig(Compression{
+		cfg:            cfg,
+		sourcer:        sourcer,
+		rbacSourcer:    rbacSourcer,
+		dynUserSourcer: dynUserSourcer,
+		backend:        backend,
+		backupID:       backupID,
+		zipConfig: newZipConfig(Compression{
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setstatus,
-		l,
+		setStatus: setstatus,
+		log:       l,
 	}
 }
 
@@ -205,10 +237,10 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
-	desc.Status = string(backup.Transferring)
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	desc.Status = backup.Transferring
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions
@@ -221,7 +253,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if err == nil {
 			u.log.Info("start uploading metadata")
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
-				desc.Status = string(backup.Transferred)
+				desc.Status = backup.Transferred
 			}
 			u.setStatus(backup.Success)
 			u.log.Info("finish uploading metadata")
@@ -233,7 +265,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		// Handle error cases
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			u.setStatus(backup.Cancelled)
-			desc.Status = string(backup.Cancelled)
+			desc.Status = backup.Cancelled
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
@@ -249,7 +281,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		ctxerr := ctx.Err()
 		if ctxerr != nil {
 			u.setStatus(backup.Cancelled)
-			desc.Status = string(backup.Cancelled)
+			desc.Status = backup.Cancelled
 			u.releaseIndexes(classes, desc.ID)
 		}
 		return ctxerr
@@ -304,7 +336,7 @@ Loop:
 	}
 
 	u.setStatus(backup.Transferred)
-	desc.Status = string(backup.Success)
+	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
@@ -363,7 +395,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	desc.Chunks = make(map[int32][]string, 1+nShards/2)
 	var (
-		lastChunk = int32(0)
+		lastChunk atomic.Int32
 		nWorker   = u.GoPoolSize
 	)
 	if nWorker > nShards {
@@ -391,11 +423,13 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		return sendCh
 	}
 
+	incrementalBackupSize := atomic.Int64{}
+
 	// processor
-	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
+	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chunkShards {
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
-		recvCh := make(chan chuckShards, nWorker)
+		recvCh := make(chan chunkShards, nWorker)
 		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
@@ -405,21 +439,13 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 						return err
 					}
 					for shard := range sender {
-						firstChunk := true
-						filesInShard := shard.CopyFilesInShard()
-						for {
-							chunk := atomic.AddInt32(&lastChunk, 1)
-							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, overrideBucket, overridePath)
-							if err != nil {
-								return err
-							}
-							if m := int32(len(shards)); m > 0 {
-								recvCh <- chuckShards{chunk, shards, preCompressionSize}
-							}
-							firstChunk = false
-							if len(filesInShard.Files) == 0 {
-								break
-							}
+						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
+						chunks, err := u.processShard(ctx, shard, desc.Name, &lastChunk, overrideBucket, overridePath)
+						if err != nil {
+							return err
+						}
+						for _, c := range chunks {
+							recvCh <- c
 						}
 					}
 					return nil
@@ -435,13 +461,46 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		desc.Chunks[x.chunk] = x.shards
 		desc.PreCompressionSizeBytes += x.preCompressionSize
 	}
+	desc.PreCompressionSizeBytes += incrementalBackupSize.Load()
 	return desc.PreCompressionSizeBytes, err
 }
 
-type chuckShards struct {
+type chunkShards struct {
 	chunk              int32
 	shards             []string
 	preCompressionSize int64
+}
+
+// processShard compresses a single shard into one or more chunks, handling split files
+// that span multiple chunks. It returns the produced chunks and any error.
+func (u *uploader) processShard(
+	ctx context.Context,
+	shard *backup.ShardDescriptor,
+	className string,
+	lastChunk *atomic.Int32,
+	overrideBucket, overridePath string,
+) ([]chunkShards, error) {
+	filesInShard, err := u.createFileList(shard)
+	if err != nil {
+		return nil, fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
+	}
+	var results []chunkShards
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+	for {
+		chunk := lastChunk.Add(1)
+		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath)
+		if err != nil {
+			return results, err
+		}
+		fileSizeExceeded = fileSizeExceededTmp
+		results = append(results, chunkShards{chunk, []string{shard.Name}, preCompressionSize})
+		firstChunk = false
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+	return results, nil
 }
 
 func (u *uploader) compress(ctx context.Context,
@@ -450,20 +509,24 @@ func (u *uploader) compress(ctx context.Context,
 	shard *backup.ShardDescriptor, // shard to be backed up
 	filesInShard *backup.FileList,
 	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
+	fileSizeExceededWrite *SplitFile, // if not nil, continue from previous split
 	overrideBucket, overridePath string, // bucket name and path
-) ([]string, int64, error) {
+) (*SplitFile, int64, error) {
 	var (
-		chunkKey = chunkKey(class, chunk)
-		shards   = make([]string, 0, 10)
-		// add tolerance to enable better optimization of the chunk size
+		chunkKey           = chunkKey(class, chunk)
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, u.cfg.ChunkTargetSize)
+
+	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
+	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
 	if err != nil {
-		return shards, preCompressionSize.Load(), err
+		return nil, preCompressionSize.Load(), err
 	}
-	producer := func() (err error) {
+	producer := func() (_ *SplitFile, err error) {
 		defer func() {
 			// Capture close error and join with any existing error.
 			// Close writes tar/gzip trailers and could fail if the pipe is closed.
@@ -476,23 +539,33 @@ func (u *uploader) compress(ctx context.Context,
 		}()
 
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 
-		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize); err != nil {
-			return err
+		var fileSizeExceededInfo *SplitFile
+		if fileSizeExceededWrite != nil {
+			// Only write the split file part in this chunk; remaining space is intentionally
+			// left unused to keep the logic simple and avoid mixing split file parts with
+			// regular files in the same chunk.
+			fileSizeExceededInfo, err = zip.WriteSplitFile(ctx, shard, fileSizeExceededWrite, &preCompressionSize, chunkKey)
+			if err != nil {
+				return nil, fmt.Errorf("write split file for shard %q: %w", shard.Name, err)
+			}
+		} else {
+			_, fileSizeExceededInfo, err = zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize, chunkKey)
+			if err != nil {
+				return nil, fmt.Errorf("write files for shard %q: %w", shard.Name, err)
+			}
 		}
-		shard.Chunk = chunk
-		shards = append(shards, shard.Name)
 		shard.ClearTemporary()
 
 		if zip.compressorWriter != nil {
 			if err := zip.compressorWriter.Flush(); err != nil {
-				return fmt.Errorf("flush compressor: %w", err)
+				return nil, fmt.Errorf("flush compressor: %w", err)
 			}
 		}
 
-		return nil
+		return fileSizeExceededInfo, nil
 	}
 
 	// consumer
@@ -506,16 +579,16 @@ func (u *uploader) compress(ctx context.Context,
 		return nil
 	})
 
-	producerErr := producer()
+	fileSizeExceededInfo, producerErr := producer()
 	// Always wait for the consumer to finish to capture its error.
 	// If the consumer fails (e.g., network error), it closes the pipe, causing
 	// the producer to fail with "closed pipe". We need both errors to show
 	// the actual cause (consumer error), not just the symptom (closed pipe).
 	consumerErr := eg.Wait()
 	if producerErr != nil || consumerErr != nil {
-		return shards, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
+		return fileSizeExceededInfo, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
 	}
-	return shards, preCompressionSize.Load(), nil
+	return fileSizeExceededInfo, preCompressionSize.Load(), nil
 }
 
 // calculateShardPreCompressionSize calculates the total size of a shard before compression
@@ -540,6 +613,90 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 	}).Debug("calculated pre-compression size for shard")
 
 	return totalSize
+}
+
+// createFileList creates a FileList from a ShardDescriptor with Files copied,
+// FileSizes map populated, and Top100Size calculated (size of 100th biggest file, minimum 1MB).
+// This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
+// Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
+func (u *uploader) createFileList(shard *backup.ShardDescriptor) (*backup.FileList, error) {
+	sourceDataPath := u.backend.SourceDataPath()
+	files := shard.Files
+	fileSizes := make(map[string]int64, len(files))
+
+	for _, relPath := range files {
+		fullPath := filepath.Join(sourceDataPath, relPath)
+		if info, err := os.Stat(fullPath); err == nil {
+			fileSizes[relPath] = info.Size()
+		} else if os.IsNotExist(err) {
+			// Check if the file exists with the delete marker prefix
+			deletedPath := filepath.Join(sourceDataPath, backup.DeleteMarkerAdd(relPath))
+			if info, err := os.Stat(deletedPath); err == nil {
+				fileSizes[relPath] = info.Size()
+			} else {
+				return nil, fmt.Errorf("file %q not found at %q or %q: %w", relPath, fullPath, deletedPath, err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to stat file %q: %w", fullPath, err)
+		}
+	}
+
+	// Copy files slice
+	filesCopy := make([]string, len(files))
+	copy(filesCopy, files)
+
+	return &backup.FileList{
+		Files:      filesCopy,
+		FileSizes:  fileSizes,
+		Top100Size: calculateTop100Size(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped, u.cfg.MinChunkSize),
+	}, nil
+}
+
+// calculateTop100Size returns the size of the 100th biggest file (or smallest if fewer than 100),
+// with a minimum of minSize. Uses a min-heap of size 100 for O(n) time and O(1) space complexity.
+func calculateTop100Size(fileSizes map[string]int64, numSkippedFiles int, minSize int64) int64 {
+	k := max(100-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
+
+	if len(fileSizes) == 0 {
+		return minSize
+	}
+
+	// Use a min-heap to track the k largest file sizes
+	h := &int64MinHeap{}
+	heap.Init(h)
+
+	for _, size := range fileSizes {
+		if h.Len() < k {
+			heap.Push(h, size)
+		} else if size > (*h)[0] {
+			heap.Pop(h)
+			heap.Push(h, size)
+		}
+	}
+
+	// The root of the min-heap is the k-th largest (or smallest if < k files)
+	result := (*h)[0]
+	if result < minSize {
+		return minSize
+	}
+	return result
+}
+
+// int64MinHeap implements heap.Interface for a min-heap of int64 values.
+type int64MinHeap []int64
+
+func (h int64MinHeap) Len() int           { return len(h) }
+func (h int64MinHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h int64MinHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *int64MinHeap) Push(x interface{}) { *h = append(*h, x.(int64)) }
+
+func (h *int64MinHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
 }
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir
@@ -635,14 +792,29 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		}
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
-			uz, w := NewUnzip(classTempDir, compressionType)
-
-			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
-			}, fw.logger)
-			_, err := uz.ReadChunk()
-			return err
+			return fw.readAndUnzipChunk(classTempDir, compressionType, chunk,
+				func(w io.WriteCloser) error {
+					_, err := fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+					return err
+				})
 		})
+	}
+
+	// fetch files from base backup(s)
+	for _, shard := range desc.Shards {
+		for backupId, incrementalBackupInfos := range shard.IncrementalBackupInfo.FilesPerBackup { // can be multiple incremental backups
+			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
+				for _, chunkId := range incrementalBackupInfo.ChunkKeys { // chunks for file
+					eg.Go(func() error {
+						return fw.readAndUnzipChunk(classTempDir, compressionType, chunkId,
+							func(w io.WriteCloser) error {
+								_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+								return err
+							})
+					})
+				}
+			}
+		}
 	}
 	return eg.Wait()
 }
@@ -673,6 +845,48 @@ func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescri
 	destPath = path.Join(classTempDir, sd.ShardVersionPath)
 	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
 		return fmt.Errorf("write version file %s: %w", destPath, err)
+	}
+	return nil
+}
+
+// readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.
+// It propagates errors from both the download and the unzip so that partial
+// downloads are never silently accepted.
+func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType backup.CompressionType, chunkName string, readFn func(w io.WriteCloser) error) error {
+	uz, w := NewUnzip(classTempDir, compressionType)
+
+	readErrCh := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		var err error
+		// Ensure readErrCh is always signaled even if readFn panics,
+		// otherwise the receiver on readErrCh will hang forever.
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in readFn: %v", r)
+				readErrCh <- err
+				panic(r) // re-panic so GoWrapper still logs the full stack
+			}
+			readErrCh <- err
+		}()
+		err = readFn(w)
+		if err != nil {
+			fw.logger.WithField("chunk", chunkName).Errorf("failed to read chunk from backend: %v", err)
+		}
+	}, fw.logger)
+
+	_, unzipErr := uz.ReadChunk()
+	// Close the pipe reader so any in-progress pw.Write() in readFn unblocks
+	// with ErrClosedPipe. Without this, readFn can hang forever if the
+	// decompressor detected end-of-stream before io.Copy finished writing all
+	// bytes from the backend.
+	uz.Close()
+	// Always drain readErrCh to prevent leaking the readFn goroutine.
+	readErr := <-readErrCh
+	if unzipErr != nil {
+		return fmt.Errorf("unzip chunk %s: %w", chunkName, unzipErr)
+	}
+	if readErr != nil && !errors.Is(readErr, io.ErrClosedPipe) {
+		return fmt.Errorf("read chunk %s from backend: %w", chunkName, readErr)
 	}
 	return nil
 }

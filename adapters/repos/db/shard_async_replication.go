@@ -50,16 +50,16 @@ const (
 	defaultHashtreeHeightSingleTenant  = 16
 	defaultHashtreeHeightMultiTenant   = 10
 	defaultFrequency                   = 30 * time.Second
-	defaultFrequencyWhilePropagating   = 3 * time.Second
+	defaultFrequencyWhilePropagating   = 5 * time.Second
 	defaultAliveNodesCheckingFrequency = 5 * time.Second
 	defaultLoggingFrequency            = 60 * time.Second
 	defaultDiffBatchSize               = 1_000
 	defaultDiffPerNodeTimeout          = 10 * time.Second
 	defaultPrePropagationTimeout       = 300 * time.Second
 	defaultPropagationTimeout          = 60 * time.Second
-	defaultPropagationLimit            = 10_000
+	defaultPropagationLimit            = 1_000
 	defaultPropagationDelay            = 30 * time.Second
-	defaultPropagationConcurrency      = 5
+	defaultPropagationConcurrency      = 1
 	defaultPropagationBatchSize        = 100
 
 	minHashtreeHeight = 0
