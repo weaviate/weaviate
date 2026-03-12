@@ -116,16 +116,6 @@ func (egw *ErrorGroupWrapper) TryGo(f func() error, localVars ...interface{}) bo
 	return started
 }
 
-// TryGoAndBlock attempts to schedule f via TryGo. If no slot is available,
-// it runs f inline (blocking) and returns its error. When f is scheduled
-// via TryGo, any error is collected by Wait and nil is returned here.
-func (egw *ErrorGroupWrapper) TryGoAndBlock(f func() error, localVars ...interface{}) error {
-	if !egw.TryGo(f, localVars...) {
-		return f()
-	}
-	return nil
-}
-
 // SetLimit overrides the SetLimit method to set a limit on the number of
 // goroutines and track what's set.
 func (egw *ErrorGroupWrapper) SetLimit(limit int) {
