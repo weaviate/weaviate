@@ -937,7 +937,11 @@ func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, expo
 			s.logger.WithField("action", "export_write_metadata").
 				WithField("export_id", exportID).
 				Warnf("metadata write attempt %d failed, retrying: %v", attempt+1, err)
-			time.Sleep(500 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("write metadata aborted after %d attempts: %w", attempt+1, ctx.Err())
+			case <-time.After(500 * time.Millisecond):
+			}
 		}
 	}
 	return fmt.Errorf("write metadata after %d attempts: %w", maxRetries, err)
