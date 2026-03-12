@@ -245,7 +245,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		return nil, fmt.Errorf("initialize backend: %w", err)
 	}
 
-	// Both single-node and multi-node write a plan, so try to read it first.
+	// The export plan is always written before the export starts.
 	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if planErr != nil {
 		return nil, fmt.Errorf("get export plan: %w", planErr)
