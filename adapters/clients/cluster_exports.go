@@ -89,15 +89,22 @@ func (c *ClusterExports) Commit(ctx context.Context, host, exportID string) erro
 }
 
 // Abort tells a participant to release its reservation.
-func (c *ClusterExports) Abort(ctx context.Context, host, exportID string) {
+func (c *ClusterExports) Abort(ctx context.Context, host, exportID string) error {
 	u := url.URL{Scheme: "http", Host: host, Path: pathExportAbort, RawQuery: "id=" + url.QueryEscape(exportID)}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
 	if err != nil {
-		return
+		return fmt.Errorf("new abort request: %w", err)
 	}
 
-	c.do(httpReq)
+	_, statusCode, err := c.do(httpReq)
+	if err != nil {
+		return err
+	}
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("abort failed: status %d", statusCode)
+	}
+	return nil
 }
 
 // IsRunning checks whether a participant node is still running the given export.

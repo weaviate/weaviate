@@ -14,18 +14,24 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-const reservationTimeout = 30 * time.Second
+const (
+	reservationTimeout    = 30 * time.Second
+	defaultStatusInterval = 30 * time.Second
+)
 
 // Participant handles export requests on a single node.
 // It exports its assigned shards directly to S3 and writes status files.
@@ -36,10 +42,11 @@ const reservationTimeout = 30 * time.Second
 //  2. Commit: cancels the timer and starts the actual export work.
 //  3. Abort: releases the reservation immediately.
 type Participant struct {
-	shutdownCtx context.Context
-	selector    Selector
-	backends    BackendProvider
-	logger      logrus.FieldLogger
+	shutdownCtx    context.Context
+	selector       Selector
+	backends       BackendProvider
+	logger         logrus.FieldLogger
+	statusInterval time.Duration // interval for status writes and sibling checks; 0 uses defaultStatusInterval
 
 	// mu guards preparedReq, abortTimer, and cancelExport, which are set
 	// during Prepare/Commit and consumed during Commit/Abort.
@@ -52,7 +59,7 @@ type Participant struct {
 }
 
 // NewParticipant creates a new export participant.
-// The shutdownCtx is cancelled on graceful server shutdown, allowing in-flight
+// The shutdownCtx is canceled on graceful server shutdown, allowing in-flight
 // exports to detect the shutdown and write a failed status before exiting.
 func NewParticipant(
 	shutdownCtx context.Context,
@@ -194,7 +201,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 // Abort cancels a prepared or running export.
 // If the export is still in the prepared state, the reservation is released.
-// If the export has already been committed, the running export is cancelled.
+// If the export has already been committed, the running export is canceled.
 func (p *Participant) Abort(exportID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -206,9 +213,10 @@ func (p *Participant) Abort(exportID string) {
 	if p.cancelExport != nil {
 		// Export is running — cancel it. The goroutine will detect context
 		// cancellation, write a failed status, and call clearAndRelease()
-		// via its defer.
+		// via its defer. We intentionally leave cancelExport non-nil so
+		// that concurrent or repeated Abort calls still take this branch
+		// instead of the "prepared" branch below.
 		p.cancelExport()
-		p.cancelExport = nil
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", exportID).
 			Info("participant aborted running export")
@@ -253,6 +261,25 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		defer p.mu.Unlock()
 		p.clearAndRelease()
 	}()
+
+	if err := p.doExport(ctx, backend, req); err != nil {
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", req.ID).
+			WithField("node", req.NodeName).
+			Error(err)
+		return
+	}
+
+	p.logger.WithField("action", "export_participant").
+		WithField("export_id", req.ID).
+		WithField("node", req.NodeName).
+		Info("participant export completed successfully")
+}
+
+// doExport performs the actual export of all classes/shards in the request.
+// It writes per-node status files and returns an error if any class fails.
+// Used by both the multi-node participant path and the single-node scheduler.
+func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) error {
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
@@ -267,42 +294,38 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		nodeStatus.ShardProgress[className] = make(map[string]*ShardProgress)
 		for _, shardName := range shardNames {
 			nodeStatus.ShardProgress[className][shardName] = &ShardProgress{
-				Status: export.Transferring,
+				Status: export.ShardTransferring,
 			}
 		}
 	}
 
+	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
+	defer stopWriter()
+
 	for _, className := range req.Classes {
+		if err := ctx.Err(); err != nil {
+			nodeStatus.SetFailed(className, err)
+			return err
+		}
+
 		shardNames, ok := req.Shards[className]
 		if !ok || len(shardNames) == 0 {
 			continue
 		}
 
 		if err := p.exportClassShards(ctx, backend, req, className, shardNames, nodeStatus); err != nil {
-			p.logger.WithField("action", "export").
-				WithField("export_id", req.ID).
-				WithField("node", req.NodeName).
-				WithField("class", className).
-				Error(err)
-
-			nodeStatus.Status = export.Failed
-			nodeStatus.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
-			p.writeNodeStatus(ctx, backend, req, nodeStatus)
-			return
+			nodeStatus.SetFailed(className, err)
+			return fmt.Errorf("export class %s: %w", className, err)
 		}
 	}
 
-	nodeStatus.Status = export.Success
-	nodeStatus.CompletedAt = time.Now().UTC()
-	p.writeNodeStatus(ctx, backend, req, nodeStatus)
-
-	p.logger.WithField("action", "export_participant").
-		WithField("export_id", req.ID).
-		WithField("node", req.NodeName).
-		Info("participant export completed successfully")
+	nodeStatus.SetSuccess()
+	return nil
 }
 
 // exportClassShards exports specific shards of a class to individual Parquet files.
+// It uses AcquireShardForExport to handle MT tenants (activating COLD tenants if
+// auto-activation is enabled) and bounded concurrency.
 func (p *Participant) exportClassShards(
 	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
@@ -311,39 +334,41 @@ func (p *Participant) exportClassShards(
 	shardNames []string,
 	nodeStatus *NodeStatus,
 ) error {
-	// Get all shards for the class (we need the ShardLike handles)
-	// TODO: This needs to be adapted to MT
-	allShards, err := p.selector.GetShardsForClass(ctx, className)
-	if err != nil {
-		return fmt.Errorf("get shards for class %s: %w", className, err)
-	}
+	isMT := p.selector.IsMultiTenant(ctx, className)
 
-	// Build lookup map
-	shardMap := make(map[string]ShardLike, len(allShards))
-	for _, s := range allShards {
-		shardMap[s.Name()] = s
-	}
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(p.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, shardName := range shardNames {
-		shard, ok := shardMap[shardName]
-		if !ok {
-			return fmt.Errorf("shard %s not found on this node for class %s", shardName, className)
-		}
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 
-		objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard)
-		if err != nil {
-			nodeStatus.ShardProgress[className][shardName].Status = export.Failed
-			nodeStatus.ShardProgress[className][shardName].Error = err.Error()
-			return fmt.Errorf("export shard %s: %w", shardName, err)
-		}
+			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
+			if err != nil {
+				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+				return fmt.Errorf("acquire shard %s: %w", shardName, err)
+			}
 
-		// Update incremental progress
-		nodeStatus.ShardProgress[className][shardName].Status = export.Success
-		nodeStatus.ShardProgress[className][shardName].ObjectsExported = objects
-		p.writeNodeStatus(ctx, backend, req, nodeStatus)
+			if shard == nil {
+				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, 0, "", skipReason)
+				return nil
+			}
+			defer release()
+
+			objects, err := p.exportShardToFile(ctx, backend, req, className, shardName, shard, isMT)
+			if err != nil {
+				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+				return fmt.Errorf("export shard %s: %w", shardName, err)
+			}
+
+			nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, objects, "", "")
+			return nil
+		}, shardName)
 	}
 
-	return nil
+	return eg.Wait()
 }
 
 // exportShardToFile exports a single shard to a Parquet file: {ClassName}_{ShardName}.parquet
@@ -353,6 +378,7 @@ func (p *Participant) exportShardToFile(
 	req *ExportRequest,
 	className, shardName string,
 	shard ShardLike,
+	isMT bool,
 ) (int64, error) {
 	pr, pw := io.Pipe()
 	errChan := make(chan error, 1)
@@ -369,6 +395,11 @@ func (p *Participant) exportShardToFile(
 		pw.CloseWithError(err)
 		<-errChan
 		return 0, fmt.Errorf("create parquet writer: %w", err)
+	}
+
+	writer.SetFileMetadata("collection", className)
+	if isMT {
+		writer.SetFileMetadata("tenant", shardName)
 	}
 
 	if err := exportShardData(ctx, shard, writer, className, p.logger); err != nil {
@@ -401,20 +432,123 @@ func (p *Participant) exportShardToFile(
 	return writer.ObjectsWritten(), nil
 }
 
-// writeNodeStatus writes the node status file to S3.
-// It uses a fresh context with a timeout so the write succeeds even if the
-// original context was cancelled (e.g. during graceful shutdown).
-func (p *Participant) writeNodeStatus(_ context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, status *NodeStatus) {
-	ctx := context.Background()
+// siblingHasFailed checks whether any sibling node has reported a Failed
+// status by reading their status files from the storage backend. If a sibling
+// has failed it returns the sibling name and its error string so the caller
+// can surface an actionable message. Not-found errors are silently ignored
+// (sibling may not have written its status yet). Other backend errors are
+// logged at warn level but do not trigger cancellation to avoid false
+// positives during transient outages.
+func (p *Participant) siblingHasFailed(
+	ctx context.Context,
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+) (failedSibling string, siblingErr string, failed bool) {
+	for _, nodeName := range req.SiblingNodes {
+		readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		key := fmt.Sprintf("node_%s_status.json", nodeName)
+		data, err := backend.GetObject(readCtx, req.ID, key, req.Bucket, req.Path)
+		cancel()
+		if err != nil {
+			var errNotFound backup.ErrNotFound
+			if !errors.As(err, &errNotFound) {
+				p.logger.WithField("action", "export_sibling_check").
+					WithField("export_id", req.ID).
+					WithField("sibling", nodeName).
+					Warn(fmt.Errorf("read sibling status: %w", err))
+			}
+			continue
+		}
 
-	key := fmt.Sprintf("node_%s_status.json", status.NodeName)
-	data, err := json.MarshalIndent(status, "", "  ")
-	if err != nil {
-		p.logger.WithField("action", "export").WithField("node", status.NodeName).Error(err)
-		return
+		var siblingStatus NodeStatus
+		if err := json.Unmarshal(data, &siblingStatus); err != nil {
+			p.logger.WithField("action", "export_sibling_check").WithField("sibling", nodeName).
+				Error(fmt.Errorf("unmarshal sibling status: %w", err))
+			continue
+		}
+
+		if siblingStatus.Status == export.Failed {
+			p.logger.WithField("action", "export_sibling_check").
+				WithField("export_id", req.ID).
+				WithField("sibling", nodeName).
+				WithField("sibling_error", siblingStatus.Error).
+				Warn("sibling node failed, canceling local export")
+			return nodeName, siblingStatus.Error, true
+		}
 	}
 
-	if _, err := backend.Write(ctx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
-		p.logger.WithField("action", "export").WithField("node", status.NodeName).Error(err)
+	return "", "", false
+}
+
+// startNodeStatusWriter launches a background goroutine that periodically
+// snapshots nodeStatus under mu and writes it to S3. It also checks sibling
+// nodes' status and cancels the local export if any sibling has failed.
+// The returned stop function triggers one final flush and blocks until the
+// write completes.
+func (p *Participant) startNodeStatusWriter(
+	exportCtx context.Context,
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+	nodeStatus *NodeStatus,
+) (stop func()) {
+	done := make(chan struct{}) // closed when the goroutine exits. Blocks until status is fully flushed on stop.
+	quit := make(chan struct{})
+	var once sync.Once
+
+	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
+
+	flush := func() {
+		nodeStatus.mu.Lock()
+		data, err := json.Marshal(nodeStatus)
+		nodeStatus.mu.Unlock()
+		if err != nil {
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
+				Error(fmt.Errorf("marshal node status: %w", err))
+			return
+		}
+		writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := backend.Write(writeCtx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
+			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
+				Error(fmt.Errorf("write node status: %w", err))
+		}
+	}
+
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		interval := p.statusInterval
+		if interval == 0 {
+			interval = defaultStatusInterval
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				flush()
+				if failedSibling, siblingErr, failed := p.siblingHasFailed(exportCtx, backend, req); failed {
+					nodeStatus.mu.Lock()
+					nodeStatus.Error = fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr)
+					nodeStatus.mu.Unlock()
+
+					p.mu.Lock()
+					if p.cancelExport != nil {
+						p.cancelExport()
+					}
+					p.mu.Unlock()
+				}
+			case <-quit:
+				flush()
+				return
+			}
+		}
+	}, p.logger)
+
+	return func() {
+		once.Do(func() {
+			close(quit)
+			<-done
+		})
 	}
 }

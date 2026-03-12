@@ -354,7 +354,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// blockingSelector blocks forever until context is cancelled
+	// blockingSelector blocks forever until context is canceled
 	selector := &blockingSelector{
 		blockCh: make(chan struct{}),
 	}
@@ -395,4 +395,131 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	var nodeStatus NodeStatus
 	require.NoError(t, json.Unmarshal(written, &nodeStatus))
 	assert.Equal(t, export.Failed, nodeStatus.Status)
+}
+
+func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	selector := &blockingSelector{
+		blockCh: make(chan struct{}),
+	}
+
+	p := &Participant{
+		shutdownCtx:    context.Background(),
+		selector:       selector,
+		backends:       &fakeBackendProvider{backend: backend},
+		logger:         logger,
+		statusInterval: 50 * time.Millisecond,
+	}
+
+	// Write a Failed status for the sibling node
+	siblingStatus := &NodeStatus{
+		NodeName: "node2",
+		Status:   export.Failed,
+		Error:    "disk full",
+	}
+	sibData, err := json.Marshal(siblingStatus)
+	require.NoError(t, err)
+	_, err = backend.Write(context.Background(), "test-export", "node_node2_status.json", "", "", newBytesReadCloser(sibData))
+	require.NoError(t, err)
+
+	req := &ExportRequest{
+		ID:           "test-export",
+		Backend:      "s3",
+		Classes:      []string{"TestClass"},
+		Shards:       map[string][]string{"TestClass": {"shard0"}},
+		NodeName:     "node1",
+		SiblingNodes: []string{"node2"},
+	}
+
+	require.NoError(t, p.Prepare(context.Background(), req))
+	require.NoError(t, p.Commit(context.Background(), "test-export"))
+
+	// Wait for the export goroutine to start
+	selector.waitForCall(t)
+
+	// The status writer goroutine should detect the sibling failure and
+	// auto-cancel the export without an explicit Abort call.
+	require.Eventually(t, func() bool {
+		return !p.IsRunning("test-export")
+	}, 5*time.Second, 10*time.Millisecond, "expected export to stop after sibling failure")
+
+	// Verify failed status was written for the local node
+	written := backend.getWritten("node_node1_status.json")
+	require.NotNil(t, written, "expected node status to be written")
+
+	var nodeStatus NodeStatus
+	require.NoError(t, json.Unmarshal(written, &nodeStatus))
+	assert.Equal(t, export.Failed, nodeStatus.Status)
+}
+
+func TestParticipant_CheckSiblingHealth(t *testing.T) {
+	tests := []struct {
+		name          string
+		siblingNodes  []string    // sibling node names in the request
+		siblingStatus *NodeStatus // nil means don't write a sibling status file
+		expectFailed  bool
+	}{
+		{
+			name:          "healthy sibling continues",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			expectFailed:  false,
+		},
+		{
+			name:          "failed sibling detected",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Failed, Error: "disk full"},
+			expectFailed:  true,
+		},
+		{
+			name:          "successful sibling continues",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Success},
+			expectFailed:  false,
+		},
+		{
+			name:         "no siblings skips check",
+			siblingNodes: nil,
+			expectFailed: false,
+		},
+		{
+			name:         "missing sibling status ignores error",
+			siblingNodes: []string{"node2"},
+			expectFailed: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			p := NewParticipant(
+				context.Background(),
+				&blockingSelector{blockCh: make(chan struct{})},
+				&fakeBackendProvider{backend: backend},
+				logger,
+			)
+
+			if tc.siblingStatus != nil {
+				sibData, err := json.Marshal(tc.siblingStatus)
+				require.NoError(t, err)
+				key := fmt.Sprintf("node_%s_status.json", tc.siblingStatus.NodeName)
+				_, err = backend.Write(context.Background(), "test-export", key, "", "", newBytesReadCloser(sibData))
+				require.NoError(t, err)
+			}
+
+			req := &ExportRequest{
+				ID:           "test-export",
+				Backend:      "s3",
+				NodeName:     "node1",
+				SiblingNodes: tc.siblingNodes,
+			}
+
+			_, _, failed := p.siblingHasFailed(context.Background(), backend, req)
+			assert.Equal(t, tc.expectFailed, failed)
+		})
+	}
 }
