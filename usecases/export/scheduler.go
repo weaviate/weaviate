@@ -428,7 +428,7 @@ func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend,
 	return es, nil
 }
 
-// assembleStatusFromPlan reads per-node status files from S3 and assembles
+// assembleStatusFromPlan reads per-node status files from the configured backup backend and assembles
 // overall status. The returned allTerminal flag is true when every node in
 // the plan has written a status file with a terminal status (Success or
 // Failed), distinguishing genuine completions from liveness-inferred failures.
@@ -461,6 +461,9 @@ func (s *Scheduler) assembleStatusFromPlan(
 	for nodeName := range plan.NodeAssignments {
 		nodeStatus, err := s.getNodeStatus(ctx, backend, id, bucket, path, nodeName)
 		if err != nil {
+			if !errors.As(err, &backup.ErrNotFound{}) {
+				return nil, false, fmt.Errorf("get status for node %s: %w", nodeName, err)
+			}
 			// No status file yet — treat as non-terminal and check liveness below
 			allTerminal = false
 			nodeStatus = &NodeStatus{
