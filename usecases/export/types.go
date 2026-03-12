@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // newBytesReadCloser wraps data in a backup.ReadCloserWithError suitable for
@@ -45,14 +46,15 @@ type ShardProgress struct {
 
 // ExportMetadata is written to S3 alongside the parquet files
 type ExportMetadata struct {
-	ID          string        `json:"id"`
-	Backend     string        `json:"backend"`
-	StartedAt   time.Time     `json:"startedAt"`
-	CompletedAt time.Time     `json:"completedAt"`
-	Status      export.Status `json:"status"`
-	Classes     []string      `json:"classes"`
-	Error       string        `json:"error,omitempty"`
-	Version     string        `json:"version"`
+	ID          string                                     `json:"id"`
+	Backend     string                                     `json:"backend"`
+	StartedAt   time.Time                                  `json:"startedAt"`
+	CompletedAt time.Time                                  `json:"completedAt"`
+	Status      export.Status                              `json:"status"`
+	Classes     []string                                   `json:"classes"`
+	Error       string                                     `json:"error,omitempty"`
+	ShardStatus map[string]map[string]models.ShardProgress `json:"shardStatus,omitempty"`
+	Version     string                                     `json:"version"`
 }
 
 // exportNodeInfo holds per-node information during 2PC coordination.
