@@ -286,6 +286,8 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 					return
 				default:
 				}
+				// Return values are intentionally ignored — we only care that
+				// concurrent calls don't re-populate the cache with stale entries.
 				m.checkPermissions(principal, resource, authorization.READ)
 			}
 		}()
