@@ -7509,6 +7509,11 @@ func init() {
             "type": "string"
           }
         },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "Error message if export failed",
           "type": "string"
@@ -17687,6 +17692,11 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
         },
         "error": {
           "description": "Error message if export failed",

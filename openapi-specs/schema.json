@@ -723,6 +723,11 @@
           "format": "date-time",
           "description": "When the export started"
         },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export completed (successfully, with failure, or was canceled)"
+        },
         "tookInMs": {
           "type": "integer",
           "format": "int64",

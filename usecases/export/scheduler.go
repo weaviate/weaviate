@@ -423,12 +423,13 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		cancelErr = fmt.Sprintf("export was canceled but some nodes could not be reached: %v", abortErr)
 	}
 	cancelStatus := &models.ExportStatusResponse{
-		ID:        id,
-		Backend:   backend,
-		Status:    string(export.Canceled),
-		Error:     cancelErr,
-		Classes:   plan.Classes,
-		StartedAt: strfmt.DateTime(plan.StartedAt),
+		ID:          id,
+		Backend:     backend,
+		Status:      string(export.Canceled),
+		Error:       cancelErr,
+		Classes:     plan.Classes,
+		StartedAt:   strfmt.DateTime(plan.StartedAt),
+		CompletedAt: strfmt.DateTime(time.Now().UTC()),
 	}
 	if err := s.writeMetadata(backendStore, id, bucket, path, cancelStatus); err != nil {
 		s.logger.WithField("action", "export_cancel").
@@ -453,6 +454,7 @@ func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend,
 	}
 
 	if !meta.CompletedAt.IsZero() {
+		es.CompletedAt = strfmt.DateTime(meta.CompletedAt)
 		es.TookInMs = meta.CompletedAt.Sub(meta.StartedAt).Milliseconds()
 	}
 
@@ -575,6 +577,7 @@ func (s *Scheduler) assembleStatusFromPlan(
 	}
 
 	if !lastCompleted.IsZero() && (allSuccess || anyFailed) {
+		status.CompletedAt = strfmt.DateTime(lastCompleted)
 		status.TookInMs = lastCompleted.Sub(plan.StartedAt).Milliseconds()
 	}
 
@@ -910,11 +913,16 @@ func exportShardData(ctx context.Context, shard ShardLike, writer *ParquetWriter
 func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *models.ExportStatusResponse) error {
 	ctx := context.Background()
 
+	completedAt := time.Time(status.CompletedAt)
+	if completedAt.IsZero() {
+		completedAt = time.Now().UTC()
+	}
+
 	metadata := &ExportMetadata{
 		ID:          status.ID,
 		Backend:     status.Backend,
 		StartedAt:   time.Time(status.StartedAt),
-		CompletedAt: time.Now().UTC(),
+		CompletedAt: completedAt,
 		Status:      export.Status(status.Status),
 		Classes:     status.Classes,
 		Error:       status.Error,
