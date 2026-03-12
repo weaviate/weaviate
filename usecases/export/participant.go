@@ -449,15 +449,12 @@ func (p *Participant) submitShardJobs(
 		return fmt.Errorf("start shard writer %s/%s: %w", className, shardName, err)
 	}
 
-	// Thread-safe scan error collector for this shard.
-	var scanMu sync.Mutex
+	// Thread-safe scan error collector for this shard. Only the first
+	// error is kept; subsequent calls are no-ops.
 	var scanErr error
+	var scanOnce sync.Once
 	setScanErr := func(err error) {
-		scanMu.Lock()
-		if scanErr == nil {
-			scanErr = err
-		}
-		scanMu.Unlock()
+		scanOnce.Do(func() { scanErr = err })
 	}
 
 	// Submit range jobs, tracked by a per-shard WaitGroup.
@@ -503,9 +500,7 @@ func (p *Participant) submitShardJobs(
 		close(rowsCh)
 		<-writerDone
 
-		scanMu.Lock()
 		shardScanErr := scanErr
-		scanMu.Unlock()
 
 		// Check for writer-side errors (e.g. WriteRow failure).
 		if wErr := writerErrFn(); wErr != nil && shardScanErr == nil {
