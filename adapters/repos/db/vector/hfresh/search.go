@@ -115,7 +115,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 
 			// skip duplicates
-			if visited.VisitIfNotVisited(id) {
+			if visited.CheckAndVisit(id) {
 				continue
 			}
 

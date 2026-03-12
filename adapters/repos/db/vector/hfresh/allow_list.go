@@ -117,7 +117,7 @@ func (a *allowList) Contains(id uint64) bool {
 	defer p.RUnlock()
 
 	for vectorID := range p.Iter() {
-		visited := a.wrappedIdVisited.VisitIfNotVisited(vectorID)
+		visited := a.wrappedIdVisited.CheckAndVisit(vectorID)
 		if !visited && a.AllowList.Contains(vectorID) {
 			a.idVisited.Visit(id)
 			return true
