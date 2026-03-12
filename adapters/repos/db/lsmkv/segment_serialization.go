@@ -32,10 +32,20 @@ type segmentReplaceNode struct {
 }
 
 func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	var buf [9]byte
+	return s.keyIndexAndWriteToWithBuf(w, buf[:])
+}
+
+// KeyIndexAndWriteToWithBuf is like KeyIndexAndWriteTo but accepts a caller-
+// supplied buffer (must be at least 9 bytes) to avoid a per-call allocation.
+func (s *segmentReplaceNode) KeyIndexAndWriteToWithBuf(w io.Writer, buf []byte) (segmentindex.Key, error) {
+	return s.keyIndexAndWriteToWithBuf(w, buf)
+}
+
+func (s *segmentReplaceNode) keyIndexAndWriteToWithBuf(w io.Writer, buf []byte) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
 	written := 0
 
-	buf := make([]byte, 9)
 	if s.tombstone {
 		buf[0] = 1
 	} else {
@@ -168,15 +178,16 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) (err error) {
 	out.offset = 0
 
-	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
-		return errors.Wrap(err, "read tombstone")
-	}
-	out.offset += 1
+	// 9 bytes covers the largest uninterrupted read (tombstone + value length).
+	// Stack-allocated, no heap allocation.
+	var tmpBuf [9]byte
 
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return errors.Wrap(err, "read value length encoding")
+	if _, err := io.ReadFull(r, tmpBuf[:9]); err != nil {
+		return errors.Wrap(err, "read tombstone and value length")
 	}
+	out.tombstone = tmpBuf[0] == 0x1
+	out.offset += 1
+	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.offset += 8
 
 	if int(valueLength) > cap(out.value) {
@@ -191,35 +202,44 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 		out.offset += n
 	}
 
-	var keyLength uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+	if _, err := io.ReadFull(r, tmpBuf[:4]); err != nil {
 		return errors.Wrap(err, "read key length encoding")
 	}
+	keyLength := binary.LittleEndian.Uint32(tmpBuf[:4])
 	out.offset += 4
 
-	out.primaryKey = make([]byte, keyLength)
+	if int(keyLength) > cap(out.primaryKey) {
+		out.primaryKey = make([]byte, keyLength)
+	} else {
+		out.primaryKey = out.primaryKey[:keyLength]
+	}
 	if n, err := io.ReadFull(r, out.primaryKey); err != nil {
 		return errors.Wrap(err, "read key")
 	} else {
 		out.offset += n
 	}
 
-	if secondaryIndexCount > 0 {
+	if secondaryIndexCount > 0 && len(out.secondaryKeys) < int(secondaryIndexCount) {
 		out.secondaryKeys = make([][]byte, secondaryIndexCount)
 	}
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
-		var secKeyLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+		if _, err := io.ReadFull(r, tmpBuf[:4]); err != nil {
 			return errors.Wrap(err, "read secondary key length encoding")
 		}
+		secKeyLen := binary.LittleEndian.Uint32(tmpBuf[:4])
 		out.offset += 4
 
 		if secKeyLen == 0 {
+			out.secondaryKeys[j] = out.secondaryKeys[j][:0]
 			continue
 		}
 
-		out.secondaryKeys[j] = make([]byte, secKeyLen)
+		if int(secKeyLen) > cap(out.secondaryKeys[j]) {
+			out.secondaryKeys[j] = make([]byte, secKeyLen)
+		} else {
+			out.secondaryKeys[j] = out.secondaryKeys[j][:secKeyLen]
+		}
 		if n, err := io.ReadFull(r, out.secondaryKeys[j]); err != nil {
 			return errors.Wrap(err, "read secondary key")
 		} else {
