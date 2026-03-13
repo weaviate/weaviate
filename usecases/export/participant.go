@@ -442,11 +442,17 @@ func (p *Participant) submitShardJobs(
 		logger:    p.logger,
 	}
 
-	// Thread-safe error collector for this shard.
+	// Thread-safe error collector for this shard. On the first error we
+	// also call setCleanupErr which triggers failFastCancel, canceling the
+	// context shared by all scan jobs across all shards so the entire
+	// export stops quickly.
 	var shardErr error
 	var shardErrOnce sync.Once
 	setErr := func(err error) {
-		shardErrOnce.Do(func() { shardErr = err })
+		shardErrOnce.Do(func() {
+			shardErr = err
+			setCleanupErr(err)
+		})
 	}
 
 	// Thread-safe written counter for this shard.
@@ -488,7 +494,8 @@ rangeloop:
 		shardWg.Wait()
 
 		if shardErr != nil {
-			setCleanupErr(shardErr)
+			// setCleanupErr was already called by setErr (which triggered
+			// failFastCancel); here we only record per-shard status.
 			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, shardErr.Error(), "")
 			release()
 			return
