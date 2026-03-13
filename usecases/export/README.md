@@ -71,13 +71,14 @@ Each class is exported to a separate `.parquet` file with this schema:
 | Column        | Type   | Description                               |
 |---------------|--------|-------------------------------------------|
 | id            | STRING | Object UUID                               |
-| class_name    | STRING | Class name                                |
 | creation_time | INT64  | Creation timestamp (Unix)                 |
 | update_time   | INT64  | Last update timestamp (Unix)              |
 | vector        | BINARY | Primary vector (serialized []float32)     |
 | named_vectors | BINARY | Named vectors (JSON map[string][]float32) |
 | multi_vectors | BINARY | Multi vectors (JSON map[string][][]float32)|
 | properties    | BINARY | Object properties (JSON)                  |
+
+The collection name is stored as file-level Parquet metadata under the `collection` key.
 
 ## File Structure
 

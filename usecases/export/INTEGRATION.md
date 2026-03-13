@@ -377,7 +377,8 @@ parquet-tools meta Article.parquet
 
 ### Parquet Format
 - One .parquet file per class
-- Columns: id, class_name, creation_time, update_time, vector, named_vectors, properties
+- Columns: id, creation_time, update_time, vector, named_vectors, multi_vectors, properties
+- The collection name is stored as file-level Parquet metadata (`collection` key)
 - Zstd compression for efficient storage
 - Batched writes (10k rows) for performance
 

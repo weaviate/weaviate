@@ -240,6 +240,9 @@ func multiVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 }
 
 // appendJSONStringKey appends "key": to dst and returns the extended slice.
+// It does not escape special JSON characters because vector names are validated
+// on input (schema validation rejects names containing quotes, backslashes, or
+// control characters).
 func appendJSONStringKey(dst []byte, key string) []byte {
 	dst = append(dst, '"')
 	dst = append(dst, key...)
@@ -250,6 +253,8 @@ func appendJSONStringKey(dst []byte, key string) []byte {
 // appendFloat32BytesAsJSONArray appends LE float32 bytes as a JSON number
 // array to dst and returns the extended slice. Uses strconv.AppendFloat
 // (same formatting as encoding/json) to avoid per-float string allocations.
+// NaN/Inf values are not handled here because vectors are validated on
+// insertion and cannot contain non-finite floats.
 func appendFloat32BytesAsJSONArray(dst []byte, data []byte, count int) []byte {
 	dst = append(dst, '[')
 	for i := range count {
