@@ -260,7 +260,7 @@ func TestComputeNumRanges(t *testing.T) {
 func TestScanAllRanges(t *testing.T) {
 	t.Parallel()
 
-	const numObjects = 50_000
+	const numObjects = 250_000
 	const parallelism = 10
 
 	store, inserted := createTestStore(t, numObjects)
