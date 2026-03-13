@@ -222,7 +222,7 @@ func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 func (m *ContextionaryModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	vecs := make([][]float32, len(objs))
 	addProps := make([]models.AdditionalProperties, len(objs))
-	// error should be the exception so dont preallocate
+	// error should be the exception so don't preallocate
 	errs := make(map[int]error, 0)
 	for i, obj := range objs {
 		if skipObject[i] {

@@ -291,7 +291,7 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 
 	// update all other nodes with maximum time so usage does not "jump back" when the node that has the latest time
 	// recorded is down.
-	// This is opportunistic (we dont care about errors) and there is no need to keep the request waiting for this
+	// This is opportunistic (we don't care about errors) and there is no need to keep the request waiting for this
 	enterrors.GoWrapper(func() {
 		ctx2, cancelFunc2 := context.WithTimeout(context.Background(), time.Second)
 		defer cancelFunc2()
@@ -301,7 +301,7 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 			nodeName := nodeName
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
-				// dont care about returns or errors
+				// don't care about returns or errors
 				_, _ = h.remoteUser.GetAndUpdateLastUsedTime(ctx2, nodeName, usersWithTime, false)
 			}, h.logger)
 		}
