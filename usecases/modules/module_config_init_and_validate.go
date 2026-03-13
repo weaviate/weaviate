@@ -64,7 +64,8 @@ func (p *Provider) setClassDefaults(class *models.Class, vectorizer string,
 
 	p.setPerClassConfigDefaults(cfg, cc, storeFn)
 	for _, prop := range class.Properties {
-		p.setSinglePropertyConfigDefaults(prop, vectorizer, cc)
+		// Fix for #9939: Pass targetVector so we can find the user's config
+		p.setSinglePropertyConfigDefaults(prop, vectorizer, targetVector, cc)
 	}
 }
 
@@ -95,20 +96,20 @@ func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
 ) {
 	for _, prop := range props {
 		if modelsext.ClassHasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
-			p.setSinglePropertyDefaults(prop, class.Vectorizer)
+			p.setSinglePropertyDefaults(prop, class.Vectorizer, "")
 		}
 
-		for _, vectorConfig := range class.VectorConfig {
+		for targetVector, vectorConfig := range class.VectorConfig {
 			if moduleConfig, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(moduleConfig) == 1 {
 				for vectorizer := range moduleConfig {
-					p.setSinglePropertyDefaults(prop, vectorizer)
+					p.setSinglePropertyDefaults(prop, vectorizer, targetVector)
 				}
 			}
 		}
 	}
 }
 
-func (p *Provider) setSinglePropertyDefaults(prop *models.Property, vectorizer string) {
+func (p *Provider) setSinglePropertyDefaults(prop *models.Property, vectorizer, targetVector string) {
 	if vectorizer == "none" {
 		// the class does not use a vectorizer, nothing to do for us
 		return
@@ -121,11 +122,11 @@ func (p *Provider) setSinglePropertyDefaults(prop *models.Property, vectorizer s
 		return
 	}
 
-	p.setSinglePropertyConfigDefaults(prop, vectorizer, cc)
+	p.setSinglePropertyConfigDefaults(prop, vectorizer, targetVector, cc)
 }
 
 func (p *Provider) setSinglePropertyConfigDefaults(prop *models.Property,
-	vectorizer string, cc modulecapabilities.ClassConfigurator,
+	vectorizer, targetVector string, cc modulecapabilities.ClassConfigurator,
 ) {
 	dt, _ := schema.GetValueDataTypeFromString(prop.DataType[0])
 	modDefaults := cc.PropertyConfigDefaults(dt)
@@ -133,9 +134,24 @@ func (p *Provider) setSinglePropertyConfigDefaults(prop *models.Property,
 	mergedConfig := map[string]interface{}{}
 
 	if prop.ModuleConfig != nil {
-		if vectorizerConfig, ok := prop.ModuleConfig.(map[string]interface{})[vectorizer]; ok {
-			if mcvm, ok := vectorizerConfig.(map[string]interface{}); ok {
-				userSpecified = mcvm
+		mc, ok := prop.ModuleConfig.(map[string]interface{})
+		if ok {
+			found := false
+			if targetVector != "" {
+				if vectorizerConfig, ok := mc[targetVector]; ok {
+					if mcvm, ok := vectorizerConfig.(map[string]interface{}); ok {
+						userSpecified = mcvm
+						found = true
+					}
+				}
+			}
+
+			if !found {
+				if vectorizerConfig, ok := mc[vectorizer]; ok {
+					if mcvm, ok := vectorizerConfig.(map[string]interface{}); ok {
+						userSpecified = mcvm
+					}
+				}
 			}
 		}
 	}
