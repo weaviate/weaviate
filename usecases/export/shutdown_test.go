@@ -404,7 +404,8 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	resolver := &fakeNodeResolver{
 		nodes: map[string]string{
@@ -468,7 +469,8 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	// node1 is no longer in the cluster
 	resolver := &fakeNodeResolver{
@@ -596,7 +598,8 @@ func TestScheduler_CancelAndExportRaceWritesMetadataOnce(t *testing.T) {
 			}
 			planData, err := json.Marshal(plan)
 			require.NoError(t, err)
-			backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
+			_, err = backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
+			require.NoError(t, err)
 
 			done := make(chan struct{})
 			go func() {
@@ -610,7 +613,7 @@ func TestScheduler_CancelAndExportRaceWritesMetadataOnce(t *testing.T) {
 			<-done
 
 			written := backend.getWritten(exportMetadataFile)
-			require.NotNil(t, written, "expected exactly one metadata write")
+			require.NotNil(t, written, "expected metadata to be written")
 
 			var meta ExportMetadata
 			require.NoError(t, json.Unmarshal(written, &meta))
@@ -647,7 +650,8 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	resolver := &fakeNodeResolver{
 		nodes: map[string]string{
