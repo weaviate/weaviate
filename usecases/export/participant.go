@@ -379,7 +379,6 @@ func (p *Participant) submitJobs(
 			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
 			if err != nil {
 				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
-				nodeStatus.SetFailed(className, err)
 				return fmt.Errorf("acquire shard %s/%s: %w", className, shardName, err)
 			}
 
@@ -424,7 +423,6 @@ func (p *Participant) submitShardJobs(
 		release()
 		err := fmt.Errorf("store not found for shard %s/%s", className, shardName)
 		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
-		nodeStatus.SetFailed(className, err)
 		return err
 	}
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
@@ -432,7 +430,6 @@ func (p *Participant) submitShardJobs(
 		release()
 		err := fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
 		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
-		nodeStatus.SetFailed(className, err)
 		return err
 	}
 	ranges := computeRanges(bucket, parallelism)
@@ -441,7 +438,6 @@ func (p *Participant) submitShardJobs(
 	if err != nil {
 		release()
 		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
-		nodeStatus.SetFailed(className, err)
 		return fmt.Errorf("start shard writer %s/%s: %w", className, shardName, err)
 	}
 
