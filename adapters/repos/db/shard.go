@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -35,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -217,6 +217,7 @@ type Shard struct {
 	slowQueryReporter helpers.SlowQueryReporter
 	propertyIndices   propertyspecific.Indices
 	propLenTracker    *inverted.JsonShardMetaData
+	propLenTrackerMu  sync.RWMutex
 	versioner         *shardVersioner
 
 	vectorIndexMu sync.RWMutex
