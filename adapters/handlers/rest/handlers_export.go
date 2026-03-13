@@ -59,9 +59,11 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case errors.Is(err, ucexport.ErrExportValidation),
-			errors.Is(err, ucexport.ErrExportAlreadyExists),
+		case errors.Is(err, ucexport.ErrExportAlreadyExists),
 			errors.Is(err, ucexport.ErrExportAlreadyActive):
+			return export.NewExportCreateConflict().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, ucexport.ErrExportValidation):
 			return export.NewExportCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:

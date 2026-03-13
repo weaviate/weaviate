@@ -9421,6 +9421,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Invalid export request",
             "schema": {

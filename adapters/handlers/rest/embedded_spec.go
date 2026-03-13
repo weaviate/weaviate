@@ -2477,6 +2477,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Invalid export request",
             "schema": {
@@ -12387,6 +12393,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
