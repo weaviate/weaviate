@@ -202,6 +202,55 @@ func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, erro
 	return version.Deleted(), nil
 }
 
+// FlushPosting ensures that all vectors are persisted with at least version v1.
+// This is used during analyze to ensure that all vectors have a version on-disk, even if they haven't been updated since they were added to the posting.
+// This is necessary because the in-memory version map only tracks versions for vectors
+// that have been reassigned or deleted, for performance reasons.
+func (v *VersionMap) FlushPosting(ctx context.Context, postingID uint64, p Posting) error {
+	for _, vector := range p {
+		curVer, err := v.Get(ctx, vector.ID())
+		if err != nil {
+			return errors.Wrap(err, "failed to get current version for vector during flush")
+		}
+		if curVer > v1 || curVer.Deleted() {
+			// only flush versions for vectors that are still at the initial version,
+			// the other versions are already persisted by Increment or MarkDeleted operations
+			continue
+		}
+
+		// check if the version already exists on-disk to avoid unnecessary writes
+		_, err = v.store.Get(ctx, vector.ID())
+		if err != nil && !errors.Is(err, ErrVectorNotFound) {
+			return errors.Wrap(err, "failed to get version for vector during flush")
+		}
+		if err == nil {
+			// version already exists on-disk, no need to flush
+			continue
+		}
+		// version does not exist on-disk, flush the initial version
+		err = v.store.Set(ctx, vector.ID(), v1)
+		if err != nil {
+			return errors.Wrap(err, "failed to set version for vector during flush")
+		}
+	}
+
+	return nil
+}
+
+// VectorExists checks if a version exists for the given vector ID.
+// It reads from the disk to ensure that we don't return false positives for vectors that are not in the cache but do exist on-disk.
+func (v *VersionMap) VectorExists(ctx context.Context, vectorID uint64) (VectorVersion, error) {
+	ver, err := v.store.Get(ctx, vectorID)
+	if err != nil {
+		if errors.Is(err, ErrVectorNotFound) {
+			return 0, nil
+		}
+		return 0, errors.Wrap(err, "failed to check if vector exists")
+	}
+
+	return ver, nil
+}
+
 // VersionStore is a persistent store for vector versions.
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
