@@ -726,7 +726,7 @@ func (t *ShardReindexTask_MapToBlockmax) getSegmentPathsToMove(bucketPathSrc, bu
 			if err != nil {
 				return err
 			}
-			timestampPast := time.Unix(0, timestamp).AddDate(-23, 0, 0).UnixNano()
+			timestampPast := time.Unix(0, timestamp).AddDate(-23, 0, 0).UnixMilli()
 			idAndData[0] = strconv.FormatInt(timestampPast, 10)
 			segmentPaths = append(segmentPaths, [2]string{
 				path, filepath.Join(bucketPathDst, fmt.Sprintf("segment-%s%s", strings.Join(idAndData, "."), ext)),
