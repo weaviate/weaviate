@@ -117,13 +117,43 @@ func TestExportFieldsFromBinary(t *testing.T) {
 				Properties: map[string]any{},
 			},
 		},
+		{
+			name: "nil properties filtered to nil",
+			obj: &models.Object{
+				ID:                 strfmt.UUID("99999999-aaaa-bbbb-cccc-dddddddddddd"),
+				Class:              "NilPropsClass",
+				CreationTimeUnix:   5000,
+				LastUpdateTimeUnix: 6000,
+				// Properties intentionally left nil — MarshalBinary produces
+				// JSON "null" which ExportFieldsFromBinary must filter to nil.
+			},
+		},
+		{
+			name: "individual nil property values preserved",
+			obj: &models.Object{
+				ID:    strfmt.UUID("bbbbbbbb-1111-2222-3333-444444444444"),
+				Class: "RawNilClass",
+				Properties: map[string]any{
+					"keep_me":   "hello",
+					"delete_me": nil,
+					"keep_num":  float64(42),
+				},
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			obj := FromObject(tc.obj, tc.vector, tc.namedVecs, tc.multiVecs)
+			obj := &Object{
+				MarshallerVersion: 1,
+				Object:            *tc.obj,
+				Vector:            tc.vector,
+				VectorLen:         len(tc.vector),
+				Vectors:           tc.namedVecs,
+				MultiVectors:      tc.multiVecs,
+			}
 			data, err := obj.MarshalBinary()
 			require.NoError(t, err)
 
@@ -175,87 +205,6 @@ func TestExportFieldsFromBinary(t *testing.T) {
 	}
 }
 
-// TestExportFieldsFromBinary_NilPropertiesFiltered verifies that
-// ExportFieldsFromBinary correctly filters out the JSON "null" bytes that
-// json.Marshal(nil) produces on the write path. This is important because
-// FromObject strips nil map entries *before* serialization, so the regular
-// TestExportFieldsFromBinary cases never exercise this code path. Here we
-// bypass FromObject and construct the storobj.Object directly so that nil
-// properties are serialized as "null".
-func TestExportFieldsFromBinary_NilPropertiesFiltered(t *testing.T) {
-	t.Parallel()
-
-	// Build an Object directly (bypassing FromObject) so that Properties
-	// remains nil. MarshalBinary will call json.Marshal(nil) → "null".
-	obj := &Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 strfmt.UUID("99999999-aaaa-bbbb-cccc-dddddddddddd"),
-			Class:              "NilPropsClass",
-			CreationTimeUnix:   5000,
-			LastUpdateTimeUnix: 6000,
-			// Properties intentionally left nil
-		},
-	}
-
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-
-	fields, err := ExportFieldsFromBinary(data)
-	require.NoError(t, err)
-
-	assert.Equal(t, "99999999-aaaa-bbbb-cccc-dddddddddddd", fields.ID)
-	assert.Equal(t, int64(5000), fields.CreateTime)
-	assert.Equal(t, int64(6000), fields.UpdateTime)
-	// The key assertion: even though the binary contains "null" bytes in the
-	// properties slot, ExportFieldsFromBinary must filter them out.
-	assert.Nil(t, fields.Properties, "properties serialized as JSON null must be filtered to nil")
-	assert.Nil(t, fields.VectorBytes)
-	assert.Nil(t, fields.NamedVectors)
-	assert.Nil(t, fields.MultiVectors)
-}
-
-// TestExportFieldsFromBinary_IndividualNilProperties verifies that individual
-// nil-valued properties within a map survive as JSON null in the raw bytes when
-// FromObject is bypassed. ExportFieldsFromBinary passes through raw JSON — it
-// only filters the entire blob when it equals "null", not individual keys.
-func TestExportFieldsFromBinary_IndividualNilProperties(t *testing.T) {
-	t.Parallel()
-
-	// Construct directly, bypassing FromObject's nil-stripping.
-	obj := &Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    strfmt.UUID("bbbbbbbb-1111-2222-3333-444444444444"),
-			Class: "RawNilClass",
-			Properties: map[string]any{
-				"keep_me":   "hello",
-				"delete_me": nil,
-				"keep_num":  float64(42),
-			},
-		},
-	}
-
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-
-	fields, err := ExportFieldsFromBinary(data)
-	require.NoError(t, err)
-
-	require.NotNil(t, fields.Properties)
-
-	// Without FromObject, the nil entry survives as JSON null in the raw
-	// bytes. ExportFieldsFromBinary passes through raw JSON — it only
-	// filters the entire blob when it equals "null", not individual keys.
-	var props map[string]any
-	require.NoError(t, json.Unmarshal(fields.Properties, &props))
-
-	assert.Equal(t, "hello", props["keep_me"])
-	assert.Equal(t, float64(42), props["keep_num"])
-	assert.Len(t, props, 3, "raw path preserves all keys including null-valued ones")
-	assert.Nil(t, props["delete_me"], "delete_me is present with JSON null value")
-}
-
 func TestExportFieldsFromBinary_Errors(t *testing.T) {
 	t.Parallel()
 
@@ -291,62 +240,6 @@ func TestExportFieldsFromBinary_Errors(t *testing.T) {
 	}
 }
 
-func TestExportFieldsMatchesFromBinary(t *testing.T) {
-	t.Parallel()
-
-	vector := make([]float32, 1536)
-	for i := range vector {
-		vector[i] = float32(i) * 0.001
-	}
-	props := map[string]any{
-		"name":     "Test",
-		"count":    float64(42),
-		"active":   true,
-		"score":    float64(0.95),
-		"category": "test",
-	}
-	namedVecs := map[string][]float32{
-		"title_vec": make([]float32, 768),
-	}
-	for i := range namedVecs["title_vec"] {
-		namedVecs["title_vec"][i] = float32(i) * 0.002
-	}
-
-	obj := FromObject(&models.Object{
-		ID:                 strfmt.UUID("aabbccdd-1122-3344-5566-778899001122"),
-		Class:              "MatchTest",
-		CreationTimeUnix:   1000000,
-		LastUpdateTimeUnix: 2000000,
-		Properties:         props,
-	}, vector, namedVecs, nil)
-
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-
-	// New path
-	fields, err := ExportFieldsFromBinary(data)
-	require.NoError(t, err)
-
-	// Old path
-	oldObj, err := FromBinary(data)
-	require.NoError(t, err)
-
-	// Compare scalar fields
-	assert.Equal(t, oldObj.ID().String(), fields.ID)
-	assert.Equal(t, oldObj.CreationTimeUnix(), fields.CreateTime)
-	assert.Equal(t, oldObj.LastUpdateTimeUnix(), fields.UpdateTime)
-
-	// Compare vector bytes
-	expectedVecBytes := byteops.Fp32SliceToBytes(oldObj.Vector)
-	assert.Equal(t, expectedVecBytes, fields.VectorBytes)
-
-	// Compare named vectors (parse both as maps)
-	require.NotNil(t, fields.NamedVectors)
-	var actualNV map[string][]float32
-	require.NoError(t, json.Unmarshal(fields.NamedVectors, &actualNV))
-	assert.Equal(t, oldObj.Vectors, actualNV)
-}
-
 func BenchmarkExportFromBinary(b *testing.B) {
 	vector := make([]float32, 1536)
 	for i := range vector {
@@ -375,13 +268,19 @@ func BenchmarkExportFromBinary(b *testing.B) {
 		namedVecs["description_vector"][i] = float32(i) * 0.003
 	}
 
-	obj := FromObject(&models.Object{
-		ID:                 strfmt.UUID("12345678-1234-1234-1234-123456789012"),
-		Class:              "BenchClass",
-		CreationTimeUnix:   1700000000000,
-		LastUpdateTimeUnix: 1700000001000,
-		Properties:         props,
-	}, vector, namedVecs, nil)
+	obj := &Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:                 strfmt.UUID("12345678-1234-1234-1234-123456789012"),
+			Class:              "BenchClass",
+			CreationTimeUnix:   1700000000000,
+			LastUpdateTimeUnix: 1700000001000,
+			Properties:         props,
+		},
+		Vector:    vector,
+		VectorLen: len(vector),
+		Vectors:   namedVecs,
+	}
 
 	data, err := obj.MarshalBinary()
 	if err != nil {
