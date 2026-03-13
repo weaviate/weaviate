@@ -44,10 +44,6 @@ func TestHandler_ListTasks(t *testing.T) {
 						StartedAt:  now.Add(-time.Hour),
 						FinishedAt: now,
 						Error:      "server is on fire",
-						FinishedNodes: map[string]bool{
-							"node1": true,
-							"node2": true,
-						},
 					},
 				},
 			},
@@ -63,14 +59,14 @@ func TestHandler_ListTasks(t *testing.T) {
 	require.Equal(t, models.DistributedTasks{
 		"testNamespace": []models.DistributedTask{
 			{
-				ID:            "test-task-1",
-				Version:       10,
-				Status:        "FAILED",
-				Error:         "server is on fire",
-				StartedAt:     strfmt.DateTime(now.Add(-time.Hour)),
-				FinishedAt:    strfmt.DateTime(now),
-				FinishedNodes: []string{"node1", "node2"},
-				Payload:       map[string]interface{}{"hello": "world"},
+				ID:         "test-task-1",
+				Version:    10,
+				Status:     "FAILED",
+				Error:      "server is on fire",
+				StartedAt:  strfmt.DateTime(now.Add(-time.Hour)),
+				FinishedAt: strfmt.DateTime(now),
+				Payload:    map[string]interface{}{"hello": "world"},
+				SubUnits:   []*models.DistributedTaskSubUnit{},
 			},
 		},
 	}, tasks)

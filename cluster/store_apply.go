@@ -390,8 +390,11 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.distributedTasksManager.AddTask(&cmd, l.Index)
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:
+		// Deprecated: legacy node-level tracking has been removed. This case is kept as a
+		// no-op for backward compatibility during rolling upgrades — old nodes may have
+		// pending Raft log entries of this type.
 		f = func() {
-			ret.Error = st.distributedTasksManager.RecordNodeCompletion(&cmd, st.numberOfNodesInTheCluster())
+			st.log.Warn("ignoring deprecated TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED Raft command")
 		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
 		f = func() {
@@ -400,6 +403,14 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_SUB_UNIT_COMPLETED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordSubUnitCompletion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_SUB_UNIT_PROGRESS:
+		f = func() {
+			ret.Error = st.distributedTasksManager.UpdateSubUnitProgress(&cmd)
 		}
 
 	default:
@@ -425,8 +436,4 @@ func (st *Store) Apply(l *raft.Log) any {
 	wg.Wait()
 
 	return ret
-}
-
-func (st *Store) numberOfNodesInTheCluster() int {
-	return len(st.raft.GetConfiguration().Configuration().Servers)
 }

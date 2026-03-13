@@ -34,9 +34,9 @@ import (
 // 2. A task is created and added to the cluster via the Manager.AddTask.
 // 3. Scheduler regularly scans all available tasks in the cluster, picks up new ones and instructs the Provider to execute them locally.
 // 4. A task is responsible for updating its status in the cluster via TaskCompletionRecorder.
-// 6. Scheduler polls the cluster for the task status and checks if it is still running. It cancels the local task if it is not marked as STARTED anymore.
-// 7. After completed task TTL has passed, the Scheduler issues the Manager.CleanUpDistributedTask request to remove the task from the cluster list.
-// 8. After a task is removed from the cluster list, the Scheduler instructs the Provider to clean up the local task state.
+// 5. Scheduler polls the cluster for the task status and checks if it is still running. It cancels the local task if it is not marked as STARTED anymore.
+// 6. After completed task TTL has passed, the Scheduler issues the Manager.CleanUpDistributedTask request to remove the task from the cluster list.
+// 7. After a task is removed from the cluster list, the Scheduler instructs the Provider to clean up the local task state.
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
@@ -55,6 +55,9 @@ type Scheduler struct {
 	sampledLogger *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
+
+	completedCallbackFired map[TaskDescriptor]bool
+	groupCallbackFired     map[TaskDescriptor]map[string]bool
 
 	stopCh chan struct{}
 }
@@ -85,11 +88,13 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
 
-		providers:          params.Providers,
-		completionRecorder: params.CompletionRecorder,
-		tasksLister:        params.TasksLister,
-		taskCleaner:        params.TaskCleaner,
-		clock:              params.Clock,
+		providers:              params.Providers,
+		completionRecorder:     params.CompletionRecorder,
+		completedCallbackFired: map[TaskDescriptor]bool{},
+		groupCallbackFired:     map[TaskDescriptor]map[string]bool{},
+		tasksLister:            params.TasksLister,
+		taskCleaner:            params.TaskCleaner,
+		clock:                  params.Clock,
 
 		localNode:        params.LocalNode,
 		completedTaskTTL: params.CompletedTaskTTL,
@@ -107,49 +112,26 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
+// Start wires up providers with a [ThrottledRecorder], performs an initial task listing to
+// bootstrap any already-active tasks, and spawns the background tick loop. It is safe to call
+// exactly once. Use [Scheduler.Close] to stop the loop and terminate all running tasks.
 func (s *Scheduler) Start(ctx context.Context) error {
-	tasksByNamespace, err := s.listTasks(ctx)
-	if err != nil {
-		return fmt.Errorf("list distributed tasks: %w", err)
-	}
+	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 30*time.Second, s.clock)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for namespace, provider := range s.providers {
-		provider.SetCompletionRecorder(s.completionRecorder)
+	for _, provider := range s.providers {
+		provider.SetCompletionRecorder(throttledRecorder)
+	}
+	s.mu.Unlock()
 
-		var (
-			tasks         = tasksByNamespace[namespace]
-			startedTasks  = s.filterStartedTasks(tasks)
-			localTaskDesc = provider.GetLocalTasks()
-		)
-		for _, taskDesc := range localTaskDesc {
-			if _, ok := startedTasks[taskDesc]; ok {
-				continue
-			}
-
-			if err = provider.CleanupTask(taskDesc); err != nil {
-				s.loggerWithTask(namespace, taskDesc).WithError(err).
-					Error("failed to clean up local distributed task state")
-				continue
-			}
-
-			s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
-		}
-
-		for desc, task := range startedTasks {
-			handle, err := provider.StartTask(task)
-			if err != nil {
-				return fmt.Errorf("provider %s start task %v: %w", namespace, desc, err)
-			}
-
-			s.setRunningTaskHandleWithLock(namespace, desc, handle)
-			s.loggerWithTask(namespace, desc).Info("started distributed task execution")
-		}
-
-		s.tasksRunning.
-			WithLabelValues(namespace).
-			Set(float64(len(startedTasks)))
+	// Attempt an initial task listing to bootstrap running tasks. If it fails
+	// (e.g. Raft not ready yet), log and continue — tick() will pick tasks up
+	// once the cluster is ready.
+	tasksByNamespace, err := s.listTasks(ctx)
+	if err != nil {
+		s.logger.WithError(err).Warn("initial distributed task listing failed, scheduler will retry on next tick")
+	} else {
+		s.bootstrapProviders(tasksByNamespace)
 	}
 
 	enterrors.GoWrapper(s.loop, s.logger)
@@ -157,9 +139,63 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
+// bootstrapProviders cleans up stale local tasks and starts tasks that are currently active,
+// based on the initial task listing from the Raft log.
+func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for namespace, provider := range s.providers {
+		startedTasks := s.filterStartedTasks(tasksByNamespace[namespace])
+
+		s.cleanupStaleTasks(namespace, provider, startedTasks)
+		s.startActiveTasks(namespace, provider, startedTasks)
+
+		s.tasksRunning.
+			WithLabelValues(namespace).
+			Set(float64(len(startedTasks)))
+	}
+}
+
+// cleanupStaleTasks removes local state for tasks that the provider knows about
+// but that are no longer active in the cluster.
+func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, startedTasks map[TaskDescriptor]*Task) {
+	for _, taskDesc := range provider.GetLocalTasks() {
+		if _, ok := startedTasks[taskDesc]; ok {
+			continue
+		}
+
+		if err := provider.CleanupTask(taskDesc); err != nil {
+			s.loggerWithTask(namespace, taskDesc).WithError(err).
+				Error("failed to clean up local distributed task state")
+			continue
+		}
+
+		s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
+	}
+}
+
+// startActiveTasks launches tasks that are currently active and have pending work on this node.
+func (s *Scheduler) startActiveTasks(namespace string, provider Provider, startedTasks map[TaskDescriptor]*Task) {
+	for desc, task := range startedTasks {
+		handle, err := provider.StartTask(task)
+		if err != nil {
+			s.loggerWithTask(namespace, desc).WithError(err).
+				Error("failed to start distributed task during bootstrap")
+			continue
+		}
+
+		s.setRunningTaskHandleWithLock(namespace, desc, handle)
+		s.loggerWithTask(namespace, desc).Info("started distributed task execution")
+	}
+}
+
 func (s *Scheduler) filterStartedTasks(tasks map[TaskDescriptor]*Task) map[TaskDescriptor]*Task {
 	return filterTasks(tasks, func(task *Task) bool {
-		return task.Status == TaskStatusStarted && !task.FinishedNodes[s.localNode]
+		if task.Status != TaskStatusStarted {
+			return false
+		}
+		return task.NodeHasNonTerminalSubUnits(s.localNode)
 	})
 }
 
@@ -207,6 +243,16 @@ func (s *Scheduler) tick() {
 	for namespace, provider := range s.providers {
 		tasks := tasksByNamespace[namespace]
 
+		// Remove dead handles so tasks can be re-launched if they still have pending work.
+		// A handle is "dead" when its goroutine has exited (Done() channel is closed).
+		for desc, taskHandle := range s.runningTasks[namespace] {
+			select {
+			case <-taskHandle.Done():
+				delete(s.runningTasks[namespace], desc)
+			default:
+			}
+		}
+
 		// Check that all tasks that are supposed to be running
 		// and launch if they aren't.
 		startedTasks := s.filterStartedTasks(tasks)
@@ -245,6 +291,46 @@ func (s *Scheduler) tick() {
 
 		}
 
+		// Fire group-level and task-level callbacks for sub-unit-aware providers.
+		// OnGroupCompleted fires per-group as each group's sub-units all reach terminal
+		// state (can fire mid-flight while task is still STARTED).
+		// OnTaskCompleted fires once when the task reaches terminal state.
+		if suProvider, ok := provider.(SubUnitAwareProvider); ok {
+			for desc, task := range tasks {
+				if task.Status == TaskStatusCancelled {
+					continue
+				}
+
+				// Phase 1: per-group finalization (fires mid-flight as groups complete).
+				// A group is ready to finalize when either:
+				//   - All sub-units in the group are terminal (normal completion), OR
+				//   - The task itself is terminal (fail-fast: remaining sub-units won't complete)
+				taskTerminal := task.Status == TaskStatusFinished || task.Status == TaskStatusFailed
+				for _, groupID := range task.Groups() {
+					if s.groupCallbackFired[desc] != nil && s.groupCallbackFired[desc][groupID] {
+						continue
+					}
+					if !taskTerminal && !task.AllGroupSubUnitsTerminal(groupID) {
+						continue
+					}
+					if s.groupCallbackFired[desc] == nil {
+						s.groupCallbackFired[desc] = map[string]bool{}
+					}
+					s.groupCallbackFired[desc][groupID] = true
+					localIDs := task.LocalGroupSubUnitIDs(groupID, s.localNode)
+					if len(localIDs) > 0 {
+						suProvider.OnGroupCompleted(task, groupID, localIDs)
+					}
+				}
+
+				// Phase 2: global task completion (fires once when task is terminal)
+				if taskTerminal && !s.completedCallbackFired[desc] {
+					s.completedCallbackFired[desc] = true
+					suProvider.OnTaskCompleted(task)
+				}
+			}
+		}
+
 		// Check that all tasks that are already finished and if their TTL has passed, so we can clean them up.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
 			return task.Status != TaskStatusStarted && s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
@@ -270,6 +356,9 @@ func (s *Scheduler) tick() {
 				// task still present in the list
 				continue
 			}
+
+			delete(s.completedCallbackFired, desc)
+			delete(s.groupCallbackFired, desc)
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
@@ -304,6 +393,8 @@ func (s *Scheduler) setRunningTaskHandleWithLock(namespace string, desc TaskDesc
 	s.runningTasks[namespace][desc] = handle
 }
 
+// Close stops the background tick loop and terminates all running task handles. It blocks
+// until all handles have been signalled. After Close returns, no new ticks will fire.
 func (s *Scheduler) Close() {
 	close(s.stopCh)
 

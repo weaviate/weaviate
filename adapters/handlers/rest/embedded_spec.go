@@ -7375,9 +7375,55 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "subUnits": {
+          "description": "Sub-units of the task. Only present for tasks that use sub-unit tracking.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DistributedTaskSubUnit"
+          },
+          "x-omitempty": true
+        },
         "version": {
           "description": "The version of the task.",
           "type": "integer"
+        }
+      }
+    },
+    "DistributedTaskSubUnit": {
+      "description": "A sub-unit of a distributed task.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The error message if the sub-unit failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "finishedAt": {
+          "description": "The time when the sub-unit finished.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "The ID of the sub-unit.",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "The node that owns this sub-unit.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "The progress of the sub-unit (0.0 to 1.0).",
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "description": "The status of the sub-unit.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "description": "The time when the sub-unit was last updated.",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -17542,9 +17588,55 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "subUnits": {
+          "description": "Sub-units of the task. Only present for tasks that use sub-unit tracking.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DistributedTaskSubUnit"
+          },
+          "x-omitempty": true
+        },
         "version": {
           "description": "The version of the task.",
           "type": "integer"
+        }
+      }
+    },
+    "DistributedTaskSubUnit": {
+      "description": "A sub-unit of a distributed task.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The error message if the sub-unit failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "finishedAt": {
+          "description": "The time when the sub-unit finished.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "The ID of the sub-unit.",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "The node that owns this sub-unit.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "The progress of the sub-unit (0.0 to 1.0).",
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "description": "The status of the sub-unit.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "description": "The time when the sub-unit was last updated.",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },

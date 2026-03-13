@@ -22,6 +22,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
+func errTaskNotRunning(namespace, taskID string, version uint64) error {
+	return fmt.Errorf("task %s/%s/%d is no longer running", namespace, taskID, version)
+}
+
 // Manager is responsible for managing distributed tasks across the cluster.
 type Manager struct {
 	mu    sync.Mutex
@@ -52,6 +56,9 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 }
 
+// AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
+// Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
+// the same namespace/ID is already running, or if no sub-units are provided.
 func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	var r api.AddDistributedTaskRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -72,53 +79,156 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		}
 	}
 
-	m.setTaskWithLock(&Task{
+	newTask := &Task{
 		Namespace:      r.Namespace,
 		TaskDescriptor: TaskDescriptor{ID: r.Id, Version: seqNum},
 		Payload:        r.Payload,
 		Status:         TaskStatusStarted,
 		StartedAt:      time.UnixMilli(r.SubmittedAtUnixMillis),
-		FinishedNodes:  map[string]bool{},
-	})
+	}
+
+	if len(r.SubUnitSpecs) > 0 {
+		newTask.SubUnits = make(map[string]*SubUnit, len(r.SubUnitSpecs))
+		for _, spec := range r.SubUnitSpecs {
+			newTask.SubUnits[spec.Id] = &SubUnit{
+				ID:      spec.Id,
+				GroupID: spec.GroupId,
+				Status:  SubUnitStatusPending,
+			}
+		}
+	} else if len(r.SubUnitIds) > 0 {
+		newTask.SubUnits = make(map[string]*SubUnit, len(r.SubUnitIds))
+		for _, id := range r.SubUnitIds {
+			newTask.SubUnits[id] = &SubUnit{
+				ID:     id,
+				Status: SubUnitStatusPending,
+			}
+		}
+	} else {
+		return fmt.Errorf("task %s/%s must have at least one sub-unit", r.Namespace, r.Id)
+	}
+
+	m.setTaskWithLock(newTask)
 
 	return nil
 }
 
-func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCluster int) error {
-	var r api.RecordDistributedTaskNodeCompletionRequest
+// findStartedSubUnitWithLock validates that the task exists, is running, has sub-units, the sub-unit
+// exists, and is owned by (or unassigned to) the given node. Returns the task and sub-unit on success.
+func (m *Manager) findStartedSubUnitWithLock(namespace, taskID string, version uint64, subUnitID, nodeID string) (*Task, *SubUnit, error) {
+	task, err := m.findVersionedTaskWithLock(namespace, taskID, version)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if task.Status != TaskStatusStarted {
+		return nil, nil, errTaskNotRunning(namespace, taskID, task.Version)
+	}
+
+	su, ok := task.SubUnits[subUnitID]
+	if !ok {
+		return nil, nil, fmt.Errorf("sub-unit %s does not exist in task %s/%s/%d", subUnitID, namespace, taskID, task.Version)
+	}
+
+	if su.NodeID != "" && su.NodeID != nodeID {
+		return nil, nil, fmt.Errorf("sub-unit %s in task %s/%s/%d belongs to node %s, not %s",
+			subUnitID, namespace, taskID, task.Version, su.NodeID, nodeID)
+	}
+
+	return task, su, nil
+}
+
+// RecordSubUnitCompletion handles both success and failure (distinguished by a non-empty error
+// field in the request). On failure, the task transitions to FAILED immediately — remaining
+// in-flight sub-units are NOT waited for, and their subsequent completion reports will be
+// rejected with "task is no longer running". This fail-fast behavior is intentional: it avoids
+// wasting cluster resources on a task that is already doomed.
+func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
+	var r api.RecordDistributedTaskSubUnitCompletionRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
-		return fmt.Errorf("unmarshal record task node completion request: %w", err)
+		return fmt.Errorf("unmarshal record sub-unit completion request: %w", err)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	task, su, err := m.findStartedSubUnitWithLock(r.Namespace, r.Id, r.Version, r.SubUnitId, r.NodeId)
 	if err != nil {
 		return err
 	}
 
-	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+	if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+		return fmt.Errorf("sub-unit %s in task %s/%s/%d is already terminal", r.SubUnitId, r.Namespace, r.Id, task.Version)
 	}
 
-	if r.Error != nil {
+	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
+
+	if r.Error != "" {
+		su.Status = SubUnitStatusFailed
+		su.Error = r.Error
+		su.FinishedAt = finishedAt
 		task.Status = TaskStatusFailed
-		task.Error = *r.Error
-		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
+		task.Error = fmt.Sprintf("sub-unit %s failed: %s", r.SubUnitId, r.Error)
+		task.FinishedAt = finishedAt
 		return nil
 	}
 
-	task.FinishedNodes[r.NodeId] = true
-	if len(task.FinishedNodes) == numberOfNodesInTheCluster {
-		task.Status = TaskStatusFinished
-		task.FinishedAt = time.UnixMilli(r.FinishedAtUnixMillis)
-		return nil
+	su.Status = SubUnitStatusCompleted
+	su.Progress = 1.0
+	su.FinishedAt = finishedAt
+
+	if task.AllSubUnitsTerminal() {
+		if task.AnySubUnitFailed() {
+			task.Status = TaskStatusFailed
+		} else {
+			task.Status = TaskStatusFinished
+		}
+		task.FinishedAt = finishedAt
 	}
 
 	return nil
 }
 
+// UpdateSubUnitProgress also handles initial node assignment: the first progress update for an
+// unassigned sub-unit sets its NodeID, claiming it for that node. After assignment, updates from
+// other nodes are rejected. Progress updates to terminal sub-units are silently ignored (no error)
+// because in-flight Raft commands may arrive after a sub-unit has already completed.
+func (m *Manager) UpdateSubUnitProgress(c *api.ApplyRequest) error {
+	var r api.UpdateDistributedTaskSubUnitProgressRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal update sub-unit progress request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, su, err := m.findStartedSubUnitWithLock(r.Namespace, r.Id, r.Version, r.SubUnitId, r.NodeId)
+	if err != nil {
+		return err
+	}
+
+	if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+		return nil // silently ignore progress updates for terminal sub-units
+	}
+
+	if r.Progress < 0 || r.Progress > 1 {
+		return fmt.Errorf("progress for sub-unit %s in task %s/%s/%d must be between 0.0 and 1.0, got %v",
+			r.SubUnitId, r.Namespace, r.Id, r.Version, r.Progress)
+	}
+
+	su.NodeID = r.NodeId
+	su.Progress = r.Progress
+	su.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
+
+	if su.Status == SubUnitStatusPending {
+		su.Status = SubUnitStatusInProgress
+	}
+
+	return nil
+}
+
+// CancelTask transitions a running task to CANCELLED. In-flight sub-units are not waited
+// for — the [Scheduler] will terminate their local handles on the next tick.
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -134,7 +244,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	}
 
 	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
 	task.Status = TaskStatusCancelled
@@ -142,6 +252,9 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	return nil
 }
 
+// CleanUpTask removes a terminal task from the Manager's state. It refuses to clean up tasks
+// that are still running or whose completedTaskTTL has not yet elapsed, preventing premature
+// removal of status information that other nodes may still need to observe.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -168,6 +281,8 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	return nil
 }
 
+// ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is
+// cloned, so callers may read the returned values without holding the Manager's lock.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -232,6 +347,8 @@ type snapshot struct {
 	Tasks map[string][]*Task `json:"tasks,omitempty"`
 }
 
+// Snapshot serialises the full task state to JSON for Raft snapshotting. The inverse
+// operation is [Manager.Restore].
 func (m *Manager) Snapshot() ([]byte, error) {
 	tasks, err := m.ListDistributedTasks(context.Background())
 	if err != nil {
@@ -248,6 +365,9 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	return bytes, nil
 }
 
+// Restore replaces the Manager's in-memory state from a Raft snapshot produced by
+// [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
+// a snapshot from the leader.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {

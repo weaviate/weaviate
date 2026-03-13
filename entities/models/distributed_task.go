@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -53,6 +54,9 @@ type DistributedTask struct {
 	// The status of the task.
 	Status string `json:"status,omitempty"`
 
+	// Sub-units of the task. Only present for tasks that use sub-unit tracking.
+	SubUnits []*DistributedTaskSubUnit `json:"subUnits,omitempty"`
+
 	// The version of the task.
 	Version int64 `json:"version,omitempty"`
 }
@@ -66,6 +70,10 @@ func (m *DistributedTask) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSubUnits(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -99,8 +107,63 @@ func (m *DistributedTask) validateStartedAt(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this distributed task based on context it is used
+func (m *DistributedTask) validateSubUnits(formats strfmt.Registry) error {
+	if swag.IsZero(m.SubUnits) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.SubUnits); i++ {
+		if swag.IsZero(m.SubUnits[i]) { // not required
+			continue
+		}
+
+		if m.SubUnits[i] != nil {
+			if err := m.SubUnits[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("subUnits" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("subUnits" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this distributed task based on the context it is used
 func (m *DistributedTask) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateSubUnits(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *DistributedTask) contextValidateSubUnits(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.SubUnits); i++ {
+
+		if m.SubUnits[i] != nil {
+			if err := m.SubUnits[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("subUnits" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("subUnits" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
