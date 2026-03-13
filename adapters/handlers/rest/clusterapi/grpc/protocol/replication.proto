@@ -1,0 +1,242 @@
+syntax = "proto3";
+
+package clusterapi;
+
+// ReplicationService handles inter-node replication RPCs.
+// It mirrors the WClient/RClient interfaces defined in usecases/replica/transport.go.
+service ReplicationService {
+  // Write operations (WClient)
+  rpc PutObject (PutObjectRequest) returns (PutObjectResponse);
+  rpc PutObjects (PutObjectsRequest) returns (PutObjectsResponse);
+  rpc MergeObject (MergeObjectRequest) returns (MergeObjectResponse);
+  rpc DeleteObject (DeleteObjectRequest) returns (DeleteObjectResponse);
+  rpc DeleteObjects (DeleteObjectsRequest) returns (DeleteObjectsResponse);
+  rpc AddReferences (AddReferencesRequest) returns (AddReferencesResponse);
+  rpc Commit (CommitRequest) returns (CommitResponse);
+  rpc Abort (AbortRequest) returns (AbortResponse);
+
+  // Read operations (RClient)
+  rpc FetchObject (FetchObjectRequest) returns (FetchObjectResponse);
+  rpc FetchObjects (FetchObjectsRequest) returns (FetchObjectsResponse);
+  rpc DigestObjects (DigestObjectsRequest) returns (DigestObjectsResponse);
+  rpc DigestObjectsInRange (DigestObjectsInRangeRequest) returns (DigestObjectsInRangeResponse);
+  rpc OverwriteObjects (OverwriteObjectsRequest) returns (OverwriteObjectsResponse);
+  rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
+  rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
+}
+
+// ── Shared messages ──────────────────────────────────────────────────────────
+
+// ReplicaError mirrors replica.Error from usecases/replica/transport.go.
+message ReplicaError {
+  int32 code = 1;
+  string msg = 2;
+}
+
+// SimpleReplicaResponse mirrors replica.SimpleResponse.
+message SimpleReplicaResponse {
+  repeated ReplicaError errors = 1;
+}
+
+// RepairResponse mirrors cluster/router/types.RepairResponse.
+message RepairResponse {
+  string id = 1;
+  int64 version = 2;
+  int64 update_time = 3;
+  string err = 4;
+  bool deleted = 5;
+}
+
+// ── Write requests / responses ───────────────────────────────────────────────
+
+// PutObject replicates a single object (binary-encoded via storobj.MarshalBinary).
+message PutObjectRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+  uint64 schema_version = 4;
+  bytes object_data = 5; // storobj.MarshalBinary output
+}
+
+message PutObjectResponse {
+  SimpleReplicaResponse response = 1;
+}
+
+// PutObjects replicates a batch of objects (binary-encoded via objectListPayload.Marshal).
+message PutObjectsRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+  uint64 schema_version = 4;
+  bytes objects_data = 5; // objectListPayload.Marshal output
+}
+
+message PutObjectsResponse {
+  SimpleReplicaResponse response = 1;
+}
+
+// MergeObject replicates a partial object update (JSON-encoded MergeDocument).
+message MergeObjectRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+  uint64 schema_version = 4;
+  bytes merge_document = 5; // JSON-encoded objects.MergeDocument
+}
+
+message MergeObjectResponse {
+  SimpleReplicaResponse response = 1;
+}
+
+// DeleteObject replicates a single object deletion.
+message DeleteObjectRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+  uint64 schema_version = 4;
+  string uuid = 5;
+  int64 deletion_time_unix_milli = 6;
+}
+
+message DeleteObjectResponse {
+  SimpleReplicaResponse response = 1;
+}
+
+// DeleteObjects replicates a batch deletion.
+message DeleteObjectsRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+  uint64 schema_version = 4;
+  repeated string uuids = 5;
+  int64 deletion_time_unix_milli = 6;
+  bool dry_run = 7;
+}
+
+message DeleteObjectsResponse {
+  SimpleReplicaResponse response = 1;
+}
+
+// AddReferences replicates batch reference additions (JSON-encoded BatchReferences).
+message AddReferencesRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+  uint64 schema_version = 4;
+  bytes references = 5; // JSON-encoded objects.BatchReferences
+}
+
+message AddReferencesResponse {
+  SimpleReplicaResponse response = 1;
+}
+
+// Commit asks the node to commit a pending two-phase-commit transaction.
+message CommitRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+}
+
+// CommitResponse carries the commit result as opaque JSON bytes because
+// CommitReplication returns interface{}.
+message CommitResponse {
+  bytes payload = 1; // JSON-encoded commit result
+}
+
+// Abort asks the node to abort a pending two-phase-commit transaction.
+message AbortRequest {
+  string index = 1;
+  string shard = 2;
+  string request_id = 3;
+}
+
+message AbortResponse {
+  SimpleReplicaResponse response = 1;
+}
+
+// ── Read requests / responses ────────────────────────────────────────────────
+
+// FetchObject fetches a single replicated object.
+message FetchObjectRequest {
+  string index = 1;
+  string shard = 2;
+  string uuid = 3;
+}
+
+// FetchObjectResponse carries the replica as opaque binary (Replica.MarshalBinary).
+message FetchObjectResponse {
+  bytes replica_data = 1;
+}
+
+// FetchObjects fetches multiple replicated objects.
+message FetchObjectsRequest {
+  string index = 1;
+  string shard = 2;
+  repeated string uuids = 3;
+}
+
+// FetchObjectsResponse carries replicas as opaque binary (Replicas.MarshalBinary).
+message FetchObjectsResponse {
+  bytes replicas_data = 1;
+}
+
+// DigestObjects fetches compact digests for the given IDs.
+message DigestObjectsRequest {
+  string index = 1;
+  string shard = 2;
+  repeated string ids = 3;
+}
+
+message DigestObjectsResponse {
+  repeated RepairResponse digests = 1;
+}
+
+// DigestObjectsInRange fetches digests for objects in a UUID range.
+message DigestObjectsInRangeRequest {
+  string index = 1;
+  string shard = 2;
+  string initial_uuid = 3;
+  string final_uuid = 4;
+  int32 limit = 5;
+}
+
+message DigestObjectsInRangeResponse {
+  repeated RepairResponse digests = 1;
+}
+
+// OverwriteObjects conditionally updates existing objects
+// (binary-encoded via versionedObjectListPayload.Marshal).
+message OverwriteObjectsRequest {
+  string index = 1;
+  string shard = 2;
+  bytes vobjects_data = 3; // versionedObjectListPayload.Marshal output
+}
+
+message OverwriteObjectsResponse {
+  repeated RepairResponse results = 1;
+}
+
+// FindUUIDs finds UUIDs matching a filter.
+message FindUUIDsRequest {
+  string index = 1;
+  string shard = 2;
+  bytes filter_json = 3; // JSON-encoded *filters.LocalFilter
+  int32 limit = 4;
+}
+
+message FindUUIDsResponse {
+  repeated string uuids = 1;
+}
+
+// HashTreeLevel fetches hash tree level digests.
+message HashTreeLevelRequest {
+  string index = 1;
+  string shard = 2;
+  int32 level = 3;
+  bytes discriminant = 4; // hashtree.Bitset.Marshal() output
+}
+
+// HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
+message HashTreeLevelResponse {
+  bytes digests_data = 1; // JSON-encoded []hashtree.Digest
+}

@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"

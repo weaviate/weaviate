@@ -36,6 +36,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -44,6 +45,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -380,7 +382,85 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
-	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+	restReplicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+
+	// Set up gRPC connection manager (needed for both file replication and replication gRPC client)
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+
+	var creds credentials.TransportCredentials
+	useTLS := len(grpcConfig.CertFile) > 0
+	if useTLS {
+		creds = credentials.NewClientTLSFromCert(nil, "")
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
+	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	if authConfig.BasicAuth.Enabled() {
+		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
+		grpcDialOpts = append(grpcDialOpts,
+			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+		)
+	}
+
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
+	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
+	grpcDialOpts = append(grpcDialOpts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(initialConnWindowSize)),
+		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
+	)
+
+	grpcConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		metricsRegisterer, appState.Logger, grpcDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create gRPC connection manager")
+	}
+	appState.GRPCConnManager = grpcConnManager
+
+	// Create replication-specific ConnManager with retry interceptor.
+	// The base grpcConnManager (no retry) is used for file-replication;
+	// the replConnManager adds retry on top for replication RPCs.
+	replRetryInterceptor := grpc_retry.UnaryClientInterceptor(
+		grpc_retry.WithMax(9),
+		grpc_retry.WithBackoff(grpc_retry.BackoffExponentialWithJitter(100*time.Millisecond, 0.1)),
+		grpc_retry.WithCodes(codes.Internal, codes.Unavailable, codes.ResourceExhausted),
+	)
+	replDialOpts := make([]grpc.DialOption, len(grpcDialOpts)+1)
+	copy(replDialOpts, grpcDialOpts)
+	replDialOpts[len(grpcDialOpts)] = grpc.WithUnaryInterceptor(replRetryInterceptor)
+
+	replMetricsReg := prometheus.WrapRegistererWithPrefix("repl_", metricsRegisterer)
+	replConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		replMetricsReg, appState.Logger, replDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create replication gRPC connection manager")
+	}
+
+	appState.ReplGRPCConnManager = replConnManager
+
+	// Create switch replication client (gRPC or REST based on replication_grpc_enabled runtime config)
+	grpcReplicationClient := clients.NewGRPCReplicationClient(replConnManager)
+	replicationClient := clients.NewSwitchReplicationClient(
+		grpcReplicationClient,
+		restReplicationClient,
+		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
+	)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -512,58 +592,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
-
-	grpcConfig := appState.ServerConfig.Config.GRPC
-	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
-
-	var creds credentials.TransportCredentials
-
-	useTLS := len(grpcConfig.CertFile) > 0
-
-	if useTLS {
-		creds = credentials.NewClientTLSFromCert(nil, "")
-	} else {
-		creds = insecure.NewCredentials() // use insecure credentials for testing
-	}
-
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-
-	if authConfig.BasicAuth.Enabled() {
-		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
-		opts = append(opts,
-			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
-			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
-		)
-	}
-
-	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
-	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(
-		appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize,
-		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
-	)
-
-	opts = append(opts,
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(maxSize),
-			grpc.MaxCallSendMsgSize(maxSize),
-		),
-		grpc.WithInitialWindowSize(int32(maxSize)),
-		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
-		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
-		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
-	)
-
-	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
-	grpcIdleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
-
-	grpcConnManager, err := grpcconn.NewConnManager(grpcMaxOpenConns, grpcIdleConnTimeout,
-		metricsRegisterer, appState.Logger, opts...)
-	if err != nil {
-		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create gRPC connection manager")
-	}
-	appState.GRPCConnManager = grpcConnManager
 
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		clientConn, err := appState.GRPCConnManager.GetConn(address)
@@ -1058,6 +1086,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// close grpc client connections
+		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
 		// gracefully stop gRPC server
@@ -2114,6 +2143,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
+		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel

@@ -88,6 +88,10 @@ func startWeaviate(ctx context.Context,
 		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
 		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
 	}
+	// Forward replication gRPC flag from host env if set (for CI matrix testing)
+	if v := os.Getenv("REPLICATION_GRPC_ENABLED"); v != "" {
+		env["REPLICATION_GRPC_ENABLED"] = v
+	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
 	}

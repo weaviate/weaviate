@@ -29,6 +29,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -391,10 +392,10 @@ func (i *replicatedIndices) postObject() http.Handler {
 
 		switch ct {
 
-		case IndicesPayloads.SingleObject.MIME():
+		case shared.IndicesPayloads.SingleObject.MIME():
 			i.postObjectSingle(w, r, index, shard, requestID, schemaVersion)
 			return
-		case IndicesPayloads.ObjectList.MIME():
+		case shared.IndicesPayloads.ObjectList.MIME():
 			i.postObjectBatch(w, r, index, shard, requestID, schemaVersion)
 			return
 		default:
@@ -426,7 +427,7 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			return
 		}
 
-		mergeDoc, err := IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
+		mergeDoc, err := shared.IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -438,7 +439,7 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			return
 		}
 		resp := i.replicator.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -637,7 +638,7 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 			return
 		}
 
-		vobjs, err := IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+		vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal overwrite objects params from json: "+err.Error(),
 				http.StatusBadRequest)
@@ -695,7 +696,7 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 			return
 		}
 		resp := i.replicator.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), deletionTime, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -733,7 +734,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 		defer r.Body.Close()
 
-		uuids, deletionTimeUnix, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
+		uuids, deletionTimeUnix, dryRun, err := shared.IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -746,7 +747,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 
 		resp := i.replicator.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -770,14 +771,14 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
+	obj, err := shared.IndicesPayloads.SingleObject.Unmarshal(bodyBytes, shared.MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	resp := i.replicator.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -801,14 +802,14 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
+	objs, err := shared.IndicesPayloads.ObjectList.Unmarshal(bodyBytes, shared.MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	resp := i.replicator.ReplicateObjects(r.Context(), index, shard, requestID, objs, schemaVersion)
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -933,7 +934,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 			return
 		}
 
-		refs, err := IndicesPayloads.ReferenceList.Unmarshal(bodyBytes)
+		refs, err := shared.IndicesPayloads.ReferenceList.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -946,7 +947,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 		}
 
 		resp := i.replicator.ReplicateReferences(r.Context(), index, shard, requestID, refs, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -960,16 +961,6 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 		w.Write(b)
 	})
-}
-
-func localIndexNotReady(resp replica.SimpleResponse) bool {
-	if err := resp.FirstError(); err != nil {
-		var replicaErr *replica.Error
-		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
-			return true
-		}
-	}
-	return false
 }
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish

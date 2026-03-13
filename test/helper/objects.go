@@ -425,6 +425,17 @@ func AddReferences(t *testing.T, refs []*models.BatchReference) ([]*models.Batch
 	return resp.Payload, nil
 }
 
+func AddReferencesCL(t *testing.T, refs []*models.BatchReference, cl types.ConsistencyLevel) ([]*models.BatchReferenceResponse, error) {
+	t.Helper()
+	cls := string(cl)
+	params := batch.NewBatchReferencesCreateParams().WithBody(refs).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func CheckReferencesBatchResponse(t *testing.T, resp []*models.BatchReferenceResponse, err error) {
 	t.Helper()
 	AssertRequestOk(t, resp, err, nil)

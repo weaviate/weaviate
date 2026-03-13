@@ -18,11 +18,12 @@ import "github.com/weaviate/weaviate/usecases/config/runtime"
 type GlobalConfig struct {
 	AsyncReplicationDisabled          *runtime.DynamicValue[bool] `json:"async_replication_disabled" yaml:"async_replication_disabled"`
 	AsyncReplicationClusterMaxWorkers *runtime.DynamicValue[int]  `json:"async_replication_cluster_max_workers" yaml:"async_replication_cluster_max_workers"`
-
 	// MinimumFactor can enforce replication. For example, with MinimumFactor set
 	// to 2, users can no longer create classes with a factor of 1, therefore
 	// forcing them to have replicated classes.
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
 
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
+
+	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 }
