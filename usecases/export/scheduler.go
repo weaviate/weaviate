@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -91,6 +93,7 @@ type Scheduler struct {
 	shutdownCtx  context.Context
 	logger       logrus.FieldLogger
 	authorizer   authorization.Authorizer
+	rbacConfig   rbacconf.Config
 	selector     Selector
 	backends     BackendProvider
 	client       ExportClient // nil for single-node
@@ -109,6 +112,7 @@ type Scheduler struct {
 func NewScheduler(
 	shutdownCtx context.Context,
 	authorizer authorization.Authorizer,
+	rbacConfig rbacconf.Config,
 	selector Selector,
 	backends BackendProvider,
 	logger logrus.FieldLogger,
@@ -124,6 +128,7 @@ func NewScheduler(
 		shutdownCtx:  shutdownCtx,
 		logger:       logger,
 		authorizer:   authorizer,
+		rbacConfig:   rbacConfig,
 		selector:     selector,
 		backends:     backends,
 		client:       client,
@@ -152,12 +157,19 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("%w: resolve classes: %w", ErrExportValidation, err)
 	}
 
-	if len(classes) == 0 {
-		return nil, fmt.Errorf("%w: no classes selected for export", ErrExportValidation)
-	}
+	classes = filter.New[string](s.authorizer, s.rbacConfig).Filter(
+		ctx,
+		s.logger,
+		principal,
+		classes,
+		authorization.CREATE,
+		func(class string) string {
+			return authorization.Backups(class)[0]
+		},
+	)
 
-	if err := s.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
-		return nil, fmt.Errorf("authorization failed: %w", err)
+	if len(classes) == 0 {
+		return nil, fmt.Errorf("%w: no exportable classes", ErrExportValidation)
 	}
 
 	backendStore, err := s.backends.BackupBackend(backend)
@@ -252,25 +264,16 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
-		if authErr := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups("*")...); authErr != nil {
-			return nil, fmt.Errorf("authorization failed: %w", authErr)
-		}
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
-		if authErr := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups("*")...); authErr != nil {
-			return nil, fmt.Errorf("authorization failed: %w", authErr)
-		}
 		return nil, fmt.Errorf("initialize backend: %w", err)
 	}
 
 	// The export plan is always written before the export starts.
 	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if planErr != nil {
-		if authErr := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups("*")...); authErr != nil {
-			return nil, fmt.Errorf("authorization failed: %w", authErr)
-		}
 		if errors.As(planErr, &backup.ErrNotFound{}) {
 			return nil, ErrExportNotFound
 		}
@@ -350,16 +353,10 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
-		if authErr := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups("*")...); authErr != nil {
-			return fmt.Errorf("authorization failed: %w", authErr)
-		}
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
-		if authErr := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups("*")...); authErr != nil {
-			return fmt.Errorf("authorization failed: %w", authErr)
-		}
 		return fmt.Errorf("initialize backend: %w", err)
 	}
 
@@ -367,9 +364,6 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	// primary source of truth for authorization and node assignments.
 	plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if err != nil {
-		if authErr := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups("*")...); authErr != nil {
-			return fmt.Errorf("authorization failed: %w", authErr)
-		}
 		if errors.As(err, &backup.ErrNotFound{}) {
 			return ErrExportNotFound
 		}
@@ -1015,7 +1009,9 @@ func (s *Scheduler) getExportMetadata(ctx context.Context, backend modulecapabil
 	return &meta, nil
 }
 
-// resolveClasses determines which classes to export
+// resolveClasses determines which classes to export.
+// It silently ignores non-existent classes in include/exclude lists to avoid
+// leaking class existence information before authorization.
 func (s *Scheduler) resolveClasses(ctx context.Context, include, exclude []string) ([]string, error) {
 	allClasses := s.selector.ListClasses(ctx)
 
@@ -1023,31 +1019,24 @@ func (s *Scheduler) resolveClasses(ctx context.Context, include, exclude []strin
 		return nil, fmt.Errorf("cannot specify both 'include' and 'exclude'")
 	}
 
-	if len(include) > 0 {
-		classMap := make(map[string]bool)
-		for _, class := range allClasses {
-			classMap[class] = true
-		}
+	classMap := make(map[string]bool, len(allClasses))
+	for _, class := range allClasses {
+		classMap[class] = true
+	}
 
+	if len(include) > 0 {
+		result := make([]string, 0, len(include))
 		for _, class := range include {
-			if !classMap[class] {
-				return nil, fmt.Errorf("class %s does not exist", class)
+			if classMap[class] {
+				result = append(result, class)
 			}
 		}
-		return include, nil
+		return result, nil
 	}
 
 	if len(exclude) > 0 {
-		classMap := make(map[string]bool, len(allClasses))
-		for _, class := range allClasses {
-			classMap[class] = true
-		}
-
 		excludeMap := make(map[string]bool, len(exclude))
 		for _, class := range exclude {
-			if !classMap[class] {
-				return nil, fmt.Errorf("class %s does not exist", class)
-			}
 			excludeMap[class] = true
 		}
 

@@ -1131,6 +1131,7 @@ func startExportScheduler(shutdownCtx context.Context, appState *state.State) *e
 	exportScheduler := exportUsecase.NewScheduler(
 		shutdownCtx,
 		appState.Authorizer,
+		appState.ServerConfig.Config.Authorization.Rbac,
 		appState.DB,
 		appState.Modules,
 		appState.Logger,
