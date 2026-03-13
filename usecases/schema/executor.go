@@ -168,6 +168,17 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		}
 	}
 
+	// Detect vector configs that were removed from the class and drop them.
+	if existingClass := e.schemaReader.ReadOnlyClass(className); existingClass != nil {
+		for targetVector := range existingClass.VectorConfig {
+			if _, stillExists := req.Class.VectorConfig[targetVector]; !stillExists {
+				if err := e.migrator.DropVectorIndex(ctx, className, targetVector); err != nil {
+					return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+				}
+			}
+		}
+	}
+
 	if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
 		req.Class.InvertedIndexConfig); err != nil {
 		return fmt.Errorf("inverted index config: %w", err)

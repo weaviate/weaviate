@@ -166,6 +166,27 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
 
+func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVectorsDeleteParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err := s.manager.DeleteClassVectorIndex(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, params.VectorIndexName)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return schema.NewSchemaObjectsVectorsDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewSchemaObjectsVectorsDeleteOK()
+}
+
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 	dbSchema, err := s.manager.GetConsistentSchema(params.HTTPRequest.Context(), principal, *params.Consistency)
 	if err != nil {
@@ -390,6 +411,8 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaObjectsPropertiesAddHandlerFunc(h.addClassProperty)
 	api.SchemaSchemaObjectsPropertiesDeleteHandler = schema.
 		SchemaObjectsPropertiesDeleteHandlerFunc(h.deleteClassPropertyIndex)
+	api.SchemaSchemaObjectsVectorsDeleteHandler = schema.
+		SchemaObjectsVectorsDeleteHandlerFunc(h.deleteClassVectorIndex)
 
 	api.SchemaSchemaObjectsUpdateHandler = schema.
 		SchemaObjectsUpdateHandlerFunc(h.updateClass)

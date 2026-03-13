@@ -760,6 +760,23 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	return nil
 }
 
+func (i *Index) dropVectorIndex(ctx context.Context, targetVector string) error {
+	if err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if err := shard.DropVectorIndex(ctx, targetVector); err != nil {
+			return fmt.Errorf("shard %q: %w", name, err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	delete(i.vectorIndexUserConfigs, targetVector)
+	return nil
+}
+
 func (i *Index) GetInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()

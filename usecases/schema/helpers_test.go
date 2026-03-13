@@ -364,6 +364,10 @@ func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className str
 	return nil
 }
 
+func (*fakeMigrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
+	return nil
+}
+
 func (*fakeMigrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error {
 	return nil
 }

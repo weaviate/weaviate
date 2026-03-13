@@ -157,6 +157,38 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	return nil
 }
 
+func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
+	class *models.Class, className, vectorIndexName string,
+) error {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	if class == nil {
+		return fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
+	if vectorIndexName == "" {
+		return fmt.Errorf("vector index name cannot be empty")
+	}
+
+	if len(class.VectorConfig) == 0 {
+		return fmt.Errorf("class %q has no named vector configurations", className)
+	}
+
+	if _, exists := class.VectorConfig[vectorIndexName]; !exists {
+		return fmt.Errorf("vector index %q not found in class %q: %w", vectorIndexName, className, ErrNotFound)
+	}
+
+	// Remove the vector config from the class and persist via RAFT.
+	// The executor's UpdateClass will detect the removed config and
+	// call the migrator to drop the vector index from disk.
+	delete(class.VectorConfig, vectorIndexName)
+
+	_, err := h.schemaManager.UpdateClass(ctx, class, nil)
+	return err
+}
+
 // DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
