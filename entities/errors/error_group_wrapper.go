@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 
@@ -32,7 +33,7 @@ type ErrorGroupWrapper struct {
 	logger         logrus.FieldLogger
 	deferFunc      func(localVars ...interface{})
 	cancelCtx      func()
-	routineCounter int
+	routineCounter atomic.Int64
 	includeStack   bool
 	limitSet       int
 }
@@ -100,7 +101,7 @@ func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
 		defer egw.deferFunc(localVars)
 		return f()
 	})
-	egw.routineCounter++
+	egw.routineCounter.Add(1)
 }
 
 // SetLimit overrides the SetLimit method to set a limit on the number of
@@ -112,9 +113,10 @@ func (egw *ErrorGroupWrapper) SetLimit(limit int) {
 
 // Wait waits for all goroutines to finish and returns the first non-nil error.
 func (egw *ErrorGroupWrapper) Wait() error {
+	count := egw.routineCounter.Load()
 	logBase := egw.logger.WithFields(logrus.Fields{
 		"action":     "error_group_wait_initiated",
-		"jobs_count": egw.routineCounter,
+		"jobs_count": count,
 		"limit":      egw.limitSet,
 	})
 
@@ -126,7 +128,7 @@ func (egw *ErrorGroupWrapper) Wait() error {
 		logBase = logBase.WithField("stack", string(stackBuf))
 	}
 
-	logBase.Debugf("Waiting for %d jobs to finish with limit %d", egw.routineCounter, egw.limitSet)
+	logBase.Debugf("Waiting for %d jobs to finish with limit %d", count, egw.limitSet)
 
 	if err := egw.Group.Wait(); err != nil {
 		return err

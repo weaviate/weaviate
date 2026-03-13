@@ -1012,13 +1012,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 	}
 
-	var grpcInstrument []grpc.ServerOption
-	if appState.ServerConfig.Config.Monitoring.Enabled {
-		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
-	}
-
-	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
-
 	telemeter := telemetry.New(
 		appState.DB,
 		appState.SchemaManager,
@@ -1026,6 +1019,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
 	)
+
+	var grpcInstrument []grpc.ServerOption
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
+	}
+
+	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)

@@ -37,79 +37,6 @@ func (b *errorBackend) GetObject(context.Context, string, string, string, string
 	return nil, b.err
 }
 
-func TestScheduler_StatusFallsBackToMetadataWhenPlanMissing(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-
-	// Write metadata with FAILED status but no plan file — simulates a
-	// multi-node export that failed before/during plan writing.
-	meta := &ExportMetadata{
-		ID:          "test-export",
-		Backend:     "s3",
-		StartedAt:   time.Now().UTC().Add(-10 * time.Second),
-		CompletedAt: time.Now().UTC(),
-		Status:      export.Failed,
-		Classes:     []string{"TestClass"},
-		Error:       "failed to write export plan: connection reset",
-	}
-	data, err := json.Marshal(meta)
-	require.NoError(t, err)
-	_, err = backend.Write(context.Background(), "test-export", exportMetadataFile, "", "", newBytesReadCloser(data))
-	require.NoError(t, err)
-
-	s := &Scheduler{
-		shutdownCtx:  context.Background(),
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
-	}
-
-	status, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
-	require.NoError(t, err)
-
-	assert.Equal(t, string(export.Failed), status.Status)
-	assert.Contains(t, status.Error, "failed to write export plan")
-}
-
-func TestScheduler_StatusFallsBackToMetadataAndForcesFailed(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-
-	// Write metadata with a non-failed status but no plan file — this should
-	// never happen in practice, but Status() must still report FAILED because
-	// the plan is missing.
-	meta := &ExportMetadata{
-		ID:          "test-export",
-		Backend:     "s3",
-		StartedAt:   time.Now().UTC().Add(-10 * time.Second),
-		CompletedAt: time.Now().UTC(),
-		Status:      export.Success,
-		Classes:     []string{"TestClass"},
-	}
-	data, err := json.Marshal(meta)
-	require.NoError(t, err)
-	_, err = backend.Write(context.Background(), "test-export", exportMetadataFile, "", "", newBytesReadCloser(data))
-	require.NoError(t, err)
-
-	s := &Scheduler{
-		shutdownCtx:  context.Background(),
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
-	}
-
-	status, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
-	require.NoError(t, err)
-
-	// Even though metadata says Success, missing plan forces FAILED
-	assert.Equal(t, string(export.Failed), status.Status)
-	assert.Contains(t, status.Error, "export plan not found")
-}
-
 func TestScheduler_ResolveClasses(t *testing.T) {
 	selector := &emptySelector{classList: []string{"Article", "Product", "Author"}}
 
@@ -226,4 +153,153 @@ func TestScheduler_CancelReturnsNotFoundWhenPlanMissing(t *testing.T) {
 
 	err := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
 	require.ErrorIs(t, err, ErrExportNotFound)
+}
+
+// TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed verifies that
+// Cancel() returns ErrExportAlreadyFinished when all nodes have genuinely
+// reported a terminal (Failed) status, rather than overwriting the FAILED
+// status with CANCELED metadata.
+func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{
+		written: map[string][]byte{},
+	}
+
+	// Store a plan so Cancel() can find it.
+	plan := &ExportPlan{
+		ID:      "test-export",
+		Backend: "s3",
+		Classes: []string{"TestClass"},
+		NodeAssignments: map[string]map[string][]string{
+			"node1": {"TestClass": {"shard0"}},
+			"node2": {"TestClass": {"shard1"}},
+		},
+		StartedAt: time.Now().UTC(),
+	}
+	planData, err := json.Marshal(plan)
+	require.NoError(t, err)
+	backend.written[exportPlanFile] = planData
+
+	// Both nodes reported terminal Failed status.
+	for _, nodeName := range []string{"node1", "node2"} {
+		ns := &NodeStatus{
+			NodeName: nodeName,
+			Status:   export.Failed,
+			Error:    "disk full",
+		}
+		data, err := json.Marshal(ns)
+		require.NoError(t, err)
+		backend.written[fmt.Sprintf("node_%s_status.json", nodeName)] = data
+	}
+
+	s := &Scheduler{
+		shutdownCtx: context.Background(),
+		logger:      logger,
+		authorizer:  mocks.NewMockAuthorizer(),
+		backends:    &fakeBackendProvider{backend: backend},
+		client:      &fakeExportClient{},
+		nodeResolver: &fakeNodeResolver{nodes: map[string]string{
+			"node1": "host1:8080",
+			"node2": "host2:8080",
+		}},
+	}
+
+	err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+	require.ErrorIs(t, err, ErrExportAlreadyFinished)
+
+	// Verify the status is still FAILED, not overwritten with CANCELED.
+	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+	require.NoError(t, err)
+	assert.Equal(t, string(export.Failed), resp.Status)
+}
+
+func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		nodeStatus     export.Status
+		expectedStatus export.Status
+	}{
+		{"success", export.Success, export.Success},
+		{"failed", export.Failed, export.Failed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			// Write export plan — required for Status() to enter assemble path.
+			plan := &ExportPlan{
+				ID:      "test-export",
+				Backend: "s3",
+				Classes: []string{"TestClass"},
+				NodeAssignments: map[string]map[string][]string{
+					"node1": {"TestClass": {"shard0"}},
+				},
+				StartedAt: time.Now().UTC().Add(-10 * time.Second),
+			}
+			planData, err := json.Marshal(plan)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
+			require.NoError(t, err)
+
+			// Write STARTED metadata — the stale state we want promoted.
+			startedMeta := &ExportMetadata{
+				ID:      "test-export",
+				Backend: "s3",
+				Status:  export.Started,
+				Classes: []string{"TestClass"},
+			}
+			metaData, err := json.Marshal(startedMeta)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", exportMetadataFile, "", "", newBytesReadCloser(metaData))
+			require.NoError(t, err)
+
+			// Write node status showing terminal state.
+			ns := &NodeStatus{
+				NodeName:    "node1",
+				Status:      tc.nodeStatus,
+				CompletedAt: time.Now().UTC(),
+				ShardProgress: map[string]map[string]*ShardProgress{
+					"TestClass": {
+						"shard0": {Status: export.ShardSuccess, ObjectsExported: 100},
+					},
+				},
+			}
+			if tc.nodeStatus == export.Failed {
+				ns.Error = "disk full"
+				ns.ShardProgress["TestClass"]["shard0"].Status = export.ShardFailed
+			}
+			nsData, err := json.Marshal(ns)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", "node_node1_status.json", "", "", newBytesReadCloser(nsData))
+			require.NoError(t, err)
+
+			resolver := &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}
+			client := &fakeExportClient{
+				isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+					return false, nil
+				},
+			}
+
+			s := &Scheduler{
+				shutdownCtx:  context.Background(),
+				logger:       logger,
+				authorizer:   mocks.NewMockAuthorizer(),
+				backends:     &fakeBackendProvider{backend: backend},
+				client:       client,
+				nodeResolver: resolver,
+			}
+
+			status, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+			require.NoError(t, err)
+			assert.Equal(t, string(tc.expectedStatus), status.Status)
+
+			// Verify that terminal metadata was promoted (written to backend).
+			written := backend.getWritten(exportMetadataFile)
+			require.NotNil(t, written, "expected metadata to be promoted")
+
+			var meta ExportMetadata
+			require.NoError(t, json.Unmarshal(written, &meta))
+			assert.Equal(t, tc.expectedStatus, meta.Status)
+		})
+	}
 }

@@ -175,7 +175,7 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
 	require.NoError(t, err)
 
 	// node2 is dead and has no status file → overall status should be FAILED
@@ -379,7 +379,7 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
@@ -436,7 +436,7 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
 	require.NoError(t, err)
 
 	// Overall status stays Transferring
@@ -492,7 +492,7 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
@@ -597,7 +597,7 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
 	require.NoError(t, err)
 
 	// Overall status is Success — skipped shards don't block completion

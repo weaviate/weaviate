@@ -723,6 +723,11 @@
           "format": "date-time",
           "description": "When the export started"
         },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export completed (successfully, with failure, or was canceled)"
+        },
         "tookInMs": {
           "type": "integer",
           "format": "int64",
@@ -1018,10 +1023,10 @@
         }
       }
     },
-    "ObjectTtlConfig":{
+    "ObjectTtlConfig": {
       "description": "Configuration of objects' time-to-live",
       "properties": {
-         "enabled": {
+        "enabled": {
           "description": "Whether or not object ttl is enabled for this collection (default: `false`).",
           "type": "boolean",
           "x-omitempty": false
