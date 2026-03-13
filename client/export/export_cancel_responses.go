@@ -64,6 +64,12 @@ func (o *ExportCancelReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewExportCancelUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewExportCancelInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -85,8 +91,7 @@ ExportCancelNoContent describes a response with status code 204, with default he
 
 Export cancelled successfully.
 */
-type ExportCancelNoContent struct {
-}
+type ExportCancelNoContent struct{}
 
 // IsSuccess returns true when this export cancel no content response has a 2xx status code
 func (o *ExportCancelNoContent) IsSuccess() bool {
@@ -127,7 +132,6 @@ func (o *ExportCancelNoContent) String() string {
 }
 
 func (o *ExportCancelNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -141,8 +145,7 @@ ExportCancelUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type ExportCancelUnauthorized struct {
-}
+type ExportCancelUnauthorized struct{}
 
 // IsSuccess returns true when this export cancel unauthorized response has a 2xx status code
 func (o *ExportCancelUnauthorized) IsSuccess() bool {
@@ -183,7 +186,6 @@ func (o *ExportCancelUnauthorized) String() string {
 }
 
 func (o *ExportCancelUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,7 +246,6 @@ func (o *ExportCancelForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,7 +313,6 @@ func (o *ExportCancelNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,7 +380,73 @@ func (o *ExportCancelConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+	o.Payload = new(models.ErrorResponse)
 
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewExportCancelUnprocessableEntity creates a ExportCancelUnprocessableEntity with default headers values
+func NewExportCancelUnprocessableEntity() *ExportCancelUnprocessableEntity {
+	return &ExportCancelUnprocessableEntity{}
+}
+
+/*
+ExportCancelUnprocessableEntity describes a response with status code 422, with default header values.
+
+Invalid request (e.g., unsupported backend)
+*/
+type ExportCancelUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this export cancel unprocessable entity response has a 2xx status code
+func (o *ExportCancelUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this export cancel unprocessable entity response has a 3xx status code
+func (o *ExportCancelUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this export cancel unprocessable entity response has a 4xx status code
+func (o *ExportCancelUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this export cancel unprocessable entity response has a 5xx status code
+func (o *ExportCancelUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this export cancel unprocessable entity response a status code equal to that given
+func (o *ExportCancelUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the export cancel unprocessable entity response
+func (o *ExportCancelUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *ExportCancelUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[DELETE /export/{backend}/{id}][%d] exportCancelUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ExportCancelUnprocessableEntity) String() string {
+	return fmt.Sprintf("[DELETE /export/{backend}/{id}][%d] exportCancelUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ExportCancelUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ExportCancelUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,7 +514,6 @@ func (o *ExportCancelInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

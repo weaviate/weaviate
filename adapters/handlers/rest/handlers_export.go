@@ -59,6 +59,11 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, ucexport.ErrExportValidation),
+			errors.Is(err, ucexport.ErrExportAlreadyExists),
+			errors.Is(err, ucexport.ErrExportAlreadyActive):
+			return export.NewExportCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return export.NewExportCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -91,8 +96,14 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
+		case errors.Is(err, ucexport.ErrExportNotFound):
 			return export.NewExportStatusNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, ucexport.ErrExportValidation):
+			return export.NewExportStatusUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return export.NewExportStatusInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -124,6 +135,9 @@ func (h *exportHandlers) cancelExport(params export.ExportCancelParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		case errors.Is(err, ucexport.ErrExportNotFound):
 			return export.NewExportCancelNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, ucexport.ErrExportValidation):
+			return export.NewExportCancelUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		case errors.Is(err, ucexport.ErrExportAlreadyFinished):
 			return export.NewExportCancelConflict().
@@ -172,7 +186,10 @@ func newExportRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 
 func (e *exportRequestsTotal) logError(className string, err error) {
 	switch {
-	case errors.As(err, &authzerrors.Forbidden{}):
+	case errors.As(err, &authzerrors.Forbidden{}),
+		errors.Is(err, ucexport.ErrExportValidation),
+		errors.Is(err, ucexport.ErrExportAlreadyExists),
+		errors.Is(err, ucexport.ErrExportAlreadyActive):
 		e.logUserError(className)
 	default:
 		e.logServerError(className, err)

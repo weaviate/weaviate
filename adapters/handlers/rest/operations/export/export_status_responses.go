@@ -33,7 +33,6 @@ ExportStatusOK Successfully retrieved export status
 swagger:response exportStatusOK
 */
 type ExportStatusOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type ExportStatusOK struct {
 
 // NewExportStatusOK creates ExportStatusOK with default headers values
 func NewExportStatusOK() *ExportStatusOK {
-
 	return &ExportStatusOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *ExportStatusOK) SetPayload(payload *models.ExportStatusResponse) {
 
 // WriteResponse to the client
 func (o *ExportStatusOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ ExportStatusUnauthorized Unauthorized or invalid credentials
 
 swagger:response exportStatusUnauthorized
 */
-type ExportStatusUnauthorized struct {
-}
+type ExportStatusUnauthorized struct{}
 
 // NewExportStatusUnauthorized creates ExportStatusUnauthorized with default headers values
 func NewExportStatusUnauthorized() *ExportStatusUnauthorized {
-
 	return &ExportStatusUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ExportStatusUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ ExportStatusForbidden Forbidden - insufficient permissions
 swagger:response exportStatusForbidden
 */
 type ExportStatusForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type ExportStatusForbidden struct {
 
 // NewExportStatusForbidden creates ExportStatusForbidden with default headers values
 func NewExportStatusForbidden() *ExportStatusForbidden {
-
 	return &ExportStatusForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *ExportStatusForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ExportStatusForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ ExportStatusNotFound Export not found
 swagger:response exportStatusNotFound
 */
 type ExportStatusNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type ExportStatusNotFound struct {
 
 // NewExportStatusNotFound creates ExportStatusNotFound with default headers values
 func NewExportStatusNotFound() *ExportStatusNotFound {
-
 	return &ExportStatusNotFound{}
 }
 
@@ -174,8 +163,49 @@ func (o *ExportStatusNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ExportStatusNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ExportStatusUnprocessableEntityCode is the HTTP code returned for type ExportStatusUnprocessableEntity
+const ExportStatusUnprocessableEntityCode int = 422
+
+/*
+ExportStatusUnprocessableEntity Invalid request (e.g., unsupported backend)
+
+swagger:response exportStatusUnprocessableEntity
+*/
+type ExportStatusUnprocessableEntity struct {
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewExportStatusUnprocessableEntity creates ExportStatusUnprocessableEntity with default headers values
+func NewExportStatusUnprocessableEntity() *ExportStatusUnprocessableEntity {
+	return &ExportStatusUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the export status unprocessable entity response
+func (o *ExportStatusUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ExportStatusUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the export status unprocessable entity response
+func (o *ExportStatusUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ExportStatusUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {
@@ -193,7 +223,6 @@ ExportStatusInternalServerError Internal server error occurred while retrieving 
 swagger:response exportStatusInternalServerError
 */
 type ExportStatusInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +231,6 @@ type ExportStatusInternalServerError struct {
 
 // NewExportStatusInternalServerError creates ExportStatusInternalServerError with default headers values
 func NewExportStatusInternalServerError() *ExportStatusInternalServerError {
-
 	return &ExportStatusInternalServerError{}
 }
 
@@ -219,7 +247,6 @@ func (o *ExportStatusInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ExportStatusInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -2553,6 +2553,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
             "schema": {
@@ -2620,6 +2626,12 @@ func init() {
           },
           "409": {
             "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12455,6 +12467,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
             "schema": {
@@ -12522,6 +12540,12 @@ func init() {
           },
           "409": {
             "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

@@ -58,6 +58,12 @@ func (o *ExportStatusReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewExportStatusUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewExportStatusInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -126,7 +132,6 @@ func (o *ExportStatusOK) GetPayload() *models.ExportStatusResponse {
 }
 
 func (o *ExportStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ExportStatusResponse)
 
 	// response payload
@@ -147,8 +152,7 @@ ExportStatusUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials
 */
-type ExportStatusUnauthorized struct {
-}
+type ExportStatusUnauthorized struct{}
 
 // IsSuccess returns true when this export status unauthorized response has a 2xx status code
 func (o *ExportStatusUnauthorized) IsSuccess() bool {
@@ -189,7 +193,6 @@ func (o *ExportStatusUnauthorized) String() string {
 }
 
 func (o *ExportStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -250,7 +253,6 @@ func (o *ExportStatusForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -318,7 +320,73 @@ func (o *ExportStatusNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+	o.Payload = new(models.ErrorResponse)
 
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewExportStatusUnprocessableEntity creates a ExportStatusUnprocessableEntity with default headers values
+func NewExportStatusUnprocessableEntity() *ExportStatusUnprocessableEntity {
+	return &ExportStatusUnprocessableEntity{}
+}
+
+/*
+ExportStatusUnprocessableEntity describes a response with status code 422, with default header values.
+
+Invalid request (e.g., unsupported backend)
+*/
+type ExportStatusUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this export status unprocessable entity response has a 2xx status code
+func (o *ExportStatusUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this export status unprocessable entity response has a 3xx status code
+func (o *ExportStatusUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this export status unprocessable entity response has a 4xx status code
+func (o *ExportStatusUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this export status unprocessable entity response has a 5xx status code
+func (o *ExportStatusUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this export status unprocessable entity response a status code equal to that given
+func (o *ExportStatusUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the export status unprocessable entity response
+func (o *ExportStatusUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *ExportStatusUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[GET /export/{backend}/{id}][%d] exportStatusUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ExportStatusUnprocessableEntity) String() string {
+	return fmt.Sprintf("[GET /export/{backend}/{id}][%d] exportStatusUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ExportStatusUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ExportStatusUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -386,7 +454,6 @@ func (o *ExportStatusInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
