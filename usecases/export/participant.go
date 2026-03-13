@@ -124,17 +124,34 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 }
 
 // Commit starts the actual export. Must be called after a successful Prepare.
-// Backend initialization (which may involve network I/O) is performed inside
-// the lock. Only one export can be active at a time, so there is nothing
-// useful to run concurrently and keeping everything under a single lock
-// simplifies the state machine considerably.
 func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	if exportID == "" {
 		return fmt.Errorf("export ID cannot be empty")
 	}
 
-	var req *ExportRequest
+	// Peek at the prepared request under a short lock to get the backend
+	// name, bucket, and path needed for initialization. We don't consume
+	// the request yet — that happens in the critical section below.
+	p.mu.Lock()
+	req := p.preparedReq
+	p.mu.Unlock()
+
+	// Initialize the backend outside the lock — this may involve network
+	// I/O (S3 bucket verification, directory creation) and must not block
+	// Abort/IsRunning callers. If initialization fails, backendStore stays
+	// nil and the main critical section below will handle the error with
+	// proper slot cleanup via clearAndRelease.
 	var backendStore modulecapabilities.BackupBackend
+	var backendErr error
+	if req != nil && req.ID == exportID {
+		backendStore, backendErr = p.backends.BackupBackend(req.Backend)
+		if backendErr == nil {
+			if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
+				backendStore = nil
+			}
+		}
+	}
+
 	var exportCtx context.Context
 	f := func() (errRet error) {
 		p.mu.Lock()
@@ -164,24 +181,17 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 			return errRet
 		}
 
-		req = p.preparedReq
-		if req == nil {
+		if p.preparedReq == nil {
 			errRet = fmt.Errorf("no export prepared")
 			return errRet
 		}
-		if req.ID != exportID {
-			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", req.ID, exportID)
+		if p.preparedReq.ID != exportID {
+			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", p.preparedReq.ID, exportID)
 			return errRet
 		}
-		backendStore2, err := p.backends.BackupBackend(req.Backend)
-		if err != nil {
-			errRet = fmt.Errorf("backend %s not available: %w", req.Backend, err)
-			return errRet
-		}
-		backendStore = backendStore2
 
-		if err := backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); err != nil {
-			errRet = fmt.Errorf("initialize backend: %w", err)
+		if backendStore == nil {
+			errRet = fmt.Errorf("initialize backend: %w", backendErr)
 			return errRet
 		}
 
