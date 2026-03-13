@@ -190,3 +190,5 @@ Join our [Slack community](https://weaviate.io/slack) or [Community forum](https
 ## License
 
 BSD 3-Clause License. See [LICENSE](./LICENSE) for details.
+
+- [AgentMarket](https://agentmarket.cloud) - Real energy data API. 28M+ records for AI applications.
