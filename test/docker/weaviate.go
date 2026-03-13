@@ -37,8 +37,9 @@ func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
 	weaviateImage, hostname string,
-	exposeGRPCPort, exposeDebugPort bool,
+	exposeGRPCPort, exposeDebugPort, exposeMCPPort bool,
 	wellKnownEndpoint string,
+	files []testcontainers.ContainerFile,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -132,6 +133,11 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
+	mcpPort := nat.Port("9000/tcp")
+	if exposeMCPPort {
+		exposedPorts = append(exposedPorts, "9000/tcp")
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(mcpPort))
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -143,6 +149,7 @@ func startWeaviate(ctx context.Context,
 		ExposedPorts: exposedPorts,
 		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
+		Files:        files,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
@@ -204,6 +211,14 @@ func startWeaviate(ctx context.Context,
 			return nil, err
 		}
 		endpoints[DEBUG] = endpoint{debugPort, debugUri}
+	}
+	if exposeMCPPort {
+		mcpUri, err := c.PortEndpoint(ctx, mcpPort, "")
+		mcpUri = fmt.Sprintf("%s/mcp", mcpUri)
+		if err != nil {
+			return nil, err
+		}
+		endpoints[MCP] = endpoint{mcpPort, mcpUri}
 	}
 	return &DockerContainer{
 		name:        containerName,
