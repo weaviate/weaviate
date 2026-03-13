@@ -13,6 +13,7 @@ package rbac
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -138,7 +139,7 @@ func getPolicyDelta(a, b [][]string) [][]string {
 	for _, policyB := range b {
 		found := false
 		for _, policyA := range a {
-			if equalPolicies(policyA, policyB) {
+			if slices.Equal(policyA, policyB) {
 				found = true
 				break
 			}
@@ -148,19 +149,6 @@ func getPolicyDelta(a, b [][]string) [][]string {
 		}
 	}
 	return delta
-}
-
-// equalPolicies compares two policies for equality
-func equalPolicies(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func TestSnapshotNilCasbin(t *testing.T) {
