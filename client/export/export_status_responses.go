@@ -132,6 +132,7 @@ func (o *ExportStatusOK) GetPayload() *models.ExportStatusResponse {
 }
 
 func (o *ExportStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ExportStatusResponse)
 
 	// response payload
@@ -152,7 +153,8 @@ ExportStatusUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials
 */
-type ExportStatusUnauthorized struct{}
+type ExportStatusUnauthorized struct {
+}
 
 // IsSuccess returns true when this export status unauthorized response has a 2xx status code
 func (o *ExportStatusUnauthorized) IsSuccess() bool {
@@ -193,6 +195,7 @@ func (o *ExportStatusUnauthorized) String() string {
 }
 
 func (o *ExportStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -253,6 +256,7 @@ func (o *ExportStatusForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -320,6 +324,7 @@ func (o *ExportStatusNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *ExportStatusUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportStatusUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *ExportStatusInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -32,16 +32,19 @@ ExportCancelNoContent Export cancelled successfully.
 
 swagger:response exportCancelNoContent
 */
-type ExportCancelNoContent struct{}
+type ExportCancelNoContent struct {
+}
 
 // NewExportCancelNoContent creates ExportCancelNoContent with default headers values
 func NewExportCancelNoContent() *ExportCancelNoContent {
+
 	return &ExportCancelNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ExportCancelNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -54,16 +57,19 @@ ExportCancelUnauthorized Unauthorized or invalid credentials.
 
 swagger:response exportCancelUnauthorized
 */
-type ExportCancelUnauthorized struct{}
+type ExportCancelUnauthorized struct {
+}
 
 // NewExportCancelUnauthorized creates ExportCancelUnauthorized with default headers values
 func NewExportCancelUnauthorized() *ExportCancelUnauthorized {
+
 	return &ExportCancelUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ExportCancelUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,6 +83,7 @@ ExportCancelForbidden Forbidden - insufficient permissions
 swagger:response exportCancelForbidden
 */
 type ExportCancelForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -85,6 +92,7 @@ type ExportCancelForbidden struct {
 
 // NewExportCancelForbidden creates ExportCancelForbidden with default headers values
 func NewExportCancelForbidden() *ExportCancelForbidden {
+
 	return &ExportCancelForbidden{}
 }
 
@@ -101,6 +109,7 @@ func (o *ExportCancelForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ExportCancelForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,6 +128,7 @@ ExportCancelNotFound Export not found
 swagger:response exportCancelNotFound
 */
 type ExportCancelNotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type ExportCancelNotFound struct {
 
 // NewExportCancelNotFound creates ExportCancelNotFound with default headers values
 func NewExportCancelNotFound() *ExportCancelNotFound {
+
 	return &ExportCancelNotFound{}
 }
 
@@ -143,6 +154,7 @@ func (o *ExportCancelNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ExportCancelNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ ExportCancelConflict Export has already finished and cannot be cancelled
 swagger:response exportCancelConflict
 */
 type ExportCancelConflict struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type ExportCancelConflict struct {
 
 // NewExportCancelConflict creates ExportCancelConflict with default headers values
 func NewExportCancelConflict() *ExportCancelConflict {
+
 	return &ExportCancelConflict{}
 }
 
@@ -185,6 +199,7 @@ func (o *ExportCancelConflict) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ExportCancelConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(409)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -203,6 +218,7 @@ ExportCancelUnprocessableEntity Invalid request (e.g., unsupported backend)
 swagger:response exportCancelUnprocessableEntity
 */
 type ExportCancelUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -211,6 +227,7 @@ type ExportCancelUnprocessableEntity struct {
 
 // NewExportCancelUnprocessableEntity creates ExportCancelUnprocessableEntity with default headers values
 func NewExportCancelUnprocessableEntity() *ExportCancelUnprocessableEntity {
+
 	return &ExportCancelUnprocessableEntity{}
 }
 
@@ -227,6 +244,7 @@ func (o *ExportCancelUnprocessableEntity) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ExportCancelUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -245,6 +263,7 @@ ExportCancelInternalServerError Internal server error occurred while cancelling 
 swagger:response exportCancelInternalServerError
 */
 type ExportCancelInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -253,6 +272,7 @@ type ExportCancelInternalServerError struct {
 
 // NewExportCancelInternalServerError creates ExportCancelInternalServerError with default headers values
 func NewExportCancelInternalServerError() *ExportCancelInternalServerError {
+
 	return &ExportCancelInternalServerError{}
 }
 
@@ -269,6 +289,7 @@ func (o *ExportCancelInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ExportCancelInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

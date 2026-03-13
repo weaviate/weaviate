@@ -91,7 +91,8 @@ ExportCancelNoContent describes a response with status code 204, with default he
 
 Export cancelled successfully.
 */
-type ExportCancelNoContent struct{}
+type ExportCancelNoContent struct {
+}
 
 // IsSuccess returns true when this export cancel no content response has a 2xx status code
 func (o *ExportCancelNoContent) IsSuccess() bool {
@@ -132,6 +133,7 @@ func (o *ExportCancelNoContent) String() string {
 }
 
 func (o *ExportCancelNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -145,7 +147,8 @@ ExportCancelUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type ExportCancelUnauthorized struct{}
+type ExportCancelUnauthorized struct {
+}
 
 // IsSuccess returns true when this export cancel unauthorized response has a 2xx status code
 func (o *ExportCancelUnauthorized) IsSuccess() bool {
@@ -186,6 +189,7 @@ func (o *ExportCancelUnauthorized) String() string {
 }
 
 func (o *ExportCancelUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -246,6 +250,7 @@ func (o *ExportCancelForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -313,6 +318,7 @@ func (o *ExportCancelNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,6 +386,7 @@ func (o *ExportCancelConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -447,6 +454,7 @@ func (o *ExportCancelUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -514,6 +522,7 @@ func (o *ExportCancelInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCancelInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
