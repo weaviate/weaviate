@@ -173,6 +173,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 			actuallyWritten++
 		}
 	}
+	keys = keys[:actuallyWritten]
 
 	tombstoneOffset := totalWritten
 
@@ -265,5 +266,5 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		return nil, nil, fmt.Errorf("write headers: %w", err)
 	}
 
-	return keys[:actuallyWritten], tombstones, nil
+	return keys, tombstones, nil
 }

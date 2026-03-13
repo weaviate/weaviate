@@ -37,7 +37,7 @@ import (
 
 type memtable interface {
 	get(key []byte) ([]byte, error)
-	getBySecondary(pos int, key []byte) ([]byte, error)
+	getBySecondary(pos int, key []byte) ([]byte, []byte, error)
 	exists(key []byte) error
 	put(key, value []byte, opts ...SecondaryKeyOption) error
 	setTombstone(key []byte, opts ...SecondaryKeyOption) error
@@ -228,12 +228,12 @@ func (m *Memtable) exists(key []byte) error {
 	return m.key.exists(key)
 }
 
-func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
+func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, []byte, error) {
 	start := time.Now()
 	defer m.metrics.observeGetBySecondary(start.UnixNano())
 
 	if m.strategy != StrategyReplace {
-		return nil, errors.Errorf("get only possible with strategy 'replace'")
+		return nil, nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
 	m.RLock()
@@ -241,10 +241,11 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 	primary := m.secondaryToPrimary[pos][string(key)]
 	if primary == nil {
-		return nil, lsmkv.NotFound
+		return nil, nil, lsmkv.NotFound
 	}
 
-	return m.key.get(primary)
+	v, err := m.key.get(primary)
+	return primary, v, err
 }
 
 func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {

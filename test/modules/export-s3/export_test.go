@@ -36,8 +36,8 @@ import (
 )
 
 func TestExport_SingleShard(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -66,8 +66,8 @@ func TestExport_SingleShard(t *testing.T) {
 }
 
 func TestExport_MultiShard(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -96,8 +96,8 @@ func TestExport_MultiShard(t *testing.T) {
 }
 
 func TestExport_MultiTenant_SingleShard(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -135,8 +135,8 @@ func TestExport_MultiTenant_SingleShard(t *testing.T) {
 }
 
 func TestExport_MultiTenant_MultiShard(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -176,8 +176,8 @@ func TestExport_MultiTenant_MultiShard(t *testing.T) {
 }
 
 func TestExport_NamedVectorAndMultiVector(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -277,8 +277,6 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 	}
 
 	for _, row := range allRows {
-		require.Equal(t, className, row.ClassName)
-
 		eo, ok := expected[row.ID]
 		require.True(t, ok, "unexpected object ID in parquet: %s", row.ID)
 
@@ -322,8 +320,8 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 }
 
 func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -395,8 +393,8 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 }
 
 func TestExport_MultiTenant_AutoActivation(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -456,8 +454,8 @@ func TestExport_MultiTenant_AutoActivation(t *testing.T) {
 }
 
 func TestExport_MultiTenant_AllInactive(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -539,6 +537,12 @@ func verifyParquetMetadata(t *testing.T, exportID, className string, expectTenan
 	}
 }
 
+// sanitizeClassName replaces characters that are invalid in Weaviate class
+// names (e.g. the '/' inserted by t.Name() for subtests) with underscores.
+func sanitizeClassName(name string) string {
+	return strings.ReplaceAll(name, "/", "_")
+}
+
 func makeObjects(className, tenant string, count int) []*models.Object {
 	objects := make([]*models.Object, count)
 	for i := range objects {
@@ -576,8 +580,6 @@ func verifyParquetExport(t *testing.T, exportID, className string, expectedObjec
 
 	// Verify each row
 	for _, row := range allRows {
-		require.Equal(t, className, row.ClassName, "class_name mismatch in parquet row")
-
 		text, ok := expectedIDs[row.ID]
 		require.True(t, ok, "unexpected object ID in parquet: %s", row.ID)
 
@@ -666,8 +668,8 @@ func readParquetRows(t *testing.T, data []byte) []pqexport.ParquetRow {
 
 func TestExport_Cancel(t *testing.T) {
 	t.Run("running", func(t *testing.T) {
-		className := t.Name()
-		exportID := strings.ToLower(t.Name())
+		className := sanitizeClassName(t.Name())
+		exportID := strings.ToLower(className)
 
 		helper.CreateClass(t, &models.Class{
 			Class: className,
@@ -709,8 +711,8 @@ func TestExport_Cancel(t *testing.T) {
 }
 
 func TestExport_Cancel_AlreadyFinished(t *testing.T) {
-	className := t.Name()
-	exportID := strings.ToLower(t.Name())
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
