@@ -113,14 +113,19 @@ func scanRange(
 		default:
 		}
 
-		obj, err := storobj.FromBinary(val)
+		fields, err := storobj.ExportFieldsFromBinary(val)
 		if err != nil {
-			return fmt.Errorf("deserialize object: %w", err)
+			return fmt.Errorf("extract export fields: %w", err)
 		}
 
-		row, err := convertToParquetRow(obj)
-		if err != nil {
-			return fmt.Errorf("convert object to parquet row: %w", err)
+		row := ParquetRow{
+			ID:           fields.ID,
+			CreationTime: fields.CreateTime,
+			UpdateTime:   fields.UpdateTime,
+			Vector:       fields.VectorBytes,
+			NamedVectors: fields.NamedVectors,
+			MultiVectors: fields.MultiVectors,
+			Properties:   fields.Properties,
 		}
 
 		batch = append(batch, row)

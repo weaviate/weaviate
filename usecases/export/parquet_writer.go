@@ -25,7 +25,6 @@ import (
 // ParquetRow represents a single row in the Parquet file
 type ParquetRow struct {
 	ID           string `parquet:"id,dict"`
-	ClassName    string `parquet:"class_name,dict"`
 	CreationTime int64  `parquet:"creation_time"`
 	UpdateTime   int64  `parquet:"update_time"`
 	Vector       []byte `parquet:"vector,optional"`
@@ -125,7 +124,6 @@ func (pw *ParquetWriter) SetFileMetadata(key, value string) {
 func convertToParquetRow(obj *storobj.Object) (ParquetRow, error) {
 	row := ParquetRow{
 		ID:           obj.ID().String(),
-		ClassName:    obj.Class().String(),
 		CreationTime: obj.CreationTimeUnix(),
 		UpdateTime:   obj.LastUpdateTimeUnix(),
 	}
