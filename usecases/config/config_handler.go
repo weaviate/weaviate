@@ -377,10 +377,14 @@ const DefaultBackupMinChunkSize = 1024 * 1024 // 1MB
 // DefaultBackupChunkTargetSize is the default target size for packing small files into chunks
 const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
 
+// DefaultBackupSplitFileSize is the default size for splitting large files during backup
+const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
+
 // Backup contains backup-related configuration
 type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
+	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
