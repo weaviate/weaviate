@@ -5771,6 +5771,61 @@ func init() {
         }
       }
     },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "description": "Deletes a specific vector index within a collection (` + "`" + `className` + "`" + `). The vector index to delete is identified by ` + "`" + `vectorIndexName` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a collection's vector index.",
+        "operationId": "schema.objects.vectors.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the vector index.",
+            "name": "vectorIndexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -15781,6 +15836,61 @@ func init() {
             }
           }
         }
+      }
+    },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "description": "Deletes a specific vector index within a collection (` + "`" + `className` + "`" + `). The vector index to delete is identified by ` + "`" + `vectorIndexName` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a collection's vector index.",
+        "operationId": "schema.objects.vectors.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the vector index.",
+            "name": "vectorIndexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/tasks": {

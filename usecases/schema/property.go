@@ -157,6 +157,25 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	return nil
 }
 
+func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
+	class *models.Class, className, vectorIndexName string,
+) error {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	if class == nil {
+		return fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
+	if vectorIndexName == "" {
+		return fmt.Errorf("vector index name cannot be empty")
+	}
+
+	// Implement here collection's vector index drop
+	return nil
+}
+
 // DeleteClassProperty from existing Schema
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
