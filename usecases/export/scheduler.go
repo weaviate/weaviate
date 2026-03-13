@@ -247,6 +247,9 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 // In multi-node mode, assembles status from S3 export plan + per-node status files.
 // In single-node mode, reads the metadata file directly.
 func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) (*models.ExportStatusResponse, error) {
+	if !regExpID.MatchString(id) {
+		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
@@ -333,6 +336,9 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // Returns ErrExportNotFound if the export does not exist,
 // or ErrExportAlreadyFinished if it has already completed.
 func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) error {
+	if !regExpID.MatchString(id) {
+		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
