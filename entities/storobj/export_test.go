@@ -175,6 +175,87 @@ func TestExportFieldsFromBinary(t *testing.T) {
 	}
 }
 
+// TestExportFieldsFromBinary_NilPropertiesFiltered verifies that
+// ExportFieldsFromBinary correctly filters out the JSON "null" bytes that
+// json.Marshal(nil) produces on the write path. This is important because
+// FromObject strips nil map entries *before* serialization, so the regular
+// TestExportFieldsFromBinary cases never exercise this code path. Here we
+// bypass FromObject and construct the storobj.Object directly so that nil
+// properties are serialized as "null".
+func TestExportFieldsFromBinary_NilPropertiesFiltered(t *testing.T) {
+	t.Parallel()
+
+	// Build an Object directly (bypassing FromObject) so that Properties
+	// remains nil. MarshalBinary will call json.Marshal(nil) → "null".
+	obj := &Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:                 strfmt.UUID("99999999-aaaa-bbbb-cccc-dddddddddddd"),
+			Class:              "NilPropsClass",
+			CreationTimeUnix:   5000,
+			LastUpdateTimeUnix: 6000,
+			// Properties intentionally left nil
+		},
+	}
+
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	fields, err := ExportFieldsFromBinary(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, "99999999-aaaa-bbbb-cccc-dddddddddddd", fields.ID)
+	assert.Equal(t, int64(5000), fields.CreateTime)
+	assert.Equal(t, int64(6000), fields.UpdateTime)
+	// The key assertion: even though the binary contains "null" bytes in the
+	// properties slot, ExportFieldsFromBinary must filter them out.
+	assert.Nil(t, fields.Properties, "properties serialized as JSON null must be filtered to nil")
+	assert.Nil(t, fields.VectorBytes)
+	assert.Nil(t, fields.NamedVectors)
+	assert.Nil(t, fields.MultiVectors)
+}
+
+// TestExportFieldsFromBinary_IndividualNilProperties verifies that individual
+// nil-valued properties within a map survive as JSON null in the raw bytes when
+// FromObject is bypassed. ExportFieldsFromBinary passes through raw JSON — it
+// only filters the entire blob when it equals "null", not individual keys.
+func TestExportFieldsFromBinary_IndividualNilProperties(t *testing.T) {
+	t.Parallel()
+
+	// Construct directly, bypassing FromObject's nil-stripping.
+	obj := &Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID("bbbbbbbb-1111-2222-3333-444444444444"),
+			Class: "RawNilClass",
+			Properties: map[string]any{
+				"keep_me":   "hello",
+				"delete_me": nil,
+				"keep_num":  float64(42),
+			},
+		},
+	}
+
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	fields, err := ExportFieldsFromBinary(data)
+	require.NoError(t, err)
+
+	require.NotNil(t, fields.Properties)
+
+	// Without FromObject, the nil entry survives as JSON null in the raw
+	// bytes. ExportFieldsFromBinary passes through raw JSON — it only
+	// filters the entire blob when it equals "null", not individual keys.
+	var props map[string]any
+	require.NoError(t, json.Unmarshal(fields.Properties, &props))
+
+	assert.Equal(t, "hello", props["keep_me"])
+	assert.Equal(t, float64(42), props["keep_num"])
+	assert.Len(t, props, 3, "raw path preserves all keys including null-valued ones")
+	assert.Nil(t, props["delete_me"], "delete_me is present with JSON null value")
+}
+
 func TestExportFieldsFromBinary_Errors(t *testing.T) {
 	t.Parallel()
 
