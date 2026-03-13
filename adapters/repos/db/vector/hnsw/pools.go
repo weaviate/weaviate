@@ -15,14 +15,13 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 type pools struct {
-	visitedLists     *visited.Pool
-	visitedListsLock *sync.RWMutex
+	visitedSets     *visited.FastPool
+	visitedSetsLock *sync.RWMutex
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
@@ -33,10 +32,12 @@ type pools struct {
 	tempVectorsUint64 *common.TempVectorUint64Pool
 }
 
-func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
+func newPools(maxConnectionsLayerZero int, initialVisitedSetPoolSize int) *pools {
 	return &pools{
-		visitedLists:     visited.NewPool(1, cache.InitialSize+500, initialVisitedListPoolSize),
-		visitedListsLock: &sync.RWMutex{},
+		// FastPool uses open-addressed hash sets which are more memory efficient
+		// for sparse visits (O(visited) vs O(maxNodeID) for array-based sets).
+		visitedSets:     visited.NewFastPool(initialVisitedSetPoolSize, 512, initialVisitedSetPoolSize),
+		visitedSetsLock: &sync.RWMutex{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
