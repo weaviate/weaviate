@@ -131,14 +131,14 @@ Add schema definitions:
             "items": {
               "type": "string"
             },
-            "description": "Class names to include in export"
+            "description": "Collection names to include in export"
           },
           "exclude": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Class names to exclude from export"
+            "description": "Collection names to exclude from export"
           },
           "config": {
             "type": "object",
@@ -376,7 +376,7 @@ parquet-tools meta Article.parquet
 - Simpler than backup/restore which requires cluster-wide coordination
 
 ### Parquet Format
-- One .parquet file per class
+- One .parquet file per collection
 - Columns: id, creation_time, update_time, vector, named_vectors, multi_vectors, properties
 - The collection name is stored as file-level Parquet metadata (`collection` key)
 - Zstd compression for efficient storage
@@ -386,13 +386,13 @@ parquet-tools meta Article.parquet
 - Reuses existing backup backend infrastructure
 - Streams data directly to S3 via io.Pipe
 - No temporary files on disk
-- Path structure: `s3://<bucket>/<path>/<export-id>/<class>.parquet`
+- Path structure: `s3://<bucket>/<path>/<export-id>/<collection>.parquet`
 
 ## Future Enhancements
 
 1. **Import/Restore from Parquet**: Reverse operation to import exported data
 2. **Incremental Exports**: Only export objects changed since last export
-3. **Parallel Class Export**: Export multiple classes concurrently
+3. **Parallel Collection Export**: Export multiple collections concurrently
 4. **Export Filtering**: Support property-level filtering (only export certain properties)
 5. **Compression Options**: Allow user to choose compression level
 6. **Export Scheduling**: Periodic automated exports via cron

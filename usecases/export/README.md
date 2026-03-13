@@ -10,7 +10,7 @@ The export feature allows Weaviate users to export their data to cloud storage (
 - **Cloud Storage**: Direct streaming to S3, GCS, or Azure (reuses backup backend infrastructure)
 - **Single-Node Operation**: Each node exports its local shard data independently
 - **Streaming**: No temporary files on disk, data streams directly to cloud storage
-- **Progress Tracking**: Real-time export status and per-class progress
+- **Progress Tracking**: Real-time export status and per-collection progress
 - **Authorization**: Integrates with Weaviate's authorization system
 
 ## Architecture
@@ -34,7 +34,7 @@ The export feature allows Weaviate users to export their data to cloud storage (
                         │
 ┌───────────────────────▼─────────────────────────────────────┐
 │                    Coordinator                               │
-│  - Class resolution                                          │
+│  - Collection resolution                                     │
 │  - Shard iteration                                           │
 │  - Export orchestration                                      │
 │  - Metadata generation                                       │
@@ -53,10 +53,10 @@ The export feature allows Weaviate users to export their data to cloud storage (
 ### Data Flow
 
 1. **Request**: User sends POST to `/v1/export/s3` with export configuration
-2. **Authorization**: System checks user has READ permission on selected classes
+2. **Authorization**: System checks user has READ permission on selected collections
 3. **Backend Init**: Creates S3/GCS/Azure backend and initializes storage path
-4. **Class Iteration**: For each selected class:
-   - Get all local shards for the class
+4. **Collection Iteration**: For each selected collection:
+   - Get all local shards for the collection
    - Create Parquet writer streaming to S3
    - Iterate through objects in each shard using cursor
    - Batch write objects to Parquet (10k rows per batch)
@@ -66,7 +66,7 @@ The export feature allows Weaviate users to export their data to cloud storage (
 
 ### Parquet Schema
 
-Each class is exported to a separate `.parquet` file with this schema:
+Each collection is exported to a separate `.parquet` file with this schema:
 
 | Column        | Type   | Description                               |
 |---------------|--------|-------------------------------------------|
@@ -242,7 +242,7 @@ s3://<bucket>/<path>/<export-id>/
 
 - Core types and status definitions
 - Parquet writer with batching and compression
-- Export coordinator with shard iteration
+- Export coordinator with collection/shard iteration
 - Scheduler with authorization
 - S3/GCS/Azure backend integration
 - DB adapter for shard access
@@ -263,7 +263,7 @@ See [INTEGRATION.md](./INTEGRATION.md) for complete integration steps.
 
 - Import/restore from Parquet
 - Incremental exports (delta)
-- Parallel class export
+- Parallel collection export
 - Property-level filtering
 - Configurable compression
 - Scheduled exports
@@ -310,8 +310,8 @@ parquet-tools head -n 10 Article.parquet
 | Error | Cause | Resolution |
 |-------|-------|------------|
 | `backend not available` | S3/GCS/Azure backend not configured | Configure backend in Weaviate config |
-| `authorization failed` | User lacks READ permission | Grant READ permission on classes |
-| `class does not exist` | Class name in `include` not found | Verify class names |
+| `authorization failed` | User lacks READ permission | Grant READ permission on collections |
+| `collection does not exist` | Collection name in `include` not found | Verify collection names |
 | `export already in progress` | Export with same ID already running | Wait for completion or use different ID |
 | `write to backend failed` | S3/GCS/Azure write error | Check credentials and bucket permissions |
 
@@ -325,7 +325,7 @@ parquet-tools head -n 10 Article.parquet
 ## Security Considerations
 
 - Authorization uses existing Weaviate RBAC system
-- Requires READ permission on exported classes
+- Requires READ permission on exported collections
 - Backend credentials use same configuration as backups
 - No sensitive data in export metadata
 - S3 server-side encryption recommended
