@@ -12,14 +12,14 @@
 package export
 
 import (
-	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // ParquetRow represents a single row in the Parquet file
@@ -43,7 +43,7 @@ type ParquetWriter struct {
 	writer    *parquet.GenericWriter[ParquetRow]
 	buffer    []ParquetRow
 	batchSize int
-	written   int64
+	written   atomic.Int64
 }
 
 // NewParquetWriter creates a new Parquet writer
@@ -70,9 +70,15 @@ func (pw *ParquetWriter) WriteObject(obj *storobj.Object) error {
 		return fmt.Errorf("convert object to parquet row: %w", err)
 	}
 
+	return pw.WriteRow(row)
+}
+
+// WriteRow writes a pre-converted row to the Parquet file (buffered).
+// This is used by the parallel export path where conversion happens in
+// worker goroutines.
+func (pw *ParquetWriter) WriteRow(row ParquetRow) error {
 	pw.buffer = append(pw.buffer, row)
 
-	// Flush if buffer is full
 	if len(pw.buffer) >= pw.batchSize {
 		return pw.Flush()
 	}
@@ -86,12 +92,13 @@ func (pw *ParquetWriter) Flush() error {
 		return nil
 	}
 
-	n, err := pw.writer.Write(pw.buffer)
+	n := int64(len(pw.buffer))
+	_, err := pw.writer.Write(pw.buffer)
 	if err != nil {
 		return fmt.Errorf("write batch to parquet: %w", err)
 	}
 
-	pw.written += int64(n)
+	pw.written.Add(n)
 	pw.buffer = pw.buffer[:0] // Reset buffer
 	return nil
 }
@@ -106,7 +113,7 @@ func (pw *ParquetWriter) Close() error {
 
 // ObjectsWritten returns the total number of objects written
 func (pw *ParquetWriter) ObjectsWritten() int64 {
-	return pw.written
+	return pw.written.Load()
 }
 
 // SetFileMetadata sets a key/value pair in the Parquet file metadata.
@@ -158,9 +165,7 @@ func convertToParquetRow(obj *storobj.Object) (ParquetRow, error) {
 	return row, nil
 }
 
-// serializeVector converts a []float32 vector to binary format
+// serializeVector converts a []float32 vector to little-endian binary format.
 func serializeVector(vector []float32) []byte {
-	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.LittleEndian, vector)
-	return buf.Bytes()
+	return byteops.Fp32SliceToBytes(vector)
 }
