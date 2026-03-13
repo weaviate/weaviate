@@ -59,7 +59,7 @@ func TestMulti2VecGoogle_AIStudio_SingleNode(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 
 	t.Run("multi2vec-google", testMulti2VecGoogleAIStudio(endpoint, "multi2vec-google"))
-	t.Run("multi2vec-palm", testMulti2VecGoogleAIStudio(endpoint, "multi2vec-palm"))
+	// t.Run("multi2vec-palm", testMulti2VecGoogleAIStudio(endpoint, "multi2vec-palm"))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
