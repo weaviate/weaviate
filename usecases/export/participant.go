@@ -195,6 +195,10 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", p.preparedReq.ID, exportID)
 			return errRet
 		}
+		if p.preparedReq != req {
+			errRet = fmt.Errorf("export request was replaced during backend initialization (abort+re-prepare race)")
+			return errRet
+		}
 
 		if backendStore == nil {
 			if backendErr != nil {
