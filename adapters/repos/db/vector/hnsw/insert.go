@@ -217,6 +217,10 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			return err
 		}
 
+		if h.hasTombstone(ids[i]) {
+			continue
+		}
+
 		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
@@ -306,6 +310,10 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 
 	for i, docID := range docIDs {
+		if h.hasTombstone(docID) {
+			continue
+		}
+
 		numVectors := len(vectors[i])
 		levels := make([]int, numVectors)
 		for j := range numVectors {
