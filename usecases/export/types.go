@@ -114,6 +114,18 @@ func (ns *NodeStatus) SetShardProgress(className, shardName string, status expor
 	}
 }
 
+// SetNodeError marks the node export as failed with an arbitrary message.
+func (ns *NodeStatus) SetNodeError(msg string) {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	ns.Status = export.Failed
+	if ns.Error != "" {
+		ns.Error += "; " + msg
+	} else {
+		ns.Error = msg
+	}
+}
+
 // SetFailed marks the node export as failed in a thread-safe manner.
 func (ns *NodeStatus) SetFailed(className string, err error) {
 	ns.mu.Lock()
