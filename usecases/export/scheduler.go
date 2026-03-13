@@ -42,6 +42,18 @@ var (
 	// that has already completed (SUCCESS, FAILED, or CANCELED).
 	ErrExportAlreadyFinished = errors.New("export has already finished")
 
+	// ErrExportValidation is returned when the export request fails input
+	// validation (invalid ID, unknown backend, non-existent class, etc.).
+	ErrExportValidation = errors.New("export validation error")
+
+	// ErrExportAlreadyExists is returned when attempting to create an export
+	// with an ID that already has artifacts on the storage backend.
+	ErrExportAlreadyExists = errors.New("export already exists")
+
+	// ErrExportAlreadyActive is returned when attempting to start an export
+	// while another export is already in progress.
+	ErrExportAlreadyActive = errors.New("export already active")
+
 	// errExportCanceled is passed as the cause to context.WithCancelCause
 	// when an export is canceled via the Cancel endpoint.
 	errExportCanceled = errors.New("export was canceled")
@@ -129,15 +141,15 @@ func (s *Scheduler) isMultiNode() bool {
 // Export starts a new export operation.
 func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
 	if !regExpID.MatchString(id) {
-		return nil, fmt.Errorf("invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", id)
+		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
 	}
 	if backend == "" {
-		return nil, fmt.Errorf("backend is required")
+		return nil, fmt.Errorf("%w: backend is required", ErrExportValidation)
 	}
 
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
-		return nil, fmt.Errorf("backend %s not available: %w", backend, err)
+		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
@@ -150,11 +162,11 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 	classes, err := s.resolveClasses(ctx, include, exclude)
 	if err != nil {
-		return nil, fmt.Errorf("resolve classes: %w", err)
+		return nil, fmt.Errorf("%w: resolve classes: %w", ErrExportValidation, err)
 	}
 
 	if len(classes) == 0 {
-		return nil, fmt.Errorf("no classes selected for export")
+		return nil, fmt.Errorf("%w: no classes selected for export", ErrExportValidation)
 	}
 
 	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
@@ -187,7 +199,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		exportCtx, cancel := context.WithCancelCause(s.shutdownCtx)
 		if !s.cancelExport.CompareAndSwap(nil, &cancel) {
 			cancel(nil)
-			return nil, fmt.Errorf("an export is already in progress")
+			return nil, fmt.Errorf("%w: an export is already in progress", ErrExportAlreadyActive)
 		}
 
 		// Safety net: clear cancelExport on panic during the synchronous
@@ -235,9 +247,12 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 // In multi-node mode, assembles status from S3 export plan + per-node status files.
 // In single-node mode, reads the metadata file directly.
 func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) (*models.ExportStatusResponse, error) {
+	if !regExpID.MatchString(id) {
+		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
-		return nil, fmt.Errorf("backend %s not available: %w", backend, err)
+		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
@@ -247,6 +262,9 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	// The export plan is always written before the export starts.
 	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if planErr != nil {
+		if errors.As(planErr, &backup.ErrNotFound{}) {
+			return nil, ErrExportNotFound
+		}
 		return nil, fmt.Errorf("get export plan: %w", planErr)
 	}
 
@@ -318,9 +336,12 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // Returns ErrExportNotFound if the export does not exist,
 // or ErrExportAlreadyFinished if it has already completed.
 func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) error {
+	if !regExpID.MatchString(id) {
+		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
-		return fmt.Errorf("backend %s not available: %w", backend, err)
+		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
@@ -943,7 +964,7 @@ func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapab
 	// Check metadata file — written in both single-node and multi-node paths.
 	_, err := s.getExportMetadata(ctx, backend, exportID, bucket, path)
 	if err == nil {
-		return fmt.Errorf("export %q already exists at %q", exportID, home)
+		return fmt.Errorf("%w: export %q already exists at %q", ErrExportAlreadyExists, exportID, home)
 	}
 	if !errors.As(err, &backup.ErrNotFound{}) {
 		return fmt.Errorf("check existing export: %w", err)
@@ -952,7 +973,7 @@ func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapab
 	// Also check the plan file, which is written before metadata in both paths.
 	_, err = s.getExportPlan(ctx, backend, exportID, bucket, path)
 	if err == nil {
-		return fmt.Errorf("export %q already exists at %q", exportID, home)
+		return fmt.Errorf("%w: export %q already exists at %q", ErrExportAlreadyExists, exportID, home)
 	}
 	if !errors.As(err, &backup.ErrNotFound{}) {
 		return fmt.Errorf("check existing export: %w", err)

@@ -209,6 +209,51 @@ func (o *ExportCancelConflict) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// ExportCancelUnprocessableEntityCode is the HTTP code returned for type ExportCancelUnprocessableEntity
+const ExportCancelUnprocessableEntityCode int = 422
+
+/*
+ExportCancelUnprocessableEntity Invalid request (e.g., unsupported backend)
+
+swagger:response exportCancelUnprocessableEntity
+*/
+type ExportCancelUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewExportCancelUnprocessableEntity creates ExportCancelUnprocessableEntity with default headers values
+func NewExportCancelUnprocessableEntity() *ExportCancelUnprocessableEntity {
+
+	return &ExportCancelUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the export cancel unprocessable entity response
+func (o *ExportCancelUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ExportCancelUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the export cancel unprocessable entity response
+func (o *ExportCancelUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ExportCancelUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ExportCancelInternalServerErrorCode is the HTTP code returned for type ExportCancelInternalServerError
 const ExportCancelInternalServerErrorCode int = 500
 
