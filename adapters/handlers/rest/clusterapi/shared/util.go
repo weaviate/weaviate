@@ -12,16 +12,10 @@
 package shared
 
 import (
-	"encoding/binary"
 	"errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/usecases/replica"
-)
-
-var (
-	le               = binary.LittleEndian
-	errTruncatedData = errors.New("truncated binary data")
 )
 
 func LocalIndexNotReady(resp replica.SimpleResponse) bool {
