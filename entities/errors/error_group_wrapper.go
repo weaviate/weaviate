@@ -104,18 +104,6 @@ func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
 	egw.routineCounter.Add(1)
 }
 
-// TryGo wraps errgroup.Group.TryGo with panic recovery logic, matching Go().
-func (egw *ErrorGroupWrapper) TryGo(f func() error, localVars ...interface{}) bool {
-	started := egw.Group.TryGo(func() error {
-		defer egw.deferFunc(localVars)
-		return f()
-	})
-	if started {
-		egw.routineCounter.Add(1)
-	}
-	return started
-}
-
 // SetLimit overrides the SetLimit method to set a limit on the number of
 // goroutines and track what's set.
 func (egw *ErrorGroupWrapper) SetLimit(limit int) {
