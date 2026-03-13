@@ -703,9 +703,8 @@ func (p *Participant) startNodeStatusWriter(
 	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
 
 	flush := func() {
-		nodeStatus.mu.Lock()
-		data, err := json.Marshal(nodeStatus)
-		nodeStatus.mu.Unlock()
+		snap := nodeStatus.snapshot()
+		data, err := json.Marshal(snap)
 		if err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
 				Error(fmt.Errorf("marshal node status: %w", err))
