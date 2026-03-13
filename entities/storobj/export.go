@@ -265,10 +265,11 @@ func appendJSONStringKey(dst []byte, key string) []byte {
 }
 
 // appendFloat32BytesAsJSONArray appends LE float32 bytes as a JSON number
-// array to dst and returns the extended slice. Uses strconv.AppendFloat
-// (same formatting as encoding/json) to avoid per-float string allocations.
-// NaN/Inf values are not handled here because vectors are validated on
-// insertion and cannot contain non-finite floats.
+// array to dst and returns the extended slice. Uses strconv.AppendFloat with
+// 'g' format to match encoding/json behavior: normal-range values use decimal
+// notation while very large or small values use exponent notation, keeping
+// output compact. NaN/Inf values are not handled here because vectors are
+// validated on insertion and cannot contain non-finite floats.
 func appendFloat32BytesAsJSONArray(dst []byte, data []byte, count int) []byte {
 	dst = append(dst, '[')
 	for i := range count {
@@ -277,7 +278,7 @@ func appendFloat32BytesAsJSONArray(dst []byte, data []byte, count int) []byte {
 		}
 		bits := binary.LittleEndian.Uint32(data[i*4 : (i+1)*4])
 		f := math.Float32frombits(bits)
-		dst = strconv.AppendFloat(dst, float64(f), 'f', -1, 32)
+		dst = strconv.AppendFloat(dst, float64(f), 'g', -1, 32)
 	}
 	dst = append(dst, ']')
 	return dst
