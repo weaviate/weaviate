@@ -357,6 +357,12 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // Cancel cancels a running export.
 // Returns ErrExportNotFound if the export does not exist,
 // or ErrExportAlreadyFinished if it has already completed.
+//
+// Note: Cancel does not remove artifacts (Parquet files, status files, plan
+// files) already written to the backend. This is intentional — partial data
+// is kept so operators can inspect what was exported before the cancellation
+// and to avoid the complexity of distributed garbage collection across
+// storage backends. The same applies to failed exports.
 func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) error {
 	if !regExpID.MatchString(id) {
 		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
