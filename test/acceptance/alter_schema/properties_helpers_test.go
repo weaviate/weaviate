@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package properties
+package alterschema
 
 import (
 	"context"
@@ -25,9 +25,22 @@ import (
 func checkFolderExistence(t *testing.T,
 	compose *docker.DockerCompose, className, shardName, directory string,
 ) bool {
+	return checkFolderExistenceInDir(t, compose,
+		fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName), directory)
+}
+
+func checkShardFolderExistence(t *testing.T,
+	compose *docker.DockerCompose, className, shardName, directory string,
+) bool {
+	return checkFolderExistenceInDir(t, compose,
+		fmt.Sprintf("/data/%s/%s", strings.ToLower(className), shardName), directory)
+}
+
+func checkFolderExistenceInDir(t *testing.T,
+	compose *docker.DockerCompose, parentPath, directory string,
+) bool {
 	weaviateContainer := compose.GetWeaviate().Container()
-	path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-	code, reader, err := weaviateContainer.Exec(context.TODO(), []string{"ls", "-1", path})
+	code, reader, err := weaviateContainer.Exec(context.TODO(), []string{"ls", "-1", parentPath})
 	require.NoError(t, err)
 	require.Equal(t, 0, code)
 

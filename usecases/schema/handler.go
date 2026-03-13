@@ -35,6 +35,7 @@ import (
 var (
 	ErrNotFound           = errors.New("not found")
 	ErrUnexpectedMultiple = errors.New("unexpected multiple results")
+	ErrValidation         = errors.New("validation")
 )
 
 // SchemaManager is responsible for consistent schema operations.
