@@ -48,12 +48,24 @@ func (j *scanJob) execute() {
 	}
 }
 
+// minObjectsPerRange is the minimum number of objects each key range should
+// contain. When the bucket has fewer objects than parallelism * this value,
+// we reduce the number of ranges so that each range has meaningful work.
+const minObjectsPerRange = 10_000
+
 // computeRanges splits a bucket's key space into roughly parallelism ranges
-// using QuantileKeys.
+// using QuantileKeys. The number of ranges is capped so that each range
+// contains at least minObjectsPerRange objects.
 func computeRanges(bucket *lsmkv.Bucket) []keyRange {
 	parallelism := runtime.GOMAXPROCS(0) * 2
+
+	// Cap parallelism so each range has at least minObjectsPerRange objects.
+	if count := bucket.CountAsync(); count > 0 {
+		parallelism = min(parallelism, count/minObjectsPerRange)
+	}
+
 	if parallelism < 2 {
-		parallelism = 2
+		return []keyRange{{start: nil, end: nil}}
 	}
 
 	quantileKeys := bucket.QuantileKeys(parallelism - 1)

@@ -290,7 +290,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := runtime.GOMAXPROCS(0) * 2
 	jobCh := make(chan scanJob, numWorkers)
 
 	// Start N workers that process scan jobs.

@@ -56,7 +56,7 @@ func createTestStore(t *testing.T, numObjects int) (*lsmkv.Store, int) {
 	require.NoError(t, err)
 
 	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithCalcCountNetAdditions(true))
 	require.NoError(t, err)
 
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
@@ -327,19 +327,64 @@ func TestScanShardWithWorkers_SingleWorker(t *testing.T) {
 func TestComputeRanges(t *testing.T) {
 	t.Parallel()
 
-	store, _ := createTestStore(t, 1000)
-	defer store.Shutdown(context.Background())
+	tests := []struct {
+		name      string
+		objects   int
+		maxRanges int // upper bound on expected range count
+		minRanges int // lower bound on expected range count
+	}{
+		{
+			name:      "empty bucket returns single range",
+			objects:   0,
+			minRanges: 1,
+			maxRanges: 1,
+		},
+		{
+			name:      "below min threshold returns single range",
+			objects:   1000,
+			minRanges: 1,
+			maxRanges: 1,
+		},
+		{
+			name:      "at threshold allows limited splitting",
+			objects:   20_000,
+			minRanges: 1,
+			maxRanges: 2,
+		},
+		{
+			name:      "large bucket allows multiple ranges",
+			objects:   50_000,
+			minRanges: 2,
+			maxRanges: 50_000 / minObjectsPerRange,
+		},
+	}
 
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	require.NotNil(t, bucket)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	ranges := computeRanges(bucket)
-	// Should have at least one range
-	require.NotEmpty(t, ranges)
-	// First range starts at nil
-	assert.Nil(t, ranges[0].start)
-	// Last range ends at nil
-	assert.Nil(t, ranges[len(ranges)-1].end)
+			store, _ := createTestStore(t, tc.objects)
+			defer store.Shutdown(context.Background())
+
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
+			require.NotNil(t, bucket)
+
+			ranges := computeRanges(bucket)
+			require.NotEmpty(t, ranges)
+			assert.GreaterOrEqual(t, len(ranges), tc.minRanges, "too few ranges")
+			assert.LessOrEqual(t, len(ranges), tc.maxRanges, "too many ranges")
+
+			// First range always starts at nil, last always ends at nil.
+			assert.Nil(t, ranges[0].start)
+			assert.Nil(t, ranges[len(ranges)-1].end)
+
+			// Ranges must be contiguous: each range's end == next range's start.
+			for i := 1; i < len(ranges); i++ {
+				assert.Equal(t, ranges[i-1].end, ranges[i].start,
+					"gap between range %d and %d", i-1, i)
+			}
+		})
+	}
 }
 
 // readParquetRows reads all ParquetRow entries from a parquet file in memory.
