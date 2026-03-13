@@ -124,6 +124,10 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 }
 
 // Commit starts the actual export. Must be called after a successful Prepare.
+// Backend initialization (which may involve network I/O) is performed inside
+// the lock. Only one export can be active at a time, so there is nothing
+// useful to run concurrently and keeping everything under a single lock
+// simplifies the state machine considerably.
 func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	if exportID == "" {
 		return fmt.Errorf("export ID cannot be empty")
