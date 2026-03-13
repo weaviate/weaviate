@@ -193,6 +193,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -237,6 +243,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -290,6 +302,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -358,6 +376,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -403,6 +427,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -463,6 +493,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -537,6 +573,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -605,6 +647,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -685,6 +733,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -724,6 +778,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow authz operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -786,6 +846,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -840,6 +906,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -883,6 +955,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -964,6 +1042,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -1033,6 +1117,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -1096,6 +1186,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1176,6 +1272,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -1245,6 +1347,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -1300,6 +1408,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1377,6 +1491,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -1451,6 +1571,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -1509,6 +1635,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1587,6 +1719,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2082,6 +2220,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2145,6 +2289,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2219,6 +2369,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2274,6 +2430,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow classifications operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -2319,6 +2481,12 @@ func init() {
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow classifications operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2417,6 +2585,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow graphql operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2472,6 +2646,12 @@ func init() {
           },
           "500": {
             "description": "An internal server error occurred during batch query execution. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2713,6 +2893,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2775,6 +2961,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2824,6 +3016,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2909,6 +3107,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2983,6 +3187,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -3054,6 +3264,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -3116,6 +3332,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3192,6 +3414,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3284,6 +3512,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -3368,6 +3602,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3461,6 +3701,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -3519,6 +3765,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3590,6 +3842,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -3643,6 +3901,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -3687,6 +3951,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3754,6 +4024,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3828,6 +4104,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -3894,6 +4176,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3966,6 +4254,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -4032,6 +4326,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -4078,6 +4378,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4135,6 +4441,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4216,6 +4528,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -4283,6 +4601,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -4342,6 +4666,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4406,6 +4736,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4483,6 +4819,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -4549,6 +4891,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4620,6 +4968,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -4662,6 +5016,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while retrieving the schema. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4713,6 +5073,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4768,6 +5134,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4835,6 +5207,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -4878,6 +5256,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred during collection deletion. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4941,6 +5325,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -4995,6 +5385,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while retrieving shard statuses. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5071,6 +5467,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -5129,6 +5531,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while listing tenants. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5193,6 +5601,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -5254,6 +5668,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -5307,6 +5727,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while deleting tenants. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5375,6 +5801,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -5432,6 +5864,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred during the check. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5512,6 +5950,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -5570,6 +6014,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5659,6 +6109,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -5711,6 +6167,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5848,6 +6310,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -5905,6 +6373,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9544,6 +10018,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -9588,6 +10068,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9641,6 +10127,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9709,6 +10201,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -9754,6 +10252,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow aliases operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9814,6 +10318,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9888,6 +10398,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -9956,6 +10472,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10036,6 +10558,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -10075,6 +10603,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow authz operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10137,6 +10671,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -10191,6 +10731,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -10234,6 +10780,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10315,6 +10867,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -10369,6 +10927,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10435,6 +10999,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10515,6 +11085,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -10569,6 +11145,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10627,6 +11209,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10704,6 +11292,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -10778,6 +11372,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -10836,6 +11436,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10914,6 +11520,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11412,6 +12024,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -11481,6 +12099,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11558,6 +12182,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -11613,6 +12243,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow classifications operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -11658,6 +12294,12 @@ func init() {
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow classifications operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11756,6 +12398,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow graphql operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -11811,6 +12459,12 @@ func init() {
           },
           "500": {
             "description": "An internal server error occurred during batch query execution. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12087,6 +12741,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -12152,6 +12812,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -12201,6 +12867,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12298,6 +12970,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -12372,6 +13050,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12452,6 +13136,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -12520,6 +13210,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12599,6 +13295,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12697,6 +13399,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -12787,6 +13495,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12886,6 +13600,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -12947,6 +13667,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13021,6 +13747,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -13080,6 +13812,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -13124,6 +13862,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13194,6 +13938,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13271,6 +14021,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -13340,6 +14096,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13415,6 +14177,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow objects operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -13481,6 +14249,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -13527,6 +14301,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13584,6 +14364,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13665,6 +14451,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -13732,6 +14524,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -13791,6 +14589,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13855,6 +14659,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13932,6 +14742,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -13998,6 +14814,12 @@ func init() {
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14069,6 +14891,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow replica movement operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -14111,6 +14939,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while retrieving the schema. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14162,6 +14996,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14217,6 +15057,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14284,6 +15130,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -14327,6 +15179,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred during collection deletion. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14390,6 +15248,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -14444,6 +15308,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while retrieving shard statuses. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14520,6 +15390,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -14578,6 +15454,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while listing tenants. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14642,6 +15524,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -14703,6 +15591,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -14756,6 +15650,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred while deleting tenants. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14824,6 +15724,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -14881,6 +15787,12 @@ func init() {
           },
           "500": {
             "description": "An error occurred during the check. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow schema operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14961,6 +15873,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -15019,6 +15937,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15108,6 +16032,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -15160,6 +16090,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15297,6 +16233,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -15354,6 +16296,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The operational mode of the server does not allow users operations at this time.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
