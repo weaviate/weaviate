@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"google.golang.org/grpc/codes"
@@ -52,7 +53,7 @@ func TestReplicationErrorToGRPC(t *testing.T) {
 
 func TestLocalIndexNotReady(t *testing.T) {
 	t.Run("empty response", func(t *testing.T) {
-		assert.False(t, localIndexNotReady(replica.SimpleResponse{}))
+		assert.False(t, shared.LocalIndexNotReady(replica.SimpleResponse{}))
 	})
 
 	t.Run("non-StatusNotReady error", func(t *testing.T) {
@@ -61,7 +62,7 @@ func TestLocalIndexNotReady(t *testing.T) {
 				{Code: replica.StatusConflict, Msg: "conflict"},
 			},
 		}
-		assert.False(t, localIndexNotReady(resp))
+		assert.False(t, shared.LocalIndexNotReady(resp))
 	})
 
 	t.Run("StatusNotReady returns true", func(t *testing.T) {
@@ -70,6 +71,6 @@ func TestLocalIndexNotReady(t *testing.T) {
 				{Code: replica.StatusNotReady, Msg: "index loading"},
 			},
 		}
-		assert.True(t, localIndexNotReady(resp))
+		assert.True(t, shared.LocalIndexNotReady(resp))
 	})
 }

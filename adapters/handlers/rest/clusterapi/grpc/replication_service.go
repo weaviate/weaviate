@@ -13,7 +13,6 @@ package grpc
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -31,11 +31,6 @@ import (
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-)
-
-var (
-	le               = binary.LittleEndian
-	errTruncatedData = errors.New("truncated binary data")
 )
 
 // ReplicationServer is the interface that the gRPC replication service requires.
@@ -68,20 +63,20 @@ func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectReq
 	}
 
 	resp := s.server.ReplicateObject(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), obj, req.GetSchemaVersion())
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
 	}
 	return &pb.PutObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
 func (s *ReplicationService) PutObjects(ctx context.Context, req *pb.PutObjectsRequest) (*pb.PutObjectsResponse, error) {
-	objs, err := unmarshalObjectList(req.GetObjectsData())
+	objs, err := shared.IndicesPayloads.ObjectList.Unmarshal(req.GetObjectsData(), shared.MethodPut)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal objects: %v", err)
 	}
 
 	resp := s.server.ReplicateObjects(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), objs, req.GetSchemaVersion())
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
 	}
 	return &pb.PutObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
@@ -94,7 +89,7 @@ func (s *ReplicationService) MergeObject(ctx context.Context, req *pb.MergeObjec
 	}
 
 	resp := s.server.ReplicateUpdate(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), &mergeDoc, req.GetSchemaVersion())
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
 	}
 	return &pb.MergeObjectResponse{Response: simpleResponseToProto(&resp)}, nil
@@ -105,19 +100,19 @@ func (s *ReplicationService) DeleteObject(ctx context.Context, req *pb.DeleteObj
 
 	resp := s.server.ReplicateDeletion(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		strfmt.UUID(req.GetUuid()), deletionTime, req.GetSchemaVersion())
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
 	}
 	return &pb.DeleteObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
 
 func (s *ReplicationService) DeleteObjects(ctx context.Context, req *pb.DeleteObjectsRequest) (*pb.DeleteObjectsResponse, error) {
-	uuids := stringsToUUIDs(req.GetUuids())
+	uuids := shared.StringsToUUIDs(req.GetUuids())
 	deletionTime := time.UnixMilli(req.GetDeletionTimeUnixMilli())
 
 	resp := s.server.ReplicateDeletions(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		uuids, deletionTime, req.GetDryRun(), req.GetSchemaVersion())
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
 	}
 	return &pb.DeleteObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
@@ -130,7 +125,7 @@ func (s *ReplicationService) AddReferences(ctx context.Context, req *pb.AddRefer
 	}
 
 	resp := s.server.ReplicateReferences(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), refs, req.GetSchemaVersion())
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
 	}
 	return &pb.AddReferencesResponse{Response: simpleResponseToProto(&resp)}, nil
@@ -178,7 +173,7 @@ func (s *ReplicationService) FetchObject(ctx context.Context, req *pb.FetchObjec
 }
 
 func (s *ReplicationService) FetchObjects(ctx context.Context, req *pb.FetchObjectsRequest) (*pb.FetchObjectsResponse, error) {
-	uuids := stringsToUUIDs(req.GetUuids())
+	uuids := shared.StringsToUUIDs(req.GetUuids())
 
 	resp, err := s.server.FetchObjects(ctx, req.GetIndex(), req.GetShard(), uuids)
 	if err != nil {
@@ -193,7 +188,7 @@ func (s *ReplicationService) FetchObjects(ctx context.Context, req *pb.FetchObje
 }
 
 func (s *ReplicationService) DigestObjects(ctx context.Context, req *pb.DigestObjectsRequest) (*pb.DigestObjectsResponse, error) {
-	ids := stringsToUUIDs(req.GetIds())
+	ids := shared.StringsToUUIDs(req.GetIds())
 
 	results, err := s.server.DigestObjects(ctx, req.GetIndex(), req.GetShard(), ids)
 	if err != nil {
@@ -214,7 +209,7 @@ func (s *ReplicationService) DigestObjectsInRange(ctx context.Context, req *pb.D
 }
 
 func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
-	vobjs, err := unmarshalVObjectList(req.GetVobjectsData())
+	vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal vobjects: %v", err)
 	}
@@ -241,7 +236,7 @@ func (s *ReplicationService) FindUUIDs(ctx context.Context, req *pb.FindUUIDsReq
 		return nil, replicationErrorToGRPC(err)
 	}
 
-	return &pb.FindUUIDsResponse{Uuids: uuidsToStrings(uuids)}, nil
+	return &pb.FindUUIDsResponse{Uuids: shared.UuidsToStrings(uuids)}, nil
 }
 
 func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTreeLevelRequest) (*pb.HashTreeLevelResponse, error) {
@@ -298,78 +293,4 @@ func replicationErrorToGRPC(err error) error {
 		return status.Errorf(codes.FailedPrecondition, "%v", err)
 	}
 	return status.Errorf(codes.Internal, "%v", err)
-}
-
-func localIndexNotReady(resp replica.SimpleResponse) bool {
-	if err := resp.FirstError(); err != nil {
-		var replicaErr *replica.Error
-		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
-			return true
-		}
-	}
-	return false
-}
-
-func stringsToUUIDs(ss []string) []strfmt.UUID {
-	uuids := make([]strfmt.UUID, len(ss))
-	for i, s := range ss {
-		uuids[i] = strfmt.UUID(s)
-	}
-	return uuids
-}
-
-func uuidsToStrings(uuids []strfmt.UUID) []string {
-	ss := make([]string, len(uuids))
-	for i, u := range uuids {
-		ss[i] = u.String()
-	}
-	return ss
-}
-
-// unmarshalObjectList parses the binary object list format (length-prefixed storobj entries).
-// This mirrors the logic in clusterapi.objectListPayload.Unmarshal without importing clusterapi.
-func unmarshalObjectList(data []byte) ([]*storobj.Object, error) {
-	var out []*storobj.Object
-	offset := 0
-	for offset < len(data) {
-		if offset+8 > len(data) {
-			return nil, errTruncatedData
-		}
-		length := int(le.Uint64(data[offset : offset+8]))
-		offset += 8
-		if offset+length > len(data) {
-			return nil, errTruncatedData
-		}
-		obj, err := storobj.FromBinary(data[offset : offset+length])
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, obj)
-		offset += length
-	}
-	return out, nil
-}
-
-// unmarshalVObjectList parses the binary versioned object list format.
-// This mirrors clusterapi.versionedObjectListPayload.Unmarshal without importing clusterapi.
-func unmarshalVObjectList(data []byte) ([]*objects.VObject, error) {
-	var out []*objects.VObject
-	offset := 0
-	for offset < len(data) {
-		if offset+8 > len(data) {
-			return nil, errTruncatedData
-		}
-		length := int(le.Uint64(data[offset : offset+8]))
-		offset += 8
-		if offset+length > len(data) {
-			return nil, errTruncatedData
-		}
-		var vobj objects.VObject
-		if err := vobj.UnmarshalBinary(data[offset : offset+length]); err != nil {
-			return nil, err
-		}
-		out = append(out, &vobj)
-		offset += length
-	}
-	return out, nil
 }

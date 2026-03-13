@@ -13,7 +13,6 @@ package clients
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -90,7 +90,7 @@ func (c *grpcReplicationClient) PutObjects(ctx context.Context, host, index, sha
 		return replica.SimpleResponse{}, err
 	}
 
-	objsData, err := marshalObjectList(objs)
+	objsData, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs, clusterapi.MethodPut)
 	if err != nil {
 		return replica.SimpleResponse{}, fmt.Errorf("marshal objects: %w", err)
 	}
@@ -309,7 +309,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, COMMIT_TIMEOUT_VALUE*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
 	defer cancel()
 
 	resp, err := client.FetchObjects(ctx, &protocol.FetchObjectsRequest{
@@ -384,7 +384,7 @@ func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, inde
 		return nil, err
 	}
 
-	vData, err := marshalVObjectList(vobjects)
+	vData, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
 	if err != nil {
 		return nil, fmt.Errorf("marshal vobjects: %w", err)
 	}
@@ -513,39 +513,4 @@ func stringsToUUIDs(ss []string) []strfmt.UUID {
 		uuids[i] = strfmt.UUID(s)
 	}
 	return uuids
-}
-
-// marshalObjectList mirrors clusterapi.objectListPayload.Marshal for use in the gRPC client.
-func marshalObjectList(objs []*storobj.Object) ([]byte, error) {
-	out := make([]byte, 0, 1024*len(objs))
-	lenBuf := make([]byte, 8)
-	for _, obj := range objs {
-		if obj == nil {
-			continue
-		}
-		data, err := obj.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		binary.LittleEndian.PutUint64(lenBuf, uint64(len(data)))
-		out = append(out, lenBuf...)
-		out = append(out, data...)
-	}
-	return out, nil
-}
-
-// marshalVObjectList mirrors clusterapi.versionedObjectListPayload.Marshal for use in the gRPC client.
-func marshalVObjectList(vobjs []*objects.VObject) ([]byte, error) {
-	out := make([]byte, 0, 1024*len(vobjs))
-	lenBuf := make([]byte, 8)
-	for _, vobj := range vobjs {
-		data, err := vobj.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		binary.LittleEndian.PutUint64(lenBuf, uint64(len(data)))
-		out = append(out, lenBuf...)
-		out = append(out, data...)
-	}
-	return out, nil
 }

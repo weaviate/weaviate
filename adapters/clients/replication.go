@@ -26,7 +26,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -160,7 +161,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
 	var resp []types.RepairResponse
-	body, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
+	body, err := shared.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
 	if err != nil {
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
