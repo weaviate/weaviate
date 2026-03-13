@@ -1290,6 +1290,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
+	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).

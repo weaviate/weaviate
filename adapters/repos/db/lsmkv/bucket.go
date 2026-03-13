@@ -402,7 +402,7 @@ func (b *Bucket) resumeCompaction(ctx context.Context) error {
 // processing is stopped and the error is returned.
 // Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
-	afterInMemCallback func(), f func(object *storobj.Object) error,
+	afterInMemCallback func(), f func(uuidBytes []byte, updateTime int64) error,
 ) error {
 	err := b.pauseCompaction(ctx)
 	if err != nil {
@@ -442,15 +442,15 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				obj, err := storobj.FromBinaryUUIDOnly(v)
+				docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
 				if err != nil {
 					return fmt.Errorf("cannot unmarshal object: %w", err)
 				}
-				if err := f(obj); err != nil {
-					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+				if err := f(k, updateTime); err != nil {
+					return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
 				}
 
-				inmemProcessedDocIDs[obj.DocID] = struct{}{}
+				inmemProcessedDocIDs[docID] = struct{}{}
 			}
 		}
 
@@ -465,17 +465,17 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			obj, err := storobj.FromBinaryUUIDOnly(v)
+			docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object: %w", err)
 			}
 
-			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+			if _, ok := inmemProcessedDocIDs[docID]; ok {
 				continue
 			}
 
-			if err := f(obj); err != nil {
-				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			if err := f(k, updateTime); err != nil {
+				return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
 			}
 		}
 	}
