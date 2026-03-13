@@ -20,6 +20,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
@@ -36,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/tracing"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -141,6 +145,13 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.PathVectorSearch, "weaviate.db.VectorSearch",
+		trace.WithAttributes(
+			attribute.String("weaviate.collection", params.ClassName),
+			attribute.StringSlice("weaviate.target_vectors", targetVectors),
+		))
+	defer span.End()
+
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)
@@ -399,6 +410,10 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	addl additional.Properties, tenant string,
 ) (search.Results, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.PathVectorSearch, "weaviate.db.ResolveReferences",
+		trace.WithAttributes(attribute.Int("weaviate.ref_count", len(objs))))
+	defer span.End()
+
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)

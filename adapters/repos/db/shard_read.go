@@ -27,6 +27,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -40,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/tracing"
 )
 
 func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
@@ -409,6 +413,14 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.PathVectorSearch, "weaviate.shard.VectorSearch",
+		trace.WithAttributes(
+			attribute.String("weaviate.shard_id", s.ID()),
+			attribute.Int("weaviate.limit", limit),
+			attribute.Bool("weaviate.has_filter", filters != nil),
+		))
+	defer span.End()
+
 	startTime := time.Now()
 
 	defer func() {
@@ -469,6 +481,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			if !ok {
 				return fmt.Errorf("index for target vector %q not found", targetVector)
 			}
+
+			_, viSpan := tracing.StartSpan(ctx, tracing.PathVectorSearch, "weaviate.vectorindex.Search",
+				trace.WithAttributes(
+					attribute.String("weaviate.target_vector", targetVector),
+					attribute.Int("weaviate.limit", limit),
+				))
+			defer viSpan.End()
 
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
@@ -688,6 +707,11 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 }
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
+	ctx, span := tracing.StartSpan(ctx, tracing.PathVectorSearch, "weaviate.shard.BuildAllowList")
+	defer func() {
+		span.End()
+	}()
+
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
@@ -696,6 +720,7 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 		return nil, errors.Wrap(err, "build inverted filter allow list")
 	}
 
+	span.SetAttributes(attribute.Int("weaviate.allow_list_size", list.Len()))
 	return list, nil
 }
 

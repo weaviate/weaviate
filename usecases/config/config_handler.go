@@ -252,6 +252,8 @@ type Config struct {
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	TraceVectorSearch *runtime.DynamicValue[bool] `json:"trace_vector_search" yaml:"trace_vector_search"`
 }
 
 type MapToBlockamaxConfig struct {
