@@ -559,20 +559,20 @@ func (s *State) periodicRejoin(pushPullInterval time.Duration, joinAddr []string
 			"current_members":  currentMembers,
 			"expected_members": expectedNodes,
 			"join_addresses":   joinAddr,
-		}).Info("member count below expected, attempting rejoin")
+		}).Debug("member count below expected, attempting rejoin")
 
 		n, err := s.list.Join(joinAddr)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":         "periodic_rejoin",
 				"join_addresses": joinAddr,
-			}).WithError(err).Debug("rejoin attempt failed (will retry)")
+			}).Errorf("rejoin attempt failed (will retry): %v", err)
 		} else if n > 0 {
 			logger.WithFields(logrus.Fields{
 				"action":         "periodic_rejoin",
 				"nodes_joined":   n,
 				"join_addresses": joinAddr,
-			}).Info("successfully rejoined cluster")
+			}).Debug("successfully rejoined cluster")
 		}
 	}
 }
