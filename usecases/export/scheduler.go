@@ -98,9 +98,18 @@ type Scheduler struct {
 	localNode    string       // from appState.Cluster.LocalName()
 	participant  *Participant // local participant — always present
 
-	// cancelExport stores the cancel-cause function for the active single-node
-	// export. A nil pointer means no export is running.
-	cancelExport atomic.Pointer[context.CancelCauseFunc]
+	// activeExport holds the context and cancel function for the active
+	// single-node export. A nil pointer means no export is running.
+	// Cancel() uses the context to check whether its cancel call won the
+	// first-caller race (CancelCauseFunc is first-caller-wins).
+	activeExport atomic.Pointer[singleNodeExport]
+}
+
+// singleNodeExport bundles the context and cancel function for an active
+// single-node export so Cancel() can inspect the cause after calling cancel.
+type singleNodeExport struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
 }
 
 // NewScheduler creates a new export scheduler.
@@ -197,17 +206,18 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		}
 	} else {
 		exportCtx, cancel := context.WithCancelCause(s.shutdownCtx)
-		if !s.cancelExport.CompareAndSwap(nil, &cancel) {
+		sne := &singleNodeExport{ctx: exportCtx, cancel: cancel}
+		if !s.activeExport.CompareAndSwap(nil, sne) {
 			cancel(nil)
 			return nil, fmt.Errorf("%w: an export is already in progress", ErrExportAlreadyActive)
 		}
 
-		// Safety net: clear cancelExport on panic during the synchronous
+		// Safety net: clear activeExport on panic during the synchronous
 		// phase so that a recovered panic does not permanently block future
 		// exports.
 		defer func() {
 			if r := recover(); r != nil {
-				s.cancelExport.Store(nil)
+				s.activeExport.Store(nil)
 				cancel(nil)
 				panic(r) // re-panic after cleanup
 			}
@@ -218,7 +228,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		// prevents Cancel from getting a 404 when called right after Create.
 		shards, err := s.prepareSingleNodePlan(ctx, backendStore, id, status, classes, bucket, path)
 		if err != nil {
-			s.cancelExport.Store(nil)
+			s.activeExport.Store(nil)
 			cancel(nil)
 			return nil, err
 		}
@@ -226,7 +236,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		enterrors.GoWrapper(func() {
 			defer func() {
 				// Safety net: ensure fields are cleared even on panic.
-				s.cancelExport.Store(nil)
+				s.activeExport.Store(nil)
 				cancel(nil)
 			}()
 			s.performSingleNodeExport(exportCtx, cancel, backendStore, id, status, classes, shards, bucket, path)
@@ -419,13 +429,20 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 				Errorf("best-effort abort encountered errors: %v", abortErr)
 		}
 	} else {
-		cancelPtr := s.cancelExport.Load()
-		if cancelPtr == nil {
+		sne := s.activeExport.Load()
+		if sne == nil {
 			// The export goroutine finished between the metadata check
 			// above and now — the export is already done.
 			return ErrExportAlreadyFinished
 		}
-		(*cancelPtr)(errExportCanceled)
+		sne.cancel(errExportCanceled)
+
+		// CancelCauseFunc is first-caller-wins. If our cause stuck, we
+		// own the metadata write. If the export goroutine called
+		// cancel(nil) first, the export already completed.
+		if !errors.Is(context.Cause(sne.ctx), errExportCanceled) {
+			return ErrExportAlreadyFinished
+		}
 	}
 
 	cancelErr := "export was canceled"
@@ -768,13 +785,12 @@ func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) error {
 	return returnErr
 }
 
-// clearCancelState clears the cancel-cause pointer and calls cancel(nil).
-// The cancel(nil) is a no-op if Cancel() already called it with
-// errExportCanceled. This must be called BEFORE writing terminal metadata
-// so that Cancel() can no longer find a non-nil pointer after metadata is
-// persisted.
+// clearCancelState clears the active export pointer and calls cancel(nil).
+// CancelCauseFunc is first-caller-wins: if Cancel() already called
+// cancel(errExportCanceled), this cancel(nil) is a no-op and
+// context.Cause will still return errExportCanceled.
 func (s *Scheduler) clearCancelState(cancel context.CancelCauseFunc) {
-	s.cancelExport.Store(nil)
+	s.activeExport.Store(nil)
 	cancel(nil)
 }
 
@@ -821,21 +837,28 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 
 	exportErr := s.participant.doExport(ctx, backend, req)
 
-	// Clear the cancel state BEFORE writing metadata. This closes the race
-	// window where Cancel() could find a non-nil cancelExport after the
-	// terminal metadata has already been persisted.
+	// Clear the active export pointer and call cancel(nil). Because
+	// CancelCauseFunc is first-caller-wins, this establishes who writes
+	// terminal metadata: if Cancel() called cancel(errExportCanceled) first,
+	// context.Cause returns errExportCanceled and we skip our write.
 	s.clearCancelState(cancel)
+
+	if errors.Is(context.Cause(ctx), errExportCanceled) {
+		// Cancel() won the first-caller race on the CancelCauseFunc,
+		// so it owns the metadata write.
+		if exportErr != nil {
+			s.logger.WithField("action", "export").
+				WithField("export_id", exportID).
+				Error(exportErr)
+		}
+		return
+	}
 
 	if exportErr != nil {
 		s.logger.WithField("action", "export").
 			WithField("export_id", exportID).
 			Error(exportErr)
 
-		if errors.Is(context.Cause(ctx), errExportCanceled) {
-			// Cancel() already writes the CANCELED metadata, so skip the
-			// duplicate write here.
-			return
-		}
 		status.Status = string(export.Failed)
 		status.Error = exportErr.Error()
 		s.writeMetadata(backend, exportID, bucket, path, status)

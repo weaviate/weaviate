@@ -404,7 +404,8 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	resolver := &fakeNodeResolver{
 		nodes: map[string]string{
@@ -468,7 +469,8 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	// node1 is no longer in the cluster
 	resolver := &fakeNodeResolver{
@@ -548,6 +550,89 @@ func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
 	assert.Empty(t, meta.Error)
 }
 
+func TestScheduler_CancelAndExportRaceWritesMetadataOnce(t *testing.T) {
+	// Fires Cancel() and performSingleNodeExport() concurrently 100 times
+	// to verify that exactly one side writes terminal metadata, and the
+	// result is consistent:
+	//   Cancel returns nil            → metadata is CANCELED
+	//   Cancel returns AlreadyFinished → metadata is SUCCESS
+	for i := range 100 {
+		t.Run(fmt.Sprintf("iter_%d", i), func(t *testing.T) {
+			t.Parallel()
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			selector := &emptySelector{classList: []string{"TestClass"}}
+			backends := &fakeBackendProvider{backend: backend}
+			participant := NewParticipant(context.Background(), selector, backends, logger)
+
+			s := &Scheduler{
+				shutdownCtx: context.Background(),
+				logger:      logger,
+				authorizer:  mocks.NewMockAuthorizer(),
+				selector:    selector,
+				backends:    backends,
+				participant: participant,
+				localNode:   "node1",
+			}
+
+			exportCtx, cancel := context.WithCancelCause(context.Background())
+			s.activeExport.Store(&singleNodeExport{ctx: exportCtx, cancel: cancel})
+
+			status := &models.ExportStatusResponse{
+				ID:      "test-export",
+				Backend: "s3",
+				Status:  string(export.Transferring),
+				Classes: []string{"TestClass"},
+			}
+
+			// Write the export plan so Cancel() can find it.
+			plan := &ExportPlan{
+				ID:      "test-export",
+				Backend: "s3",
+				Classes: []string{"TestClass"},
+				NodeAssignments: map[string]map[string][]string{
+					"node1": {"TestClass": nil},
+				},
+				StartedAt: time.Now().UTC(),
+			}
+			planData, err := json.Marshal(plan)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
+			require.NoError(t, err)
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				s.performSingleNodeExport(exportCtx, cancel, backend, "test-export", status, []string{"TestClass"}, map[string][]string{"TestClass": nil}, "", "")
+			}()
+
+			// Fire Cancel concurrently.
+			cancelErr := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+
+			<-done
+
+			written := backend.getWritten(exportMetadataFile)
+			require.NotNil(t, written, "expected metadata to be written")
+
+			var meta ExportMetadata
+			require.NoError(t, json.Unmarshal(written, &meta))
+
+			switch meta.Status {
+			case export.Success:
+				if cancelErr == nil {
+					t.Logf("BUG: meta=SUCCESS but cancelErr=nil; meta.Error=%q", meta.Error)
+				}
+				assert.ErrorIs(t, cancelErr, ErrExportAlreadyFinished)
+			case export.Canceled:
+				assert.NoError(t, cancelErr)
+			default:
+				t.Fatalf("unexpected terminal status: %s", meta.Status)
+			}
+		})
+	}
+}
+
 func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
@@ -565,7 +650,8 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	resolver := &fakeNodeResolver{
 		nodes: map[string]string{

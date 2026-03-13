@@ -98,15 +98,21 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 
 		p.preparedReq = req
 		p.abortTimer = time.AfterFunc(reservationTimeout, func() {
-			p.mu.Lock()
-			defer p.mu.Unlock()
+			wasSet := func() bool {
+				p.mu.Lock()
+				defer p.mu.Unlock()
 
-			if p.preparedReq == nil {
-				return // Already committed or aborted — no-op.
+				if p.preparedReq == nil {
+					return false // Already committed or aborted — no-op.
+				}
+				p.clearAndRelease()
+				return true
+			}()
+
+			if wasSet {
+				p.logger.WithField("export_id", req.ID).
+					Warn("export reservation timed out, auto-aborting")
 			}
-			p.logger.WithField("export_id", req.ID).
-				Warn("export reservation timed out, auto-aborting")
-			p.clearAndRelease()
 		})
 
 		return nil
@@ -129,13 +135,41 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		return fmt.Errorf("export ID cannot be empty")
 	}
 
-	var req *ExportRequest
+	// Peek at the prepared request under a short lock to get the backend
+	// name, bucket, and path needed for initialization. We don't consume
+	// the request yet — that happens in the critical section below.
+	p.mu.Lock()
+	req := p.preparedReq
+	p.mu.Unlock()
+
+	// Initialize the backend outside the lock — this may involve network
+	// I/O (S3 bucket verification, directory creation) and must not block
+	// Abort/IsRunning callers. If initialization fails, backendStore stays
+	// nil and the main critical section below will handle the error with
+	// proper slot cleanup via clearAndRelease.
 	var backendStore modulecapabilities.BackupBackend
+	var backendErr error
+	if req != nil && req.ID == exportID {
+		backendStore, backendErr = p.backends.BackupBackend(req.Backend)
+		if backendErr == nil {
+			if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
+				backendStore = nil
+			}
+		}
+	}
+
 	var exportCtx context.Context
 	f := func() (errRet error) {
 		p.mu.Lock()
 		defer func() {
 			if errRet != nil {
+				// clearAndRelease is intentionally unconditional here. If
+				// Abort+Prepare for a different export raced with the backend
+				// I/O above, activeExport now belongs to that new export and
+				// clearAndRelease will tear it down. This is acceptable:
+				// concurrent Prepare/Commit/Abort for different exports is not
+				// a supported sequence — only one export slot exists, so the
+				// conflicting request should fail too.
 				p.clearAndRelease()
 			}
 			p.mu.Unlock()
@@ -153,24 +187,25 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 			return errRet
 		}
 
-		req = p.preparedReq
-		if req == nil {
+		if p.preparedReq == nil {
 			errRet = fmt.Errorf("no export prepared")
 			return errRet
 		}
-		if req.ID != exportID {
-			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", req.ID, exportID)
+		if p.preparedReq.ID != exportID {
+			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", p.preparedReq.ID, exportID)
 			return errRet
 		}
-		backendStore2, err := p.backends.BackupBackend(req.Backend)
-		if err != nil {
-			errRet = fmt.Errorf("backend %s not available: %w", req.Backend, err)
+		if p.preparedReq != req {
+			errRet = fmt.Errorf("export request was replaced during backend initialization (abort+re-prepare race)")
 			return errRet
 		}
-		backendStore = backendStore2
 
-		if err := backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); err != nil {
-			errRet = fmt.Errorf("initialize backend: %w", err)
+		if backendStore == nil {
+			if backendErr != nil {
+				errRet = fmt.Errorf("initialize backend: %w", backendErr)
+			} else {
+				errRet = fmt.Errorf("backend initialization was not attempted (state changed during init)")
+			}
 			return errRet
 		}
 
@@ -204,10 +239,10 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 // If the export is still in the prepared state, the reservation is released.
 // If the export has already been committed, the running export is canceled.
 func (p *Participant) Abort(exportID string) {
+	var wasRunning bool
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.activeExport != exportID {
+		p.mu.Unlock()
 		return
 	}
 
@@ -218,12 +253,18 @@ func (p *Participant) Abort(exportID string) {
 		// that concurrent or repeated Abort calls still take this branch
 		// instead of the "prepared" branch below.
 		p.cancelExport()
+		wasRunning = true
+	} else {
+		// Still in prepared state — full cleanup.
+		p.clearAndRelease()
+	}
+	p.mu.Unlock()
+
+	if wasRunning {
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", exportID).
 			Info("participant aborted running export")
 	} else {
-		// Still in prepared state — full cleanup.
-		p.clearAndRelease()
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", exportID).
 			Info("participant aborted export reservation")
@@ -696,9 +737,8 @@ func (p *Participant) startNodeStatusWriter(
 	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
 
 	flush := func() {
-		nodeStatus.mu.Lock()
-		data, err := json.Marshal(nodeStatus)
-		nodeStatus.mu.Unlock()
+		snap := nodeStatus.snapshot()
+		data, err := json.Marshal(snap)
 		if err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
 				Error(fmt.Errorf("marshal node status: %w", err))
@@ -726,9 +766,7 @@ func (p *Participant) startNodeStatusWriter(
 			case <-ticker.C:
 				flush()
 				if failedSibling, siblingErr, failed := p.siblingHasFailed(exportCtx, backend, req); failed {
-					nodeStatus.mu.Lock()
-					nodeStatus.Error = fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr)
-					nodeStatus.mu.Unlock()
+					nodeStatus.SetNodeError(fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr))
 
 					p.mu.Lock()
 					if p.cancelExport != nil {

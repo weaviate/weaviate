@@ -114,6 +114,18 @@ func (ns *NodeStatus) SetShardProgress(className, shardName string, status expor
 	}
 }
 
+// SetNodeError marks the node export as failed with an arbitrary message.
+func (ns *NodeStatus) SetNodeError(msg string) {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	ns.Status = export.Failed
+	if ns.Error != "" {
+		ns.Error += "; " + msg
+	} else {
+		ns.Error = msg
+	}
+}
+
 // SetFailed marks the node export as failed in a thread-safe manner.
 func (ns *NodeStatus) SetFailed(className string, err error) {
 	ns.mu.Lock()
@@ -133,6 +145,30 @@ func (ns *NodeStatus) SetSuccess() {
 	defer ns.mu.Unlock()
 	ns.Status = export.Success
 	ns.CompletedAt = time.Now().UTC()
+}
+
+// snapshot returns a deep copy of the NodeStatus suitable for marshaling
+// outside the lock.
+func (ns *NodeStatus) snapshot() *NodeStatus {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	cp := &NodeStatus{
+		NodeName:    ns.NodeName,
+		Status:      ns.Status,
+		Error:       ns.Error,
+		CompletedAt: ns.CompletedAt,
+	}
+	if len(ns.ShardProgress) > 0 {
+		cp.ShardProgress = make(map[string]map[string]*ShardProgress, len(ns.ShardProgress))
+		for className, shards := range ns.ShardProgress {
+			cp.ShardProgress[className] = make(map[string]*ShardProgress, len(shards))
+			for shardName, sp := range shards {
+				clone := *sp
+				cp.ShardProgress[className][shardName] = &clone
+			}
+		}
+	}
+	return cp
 }
 
 // ExportPlan is written to S3 by the coordinator
