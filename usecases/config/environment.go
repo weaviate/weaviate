@@ -901,6 +901,9 @@ func FromEnv(config *Config) error {
 		config.Replication.DeletionStrategy = v
 	}
 
+	config.Replication.AsyncEnforced = entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_ENFORCED"))
+	config.Replication.AsyncDefault = entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DEFAULT"))
+
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
