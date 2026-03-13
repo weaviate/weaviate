@@ -82,8 +82,8 @@ type allowList struct {
 	helpers.AllowList
 	ctx              context.Context
 	h                *HFresh
-	wrappedIdVisited visited.ListSet
-	idVisited        visited.ListSet
+	wrappedIdVisited *visited.SparseSet
+	idVisited        *visited.SparseSet
 	// Cache to store PostingMetadata from iterator to avoid expensive Get calls
 	cachedMetadata *PostingMetadata
 	cachedID       uint64
@@ -117,8 +117,8 @@ func (a *allowList) Contains(id uint64) bool {
 	defer p.RUnlock()
 
 	for vectorID := range p.Iter() {
-		if !a.wrappedIdVisited.Visited(vectorID) && a.AllowList.Contains(vectorID) {
-			a.wrappedIdVisited.Visit(vectorID)
+		visited := a.wrappedIdVisited.CheckAndVisit(vectorID)
+		if !visited && a.AllowList.Contains(vectorID) {
 			a.idVisited.Visit(id)
 			return true
 		}
