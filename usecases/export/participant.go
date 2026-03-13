@@ -197,7 +197,11 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		}
 
 		if backendStore == nil {
-			errRet = fmt.Errorf("initialize backend: %w", backendErr)
+			if backendErr != nil {
+				errRet = fmt.Errorf("initialize backend: %w", backendErr)
+			} else {
+				errRet = fmt.Errorf("backend initialization was not attempted (state changed during init)")
+			}
 			return errRet
 		}
 
