@@ -531,6 +531,28 @@ func TestSchedulerOptions(t *testing.T) {
 		})
 		require.Equal(t, 300*time.Millisecond, s.MaxScheduleTime)
 	})
+
+	t.Run("negative MaxScheduleTime falls back to ScheduleInterval/2", func(t *testing.T) {
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: 100 * time.Millisecond,
+			RetryInterval:    100 * time.Millisecond,
+			MaxScheduleTime:  -1 * time.Millisecond,
+		})
+		require.Equal(t, 50*time.Millisecond, s.MaxScheduleTime)
+	})
+
+	t.Run("negative QUEUE_SCHEDULER_MAX_SCHEDULE_TIME env var falls back to ScheduleInterval/2", func(t *testing.T) {
+		t.Setenv("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME", "-100ms")
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: 100 * time.Millisecond,
+			RetryInterval:    100 * time.Millisecond,
+		})
+		require.Equal(t, 50*time.Millisecond, s.MaxScheduleTime)
+	})
 }
 
 // countingQueue is a mock Queue that returns up to limit batches and tracks

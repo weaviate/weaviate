@@ -107,14 +107,22 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		opts.RetryInterval = ri
 	}
 
-	if opts.MaxScheduleTime == 0 {
+	if opts.MaxScheduleTime <= 0 {
 		var mt time.Duration
+
+		if opts.MaxScheduleTime < 0 {
+			opts.Logger.WithField("value", opts.MaxScheduleTime).Warn("MaxScheduleTime must be positive, using default")
+		}
+
 		v := os.Getenv("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME")
 
 		if v != "" {
 			mt, err = time.ParseDuration(v)
 			if err != nil {
 				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_MAX_SCHEDULE_TIME, using default")
+			} else if mt <= 0 {
+				opts.Logger.WithField("value", v).Warn("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME must be positive, using default")
+				mt = 0
 			}
 		}
 
