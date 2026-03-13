@@ -12,15 +12,19 @@
 package storobj
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+var jsonNull = []byte("null")
 
 // ExportFields contains export-ready data extracted directly from the binary
 // storage format. This avoids the full *Object deserialization round-trip
@@ -94,7 +98,7 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 		}
 		// json.Marshal(nil) produces "null" on the write path; match the original
 		// export behavior that skips nil properties.
-		if propsLength != 4 || string(propsCopy) != "null" {
+		if !bytes.Equal(propsCopy, jsonNull) {
 			properties = propsCopy
 		}
 	}
@@ -161,19 +165,24 @@ func targetVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 		return nil, nil
 	}
 
+	// Sort keys for deterministic JSON output.
+	names := make([]string, 0, len(tvOffsets))
+	for name := range tvOffsets {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
 	// Estimate ~10 bytes per float + key/bracket overhead.
 	buf := make([]byte, 0, targetVectorsSegmentLength*3)
 	buf = append(buf, '{')
-	first := true
-	for name, offset := range tvOffsets {
-		if !first {
+	for i, name := range names {
+		if i > 0 {
 			buf = append(buf, ',')
 		}
-		first = false
 
 		buf = appendJSONStringKey(buf, name)
 
-		rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+		rw.MoveBufferToAbsolutePosition(pos + uint64(tvOffsets[name]))
 		vecLen := rw.ReadUint16()
 		vecBytes := rw.ReadBytesFromBuffer(uint64(vecLen) * byteops.Uint32Len)
 
@@ -209,23 +218,28 @@ func multiVectorsJSONFromBinary(rw *byteops.ReadWriter) ([]byte, error) {
 		return nil, nil
 	}
 
+	// Sort keys for deterministic JSON output.
+	names := make([]string, 0, len(mvOffsets))
+	for name := range mvOffsets {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
 	buf := make([]byte, 0, multiVectorsSegmentLength*3)
 	buf = append(buf, '{')
-	first := true
-	for name, offset := range mvOffsets {
-		if !first {
+	for i, name := range names {
+		if i > 0 {
 			buf = append(buf, ',')
 		}
-		first = false
 
 		buf = appendJSONStringKey(buf, name)
 
-		rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+		rw.MoveBufferToAbsolutePosition(pos + uint64(mvOffsets[name]))
 		numVecs := rw.ReadUint32()
 
 		buf = append(buf, '[')
-		for i := range int(numVecs) {
-			if i > 0 {
+		for j := range int(numVecs) {
+			if j > 0 {
 				buf = append(buf, ',')
 			}
 			vecLen := rw.ReadUint16()
