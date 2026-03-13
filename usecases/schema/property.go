@@ -172,8 +172,21 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return fmt.Errorf("vector index name cannot be empty")
 	}
 
-	// Implement here collection's vector index drop
-	return nil
+	if len(class.VectorConfig) == 0 {
+		return fmt.Errorf("class %q has no named vector configurations", className)
+	}
+
+	if _, exists := class.VectorConfig[vectorIndexName]; !exists {
+		return fmt.Errorf("vector index %q not found in class %q: %w", vectorIndexName, className, ErrNotFound)
+	}
+
+	// Remove the vector config from the class and persist via RAFT.
+	// The executor's UpdateClass will detect the removed config and
+	// call the migrator to drop the vector index from disk.
+	delete(class.VectorConfig, vectorIndexName)
+
+	_, err := h.schemaManager.UpdateClass(ctx, class, nil)
+	return err
 }
 
 // DeleteClassProperty from existing Schema

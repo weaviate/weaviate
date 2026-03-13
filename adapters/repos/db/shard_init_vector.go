@@ -399,3 +399,26 @@ func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
 		s.vectorIndexes[targetVector] = index
 	}
 }
+
+// DropVectorIndex shuts down and removes the named vector index and its queue
+// from this shard, deleting associated files from disk.
+func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	if queue, ok := s.queues[targetVector]; ok && queue != nil {
+		if err := queue.Drop(ctx); err != nil {
+			return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+		}
+		delete(s.queues, targetVector)
+	}
+
+	if index, ok := s.vectorIndexes[targetVector]; ok && index != nil {
+		if err := index.Drop(ctx, false); err != nil {
+			return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+		}
+		delete(s.vectorIndexes, targetVector)
+	}
+
+	return nil
+}

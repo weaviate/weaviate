@@ -297,6 +297,13 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
+func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	if !l.isLoaded() {
+		return nil
+	}
+	return l.shard.DropVectorIndex(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err

@@ -665,6 +665,53 @@ func (_c *MockShardLike_Dimensions_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// DropVectorIndex provides a mock function with given fields: ctx, targetVector
+func (_m *MockShardLike) DropVectorIndex(ctx context.Context, targetVector string) error {
+	ret := _m.Called(ctx, targetVector)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DropVectorIndex")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, targetVector)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_DropVectorIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DropVectorIndex'
+type MockShardLike_DropVectorIndex_Call struct {
+	*mock.Call
+}
+
+// DropVectorIndex is a helper method to define mock.On call
+//   - ctx context.Context
+//   - targetVector string
+func (_e *MockShardLike_Expecter) DropVectorIndex(ctx interface{}, targetVector interface{}) *MockShardLike_DropVectorIndex_Call {
+	return &MockShardLike_DropVectorIndex_Call{Call: _e.mock.On("DropVectorIndex", ctx, targetVector)}
+}
+
+func (_c *MockShardLike_DropVectorIndex_Call) Run(run func(ctx context.Context, targetVector string)) *MockShardLike_DropVectorIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_DropVectorIndex_Call) Return(_a0 error) *MockShardLike_DropVectorIndex_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_DropVectorIndex_Call) RunAndReturn(run func(context.Context, string) error) *MockShardLike_DropVectorIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Exists provides a mock function with given fields: ctx, id
 func (_m *MockShardLike) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	ret := _m.Called(ctx, id)
