@@ -147,6 +147,19 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("%w: backend is required", ErrExportValidation)
 	}
 
+	classes, err := s.resolveClasses(ctx, include, exclude)
+	if err != nil {
+		return nil, fmt.Errorf("resolve classes: %w", err)
+	}
+
+	if len(classes) == 0 {
+		return nil, fmt.Errorf("no classes selected for export")
+	}
+
+	if err := s.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
+		return nil, fmt.Errorf("authorization failed: %w", err)
+	}
+
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
@@ -158,19 +171,6 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 	if err := s.checkIfExportExists(ctx, backendStore, id, bucket, path); err != nil {
 		return nil, err
-	}
-
-	classes, err := s.resolveClasses(ctx, include, exclude)
-	if err != nil {
-		return nil, fmt.Errorf("%w: resolve classes: %w", ErrExportValidation, err)
-	}
-
-	if len(classes) == 0 {
-		return nil, fmt.Errorf("%w: no classes selected for export", ErrExportValidation)
-	}
-
-	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
-		return nil, fmt.Errorf("authorization failed: %w", err)
 	}
 
 	now := strfmt.DateTime(time.Now().UTC())
@@ -252,16 +252,25 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
+		if authErr := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups("*")...); authErr != nil {
+			return nil, fmt.Errorf("authorization failed: %w", authErr)
+		}
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
+		if authErr := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups("*")...); authErr != nil {
+			return nil, fmt.Errorf("authorization failed: %w", authErr)
+		}
 		return nil, fmt.Errorf("initialize backend: %w", err)
 	}
 
 	// The export plan is always written before the export starts.
 	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if planErr != nil {
+		if authErr := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups("*")...); authErr != nil {
+			return nil, fmt.Errorf("authorization failed: %w", authErr)
+		}
 		if errors.As(planErr, &backup.ErrNotFound{}) {
 			return nil, ErrExportNotFound
 		}
@@ -341,10 +350,16 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
+		if authErr := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups("*")...); authErr != nil {
+			return fmt.Errorf("authorization failed: %w", authErr)
+		}
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
+		if authErr := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups("*")...); authErr != nil {
+			return fmt.Errorf("authorization failed: %w", authErr)
+		}
 		return fmt.Errorf("initialize backend: %w", err)
 	}
 
@@ -352,6 +367,9 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	// primary source of truth for authorization and node assignments.
 	plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
 	if err != nil {
+		if authErr := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups("*")...); authErr != nil {
+			return fmt.Errorf("authorization failed: %w", authErr)
+		}
 		if errors.As(err, &backup.ErrNotFound{}) {
 			return ErrExportNotFound
 		}
