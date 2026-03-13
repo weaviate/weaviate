@@ -557,7 +557,8 @@ func newTestPipeline(t *testing.T, uploadErr error) (*rangePipeline, *io.PipeRea
 	pr, pw := io.Pipe()
 	uploadDone := make(chan error, 1)
 	go func() {
-		io.Copy(io.Discard, pr)
+		_, err := io.Copy(io.Discard, pr)
+		pr.CloseWithError(err)
 		uploadDone <- uploadErr
 	}()
 	writer, err := NewParquetWriter(pw)
@@ -621,7 +622,8 @@ type failingWriteBackend struct {
 }
 
 func (b *failingWriteBackend) Write(_ context.Context, _, _, _, _ string, r backup.ReadCloserWithError) (int64, error) {
-	io.ReadAll(r)
+	_, err := io.ReadAll(r)
+	r.CloseWithError(err)
 	return 0, b.writeErr
 }
 
