@@ -229,8 +229,9 @@ func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex in
 
 	uploadDone := make(chan error, 1)
 	enterrors.GoWrapper(func() {
-		_, err := cfg.backend.Write(ctx, cfg.req.ID, fileName, cfg.req.Bucket, cfg.req.Path, pr)
-		uploadDone <- err
+		var err error
+		defer func() { uploadDone <- err }()
+		_, err = cfg.backend.Write(ctx, cfg.req.ID, fileName, cfg.req.Bucket, cfg.req.Path, pr)
 	}, cfg.logger)
 
 	writer, err := NewParquetWriter(pw)
