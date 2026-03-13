@@ -102,6 +102,16 @@ func (ns *NodeStatus) SetShardProgress(className, shardName string, status expor
 	sp.ObjectsExported = objects
 	sp.Error = errMsg
 	sp.SkipReason = skipReason
+
+	if status == export.ShardFailed {
+		ns.Status = export.Failed
+		msg := fmt.Sprintf("failed to export class %s shard %s: %s", className, shardName, errMsg)
+		if ns.Error != "" {
+			ns.Error += "; " + msg
+		} else {
+			ns.Error = msg
+		}
+	}
 }
 
 // SetFailed marks the node export as failed in a thread-safe manner.
@@ -109,7 +119,12 @@ func (ns *NodeStatus) SetFailed(className string, err error) {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
 	ns.Status = export.Failed
-	ns.Error = fmt.Sprintf("failed to export class %s: %v", className, err)
+	msg := fmt.Sprintf("failed to export class %s: %v", className, err)
+	if ns.Error != "" {
+		ns.Error += "; " + msg
+	} else {
+		ns.Error = msg
+	}
 }
 
 // SetSuccess marks the node export as succeeded in a thread-safe manner.
