@@ -864,6 +864,9 @@ func (f *fakeMetrics) MergeObjectInc() {
 func (f *fakeMetrics) MergeObjectDec() {
 }
 
+func (f *fakeMetrics) MergeObjectVectorPresence(hasVector bool) {
+}
+
 func (f *fakeMetrics) DeleteObjectInc() {
 }
 
