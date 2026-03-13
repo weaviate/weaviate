@@ -752,9 +752,7 @@ func (p *Participant) startNodeStatusWriter(
 			case <-ticker.C:
 				flush()
 				if failedSibling, siblingErr, failed := p.siblingHasFailed(exportCtx, backend, req); failed {
-					nodeStatus.mu.Lock()
-					nodeStatus.Error = fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr)
-					nodeStatus.mu.Unlock()
+					nodeStatus.SetNodeError(fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr))
 
 					p.mu.Lock()
 					if p.cancelExport != nil {
