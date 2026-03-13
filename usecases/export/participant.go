@@ -211,10 +211,10 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 // If the export is still in the prepared state, the reservation is released.
 // If the export has already been committed, the running export is canceled.
 func (p *Participant) Abort(exportID string) {
+	var wasRunning bool
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.activeExport != exportID {
+		p.mu.Unlock()
 		return
 	}
 
@@ -225,12 +225,18 @@ func (p *Participant) Abort(exportID string) {
 		// that concurrent or repeated Abort calls still take this branch
 		// instead of the "prepared" branch below.
 		p.cancelExport()
+		wasRunning = true
+	} else {
+		// Still in prepared state — full cleanup.
+		p.clearAndRelease()
+	}
+	p.mu.Unlock()
+
+	if wasRunning {
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", exportID).
 			Info("participant aborted running export")
 	} else {
-		// Still in prepared state — full cleanup.
-		p.clearAndRelease()
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", exportID).
 			Info("participant aborted export reservation")
