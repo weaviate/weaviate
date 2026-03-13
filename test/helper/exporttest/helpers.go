@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/export"
@@ -23,6 +24,11 @@ import (
 )
 
 func CreateExport(t *testing.T, backend, exportID string, include []string) (*export.ExportCreateOK, error) {
+	t.Helper()
+	return CreateExportWithAuth(t, backend, exportID, include, nil)
+}
+
+func CreateExportWithAuth(t *testing.T, backend, exportID string, include []string, auth runtime.ClientAuthInfoWriter) (*export.ExportCreateOK, error) {
 	t.Helper()
 	fileFormat := models.ExportCreateRequestFileFormatParquet
 	params := export.NewExportCreateParams().
@@ -33,24 +39,34 @@ func CreateExport(t *testing.T, backend, exportID string, include []string) (*ex
 			FileFormat: &fileFormat,
 		})
 	t.Logf("Creating export with ID: %s, backend: %s, include: %v", exportID, backend, include)
-	return helper.Client(t).Export.ExportCreate(params, nil)
+	return helper.Client(t).Export.ExportCreate(params, auth)
 }
 
 func ExportStatus(t *testing.T, backend, exportID string) (*export.ExportStatusOK, error) {
 	t.Helper()
+	return ExportStatusWithAuth(t, backend, exportID, nil)
+}
+
+func ExportStatusWithAuth(t *testing.T, backend, exportID string, auth runtime.ClientAuthInfoWriter) (*export.ExportStatusOK, error) {
+	t.Helper()
 	params := export.NewExportStatusParams().
 		WithBackend(backend).
 		WithID(exportID)
-	return helper.Client(t).Export.ExportStatus(params, nil)
+	return helper.Client(t).Export.ExportStatus(params, auth)
 }
 
 func CancelExport(t *testing.T, backend, exportID string) (*export.ExportCancelNoContent, error) {
+	t.Helper()
+	return CancelExportWithAuth(t, backend, exportID, nil)
+}
+
+func CancelExportWithAuth(t *testing.T, backend, exportID string, auth runtime.ClientAuthInfoWriter) (*export.ExportCancelNoContent, error) {
 	t.Helper()
 	params := export.NewExportCancelParams().
 		WithBackend(backend).
 		WithID(exportID)
 	t.Logf("Cancelling export with ID: %s, backend: %s", exportID, backend)
-	return helper.Client(t).Export.ExportCancel(params, nil)
+	return helper.Client(t).Export.ExportCancel(params, auth)
 }
 
 func ExpectExportEventuallySucceeded(t *testing.T, backend, exportID string) {

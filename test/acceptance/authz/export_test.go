@@ -16,14 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/client/export"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/exporttest"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -81,14 +80,14 @@ func TestExportRBAC(t *testing.T) {
 		defer helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
 
 		// Create export as custom user — should succeed
-		createResp, err := createExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(customKey))
+		createResp, err := exporttest.CreateExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(customKey))
 		require.NoError(t, err)
 		require.NotNil(t, createResp.Payload)
 		require.Equal(t, "STARTED", createResp.Payload.Status)
 
 		// Status as custom user — should succeed
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			statusResp, err := exportStatusWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
+			statusResp, err := exporttest.ExportStatusWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
 			require.NoError(c, err)
 			require.NotNil(c, statusResp.Payload)
 			status := statusResp.Payload.Status
@@ -97,7 +96,7 @@ func TestExportRBAC(t *testing.T) {
 		}, 60*time.Second, 500*time.Millisecond)
 
 		// Cancel — may get 409 if already finished, both are acceptable
-		_, cancelErr := cancelExportWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
+		_, cancelErr := exporttest.CancelExportWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
 		if cancelErr != nil {
 			require.Contains(t, cancelErr.Error(), "409",
 				"expected either success or 409, got: %v", cancelErr)
@@ -116,7 +115,7 @@ func TestExportRBAC(t *testing.T) {
 		defer helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 
 		// Custom user has no roles — create export should get 403
-		_, err := createExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(customKey))
+		_, err := exporttest.CreateExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(customKey))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "403")
 	})
@@ -132,18 +131,18 @@ func TestExportRBAC(t *testing.T) {
 		}, adminKey)
 		defer helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 
-		_, err := createExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(adminKey))
+		_, err := exporttest.CreateExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(adminKey))
 		require.NoError(t, err)
 
 		// Wait for export to finish
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			resp, err := exportStatusWithAuth(t, backend, exportID, helper.CreateAuth(adminKey))
+			resp, err := exporttest.ExportStatusWithAuth(t, backend, exportID, helper.CreateAuth(adminKey))
 			require.NoError(c, err)
 			require.Equal(c, "SUCCESS", resp.Payload.Status)
 		}, 60*time.Second, 500*time.Millisecond)
 
 		// Status as unauthorized user — should get 403
-		_, err = exportStatusWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
+		_, err = exporttest.ExportStatusWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "403")
 	})
@@ -159,11 +158,11 @@ func TestExportRBAC(t *testing.T) {
 		}, adminKey)
 		defer helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 
-		_, err := createExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(adminKey))
+		_, err := exporttest.CreateExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(adminKey))
 		require.NoError(t, err)
 
 		// Cancel as unauthorized user — should get 403
-		_, err = cancelExportWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
+		_, err = exporttest.CancelExportWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "403")
 	})
@@ -180,12 +179,12 @@ func TestExportRBAC(t *testing.T) {
 		}, adminKey)
 		defer helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 
-		_, err := createExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(adminKey))
+		_, err := exporttest.CreateExportWithAuth(t, backend, exportID, []string{className}, helper.CreateAuth(adminKey))
 		require.NoError(t, err)
 
 		// Wait for export to finish
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			resp, err := exportStatusWithAuth(t, backend, exportID, helper.CreateAuth(adminKey))
+			resp, err := exporttest.ExportStatusWithAuth(t, backend, exportID, helper.CreateAuth(adminKey))
 			require.NoError(c, err)
 			require.Equal(c, "SUCCESS", resp.Payload.Status)
 		}, 60*time.Second, 500*time.Millisecond)
@@ -203,12 +202,12 @@ func TestExportRBAC(t *testing.T) {
 		defer helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
 
 		// Status should work with manage_backups
-		statusResp, err := exportStatusWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
+		statusResp, err := exporttest.ExportStatusWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
 		require.NoError(t, err)
 		require.Equal(t, "SUCCESS", statusResp.Payload.Status)
 
 		// Cancel on finished export -> 409 (not 403), confirming auth passed
-		_, err = cancelExportWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
+		_, err = exporttest.CancelExportWithAuth(t, backend, exportID, helper.CreateAuth(customKey))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "409")
 	})
@@ -245,45 +244,13 @@ func TestExportRBAC(t *testing.T) {
 		defer helper.RevokeRoleFromUser(t, adminKey, roleName, customUser)
 
 		// Export both classes — should be forbidden because user lacks permission on classB
-		_, err := createExportWithAuth(t, backend, "export-cross-both", []string{classA, classB}, helper.CreateAuth(customKey))
+		_, err := exporttest.CreateExportWithAuth(t, backend, "export-cross-both", []string{classA, classB}, helper.CreateAuth(customKey))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "403")
 
 		// Export only classA — should succeed
-		createResp, err := createExportWithAuth(t, backend, "export-cross-a-only", []string{classA}, helper.CreateAuth(customKey))
+		createResp, err := exporttest.CreateExportWithAuth(t, backend, "export-cross-a-only", []string{classA}, helper.CreateAuth(customKey))
 		require.NoError(t, err)
 		require.NotNil(t, createResp.Payload)
 	})
-}
-
-// createExportWithAuth creates an export with authentication.
-func createExportWithAuth(t *testing.T, backend, exportID string, include []string, auth runtime.ClientAuthInfoWriter) (*export.ExportCreateOK, error) {
-	t.Helper()
-	fileFormat := models.ExportCreateRequestFileFormatParquet
-	params := export.NewExportCreateParams().
-		WithBackend(backend).
-		WithBody(&models.ExportCreateRequest{
-			ID:         &exportID,
-			Include:    include,
-			FileFormat: &fileFormat,
-		})
-	return helper.Client(t).Export.ExportCreate(params, auth)
-}
-
-// exportStatusWithAuth gets export status with authentication.
-func exportStatusWithAuth(t *testing.T, backend, exportID string, auth runtime.ClientAuthInfoWriter) (*export.ExportStatusOK, error) {
-	t.Helper()
-	params := export.NewExportStatusParams().
-		WithBackend(backend).
-		WithID(exportID)
-	return helper.Client(t).Export.ExportStatus(params, auth)
-}
-
-// cancelExportWithAuth cancels an export with authentication.
-func cancelExportWithAuth(t *testing.T, backend, exportID string, auth runtime.ClientAuthInfoWriter) (*export.ExportCancelNoContent, error) {
-	t.Helper()
-	params := export.NewExportCancelParams().
-		WithBackend(backend).
-		WithID(exportID)
-	return helper.Client(t).Export.ExportCancel(params, auth)
 }

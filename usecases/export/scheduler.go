@@ -149,11 +149,11 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 	classes, err := s.resolveClasses(ctx, include, exclude)
 	if err != nil {
-		return nil, fmt.Errorf("resolve classes: %w", err)
+		return nil, fmt.Errorf("%w: resolve classes: %w", ErrExportValidation, err)
 	}
 
 	if len(classes) == 0 {
-		return nil, fmt.Errorf("no classes selected for export")
+		return nil, fmt.Errorf("%w: no classes selected for export", ErrExportValidation)
 	}
 
 	if err := s.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
