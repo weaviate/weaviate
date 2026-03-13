@@ -68,7 +68,7 @@ const (
 	// minObjectsPerRange is the minimum number of objects each key range should
 	// contain. When the bucket has fewer objects than parallelism * this value,
 	// we reduce the number of ranges so that each range has meaningful work.
-	minObjectsPerRange = 10_000
+	minObjectsPerRange = 50_000
 
 	// maxObjectsPerRange bounds the maximum objects per range, ensuring each
 	// parquet file stays a manageable size for upload and retry. With a typical

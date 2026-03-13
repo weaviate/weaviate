@@ -132,17 +132,17 @@ func TestComputeRanges(t *testing.T) {
 		},
 		{
 			name:        "splitting with two ranges",
-			objects:     20_000,
+			objects:     100_000,
 			parallelism: runtime.GOMAXPROCS(0) * 2,
 			minRanges:   1,
 			maxRanges:   2,
 		},
 		{
 			name:        "multiple ranges from large bucket",
-			objects:     50_000,
+			objects:     250_000,
 			parallelism: runtime.GOMAXPROCS(0) * 2,
 			minRanges:   2,
-			maxRanges:   50_000 / minObjectsPerRange,
+			maxRanges:   250_000 / minObjectsPerRange,
 		},
 	}
 
@@ -203,15 +203,15 @@ func TestComputeNumRanges(t *testing.T) {
 		},
 		{
 			name:        "parallelism capped by minObjectsPerRange",
-			count:       30_000,
+			count:       150_000,
 			parallelism: 16,
-			expected:    3, // 30k / 10k = 3
+			expected:    3, // 150k / 50k = 3
 		},
 		{
 			name:        "parallelism is the limit",
-			count:       200_000,
+			count:       1_000_000,
 			parallelism: 4,
-			expected:    4, // 200k / 10k = 20, but parallelism caps at 4
+			expected:    4, // 1M / 50k = 20, but parallelism caps at 4
 		},
 		{
 			name:        "maxObjectsPerRange forces more ranges than parallelism",
