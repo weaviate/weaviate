@@ -35,8 +35,8 @@ type Server struct {
 }
 
 const (
-	READ_BUFFER_SIZE  = 1 << 20 // 1 MB
-	WRITE_BUFFER_SIZE = 1 << 20 // 1 MB
+	READ_BUFFER_SIZE  = 1 * 1024 * 1024 // 1 MB
+	WRITE_BUFFER_SIZE = 1 * 1024 * 1024 // 1 MB
 )
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
