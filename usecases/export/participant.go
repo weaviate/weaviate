@@ -136,6 +136,13 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		p.mu.Lock()
 		defer func() {
 			if errRet != nil {
+				// clearAndRelease is intentionally unconditional here. If
+				// Abort+Prepare for a different export raced with the backend
+				// I/O above, activeExport now belongs to that new export and
+				// clearAndRelease will tear it down. This is acceptable:
+				// concurrent Prepare/Commit/Abort for different exports is not
+				// a supported sequence — only one export slot exists, so the
+				// conflicting request should fail too.
 				p.clearAndRelease()
 			}
 			p.mu.Unlock()
