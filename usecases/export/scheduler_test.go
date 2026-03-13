@@ -49,11 +49,16 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 		assert.Equal(t, []string{"Article", "Product"}, classes)
 	})
 
-	t.Run("include nonexistent", func(t *testing.T) {
-		_, err := s.resolveClasses(ctx, []string{"DoesNotExist"}, nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "DoesNotExist")
-		assert.Contains(t, err.Error(), "does not exist")
+	t.Run("include nonexistent silently ignored", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, []string{"DoesNotExist"}, nil)
+		require.NoError(t, err)
+		assert.Empty(t, classes)
+	})
+
+	t.Run("include mix of existent and nonexistent", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, []string{"Article", "DoesNotExist"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Article"}, classes)
 	})
 
 	t.Run("exclude valid", func(t *testing.T) {
@@ -62,11 +67,10 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 		assert.Equal(t, []string{"Article", "Author"}, classes)
 	})
 
-	t.Run("exclude nonexistent", func(t *testing.T) {
-		_, err := s.resolveClasses(ctx, nil, []string{"DoesNotExist"})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "DoesNotExist")
-		assert.Contains(t, err.Error(), "does not exist")
+	t.Run("exclude nonexistent silently ignored", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, nil, []string{"DoesNotExist"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Article", "Product", "Author"}, classes)
 	})
 
 	t.Run("both include and exclude", func(t *testing.T) {
