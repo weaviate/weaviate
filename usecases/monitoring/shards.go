@@ -31,6 +31,16 @@ func (pm *PrometheusMetrics) FinishLoadingShard() {
 	pm.ShardsLoaded.Inc()
 }
 
+// Revert shard from loading back to unloaded (when loading fails)
+func (pm *PrometheusMetrics) FailLoadingShard() {
+	if pm == nil {
+		return
+	}
+
+	pm.ShardsLoading.Dec()
+	pm.ShardsUnloaded.Inc()
+}
+
 // Move the shard from loaded to in progress
 func (pm *PrometheusMetrics) StartUnloadingShard() {
 	if pm == nil {
@@ -58,4 +68,31 @@ func (pm *PrometheusMetrics) NewUnloadedshard() {
 	}
 
 	pm.ShardsUnloaded.Inc()
+}
+
+// Register a new shard that is immediately loaded (for non-lazy loading path)
+func (pm *PrometheusMetrics) NewLoadedShard() {
+	if pm == nil {
+		return
+	}
+
+	pm.ShardsLoaded.Inc()
+}
+
+// Unregister a loaded shard (when it's deleted, not unloaded)
+func (pm *PrometheusMetrics) DeleteLoadedShard() {
+	if pm == nil {
+		return
+	}
+
+	pm.ShardsLoaded.Dec()
+}
+
+// Unregister an unloaded shard (when it's deleted without ever being loaded)
+func (pm *PrometheusMetrics) DeleteUnloadedShard() {
+	if pm == nil {
+		return
+	}
+
+	pm.ShardsUnloaded.Dec()
 }

@@ -79,6 +79,13 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
+	// Track shard unloading: loaded -> unloading
+	// Only update metrics if the shard was properly registered (prevents double-counting
+	// during partial initialization cleanup)
+	if s.metricsRegistered.Load() {
+		s.metrics.baseMetrics.StartUnloadingShard()
+	}
+
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
@@ -155,6 +162,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()
 		ec.AddWrapf(err, "stop dynamic vector index db")
+	}
+
+	// Track shard unloaded: unloading -> unloaded
+	if s.metricsRegistered.Load() {
+		s.metrics.baseMetrics.FinishUnloadingShard()
 	}
 
 	return ec.ToError()
