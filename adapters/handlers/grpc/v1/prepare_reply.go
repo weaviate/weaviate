@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -98,7 +99,43 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.GenerativeGroupedResults = generativeGroupedResults
 		out.Results = objects
 	}
+	if searchParams.AdditionalProperties.Profile {
+		out.Profile = r.extractQueryProfile(res)
+	}
 	return out, nil
+}
+
+// extractQueryProfile converts the raw profile data from the first search result's
+// additional properties into a [pb.QueryProfile] for the gRPC response.
+func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
+	if len(res) == 0 {
+		return nil
+	}
+	asMap, ok := res[0].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	additional, ok := asMap["_additional"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	profiles, ok := additional["profileRaw"].([]helpers.ShardProfile)
+	if !ok {
+		return nil
+	}
+	shards := make([]*pb.ShardProfile, len(profiles))
+	for i, p := range profiles {
+		searches := make(map[string]*pb.SearchProfile, len(p.Searches))
+		for searchType, sp := range p.Searches {
+			searches[searchType] = &pb.SearchProfile{Details: sp.Details}
+		}
+		shards[i] = &pb.ShardProfile{
+			Name:     p.Name,
+			Node:     p.Node,
+			Searches: searches,
+		}
+	}
+	return &pb.QueryProfile{Shards: shards}
 }
 
 func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {

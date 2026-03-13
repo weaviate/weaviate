@@ -22,6 +22,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -192,6 +193,10 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	if params.AdditionalProperties.Profile {
+		ctx = helpers.InitProfileCollector(ctx)
+	}
+
 	var err error
 	var results [][]*search.Result
 	var weights []float64
@@ -430,6 +435,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 	if len(res) <= origParams.Pagination.Offset {
 		out = []search.Result{}
+	}
+
+	if origParams.AdditionalProperties.Profile {
+		out = helpers.AttachProfileToResults(ctx, out)
 	}
 
 	if origParams.GroupBy != nil {
