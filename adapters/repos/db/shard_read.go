@@ -368,7 +368,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 	if filters == nil {
 		objs, err := s.ObjectList(ctx, limit, sort,
-			cursor, additional, s.index.Config.ClassName)
+			cursor, additional, s.index.Config.ClassName, properties)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
@@ -594,7 +594,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	return objs, distCombined, nil
 }
 
-func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, properties []string) ([]*storobj.Object, error) {
 	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
 		beforeSort := time.Now()
@@ -610,18 +610,41 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
+		return storobj.ObjectsByDocID(bucket, docIDs, additional, propertiesWithSort(properties, sort), s.index.logger)
 	}
 
 	if cursor == nil {
 		cursor = &filters.Cursor{After: "", Limit: limit}
 	}
-	return s.cursorObjectList(ctx, cursor, additional, className)
+	return s.cursorObjectList(ctx, cursor, additional, className, properties)
+}
+
+// propertiesWithSort ensures sort property names are included in the
+// extraction list so that cross-shard merge-sorting can access them.
+func propertiesWithSort(properties []string, sort []filters.Sort) []string {
+	if properties == nil || len(sort) == 0 {
+		return properties
+	}
+	existing := make(map[string]struct{}, len(properties))
+	for _, p := range properties {
+		existing[p] = struct{}{}
+	}
+	merged := properties
+	for _, s := range sort {
+		for _, p := range s.Path {
+			if _, ok := existing[p]; !ok {
+				merged = append(merged, p)
+				existing[p] = struct{}{}
+			}
+		}
+	}
+	return merged
 }
 
 func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
+	properties []string,
 ) ([]*storobj.Object, error) {
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
@@ -641,11 +664,22 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 		}
 	}
 
+	var props *storobj.PropertyExtraction
+	if properties != nil {
+		propertyPaths := make([][]string, len(properties))
+		for j := range properties {
+			propertyPaths[j] = []string{properties[j]}
+		}
+		props = &storobj.PropertyExtraction{
+			PropertyPaths: propertyPaths,
+		}
+	}
+
 	i := 0
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinary(val)
+		obj, err := storobj.FromBinaryOptional(val, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}
