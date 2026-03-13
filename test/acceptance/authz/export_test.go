@@ -43,7 +43,7 @@ func TestExportRBAC(t *testing.T) {
 		WithRBAC().WithRbacRoots(adminUser).WithDbUsers().
 		WithBackendS3("bucket", "eu-west-1").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %v", err)
