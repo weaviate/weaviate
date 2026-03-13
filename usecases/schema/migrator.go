@@ -55,6 +55,8 @@ type Migrator interface {
 	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
 	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error
 
+	GetVectorIndexStats(ctx context.Context, className, targetVector string) (models.VectorIndexStatsList, error)
+
 	UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error
 	ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, className string,

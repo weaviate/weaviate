@@ -3336,3 +3336,19 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 
 	return nil
 }
+
+// GetVectorIndexStats returns per-shard vector index stats for the given target vector.
+func (i *Index) GetVectorIndexStats(targetVector string) models.VectorIndexStatsList {
+	var result models.VectorIndexStatsList
+
+	i.ForEachShard(func(name string, shard ShardLike) error {
+		stats := shard.GetVectorIndexStats(targetVector)
+		if stats != nil {
+			stats.Shard = name
+			result = append(result, stats)
+		}
+		return nil
+	})
+
+	return result
+}

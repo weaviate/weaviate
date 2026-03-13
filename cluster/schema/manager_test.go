@@ -335,3 +335,7 @@ type MockShardReader struct {
 func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
 }
+
+func (m *MockShardReader) GetVectorIndexStats(class, targetVector string) (models.VectorIndexStatsList, error) {
+	return nil, nil
+}

@@ -101,8 +101,9 @@ func Test_DynamicEF(t *testing.T) {
 			}, test.config, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 			require.Nil(t, err)
 
-			actualEF := index.searchTimeEF(test.limit)
+			actualEF, adaptive := index.searchTimeEF(test.limit)
 			assert.Equal(t, test.expectedEf, actualEF)
+			assert.False(t, adaptive)
 
 			require.Nil(t, index.Drop(context.Background(), false))
 		})
