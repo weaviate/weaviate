@@ -98,15 +98,21 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 
 		p.preparedReq = req
 		p.abortTimer = time.AfterFunc(reservationTimeout, func() {
-			p.mu.Lock()
-			defer p.mu.Unlock()
+			wasSet := func() bool {
+				p.mu.Lock()
+				defer p.mu.Unlock()
 
-			if p.preparedReq == nil {
-				return // Already committed or aborted — no-op.
+				if p.preparedReq == nil {
+					return false // Already committed or aborted — no-op.
+				}
+				p.clearAndRelease()
+				return true
+			}()
+
+			if wasSet {
+				p.logger.WithField("export_id", req.ID).
+					Warn("export reservation timed out, auto-aborting")
 			}
-			p.logger.WithField("export_id", req.ID).
-				Warn("export reservation timed out, auto-aborting")
-			p.clearAndRelease()
 		})
 
 		return nil
