@@ -26,6 +26,8 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 		disk:     &SegmentGroup{segments: []Segment{}},
 		active:   newTestMemtableRoaringSet(nil),
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	expectedRefs := 0
 	assertWriterRefs := func() {
