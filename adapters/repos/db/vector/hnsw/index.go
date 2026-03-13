@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -198,14 +199,15 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector     atomic.Bool
-	muvera          atomic.Bool
-	muveraEncoder   *multivector.MuveraEncoder
-	docIDVectors    map[uint64][]uint64
-	vecIDcounter    uint64
-	maxDocID        uint64
-	MinMMapSize     int64
-	MaxWalReuseSize int64
+	multivector        atomic.Bool
+	muvera             atomic.Bool
+	muveraEncoder      *multivector.MuveraEncoder
+	muveraRescoreLimit *configRuntime.DynamicValue[int]
+	docIDVectors       map[uint64][]uint64
+	vecIDcounter       uint64
+	maxDocID           uint64
+	MinMMapSize        int64
+	MaxWalReuseSize    int64
 
 	fs common.FS
 }
@@ -365,11 +367,12 @@ func New(cfg Config, uc ent.UserConfig,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		docIDVectors:    make(map[uint64][]uint64),
-		muveraEncoder:   muveraEncoder,
-		MinMMapSize:     cfg.MinMMapSize,
-		MaxWalReuseSize: cfg.MaxWalReuseSize,
-		fs:              common.NewOSFS(),
+		docIDVectors:       make(map[uint64][]uint64),
+		muveraEncoder:      muveraEncoder,
+		muveraRescoreLimit: cfg.MuveraRescoreLimit,
+		MinMMapSize:        cfg.MinMMapSize,
+		MaxWalReuseSize:    cfg.MaxWalReuseSize,
+		fs:                 common.NewOSFS(),
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
 		"shard":        cfg.ShardName,

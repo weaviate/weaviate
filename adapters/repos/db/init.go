@@ -150,6 +150,7 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
+				MuveraRescoreLimit:                           db.config.MuveraRescoreLimit,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 				SPFreshEnabled:                               db.config.SPFreshEnabled,
 				AutoTenantActivation:                         schema.AutoTenantActivationEnabled(class),
