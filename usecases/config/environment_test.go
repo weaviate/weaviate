@@ -385,6 +385,159 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 	}
 }
 
+// TestClusterBasicAuthFromEnvVsConfigFile verifies that cluster BasicAuth credentials
+// loaded from a config file (conf.yaml) are preserved when the corresponding env vars
+// are absent, and that env vars correctly override them only when explicitly set.
+func TestClusterBasicAuthFromEnvVsConfigFile(t *testing.T) {
+	const (
+		yamlUsername = "yaml-user"
+		yamlPassword = "yaml-pass"
+	)
+
+	// unsetForTest ensures a env var is absent for the duration of the subtest and
+	// restores the original value (or absence) afterwards.
+	unsetForTest := func(t *testing.T, key string) {
+		t.Helper()
+		prev, existed := os.LookupEnv(key)
+		os.Unsetenv(key)
+		t.Cleanup(func() {
+			if existed {
+				os.Setenv(key, prev)
+			} else {
+				os.Unsetenv(key)
+			}
+		})
+	}
+
+	tests := []struct {
+		name             string
+		yamlUsername     string
+		yamlPassword     string
+		setupEnv         func(t *testing.T)
+		expectedUsername string
+		expectedPassword string
+		expectedEnabled  bool
+	}{
+		{
+			// Core regression case: one node in a multi-node cluster restarts while peers
+			// remain running. The restarted node has auth credentials in conf.yaml but the
+			// env vars are absent. Before the fix, auth was silently disabled on the
+			// restarted node while peers kept auth enabled, causing 401s on all inter-node
+			// calls until the entire cluster was restarted.
+			name:         "yaml credentials preserved when env vars are absent",
+			yamlUsername: yamlUsername,
+			yamlPassword: yamlPassword,
+			setupEnv: func(t *testing.T) {
+				unsetForTest(t, "CLUSTER_BASIC_AUTH_USERNAME")
+				unsetForTest(t, "CLUSTER_BASIC_AUTH_PASSWORD")
+			},
+			expectedUsername: yamlUsername,
+			expectedPassword: yamlPassword,
+			expectedEnabled:  true,
+		},
+		{
+			name:         "env vars override yaml credentials when both are set",
+			yamlUsername: yamlUsername,
+			yamlPassword: yamlPassword,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("CLUSTER_BASIC_AUTH_USERNAME", "env-user")
+				t.Setenv("CLUSTER_BASIC_AUTH_PASSWORD", "env-pass")
+			},
+			expectedUsername: "env-user",
+			expectedPassword: "env-pass",
+			expectedEnabled:  true,
+		},
+		{
+			// Explicitly setting an env var to "" is different from not setting it at all:
+			// the operator intentionally cleared the credential, so auth should be disabled.
+			name:         "env vars explicitly set to empty disable auth even with yaml credentials",
+			yamlUsername: yamlUsername,
+			yamlPassword: yamlPassword,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("CLUSTER_BASIC_AUTH_USERNAME", "")
+				t.Setenv("CLUSTER_BASIC_AUTH_PASSWORD", "")
+			},
+			expectedUsername: "",
+			expectedPassword: "",
+			expectedEnabled:  false,
+		},
+		{
+			name:         "only username env var set: env username wins, yaml password preserved",
+			yamlUsername: yamlUsername,
+			yamlPassword: yamlPassword,
+			setupEnv: func(t *testing.T) {
+				t.Setenv("CLUSTER_BASIC_AUTH_USERNAME", "env-user")
+				unsetForTest(t, "CLUSTER_BASIC_AUTH_PASSWORD")
+			},
+			expectedUsername: "env-user",
+			expectedPassword: yamlPassword,
+			expectedEnabled:  true,
+		},
+		{
+			name:         "only password env var set: yaml username preserved, env password wins",
+			yamlUsername: yamlUsername,
+			yamlPassword: yamlPassword,
+			setupEnv: func(t *testing.T) {
+				unsetForTest(t, "CLUSTER_BASIC_AUTH_USERNAME")
+				t.Setenv("CLUSTER_BASIC_AUTH_PASSWORD", "env-pass")
+			},
+			expectedUsername: yamlUsername,
+			expectedPassword: "env-pass",
+			expectedEnabled:  true,
+		},
+		{
+			name:         "no yaml credentials and no env vars: auth disabled",
+			yamlUsername: "",
+			yamlPassword: "",
+			setupEnv: func(t *testing.T) {
+				unsetForTest(t, "CLUSTER_BASIC_AUTH_USERNAME")
+				unsetForTest(t, "CLUSTER_BASIC_AUTH_PASSWORD")
+			},
+			expectedUsername: "",
+			expectedPassword: "",
+			expectedEnabled:  false,
+		},
+		{
+			name:         "no yaml credentials with env vars set: env credentials used",
+			yamlUsername: "",
+			yamlPassword: "",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("CLUSTER_BASIC_AUTH_USERNAME", "env-user")
+				t.Setenv("CLUSTER_BASIC_AUTH_PASSWORD", "env-pass")
+			},
+			expectedUsername: "env-user",
+			expectedPassword: "env-pass",
+			expectedEnabled:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setupEnv(t)
+
+			// Pre-populate Config.Cluster.AuthConfig to simulate what LoadConfig does
+			// after parsing conf.yaml: the YAML credentials are loaded into the struct,
+			// then FromEnv is called to apply any env var overrides.
+			cfg := Config{
+				Cluster: cluster.Config{
+					AuthConfig: cluster.AuthConfig{
+						BasicAuth: cluster.BasicAuth{
+							Username: tt.yamlUsername,
+							Password: tt.yamlPassword,
+						},
+					},
+				},
+			}
+
+			require.NoError(t, FromEnv(&cfg))
+
+			assert.Equal(t, tt.expectedUsername, cfg.Cluster.AuthConfig.BasicAuth.Username)
+			assert.Equal(t, tt.expectedPassword, cfg.Cluster.AuthConfig.BasicAuth.Password)
+			assert.Equal(t, tt.expectedEnabled, cfg.Cluster.AuthConfig.BasicAuth.Enabled())
+		})
+	}
+}
+
 func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 	t.Run("DefaultVectorDistanceMetricIsEmpty", func(t *testing.T) {
 		os.Clearenv()
