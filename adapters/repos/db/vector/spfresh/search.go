@@ -97,7 +97,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 			}
 
 			// skip duplicates
-			if visited.Visited(id) {
+			if visited.CheckAndVisit(id) {
 				continue
 			}
 
@@ -111,7 +111,6 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
 
-			visited.Visit(id)
 			q.Insert(id, dist)
 		}
 
