@@ -673,7 +673,7 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		require.NotNil(t, msg, "Message should not be nil")
 		require.NotNil(t, msg.GetResults(), "Results message should not be nil")
 
-		require.Equal(t, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions to update_data [[Domain: data, Collection: Paragraph, Tenant: *, Object: *]]", msg.GetResults().GetErrors()[0].Error)
+		require.Equal(t, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions to update_data [[Domain: data, Collection: Paragraph, Tenant: *]]", msg.GetResults().GetErrors()[0].Error)
 		require.Equal(t, objects[2].Uuid, msg.GetResults().GetErrors()[0].GetUuid(), "Errored object should be the third one")
 	})
 }

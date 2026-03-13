@@ -182,7 +182,7 @@ func CasbinAliases(collection, alias string) string {
 	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
-func CasbinData(collection, shard, object string) string {
+func CasbinData(collection, shard string) string {
 	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
@@ -190,13 +190,9 @@ func CasbinData(collection, shard, object string) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if object == "" {
-		object = "*"
-	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-	object = strings.ReplaceAll(object, "*", ".*")
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/.*", authorization.DataDomain, collection, shard)
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -299,17 +295,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
-		object := "*"
 		if permission.Data != nil && permission.Data.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Data.Collection)
 		}
 		if permission.Data != nil && permission.Data.Tenant != nil {
 			tenant = *permission.Data.Tenant
 		}
-		if permission.Data != nil && permission.Data.Object != nil {
-			object = *permission.Data.Object
-		}
-		resource = CasbinData(collection, tenant, object)
+		resource = CasbinData(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {
@@ -424,7 +416,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Data = &models.PermissionData{
 			Collection: &splits[2],
 			Tenant:     &splits[4],
-			Object:     &splits[6],
+			Object:     authorization.All,
 		}
 	case authorization.RolesDomain:
 		permission.Roles = &models.PermissionRoles{
