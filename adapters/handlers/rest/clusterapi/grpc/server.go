@@ -61,15 +61,15 @@ func NewServer(state *state.State, replicationServer ReplicationServer, options 
 	servicePrefixes := []string{"/clusterapi.FileReplicationService", "/clusterapi.ReplicationService"}
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
-		o = append(o, grpc.UnaryInterceptor(
+		o = append(o, grpc.ChainUnaryInterceptor(
 			multiServiceBasicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
-		o = append(o, grpc.StreamInterceptor(
+		o = append(o, grpc.ChainStreamInterceptor(
 			multiServiceBasicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
-	o = append(o, grpc.UnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
-	o = append(o, grpc.StreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 
 	s := grpc.NewServer(o...)
 
