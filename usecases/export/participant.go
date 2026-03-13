@@ -16,9 +16,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -439,10 +439,10 @@ func (p *Participant) submitJobs(
 	return nil
 }
 
-// submitShardJobs sets up the writer pipeline for a single shard, computes key
-// ranges, and submits scanJobs to jobCh. It spawns a cleanup goroutine
-// (tracked by cleanupWg) that waits for all range jobs to complete, flushes
-// the writer pipeline, and releases the shard.
+// submitShardJobs validates the shard, computes key ranges, and submits
+// scanJobs to jobCh. Each scanJob owns its own writer pipeline (one parquet
+// file per range). A cleanup goroutine (tracked by cleanupWg) waits for all
+// range jobs, aggregates counts, and releases the shard.
 func (p *Participant) submitShardJobs(
 	ctx context.Context,
 	jobCh chan<- scanJob,
@@ -457,8 +457,7 @@ func (p *Participant) submitShardJobs(
 	nodeStatus *NodeStatus,
 	parallelism int,
 ) error {
-	// Validate store/bucket before starting the writer pipeline so we can
-	// return early without needing to tear down goroutines.
+	// Validate store/bucket before submitting jobs.
 	store := shard.Store()
 	if store == nil {
 		release()
@@ -475,200 +474,84 @@ func (p *Participant) submitShardJobs(
 	}
 	ranges := computeRanges(bucket, parallelism)
 
-	pipeline, err := p.startShardWriter(ctx, backend, req, className, shardName, isMT, parallelism)
-	if err != nil {
-		release()
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
-		return fmt.Errorf("start shard writer %s/%s: %w", className, shardName, err)
+	writerCfg := &rangeWriterConfig{
+		backend:   backend,
+		req:       req,
+		className: className,
+		shardName: shardName,
+		isMT:      isMT,
+		logger:    p.logger,
 	}
 
-	// Thread-safe scan error collector for this shard. Only the first
-	// error is kept; subsequent calls are no-ops.
-	var scanErr error
-	var scanOnce sync.Once
-	setScanErr := func(err error) {
-		scanOnce.Do(func() { scanErr = err })
+	// Thread-safe error collector for this shard. On the first error we
+	// also call setCleanupErr which triggers failFastCancel, canceling the
+	// context shared by all scan jobs across all shards so the entire
+	// export stops quickly.
+	var shardErr error
+	var shardErrOnce sync.Once
+	setErr := func(err error) {
+		shardErrOnce.Do(func() {
+			shardErr = err
+			setCleanupErr(err)
+		})
+	}
+
+	// Thread-safe written counter for this shard.
+	var writtenSum atomic.Int64
+	addWritten := func(n int64) {
+		writtenSum.Add(n)
 	}
 
 	// Submit range jobs, tracked by a per-shard WaitGroup.
 	var shardWg sync.WaitGroup
 	var submitErr error
 rangeloop:
-	for _, r := range ranges {
+	for i, r := range ranges {
 		shardWg.Add(1)
 		select {
 		case jobCh <- scanJob{
-			ctx:        pipeline.ScanCtx(),
+			ctx:        ctx,
 			bucket:     bucket,
 			keyRange:   r,
-			rowsCh:     pipeline.rowsCh,
+			rangeIndex: i,
+			writerCfg:  writerCfg,
 			wg:         &shardWg,
-			setScanErr: setScanErr,
+			setErr:     setErr,
+			addWritten: addWritten,
 		}:
 		case <-ctx.Done():
-			// Record the error BEFORE Done() so that the cleanup goroutine
-			// (which reads scanErr after shardWg.Wait()) is guaranteed to
-			// see it. Reversing the order would be a data race.
-			setScanErr(ctx.Err())
+			setErr(ctx.Err())
 			shardWg.Done()
 			submitErr = ctx.Err()
 			break rangeloop
 		}
 	}
 
-	// Cleanup goroutine: waits for all range jobs to complete, shuts down
-	// the writer pipeline, and releases the shard.
+	// Cleanup goroutine: waits for all range jobs, aggregates results,
+	// and releases the shard.
 	cleanupWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer cleanupWg.Done()
 		shardWg.Wait()
 
-		written, err := pipeline.Shutdown(scanErr)
-		if err != nil {
-			setCleanupErr(err)
-			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		if shardErr != nil {
+			// setCleanupErr was already called by setErr (which triggered
+			// failFastCancel); here we only record per-shard status.
+			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, shardErr.Error(), "")
 			release()
 			return
 		}
 
 		p.logger.WithField("class", className).
 			WithField("shard", shardName).
-			WithField("objects", written).
+			WithField("objects", writtenSum.Load()).
 			Info("shard export completed")
 
-		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, written, "", "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, writtenSum.Load(), "", "")
 		release()
 	}, p.logger)
 
 	return submitErr
-}
-
-// shardPipeline bundles the handles returned by startShardWriter into a single
-// value, keeping the call site and cleanup logic readable.
-type shardPipeline struct {
-	pw         *io.PipeWriter
-	writer     *ParquetWriter
-	writerDone <-chan struct{}
-	scanCtx    context.Context
-	scanCancel context.CancelFunc
-	rowsCh     chan []ParquetRow
-	uploadDone <-chan error
-	writerErr  func() error // safe to call after <-writerDone
-}
-
-// ScanCtx returns the context scan workers should use. It is canceled when the
-// writer hits an error so workers stop early.
-func (sp *shardPipeline) ScanCtx() context.Context { return sp.scanCtx }
-
-// RowsCh returns a send-only channel scan workers write batches to.
-func (sp *shardPipeline) RowsCh() chan<- []ParquetRow { return sp.rowsCh }
-
-// Shutdown tears down the pipeline in the correct order and returns the number
-// of objects written. If scanErr is non-nil it takes precedence over any
-// writer-side error.
-func (sp *shardPipeline) Shutdown(scanErr error) (int64, error) {
-	sp.scanCancel()
-	close(sp.rowsCh)
-	<-sp.writerDone
-
-	// Prefer the scan error, but surface writer errors when scans succeeded.
-	if wErr := sp.writerErr(); wErr != nil && scanErr == nil {
-		scanErr = fmt.Errorf("write row to parquet: %w", wErr)
-	}
-
-	if scanErr != nil {
-		_ = sp.writer.Close()
-		sp.pw.CloseWithError(scanErr)
-		<-sp.uploadDone
-		return 0, scanErr
-	}
-
-	if err := sp.writer.Close(); err != nil {
-		sp.pw.CloseWithError(err)
-		<-sp.uploadDone
-		return 0, err
-	}
-
-	if err := sp.pw.Close(); err != nil {
-		<-sp.uploadDone
-		return 0, err
-	}
-
-	if uploadErr := <-sp.uploadDone; uploadErr != nil {
-		return 0, uploadErr
-	}
-
-	return sp.writer.ObjectsWritten(), nil
-}
-
-// startShardWriter sets up the Parquet writer pipeline for a single shard.
-func (p *Participant) startShardWriter(
-	ctx context.Context,
-	backend modulecapabilities.BackupBackend,
-	req *ExportRequest,
-	className, shardName string,
-	isMT bool,
-	parallelism int,
-) (*shardPipeline, error) {
-	pr, pw := io.Pipe()
-
-	fileName := fmt.Sprintf("%s_%s.parquet", className, shardName)
-
-	uploadDone := make(chan error, 1)
-	enterrors.GoWrapper(func() {
-		_, err := backend.Write(ctx, req.ID, fileName, req.Bucket, req.Path, pr)
-		uploadDone <- err
-	}, p.logger)
-
-	writer, err := NewParquetWriter(pw)
-	if err != nil {
-		pw.CloseWithError(err)
-		<-uploadDone
-		return nil, fmt.Errorf("create parquet writer: %w", err)
-	}
-
-	writer.SetFileMetadata("collection", className)
-	if isMT {
-		writer.SetFileMetadata("tenant", shardName)
-	}
-
-	rowsCh := make(chan []ParquetRow, parallelism)
-
-	// scanCtx is canceled when the writer hits an error, so scan workers
-	// stop early instead of blocking on channel sends.
-	scanCtx, scanCancel := context.WithCancel(ctx)
-
-	// Writer goroutine: single consumer drains rowsCh into ParquetWriter.
-	// writerErr is written only inside this goroutine and read only after
-	// <-writerDone, so no mutex is needed.
-	var writerErr error
-	writerDone := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		defer close(writerDone)
-		for batch := range rowsCh {
-			for i := range batch {
-				if err := writer.WriteRow(batch[i]); err != nil {
-					writerErr = err
-					scanCancel()
-					// Drain rowsCh so scan workers don't block on sends.
-					for range rowsCh {
-					}
-					return
-				}
-			}
-		}
-	}, p.logger)
-
-	return &shardPipeline{
-		pw:         pw,
-		writer:     writer,
-		writerDone: writerDone,
-		scanCtx:    scanCtx,
-		scanCancel: scanCancel,
-		rowsCh:     rowsCh,
-		uploadDone: uploadDone,
-		writerErr:  func() error { return writerErr },
-	}, nil
 }
 
 // siblingHasFailed checks whether any sibling node has reported a Failed

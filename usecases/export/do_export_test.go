@@ -19,6 +19,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/export"
 )
 
@@ -93,8 +95,8 @@ func TestDoExport(t *testing.T) {
 				},
 			},
 			expected: []expectedFile{
-				{key: "Article_shard0.parquet", numRows: 300},
-				{key: "Article_shard1.parquet", numRows: 200},
+				{key: "Article_shard0_0000.parquet", numRows: 300},
+				{key: "Article_shard1_0000.parquet", numRows: 200},
 			},
 		},
 		{
@@ -104,8 +106,8 @@ func TestDoExport(t *testing.T) {
 				"Product": {{name: "shard0", numObjects: 150}},
 			},
 			expected: []expectedFile{
-				{key: "Article_shard0.parquet", numRows: 100},
-				{key: "Product_shard0.parquet", numRows: 150},
+				{key: "Article_shard0_0000.parquet", numRows: 100},
+				{key: "Product_shard0_0000.parquet", numRows: 150},
 			},
 		},
 		{
@@ -114,7 +116,7 @@ func TestDoExport(t *testing.T) {
 				"Article": {{name: "shard0", numObjects: 0}},
 			},
 			expected: []expectedFile{
-				{key: "Article_shard0.parquet", numRows: 0},
+				{key: "Article_shard0_0000.parquet", numRows: 0},
 			},
 		},
 		{
@@ -124,7 +126,25 @@ func TestDoExport(t *testing.T) {
 			},
 			mt: map[string]bool{"Article": true},
 			expected: []expectedFile{
-				{key: "Article_tenantA.parquet", numRows: 50},
+				{key: "Article_tenantA_0000.parquet", numRows: 50},
+			},
+		},
+		{
+			name: "single object",
+			classes: map[string][]shardSpec{
+				"Article": {{name: "shard0", numObjects: 1}},
+			},
+			expected: []expectedFile{
+				{key: "Article_shard0_0000.parquet", numRows: 1},
+			},
+		},
+		{
+			name: "larger dataset",
+			classes: map[string][]shardSpec{
+				"Article": {{name: "shard0", numObjects: 2500}},
+			},
+			expected: []expectedFile{
+				{key: "Article_shard0_0000.parquet", numRows: 2500},
 			},
 		},
 	}
@@ -223,12 +243,12 @@ func TestDoExport_SkippedShard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Exported shard should have data.
-	data0 := backend.getWritten("Article_shard0.parquet")
+	data0 := backend.getWritten("Article_shard0_0000.parquet")
 	require.NotNil(t, data0)
 	assert.Len(t, readParquetRows(t, data0), 100)
 
 	// Skipped shard should not produce a file.
-	assert.Nil(t, backend.getWritten("Article_shard1.parquet"))
+	assert.Nil(t, backend.getWritten("Article_shard1_0000.parquet"))
 
 	// Status should show shard1 as skipped.
 	statusData := backend.getWritten("node_node1_status.json")
@@ -302,4 +322,42 @@ func TestDoExport_NilStore(t *testing.T) {
 	err := p.doExport(context.Background(), backend, req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
+}
+
+func TestDoExport_NilBucket(t *testing.T) {
+	t.Parallel()
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	// Create a store without the objects bucket.
+	dir := t.TempDir()
+	store, err := lsmkv.New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	defer store.Shutdown(context.Background())
+
+	selector := &shardSelector{
+		shards: map[string]map[string]*testShard{
+			"Article": {
+				"shard0": {store: store, name: "shard0"},
+			},
+		},
+	}
+
+	p := NewParticipant(context.Background(), selector, nil, logger)
+	req := &ExportRequest{
+		ID:       "test-export",
+		Backend:  "fake",
+		Classes:  []string{"Article"},
+		Shards:   map[string][]string{"Article": {"shard0"}},
+		Bucket:   "bucket",
+		Path:     "path",
+		NodeName: "node1",
+	}
+
+	err = p.doExport(context.Background(), backend, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "objects bucket not found")
 }
