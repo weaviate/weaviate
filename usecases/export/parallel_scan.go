@@ -230,7 +230,10 @@ func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex in
 	uploadDone := make(chan error, 1)
 	enterrors.GoWrapper(func() {
 		var err error
-		defer func() { uploadDone <- err }()
+		defer func() {
+			uploadDone <- err
+			close(uploadDone)
+		}()
 		_, err = cfg.backend.Write(ctx, cfg.req.ID, fileName, cfg.req.Bucket, cfg.req.Path, pr)
 	}, cfg.logger)
 
