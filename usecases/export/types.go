@@ -90,7 +90,14 @@ type NodeStatus struct {
 func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.ShardStatus, objects int64, errMsg, skipReason string) {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
+	if ns.ShardProgress[className] == nil {
+		ns.ShardProgress[className] = make(map[string]*ShardProgress)
+	}
 	sp := ns.ShardProgress[className][shardName]
+	if sp == nil {
+		sp = &ShardProgress{}
+		ns.ShardProgress[className][shardName] = sp
+	}
 	sp.Status = status
 	sp.ObjectsExported = objects
 	sp.Error = errMsg

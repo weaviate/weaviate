@@ -287,19 +287,6 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
 
-	for _, className := range req.Classes {
-		shardNames, ok := req.Shards[className]
-		if !ok || len(shardNames) == 0 {
-			continue
-		}
-		nodeStatus.ShardProgress[className] = make(map[string]*ShardProgress)
-		for _, shardName := range shardNames {
-			nodeStatus.ShardProgress[className][shardName] = &ShardProgress{
-				Status: export.ShardTransferring,
-			}
-		}
-	}
-
 	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
@@ -399,6 +386,8 @@ func (p *Participant) submitJobs(
 				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, 0, "", skipReason)
 				continue
 			}
+
+			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, 0, "", "")
 
 			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus); err != nil {
 				return err
