@@ -546,7 +546,7 @@ func TestShard_RepairIndex(t *testing.T) {
 				require.NoError(t, err)
 				idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
 				require.NoError(t, err)
-				err = bucket.Delete(idBytes)
+				err = bucket.Delete(idBytes, lsmkv.WithSecondaryKey(0, buf))
 				require.NoError(t, err)
 			}
 
