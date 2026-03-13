@@ -77,6 +77,9 @@ func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *m
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	before := time.Now()
