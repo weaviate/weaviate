@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"os"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -482,4 +483,166 @@ func (m *mockTask) Key() uint64 {
 
 func (m *mockTask) Execute(ctx context.Context) error {
 	return m.execFn(ctx)
+}
+
+// TestSchedulerOptions verifies the defaulting and env-var override logic
+// applied in NewScheduler for MaxScheduleTime.
+func TestSchedulerOptions(t *testing.T) {
+	t.Run("MaxScheduleTime defaults to ScheduleInterval/2 when unset", func(t *testing.T) {
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: 100 * time.Millisecond,
+			RetryInterval:    100 * time.Millisecond,
+		})
+		require.Equal(t, 50*time.Millisecond, s.MaxScheduleTime)
+	})
+
+	t.Run("valid env var overrides default", func(t *testing.T) {
+		t.Setenv("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME", "200ms")
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: 100 * time.Millisecond,
+			RetryInterval:    100 * time.Millisecond,
+		})
+		require.Equal(t, 200*time.Millisecond, s.MaxScheduleTime)
+	})
+
+	t.Run("invalid env var falls back to ScheduleInterval/2", func(t *testing.T) {
+		t.Setenv("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME", "not-a-duration")
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: 100 * time.Millisecond,
+			RetryInterval:    100 * time.Millisecond,
+		})
+		require.Equal(t, 50*time.Millisecond, s.MaxScheduleTime)
+	})
+
+	t.Run("explicit MaxScheduleTime is not overridden by env var", func(t *testing.T) {
+		t.Setenv("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME", "200ms")
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: 100 * time.Millisecond,
+			RetryInterval:    100 * time.Millisecond,
+			MaxScheduleTime:  300 * time.Millisecond,
+		})
+		require.Equal(t, 300*time.Millisecond, s.MaxScheduleTime)
+	})
+}
+
+// countingQueue is a mock Queue that returns up to limit batches and tracks
+// how many times DequeueBatch has been called. Used to verify MaxScheduleTime
+// yielding: a tiny deadline should cause only one DequeueBatch call per tick.
+type countingQueue struct {
+	mu      sync.Mutex
+	id      string
+	calls   int
+	limit   int
+	metrics *Metrics
+}
+
+func newCountingQueue(id string, limit int) *countingQueue {
+	return &countingQueue{
+		id:      id,
+		limit:   limit,
+		metrics: NewMetrics(newTestLogger(), nil, nil),
+	}
+}
+
+func (q *countingQueue) ID() string { return q.id }
+
+func (q *countingQueue) Size() int64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.calls < q.limit {
+		return 1
+	}
+	return 0
+}
+
+func (q *countingQueue) DequeueBatch() (*Batch, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.calls >= q.limit {
+		return nil, nil
+	}
+	q.calls++
+	task := &mockTask{
+		op:     1,
+		key:    uint64(q.calls),
+		execFn: func(_ context.Context) error { return nil },
+	}
+	return &Batch{Tasks: []Task{task}}, nil
+}
+
+func (q *countingQueue) Metrics() *Metrics { return q.metrics }
+
+func (q *countingQueue) getCount() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.calls
+}
+
+// TestSchedulerMaxScheduleTimeYielding checks that a tiny MaxScheduleTime
+// causes the scheduler to process at most one batch per ticker tick, while a
+// large MaxScheduleTime drains all available batches within a single tick.
+func TestSchedulerMaxScheduleTimeYielding(t *testing.T) {
+	t.Run("tiny MaxScheduleTime yields after one batch per tick", func(t *testing.T) {
+		const (
+			limit            = 20
+			scheduleInterval = 20 * time.Millisecond
+		)
+
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: scheduleInterval,
+			RetryInterval:    scheduleInterval,
+			MaxScheduleTime:  1 * time.Nanosecond,
+		})
+		s.Start()
+		t.Cleanup(func() { _ = s.Close() })
+
+		q := newCountingQueue("yield-test", limit)
+		s.RegisterQueue(q)
+
+		// Allow ~5 ticks to fire.
+		time.Sleep(5*scheduleInterval + scheduleInterval/2)
+
+		count := q.getCount()
+		// With MaxScheduleTime=1ns the deadline expires after the first
+		// scheduleQueues() call each tick, so count should be well below limit.
+		// Allow up to 3× tick count as generous margin for CI jitter.
+		require.Greater(t, count, 0, "expected at least 1 batch to be processed")
+		require.LessOrEqual(t, count, 15,
+			"expected ~1 batch/tick with 1 ns MaxScheduleTime; got %d in 5 ticks", count)
+	})
+
+	t.Run("large MaxScheduleTime drains queue in one tick", func(t *testing.T) {
+		const (
+			limit            = 5
+			scheduleInterval = 50 * time.Millisecond
+		)
+
+		s := NewScheduler(SchedulerOptions{
+			Logger:           logrus.New(),
+			Workers:          1,
+			ScheduleInterval: scheduleInterval,
+			RetryInterval:    scheduleInterval,
+			MaxScheduleTime:  10 * scheduleInterval,
+		})
+		s.Start()
+		t.Cleanup(func() { _ = s.Close() })
+
+		q := newCountingQueue("drain-test", limit)
+		s.RegisterQueue(q)
+
+		require.Eventually(t, func() bool {
+			return q.getCount() == limit
+		}, 5*scheduleInterval, 5*time.Millisecond,
+			"expected all %d batches drained; got %d", limit, q.getCount())
+	})
 }
