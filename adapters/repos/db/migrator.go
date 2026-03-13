@@ -123,7 +123,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
-	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
+	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaReader)
 	idx, err = NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),

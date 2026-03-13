@@ -16,52 +16,45 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// fakeSchemaReader is a single test fake that satisfies multitenancy.schemaReader
-// (and resolver.schemaReader). It can behave as:
-//   - A tenant status mapper: set tenantShards = map[string]string{"tenantA": models.TenantActivityStatusHOT} to simulate active tenants.
-//   - A tenant error simulator: set tenantsShardErr to simulate schema connection failures.
-//   - A class existence controller: set classExists = true/false to control whether ReadOnlyClass returns a class or nil.
-//
-// Example configs:
-//
-//	&fakeSchemaReader{tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT}, classExists: true} // Valid active tenant
-//	&fakeSchemaReader{tenantShards: map[string]string{"tenantA": models.TenantActivityStatusCOLD}, classExists: true} // Inactive tenant
-//	&fakeSchemaReader{tenantShards: map[string]string{}, classExists: true} // No tenants exist
-//	&fakeSchemaReader{tenantsShardErr: fmt.Errorf("connection failed"), classExists: true} // Schema error simulation
-//	&fakeSchemaReader{tenantShards: map[string]string{}, classExists: false} // Class doesn't exist
-type fakeSchemaReader struct {
-	tenantShards    map[string]string
-	tenantsShardErr error
-	classExists     bool
-}
-
-// TenantsShards returns tenant status for requested tenants or the configured error.
-// Only returns status for tenants that exist in the tenantShards map.
-// Tenants not in the map are omitted from the result (simulating non-existent tenants).
-func (f *fakeSchemaReader) TenantsShards(_ context.Context, _ string, tenants ...string) (map[string]string, error) {
-	if f.tenantsShardErr != nil {
-		return nil, f.tenantsShardErr
-	}
-
-	result := make(map[string]string)
-	for _, tenant := range tenants {
-		if status, exists := f.tenantShards[tenant]; exists {
-			result[tenant] = status
+// hasEmptyString returns true if ss contains "".
+func hasEmptyString(ss []string) bool {
+	for _, s := range ss {
+		if s == "" {
+			return true
 		}
 	}
-	return result, nil
+	return false
 }
 
-// ReadOnlyClass returns a minimal class stub if classExists is true, nil otherwise.
-func (f *fakeSchemaReader) ReadOnlyClass(className string) *models.Class {
-	if f.classExists {
-		return &models.Class{Class: className}
+// dedupeNonEmpty returns unique non-empty tenants (matches validator deduplication for non-empty).
+func dedupeNonEmpty(tenants []string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(tenants))
+	for _, t := range tenants {
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}
+
+func classOrNil(exists bool) *models.Class {
+	if exists {
+		return &models.Class{Class: "TestClass"}
 	}
 	return nil
 }
@@ -106,11 +99,11 @@ func Test_SingleTenantValidator(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{classExists: true}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
 			validator := multitenancy.NewTenantValidator("TestClass", false, schemaReader)
 
 			// WHEN
-			err := validator.ValidateTenants(context.Background(), tc.tenants...)
+			err := validator.ValidateTenants(context.Background(), 0, tc.tenants...)
 
 			// THEN
 			if tc.expectError {
@@ -216,14 +209,26 @@ func Test_MultiTenantValidator(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{
-				tenantShards: tc.tenantShards,
-				classExists:  tc.classExists,
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			// Validator calls TenantsShardsWithVersion only when there are tenants and none are empty.
+			uniqueTenants := dedupeNonEmpty(tc.tenants)
+			reachesTenantsShardsCall := len(uniqueTenants) > 0 && !hasEmptyString(tc.tenants)
+			if reachesTenantsShardsCall {
+				tenantArgs := make([]interface{}, len(uniqueTenants))
+				for i, tn := range uniqueTenants {
+					tenantArgs[i] = tn
+				}
+				schemaReader.EXPECT().
+					TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", tenantArgs...).
+					Return(tc.tenantShards, nil)
+			}
+			if reachesTenantsShardsCall && tc.expectError && len(tc.tenantShards) == 0 {
+				schemaReader.EXPECT().ReadOnlyClass("TestClass").Return(classOrNil(tc.classExists))
 			}
 			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader)
 
 			// WHEN
-			err := validator.ValidateTenants(context.Background(), tc.tenants...)
+			err := validator.ValidateTenants(context.Background(), 0, tc.tenants...)
 
 			// THEN
 			if tc.expectError {
@@ -264,14 +269,14 @@ func Test_MultiTenantValidator_SchemaErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{
-				tenantsShardErr: tc.tenantsShardErr,
-				classExists:     true,
-			}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().
+				TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", "tenant1").
+				Return(nil, tc.tenantsShardErr)
 			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader)
 
 			// WHEN
-			err := validator.ValidateTenants(context.Background(), "tenant1")
+			err := validator.ValidateTenants(context.Background(), 0, "tenant1")
 
 			// THEN
 			if tc.expectError {
@@ -324,14 +329,16 @@ func Test_TenancyValidator_Builder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// GIVEN
-			schemaReader := &fakeSchemaReader{
-				tenantShards: map[string]string{"tenant1": models.TenantActivityStatusHOT},
-				classExists:  true,
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			if tc.multiTenancyEnabled && tc.validateWithTenant != "" {
+				schemaReader.EXPECT().
+					TenantsShardsWithVersion(mock.Anything, uint64(0), "TestClass", tc.validateWithTenant).
+					Return(map[string]string{tc.validateWithTenant: models.TenantActivityStatusHOT}, nil)
 			}
 			validator := multitenancy.NewTenantValidator("TestClass", tc.multiTenancyEnabled, schemaReader)
 
 			// WHEN
-			err := validator.ValidateTenants(context.Background(), tc.validateWithTenant)
+			err := validator.ValidateTenants(context.Background(), 0, tc.validateWithTenant)
 
 			// THEN
 			if tc.expectError {

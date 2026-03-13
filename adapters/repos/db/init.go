@@ -98,7 +98,7 @@ func (db *DB) init(ctx context.Context) error {
 				db.schemaReader,
 				db.replicationFSM,
 			).Build()
-			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
+			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaReader)
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,

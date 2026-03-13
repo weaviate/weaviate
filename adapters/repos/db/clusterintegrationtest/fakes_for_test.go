@@ -213,6 +213,10 @@ type fakeSchemaManager struct {
 	nodeResolver *nodeResolver
 }
 
+func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
+}
+
 func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
