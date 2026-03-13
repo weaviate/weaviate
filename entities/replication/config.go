@@ -25,5 +25,5 @@ type GlobalConfig struct {
 
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
 
-	ReplicationGRPCEnabled bool `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
+	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 }

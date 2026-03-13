@@ -901,7 +901,7 @@ func FromEnv(config *Config) error {
 		config.Replication.DeletionStrategy = v
 	}
 
-	config.Replication.ReplicationGRPCEnabled = entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED"))
+	config.Replication.ReplicationGRPCEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED")))
 
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {

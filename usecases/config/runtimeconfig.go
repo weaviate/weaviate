@@ -48,6 +48,7 @@ type WeaviateRuntimeConfig struct {
 	UsageShardJitterInterval             *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
 	UsagePolicyVersion                   *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 	UsageVerifyPermissions               *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
+	ReplicationGRPCEnabled               *runtime.DynamicValue[bool]          `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
 	OperationalMode                      *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
 	DefaultQuantization                  *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`

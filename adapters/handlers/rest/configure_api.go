@@ -454,12 +454,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.ReplGRPCConnManager = replConnManager
 
-	// Create switch replication client (gRPC or REST based on REPLICATION_GRPC_ENABLED env var)
+	// Create switch replication client (gRPC or REST based on replication_grpc_enabled runtime config)
 	grpcReplicationClient := clients.NewGRPCReplicationClient(replConnManager)
 	replicationClient := clients.NewSwitchReplicationClient(
 		grpcReplicationClient,
 		restReplicationClient,
-		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled,
+		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
 	)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
@@ -2143,6 +2143,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
+		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
