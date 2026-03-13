@@ -1587,7 +1587,7 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: className,
 			Limit:      2,
-			After:      "",
+			After:      nil,
 			Properties: &protocol.PropertiesRequest{
 				ReturnAllNonrefProperties: true,
 			},
@@ -1614,7 +1614,7 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: className,
 			Limit:      3,
-			After:      "",
+			After:      nil,
 			Properties: &protocol.PropertiesRequest{
 				NonRefProperties: []string{"title"},
 			},
@@ -1641,7 +1641,7 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: className,
 			Limit:      2,
-			After:      "",
+			After:      nil,
 			Metadata: &protocol.MetadataRequest{
 				Uuid:   true,
 				Vector: true,
@@ -1661,7 +1661,7 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 		resp2, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: className,
 			Limit:      2,
-			After:      lastID,
+			After:      &lastID,
 			Metadata: &protocol.MetadataRequest{
 				Uuid:   true,
 				Vector: true,
@@ -1682,7 +1682,7 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: className,
 			Limit:      2,
-			After:      "",
+			After:      nil,
 			Metadata: &protocol.MetadataRequest{
 				Uuid: true,
 			},
@@ -1701,7 +1701,7 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 		resp2, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: className,
 			Limit:      2,
-			After:      lastID,
+			After:      &lastID,
 			Metadata: &protocol.MetadataRequest{
 				Uuid: true,
 			},
@@ -1720,7 +1720,7 @@ func testGRPCCursorPagination(t *testing.T, grpcClient protocol.WeaviateClient) 
 		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: className,
 			Limit:      2,
-			After:      "",
+			After:      nil,
 			Properties: &protocol.PropertiesRequest{
 				NonRefProperties: []string{"title"}, // Only title, not description
 			},
