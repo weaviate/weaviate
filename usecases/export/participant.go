@@ -290,12 +290,12 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
-	numWorkers := runtime.GOMAXPROCS(0) * 2
-	jobCh := make(chan scanJob, numWorkers)
+	parallelism := runtime.GOMAXPROCS(0) * 2
+	jobCh := make(chan scanJob, parallelism)
 
 	// Start N workers that process scan jobs.
 	var workerWg sync.WaitGroup
-	for range numWorkers {
+	for range parallelism {
 		workerWg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer workerWg.Done()
@@ -325,7 +325,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 
 	// Depth-first walk: submit all range jobs for all shards.
 	var cleanupWg sync.WaitGroup
-	err := p.submitJobs(failFastCtx, jobCh, &cleanupWg, setCleanupErr, backend, req, nodeStatus)
+	err := p.submitJobs(failFastCtx, jobCh, &cleanupWg, setCleanupErr, backend, req, nodeStatus, parallelism)
 	close(jobCh)
 	workerWg.Wait()
 	// Wait for all per-shard cleanup goroutines (writer flush, shard release)
@@ -360,6 +360,7 @@ func (p *Participant) submitJobs(
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
 	nodeStatus *NodeStatus,
+	parallelism int,
 ) error {
 	for _, className := range req.Classes {
 		shardNames, ok := req.Shards[className]
@@ -389,7 +390,7 @@ func (p *Participant) submitJobs(
 
 			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, 0, "", "")
 
-			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus); err != nil {
+			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus, parallelism); err != nil {
 				return err
 			}
 		}
@@ -414,6 +415,7 @@ func (p *Participant) submitShardJobs(
 	release func(),
 	isMT bool,
 	nodeStatus *NodeStatus,
+	parallelism int,
 ) error {
 	// Validate store/bucket before starting the writer pipeline so we can
 	// return early without needing to tear down goroutines.
@@ -433,9 +435,9 @@ func (p *Participant) submitShardJobs(
 		nodeStatus.SetFailed(className, err)
 		return err
 	}
-	ranges := computeRanges(bucket)
+	ranges := computeRanges(bucket, parallelism)
 
-	pipeline, err := p.startShardWriter(ctx, backend, req, className, shardName, isMT)
+	pipeline, err := p.startShardWriter(ctx, backend, req, className, shardName, isMT, parallelism)
 	if err != nil {
 		release()
 		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
@@ -569,6 +571,7 @@ func (p *Participant) startShardWriter(
 	req *ExportRequest,
 	className, shardName string,
 	isMT bool,
+	parallelism int,
 ) (*shardPipeline, error) {
 	pr, pw := io.Pipe()
 
@@ -592,7 +595,6 @@ func (p *Participant) startShardWriter(
 		writer.SetFileMetadata("tenant", shardName)
 	}
 
-	parallelism := runtime.GOMAXPROCS(0)
 	rowsCh := make(chan []ParquetRow, parallelism)
 
 	// scanCtx is canceled when the writer hits an error, so scan workers

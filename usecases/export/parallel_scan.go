@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -56,9 +55,7 @@ const minObjectsPerRange = 10_000
 // computeRanges splits a bucket's key space into roughly parallelism ranges
 // using QuantileKeys. The number of ranges is capped so that each range
 // contains at least minObjectsPerRange objects.
-func computeRanges(bucket *lsmkv.Bucket) []keyRange {
-	parallelism := runtime.GOMAXPROCS(0) * 2
-
+func computeRanges(bucket *lsmkv.Bucket, parallelism int) []keyRange {
 	// Cap parallelism so each range has at least minObjectsPerRange objects.
 	if count := bucket.CountAsync(); count > 0 {
 		parallelism = min(parallelism, count/minObjectsPerRange)

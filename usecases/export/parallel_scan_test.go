@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -115,7 +116,7 @@ func scanShardWithWorkers(ctx context.Context, shard ShardLike, writer *ParquetW
 		return fmt.Errorf("objects bucket not found for shard %s", shard.Name())
 	}
 
-	ranges := computeRanges(bucket)
+	ranges := computeRanges(bucket, numWorkers)
 
 	rowsCh := make(chan []ParquetRow, numWorkers)
 
@@ -369,7 +370,7 @@ func TestComputeRanges(t *testing.T) {
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 			require.NotNil(t, bucket)
 
-			ranges := computeRanges(bucket)
+			ranges := computeRanges(bucket, runtime.GOMAXPROCS(0)*2)
 			require.NotEmpty(t, ranges)
 			assert.GreaterOrEqual(t, len(ranges), tc.minRanges, "too few ranges")
 			assert.LessOrEqual(t, len(ranges), tc.maxRanges, "too many ranges")
