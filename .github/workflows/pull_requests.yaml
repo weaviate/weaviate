@@ -606,10 +606,19 @@ jobs:
             test: "--acceptance-only-authz"
           - name: "replication"
             test: "--acceptance-only-replication"
+          - name: "replication-grpc"
+            test: "--acceptance-only-replication"
+            grpc_replication: "true"
           - name: "async-replication"
             test: "--acceptance-only-async-replication"
+          - name: "async-replication-grpc"
+            test: "--acceptance-only-async-replication"
+            grpc_replication: "true"
           - name: "replica-fast"
             test: "--acceptance-only-replica-replication-fast"
+          - name: "replica-fast-grpc"
+            test: "--acceptance-only-replica-replication-fast"
+            grpc_replication: "true"
           - name: "go-client-group-1"
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
@@ -631,6 +640,7 @@ jobs:
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+          REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
@@ -641,6 +651,9 @@ jobs:
         include:
           - name: "replica-slow"
             test: "--acceptance-only-replica-replication-slow"
+          - name: "replica-slow-grpc"
+            test: "--acceptance-only-replica-replication-slow"
+            grpc_replication: "true"
           - name: "vector-single"
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
@@ -679,13 +692,15 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
           fi
       - name: Acceptance tests Large
         uses: nick-fields/retry@v3
+        env:
+          REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
