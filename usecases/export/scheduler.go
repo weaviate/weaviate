@@ -571,7 +571,12 @@ func (s *Scheduler) assembleStatusFromPlan(
 					status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
 				}
 			case export.Started, export.Transferring, export.Canceled:
-				// Non-terminal (Transferring/Started): verify the node is still running
+				// Non-terminal from the assembly perspective. Started/Transferring
+				// are in-progress. Canceled means the node stopped but the cancel
+				// flow hasn't written overall metadata yet (Cancel() does that);
+				// treating it as terminal here would let a status poll race the
+				// cancel flow over who writes the final metadata.
+				// In all three cases, verify the node is still running.
 				allTerminal = false
 				allSuccess = false
 				host, alive := s.nodeResolver.NodeHostname(nodeName)
