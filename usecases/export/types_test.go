@@ -56,7 +56,7 @@ func TestNodeStatus_SnapshotMatchesOriginal(t *testing.T) {
 		},
 	}
 
-	snap := ns.snapshot()
+	snap := ns.SyncAndSnapshot()
 
 	// JSON output must be identical.
 	origJSON, err := json.Marshal(ns)
@@ -89,19 +89,14 @@ func TestNodeStatus_SnapshotMatchesOriginal(t *testing.T) {
 
 func TestNodeStatus_SnapshotIsDeepCopy(t *testing.T) {
 	ns := &NodeStatus{
-		NodeName: "node-1",
-		Status:   export.Transferring,
-		ShardProgress: map[string]map[string]*ShardProgress{
-			"ClassA": {
-				"shard0": {
-					Status:          export.ShardTransferring,
-					ObjectsExported: 100,
-				},
-			},
-		},
+		NodeName:      "node-1",
+		Status:        export.Transferring,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
+	ns.SetShardProgress("ClassA", "shard0", export.ShardTransferring, 0, "", "")
+	ns.AddShardExported("ClassA", "shard0", 100)
 
-	snap := ns.snapshot()
+	snap := ns.SyncAndSnapshot()
 
 	// Mutate the original after snapshot.
 	ns.ShardProgress["ClassA"]["shard0"].ObjectsExported = 999
@@ -122,7 +117,7 @@ func TestNodeStatus_SnapshotEmptyProgress(t *testing.T) {
 		Status:   export.Success,
 	}
 
-	snap := ns.snapshot()
+	snap := ns.SyncAndSnapshot()
 
 	assert.Equal(t, ns.NodeName, snap.NodeName)
 	assert.Equal(t, ns.Status, snap.Status)

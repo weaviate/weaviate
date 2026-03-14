@@ -214,34 +214,6 @@ func (ns *NodeStatus) SyncAndSnapshot() *NodeStatus {
 	return cp
 }
 
-// snapshot returns a deep copy of the NodeStatus suitable for marshaling
-// outside the lock.
-func (ns *NodeStatus) snapshot() *NodeStatus {
-	ns.mu.Lock()
-	defer ns.mu.Unlock()
-	cp := &NodeStatus{
-		NodeName:    ns.NodeName,
-		Status:      ns.Status,
-		Error:       ns.Error,
-		CompletedAt: ns.CompletedAt,
-	}
-	if len(ns.ShardProgress) > 0 {
-		cp.ShardProgress = make(map[string]map[string]*ShardProgress, len(ns.ShardProgress))
-		for className, shards := range ns.ShardProgress {
-			cp.ShardProgress[className] = make(map[string]*ShardProgress, len(shards))
-			for shardName, sp := range shards {
-				cp.ShardProgress[className][shardName] = &ShardProgress{
-					Status:          sp.Status,
-					ObjectsExported: sp.ObjectsExported,
-					Error:           sp.Error,
-					SkipReason:      sp.SkipReason,
-				}
-			}
-		}
-	}
-	return cp
-}
-
 // ExportPlan is written to S3 by the coordinator
 type ExportPlan struct {
 	ID              string                         `json:"id"`
