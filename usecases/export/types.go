@@ -82,7 +82,8 @@ type ExportRequest struct {
 }
 
 // NodeStatus is written to S3 by each participant node.
-// The embedded mutex protects all fields from concurrent access.
+// The embedded mutex protects the maps and non-atomic fields.
+// ShardProgress.objectsWritten is updated lock-free via atomics.
 type NodeStatus struct {
 	mu            sync.Mutex
 	NodeName      string                               `json:"nodeName"`

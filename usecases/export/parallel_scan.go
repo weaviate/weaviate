@@ -193,9 +193,10 @@ type rangePipeline struct {
 }
 
 // Shutdown closes the writer pipeline and waits for the upload to finish.
-// If scanErr is non-nil, the pipeline is torn down and scanErr is returned.
-// The writer's onFlush callback is suppressed during error-path cleanup so
-// that progress is not reported for objects that will not reach the backend.
+// If scanErr is non-nil, the onFlush callback is suppressed before teardown
+// so that progress is not reported for objects that will not reach the backend.
+// On writer.Close or pw.Close errors, onFlush may still fire during the
+// final flush since those rows were written to the pipe successfully.
 func (rp *rangePipeline) Shutdown(scanErr error) error {
 	if scanErr != nil {
 		rp.writer.onFlush = nil
