@@ -480,6 +480,9 @@ func (p *Participant) submitShardJobs(
 		shardName: shardName,
 		isMT:      isMT,
 		logger:    p.logger,
+		onFlush: func(n int64) {
+			nodeStatus.AddShardExported(className, shardName, n)
+		},
 	}
 
 	// Thread-safe error collector for this shard. On the first error we
@@ -495,12 +498,6 @@ func (p *Participant) submitShardJobs(
 		})
 	}
 
-	// Progress callback: atomically updates the shard's live counter
-	// in NodeStatus so the periodic S3 writer can report progress.
-	addWritten := func(n int64) {
-		nodeStatus.AddShardExported(className, shardName, n)
-	}
-
 	// Submit range jobs, tracked by a per-shard WaitGroup.
 	var shardWg sync.WaitGroup
 	var submitErr error
@@ -509,15 +506,13 @@ rangeloop:
 		shardWg.Add(1)
 		select {
 		case jobCh <- scanJob{
-			ctx:              ctx,
-			bucket:           bucket,
-			keyRange:         r,
-			rangeIndex:       i,
-			writerCfg:        writerCfg,
-			wg:               &shardWg,
-			setErr:           setErr,
-			addWritten:       addWritten,
-			progressInterval: progressReportInterval,
+			ctx:        ctx,
+			bucket:     bucket,
+			keyRange:   r,
+			rangeIndex: i,
+			writerCfg:  writerCfg,
+			wg:         &shardWg,
+			setErr:     setErr,
 		}:
 		case <-ctx.Done():
 			setErr(ctx.Err())

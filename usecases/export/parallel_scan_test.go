@@ -280,7 +280,7 @@ func TestScanAllRanges(t *testing.T) {
 		writer, err := NewParquetWriter(&buf)
 		require.NoError(t, err)
 
-		err = scanRangeToWriter(context.Background(), bucket, r.start, r.end, writer, nil, 0)
+		err = scanRangeToWriter(context.Background(), bucket, r.start, r.end, writer)
 		require.NoError(t, err)
 		require.NoError(t, writer.Close())
 
@@ -312,7 +312,7 @@ func scanToRows(t *testing.T, ctx context.Context, bucket *lsmkv.Bucket, start, 
 	writer, err := NewParquetWriter(&buf)
 	require.NoError(t, err)
 
-	scanErr := scanRangeToWriter(ctx, bucket, start, end, writer, nil, 0)
+	scanErr := scanRangeToWriter(ctx, bucket, start, end, writer)
 	require.NoError(t, writer.Close())
 	if scanErr != nil {
 		return nil, scanErr
@@ -645,20 +645,19 @@ func TestScanJobExecute(t *testing.T) {
 		}
 
 		var wg sync.WaitGroup
-		var written int64
 		var gotErr error
+		var written int64
+		cfg.onFlush = func(n int64) { written += n }
 
 		wg.Add(1)
 		job := scanJob{
-			ctx:              context.Background(),
-			bucket:           bucket,
-			keyRange:         keyRange{start: nil, end: nil},
-			rangeIndex:       0,
-			writerCfg:        cfg,
-			wg:               &wg,
-			setErr:           func(err error) { gotErr = err },
-			addWritten:       func(n int64) { written += n },
-			progressInterval: 5,
+			ctx:        context.Background(),
+			bucket:     bucket,
+			keyRange:   keyRange{start: nil, end: nil},
+			rangeIndex: 0,
+			writerCfg:  cfg,
+			wg:         &wg,
+			setErr:     func(err error) { gotErr = err },
 		}
 		job.execute()
 		wg.Wait()
@@ -688,28 +687,28 @@ func TestScanJobExecute(t *testing.T) {
 		}
 
 		var wg sync.WaitGroup
-		var written int64
 		var gotErr error
+		var written int64
+		cfg.onFlush = func(n int64) { written += n }
 
 		wg.Add(1)
 		job := scanJob{
-			ctx:              context.Background(),
-			bucket:           bucket,
-			keyRange:         keyRange{start: nil, end: nil},
-			rangeIndex:       0,
-			writerCfg:        cfg,
-			wg:               &wg,
-			setErr:           func(err error) { gotErr = err },
-			addWritten:       func(n int64) { written += n },
-			progressInterval: 5,
+			ctx:        context.Background(),
+			bucket:     bucket,
+			keyRange:   keyRange{start: nil, end: nil},
+			rangeIndex: 0,
+			writerCfg:  cfg,
+			wg:         &wg,
+			setErr:     func(err error) { gotErr = err },
 		}
 		job.execute()
 		wg.Wait()
 
 		require.Error(t, gotErr)
 		assert.Contains(t, gotErr.Error(), "s3 upload failed")
-		// With incremental progress (interval=5, 10 objects), addWritten
-		// was called during scanning before the upload error surfaced.
+		// The scan succeeded and the final flush wrote all 10 objects to
+		// the pipe before the upload error was detected. onFlush fires
+		// during writer.Close() which happens before we read uploadDone.
 		assert.Equal(t, int64(10), written)
 	})
 }
@@ -742,15 +741,46 @@ func assertUniqueIDs(t *testing.T, rows []ParquetRow) {
 	}
 }
 
-func TestScanRangeToWriter_ProgressCallbackOnError(t *testing.T) {
+func TestParquetWriter_OnFlushCallback(t *testing.T) {
 	t.Parallel()
 
-	// Insert 250 valid objects, then a corrupt object at key 250.
-	// With interval=100 the scan reports [100, 100] via interval flushes.
-	// Object 250 triggers an ExportFieldsFromBinary error with pending=50.
-	// The defer must flush that remainder so total == 250.
-	const numObjects = 250
-	const interval int64 = 100
+	// Use a small batch size to trigger multiple flushes.
+	const numObjects = 25
+	const batchSize = 10
+
+	store, _ := createTestStore(t, numObjects)
+	t.Cleanup(func() { store.Shutdown(context.Background()) })
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	var callbacks []int64
+
+	var buf bytes.Buffer
+	writer, err := NewParquetWriter(&buf)
+	require.NoError(t, err)
+	writer.batchSize = batchSize
+	writer.onFlush = func(n int64) {
+		callbacks = append(callbacks, n)
+	}
+
+	err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	// With 25 objects and batchSize=10, we get flushes at 10, 20, then
+	// 5 remaining on Close.
+	require.Equal(t, []int64{10, 10, 5}, callbacks)
+
+	rows := readParquetRows(t, buf.Bytes())
+	assert.Len(t, rows, numObjects)
+}
+
+func TestParquetWriter_OnFlushSuppressedOnError(t *testing.T) {
+	t.Parallel()
+
+	// Insert 25 valid objects, then a corrupt object at key 25.
+	const numObjects = 25
+	const batchSize = 10
 
 	store, _ := createTestStore(t, numObjects)
 	t.Cleanup(func() { store.Shutdown(context.Background()) })
@@ -764,49 +794,20 @@ func TestScanRangeToWriter_ProgressCallbackOnError(t *testing.T) {
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	var callbacks []int64
-	addWritten := func(n int64) {
-		callbacks = append(callbacks, n)
-	}
 
 	var buf bytes.Buffer
 	writer, err := NewParquetWriter(&buf)
 	require.NoError(t, err)
+	writer.batchSize = batchSize
+	writer.onFlush = func(n int64) {
+		callbacks = append(callbacks, n)
+	}
 
-	err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer, addWritten, interval)
+	err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "extract export fields")
 
-	// Two interval flushes (100 each) plus the deferred remainder (50).
-	require.Equal(t, []int64{100, 100, 50}, callbacks)
-}
-
-func TestScanRangeToWriter_ProgressCallback(t *testing.T) {
-	t.Parallel()
-
-	const numObjects = 250
-	const interval int64 = 100
-
-	store, _ := createTestStore(t, numObjects)
-	t.Cleanup(func() { store.Shutdown(context.Background()) })
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	require.NotNil(t, bucket)
-
-	var callbacks []int64
-	addWritten := func(n int64) {
-		callbacks = append(callbacks, n)
-	}
-
-	var buf bytes.Buffer
-	writer, err := NewParquetWriter(&buf)
-	require.NoError(t, err)
-
-	err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer, addWritten, interval)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-
-	// With 250 objects and interval=100, we expect callbacks of [100, 100, 50].
-	require.Equal(t, []int64{100, 100, 50}, callbacks)
-
-	rows := readParquetRows(t, buf.Bytes())
-	assert.Len(t, rows, numObjects)
+	// Two batch flushes (10 each) fired during scanning.
+	// The remaining 5 objects were buffered but not flushed before the error.
+	require.Equal(t, []int64{10, 10}, callbacks)
 }

@@ -38,6 +38,7 @@ type ParquetWriter struct {
 	writer    *parquet.GenericWriter[ParquetRow]
 	buffer    []ParquetRow
 	batchSize int
+	onFlush   func(int64) // called after each successful flush with the number of rows flushed
 }
 
 // NewParquetWriter creates a new Parquet writer
@@ -76,12 +77,16 @@ func (pw *ParquetWriter) Flush() error {
 		return nil
 	}
 
+	n := int64(len(pw.buffer))
 	_, err := pw.writer.Write(pw.buffer)
 	if err != nil {
 		return fmt.Errorf("write batch to parquet: %w", err)
 	}
 
 	pw.buffer = pw.buffer[:0] // Reset buffer
+	if pw.onFlush != nil {
+		pw.onFlush(n)
+	}
 	return nil
 }
 

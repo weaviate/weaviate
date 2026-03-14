@@ -34,15 +34,13 @@ type keyRange struct {
 // scanJob is a self-contained unit of work: scan one key range, create a
 // per-range writer pipeline, write directly to it, and upload.
 type scanJob struct {
-	ctx              context.Context // per-shard context
-	bucket           *lsmkv.Bucket
-	keyRange         keyRange
-	rangeIndex       int
-	writerCfg        *rangeWriterConfig
-	wg               *sync.WaitGroup // per-shard WaitGroup, Done() called after scan
-	setErr           func(error)
-	addWritten       func(int64)
-	progressInterval int64
+	ctx        context.Context // per-shard context
+	bucket     *lsmkv.Bucket
+	keyRange   keyRange
+	rangeIndex int
+	writerCfg  *rangeWriterConfig
+	wg         *sync.WaitGroup // per-shard WaitGroup, Done() called after scan
+	setErr     func(error)
 }
 
 func (j *scanJob) execute() {
@@ -54,7 +52,7 @@ func (j *scanJob) execute() {
 		return
 	}
 
-	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer, j.addWritten, j.progressInterval)
+	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer)
 
 	if shutdownErr := pipeline.Shutdown(scanErr); shutdownErr != nil {
 		j.setErr(shutdownErr)
@@ -62,11 +60,6 @@ func (j *scanJob) execute() {
 }
 
 const (
-	// progressReportInterval is the number of objects between incremental
-	// progress updates to the NodeStatus. This keeps the S3 status file
-	// reflecting real-time progress without per-row overhead.
-	progressReportInterval int64 = 1_000
-
 	// minObjectsPerRange is the minimum number of objects each key range should
 	// contain. When the bucket has fewer objects than parallelism * this value,
 	// we reduce the number of ranges so that each range has meaningful work.
@@ -127,17 +120,13 @@ func computeNumRanges(count, parallelism int) int {
 // scanRangeToWriter scans [startKey, endKey) using a Cursor and writes
 // rows directly to a ParquetWriter. If endKey is nil, scans to the end.
 //
-// If addWritten is non-nil and progressInterval > 0, addWritten is called
-// every progressInterval objects during scanning. Any remainder is flushed
-// at the end whenever addWritten is non-nil, so that the final count is
-// always reported.
+// Progress reporting is handled by the writer's onFlush callback, which
+// fires after each batch of rows is flushed to the underlying io.Writer.
 func scanRangeToWriter(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
 	startKey, endKey []byte,
 	writer *ParquetWriter,
-	addWritten func(int64),
-	progressInterval int64,
 ) error {
 	cursor := bucket.Cursor()
 	defer cursor.Close()
@@ -148,13 +137,6 @@ func scanRangeToWriter(
 	} else {
 		key, val = cursor.Seek(startKey)
 	}
-
-	var pending int64
-	defer func() {
-		if addWritten != nil && pending > 0 {
-			addWritten(pending)
-		}
-	}()
 
 	for key != nil {
 		if endKey != nil && bytes.Compare(key, endKey) >= 0 {
@@ -186,12 +168,6 @@ func scanRangeToWriter(
 			return fmt.Errorf("write row to parquet: %w", err)
 		}
 
-		pending++
-		if addWritten != nil && progressInterval > 0 && pending >= progressInterval {
-			addWritten(pending)
-			pending = 0
-		}
-
 		key, val = cursor.Next()
 	}
 
@@ -206,6 +182,7 @@ type rangeWriterConfig struct {
 	shardName string
 	isMT      bool
 	logger    logrus.FieldLogger
+	onFlush   func(int64) // called after each successful ParquetWriter flush
 }
 
 // rangePipeline bundles a per-range ParquetWriter, io.Pipe, and upload goroutine.
@@ -217,8 +194,11 @@ type rangePipeline struct {
 
 // Shutdown closes the writer pipeline and waits for the upload to finish.
 // If scanErr is non-nil, the pipeline is torn down and scanErr is returned.
+// The writer's onFlush callback is suppressed during error-path cleanup so
+// that progress is not reported for objects that will not reach the backend.
 func (rp *rangePipeline) Shutdown(scanErr error) error {
 	if scanErr != nil {
+		rp.writer.onFlush = nil
 		_ = rp.writer.Close()
 		rp.pw.CloseWithError(scanErr)
 		<-rp.uploadDone
@@ -265,6 +245,7 @@ func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex in
 		<-uploadDone
 		return nil, fmt.Errorf("create parquet writer: %w", err)
 	}
+	writer.onFlush = cfg.onFlush
 
 	writer.SetFileMetadata("collection", cfg.className)
 	if cfg.isMT {
