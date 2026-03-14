@@ -26,35 +26,17 @@ func TestNodeStatus_SnapshotMatchesOriginal(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	ns := &NodeStatus{
-		NodeName:    "node-1",
-		Status:      export.Transferring,
-		Error:       "some error",
-		CompletedAt: now,
-		ShardProgress: map[string]map[string]*ShardProgress{
-			"ClassA": {
-				"shard0": {
-					Status:          export.ShardTransferring,
-					ObjectsExported: 100,
-					Error:           "",
-					SkipReason:      "",
-				},
-				"shard1": {
-					Status:          export.ShardFailed,
-					ObjectsExported: 50,
-					Error:           "disk full",
-					SkipReason:      "",
-				},
-			},
-			"ClassB": {
-				"shard0": {
-					Status:          export.ShardSkipped,
-					ObjectsExported: 0,
-					Error:           "",
-					SkipReason:      "tenant is COLD",
-				},
-			},
-		},
+		NodeName:      "node-1",
+		Status:        export.Transferring,
+		Error:         "some error",
+		CompletedAt:   now,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
+	ns.SetShardProgress("ClassA", "shard0", export.ShardTransferring, "", "")
+	ns.AddShardExported("ClassA", "shard0", 100)
+	ns.SetShardProgress("ClassA", "shard1", export.ShardFailed, "disk full", "")
+	ns.AddShardExported("ClassA", "shard1", 50)
+	ns.SetShardProgress("ClassB", "shard0", export.ShardSkipped, "", "tenant is COLD")
 
 	snap := ns.SyncAndSnapshot()
 
@@ -93,7 +75,7 @@ func TestNodeStatus_SnapshotIsDeepCopy(t *testing.T) {
 		Status:        export.Transferring,
 		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
-	ns.SetShardProgress("ClassA", "shard0", export.ShardTransferring, 0, "", "")
+	ns.SetShardProgress("ClassA", "shard0", export.ShardTransferring, "", "")
 	ns.AddShardExported("ClassA", "shard0", 100)
 
 	snap := ns.SyncAndSnapshot()
@@ -133,7 +115,7 @@ func TestSyncLiveCounts(t *testing.T) {
 		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
 
-	ns.SetShardProgress("Article", "shard0", export.ShardTransferring, 0, "", "")
+	ns.SetShardProgress("Article", "shard0", export.ShardTransferring, "", "")
 
 	// Simulate workers incrementing the atomic counter.
 	ns.AddShardExported("Article", "shard0", 100)
@@ -153,7 +135,7 @@ func TestAddShardExported_Concurrent(t *testing.T) {
 		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
 
-	ns.SetShardProgress("Article", "shard0", export.ShardTransferring, 0, "", "")
+	ns.SetShardProgress("Article", "shard0", export.ShardTransferring, "", "")
 
 	const goroutines = 10
 	const incrementsPerGoroutine = 1000

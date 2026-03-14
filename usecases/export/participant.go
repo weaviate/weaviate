@@ -418,16 +418,16 @@ func (p *Participant) submitJobs(
 
 			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
 			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
 				return fmt.Errorf("acquire shard %s/%s: %w", className, shardName, err)
 			}
 
 			if shard == nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, 0, "", skipReason)
+				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, "", skipReason)
 				continue
 			}
 
-			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, 0, "", "")
+			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, "", "")
 
 			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus, parallelism); err != nil {
 				return err
@@ -461,14 +461,14 @@ func (p *Participant) submitShardJobs(
 	if store == nil {
 		release()
 		err := fmt.Errorf("store not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
 		return err
 	}
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		release()
 		err := fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
 		return err
 	}
 	ranges := computeRanges(bucket, parallelism)
@@ -527,8 +527,9 @@ rangeloop:
 		}
 	}
 
-	// Cleanup goroutine: waits for all range jobs, reads the final
-	// count from the atomic counter, and releases the shard.
+	// Cleanup goroutine: waits for all range jobs, updates shard status,
+	// and releases the shard. The written count lives in the shard's atomic
+	// counter and is synced into ObjectsExported by SyncAndSnapshot.
 	cleanupWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer cleanupWg.Done()
@@ -537,20 +538,17 @@ rangeloop:
 		if shardErr != nil {
 			// setCleanupErr was already called by setErr (which triggered
 			// failFastCancel); here we only record per-shard status.
-			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, nodeStatus.GetShardWritten(className, shardName), shardErr.Error(), "")
+			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, shardErr.Error(), "")
 			release()
 			return
 		}
 
-		// Read the final count from the shard's atomic counter.
-		finalCount := nodeStatus.GetShardWritten(className, shardName)
-
 		p.logger.WithField("class", className).
 			WithField("shard", shardName).
-			WithField("objects", finalCount).
+			WithField("objects", nodeStatus.GetShardWritten(className, shardName)).
 			Info("shard export completed")
 
-		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, finalCount, "", "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, "", "")
 		release()
 	}, p.logger)
 

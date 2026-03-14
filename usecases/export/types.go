@@ -43,7 +43,7 @@ func (*bytesReadCloser) CloseWithError(error) error { return nil }
 // It is copied into ObjectsExported by SyncAndSnapshot before each
 // JSON marshal.
 type ShardProgress struct {
-	objectsWritten  atomic.Int64       `json:"-"`
+	objectsWritten  atomic.Int64
 	Status          export.ShardStatus `json:"status"`
 	ObjectsExported int64              `json:"objectsExported"`
 	Error           string             `json:"error,omitempty"`
@@ -84,7 +84,7 @@ type ExportRequest struct {
 // NodeStatus is written to S3 by each participant node.
 // The embedded mutex protects all fields from concurrent access.
 type NodeStatus struct {
-	mu            sync.Mutex                           `json:"-"`
+	mu            sync.Mutex
 	NodeName      string                               `json:"nodeName"`
 	Status        export.Status                        `json:"status"`
 	ShardProgress map[string]map[string]*ShardProgress `json:"shardProgress,omitempty"` // className → shardName → progress
@@ -93,7 +93,9 @@ type NodeStatus struct {
 }
 
 // SetShardProgress updates a shard's export progress in a thread-safe manner.
-func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.ShardStatus, objects int64, errMsg, skipReason string) {
+// ObjectsExported is not set here; it is synced from the atomic counter
+// by SyncAndSnapshot before each JSON marshal.
+func (ns *NodeStatus) SetShardProgress(className, shardName string, status export.ShardStatus, errMsg, skipReason string) {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
 	if ns.ShardProgress[className] == nil {
@@ -105,7 +107,6 @@ func (ns *NodeStatus) SetShardProgress(className, shardName string, status expor
 		ns.ShardProgress[className][shardName] = sp
 	}
 	sp.Status = status
-	sp.ObjectsExported = objects
 	sp.Error = errMsg
 	sp.SkipReason = skipReason
 
