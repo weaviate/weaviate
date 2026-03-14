@@ -34,14 +34,15 @@ type keyRange struct {
 // scanJob is a self-contained unit of work: scan one key range, create a
 // per-range writer pipeline, write directly to it, and upload.
 type scanJob struct {
-	ctx        context.Context // per-shard context
-	bucket     *lsmkv.Bucket
-	keyRange   keyRange
-	rangeIndex int
-	writerCfg  *rangeWriterConfig
-	wg         *sync.WaitGroup // per-shard WaitGroup, Done() called after scan
-	setErr     func(error)
-	addWritten func(int64)
+	ctx              context.Context // per-shard context
+	bucket           *lsmkv.Bucket
+	keyRange         keyRange
+	rangeIndex       int
+	writerCfg        *rangeWriterConfig
+	wg               *sync.WaitGroup // per-shard WaitGroup, Done() called after scan
+	setErr           func(error)
+	addWritten       func(int64)
+	progressInterval int64
 }
 
 func (j *scanJob) execute() {
@@ -53,18 +54,19 @@ func (j *scanJob) execute() {
 		return
 	}
 
-	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer)
+	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer, j.addWritten, j.progressInterval)
 
-	written, shutdownErr := pipeline.Shutdown(scanErr)
-	if shutdownErr != nil {
+	if _, shutdownErr := pipeline.Shutdown(scanErr); shutdownErr != nil {
 		j.setErr(shutdownErr)
-		return
 	}
-
-	j.addWritten(written)
 }
 
 const (
+	// progressReportInterval is the number of objects between incremental
+	// progress updates to the NodeStatus. This keeps the S3 status file
+	// reflecting real-time progress without per-row overhead.
+	progressReportInterval int64 = 1_000
+
 	// minObjectsPerRange is the minimum number of objects each key range should
 	// contain. When the bucket has fewer objects than parallelism * this value,
 	// we reduce the number of ranges so that each range has meaningful work.
@@ -124,11 +126,17 @@ func computeNumRanges(count, parallelism int) int {
 
 // scanRangeToWriter scans [startKey, endKey) using a Cursor and writes
 // rows directly to a ParquetWriter. If endKey is nil, scans to the end.
+//
+// If addWritten is non-nil and progressInterval > 0, addWritten is called
+// every progressInterval objects (and once for any remainder at the end)
+// so that live progress is reported incrementally.
 func scanRangeToWriter(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
 	startKey, endKey []byte,
 	writer *ParquetWriter,
+	addWritten func(int64),
+	progressInterval int64,
 ) error {
 	cursor := bucket.Cursor()
 	defer cursor.Close()
@@ -140,6 +148,7 @@ func scanRangeToWriter(
 		key, val = cursor.Seek(startKey)
 	}
 
+	var pending int64
 	for key != nil {
 		if endKey != nil && bytes.Compare(key, endKey) >= 0 {
 			break
@@ -170,7 +179,17 @@ func scanRangeToWriter(
 			return fmt.Errorf("write row to parquet: %w", err)
 		}
 
+		pending++
+		if addWritten != nil && progressInterval > 0 && pending >= progressInterval {
+			addWritten(pending)
+			pending = 0
+		}
+
 		key, val = cursor.Next()
+	}
+
+	if addWritten != nil && pending > 0 {
+		addWritten(pending)
 	}
 
 	return nil

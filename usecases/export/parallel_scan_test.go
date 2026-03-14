@@ -280,7 +280,7 @@ func TestScanAllRanges(t *testing.T) {
 		writer, err := NewParquetWriter(&buf)
 		require.NoError(t, err)
 
-		err = scanRangeToWriter(context.Background(), bucket, r.start, r.end, writer)
+		err = scanRangeToWriter(context.Background(), bucket, r.start, r.end, writer, nil, 0)
 		require.NoError(t, err)
 		require.NoError(t, writer.Close())
 
@@ -312,7 +312,7 @@ func scanToRows(t *testing.T, ctx context.Context, bucket *lsmkv.Bucket, start, 
 	writer, err := NewParquetWriter(&buf)
 	require.NoError(t, err)
 
-	scanErr := scanRangeToWriter(ctx, bucket, start, end, writer)
+	scanErr := scanRangeToWriter(ctx, bucket, start, end, writer, nil, 0)
 	require.NoError(t, writer.Close())
 	if scanErr != nil {
 		return nil, scanErr
@@ -654,14 +654,15 @@ func TestScanJobExecute(t *testing.T) {
 
 		wg.Add(1)
 		job := scanJob{
-			ctx:        context.Background(),
-			bucket:     bucket,
-			keyRange:   keyRange{start: nil, end: nil},
-			rangeIndex: 0,
-			writerCfg:  cfg,
-			wg:         &wg,
-			setErr:     func(err error) { gotErr = err },
-			addWritten: func(n int64) { written = n },
+			ctx:              context.Background(),
+			bucket:           bucket,
+			keyRange:         keyRange{start: nil, end: nil},
+			rangeIndex:       0,
+			writerCfg:        cfg,
+			wg:               &wg,
+			setErr:           func(err error) { gotErr = err },
+			addWritten:       func(n int64) { written += n },
+			progressInterval: 5,
 		}
 		job.execute()
 		wg.Wait()
@@ -696,21 +697,21 @@ func TestScanJobExecute(t *testing.T) {
 
 		wg.Add(1)
 		job := scanJob{
-			ctx:        context.Background(),
-			bucket:     bucket,
-			keyRange:   keyRange{start: nil, end: nil},
-			rangeIndex: 0,
-			writerCfg:  cfg,
-			wg:         &wg,
-			setErr:     func(err error) { gotErr = err },
-			addWritten: func(n int64) { written = n },
+			ctx:              context.Background(),
+			bucket:           bucket,
+			keyRange:         keyRange{start: nil, end: nil},
+			rangeIndex:       0,
+			writerCfg:        cfg,
+			wg:               &wg,
+			setErr:           func(err error) { gotErr = err },
+			addWritten:       func(n int64) { written += n },
+			progressInterval: 5,
 		}
 		job.execute()
 		wg.Wait()
 
 		require.Error(t, gotErr)
 		assert.Contains(t, gotErr.Error(), "s3 upload failed")
-		assert.Equal(t, int64(0), written)
 	})
 }
 
@@ -740,4 +741,35 @@ func assertUniqueIDs(t *testing.T, rows []ParquetRow) {
 		}
 		seen[r.ID] = struct{}{}
 	}
+}
+
+func TestScanRangeToWriter_ProgressCallback(t *testing.T) {
+	t.Parallel()
+
+	const numObjects = 250
+	const interval int64 = 100
+
+	store, _ := createTestStore(t, numObjects)
+	t.Cleanup(func() { store.Shutdown(context.Background()) })
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	var callbacks []int64
+	addWritten := func(n int64) {
+		callbacks = append(callbacks, n)
+	}
+
+	var buf bytes.Buffer
+	writer, err := NewParquetWriter(&buf)
+	require.NoError(t, err)
+
+	err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer, addWritten, interval)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	// With 250 objects and interval=100, we expect callbacks of [100, 100, 50].
+	require.Equal(t, []int64{100, 100, 50}, callbacks)
+
+	rows := readParquetRows(t, buf.Bytes())
+	assert.Len(t, rows, numObjects)
 }

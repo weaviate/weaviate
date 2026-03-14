@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -496,10 +495,10 @@ func (p *Participant) submitShardJobs(
 		})
 	}
 
-	// Thread-safe written counter for this shard.
-	var writtenSum atomic.Int64
+	// Progress callback: atomically updates the shard's live counter
+	// in NodeStatus so the periodic S3 writer can report progress.
 	addWritten := func(n int64) {
-		writtenSum.Add(n)
+		nodeStatus.AddShardExported(className, shardName, n)
 	}
 
 	// Submit range jobs, tracked by a per-shard WaitGroup.
@@ -510,14 +509,15 @@ rangeloop:
 		shardWg.Add(1)
 		select {
 		case jobCh <- scanJob{
-			ctx:        ctx,
-			bucket:     bucket,
-			keyRange:   r,
-			rangeIndex: i,
-			writerCfg:  writerCfg,
-			wg:         &shardWg,
-			setErr:     setErr,
-			addWritten: addWritten,
+			ctx:              ctx,
+			bucket:           bucket,
+			keyRange:         r,
+			rangeIndex:       i,
+			writerCfg:        writerCfg,
+			wg:               &shardWg,
+			setErr:           setErr,
+			addWritten:       addWritten,
+			progressInterval: progressReportInterval,
 		}:
 		case <-ctx.Done():
 			setErr(ctx.Err())
@@ -527,8 +527,8 @@ rangeloop:
 		}
 	}
 
-	// Cleanup goroutine: waits for all range jobs, aggregates results,
-	// and releases the shard.
+	// Cleanup goroutine: waits for all range jobs, reads the final
+	// count from the atomic counter, and releases the shard.
 	cleanupWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer cleanupWg.Done()
@@ -542,12 +542,15 @@ rangeloop:
 			return
 		}
 
+		// Read the final count from the shard's atomic counter.
+		finalCount := nodeStatus.GetShardWritten(className, shardName)
+
 		p.logger.WithField("class", className).
 			WithField("shard", shardName).
-			WithField("objects", writtenSum.Load()).
+			WithField("objects", finalCount).
 			Info("shard export completed")
 
-		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, writtenSum.Load(), "", "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, finalCount, "", "")
 		release()
 	}, p.logger)
 
@@ -620,7 +623,7 @@ func (p *Participant) startNodeStatusWriter(
 	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
 
 	flush := func() {
-		snap := nodeStatus.snapshot()
+		snap := nodeStatus.SyncAndSnapshot()
 		data, err := json.Marshal(snap)
 		if err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).

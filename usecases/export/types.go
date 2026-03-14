@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -37,7 +38,12 @@ func (*bytesReadCloser) CloseWithError(error) error { return nil }
 
 // ShardProgress tracks the progress of exporting a single shard.
 // Used internally and in the S3 NodeStatus format.
+//
+// objectsWritten is an atomic counter that workers increment lock-free.
+// It is copied into ObjectsExported by SyncAndSnapshot before each
+// JSON marshal.
 type ShardProgress struct {
+	objectsWritten  atomic.Int64       `json:"-"`
 	Status          export.ShardStatus `json:"status"`
 	ObjectsExported int64              `json:"objectsExported"`
 	Error           string             `json:"error,omitempty"`
@@ -147,6 +153,67 @@ func (ns *NodeStatus) SetSuccess() {
 	ns.CompletedAt = time.Now().UTC()
 }
 
+// AddShardExported atomically increments a shard's written-objects counter.
+// The mutex is held only for the map lookup; the counter itself is lock-free.
+func (ns *NodeStatus) AddShardExported(className, shardName string, delta int64) {
+	ns.mu.Lock()
+	sp := ns.ShardProgress[className][shardName]
+	ns.mu.Unlock()
+	if sp != nil {
+		sp.objectsWritten.Add(delta)
+	}
+}
+
+// GetShardWritten returns the current value of a shard's atomic written-objects
+// counter. The mutex is held only for the map lookup.
+func (ns *NodeStatus) GetShardWritten(className, shardName string) int64 {
+	ns.mu.Lock()
+	sp := ns.ShardProgress[className][shardName]
+	ns.mu.Unlock()
+	if sp != nil {
+		return sp.objectsWritten.Load()
+	}
+	return 0
+}
+
+// SyncAndSnapshot syncs live atomic counters into ObjectsExported and returns
+// a deep copy of the NodeStatus suitable for marshaling, all under a single
+// lock acquisition.
+func (ns *NodeStatus) SyncAndSnapshot() *NodeStatus {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+
+	// Copy atomic counters into the JSON-visible field.
+	for _, shards := range ns.ShardProgress {
+		for _, sp := range shards {
+			sp.ObjectsExported = sp.objectsWritten.Load()
+		}
+	}
+
+	// Deep copy.
+	cp := &NodeStatus{
+		NodeName:    ns.NodeName,
+		Status:      ns.Status,
+		Error:       ns.Error,
+		CompletedAt: ns.CompletedAt,
+	}
+	if len(ns.ShardProgress) > 0 {
+		cp.ShardProgress = make(map[string]map[string]*ShardProgress, len(ns.ShardProgress))
+		for className, shards := range ns.ShardProgress {
+			cp.ShardProgress[className] = make(map[string]*ShardProgress, len(shards))
+			for shardName, sp := range shards {
+				cp.ShardProgress[className][shardName] = &ShardProgress{
+					Status:          sp.Status,
+					ObjectsExported: sp.ObjectsExported,
+					Error:           sp.Error,
+					SkipReason:      sp.SkipReason,
+				}
+			}
+		}
+	}
+	return cp
+}
+
 // snapshot returns a deep copy of the NodeStatus suitable for marshaling
 // outside the lock.
 func (ns *NodeStatus) snapshot() *NodeStatus {
@@ -163,8 +230,12 @@ func (ns *NodeStatus) snapshot() *NodeStatus {
 		for className, shards := range ns.ShardProgress {
 			cp.ShardProgress[className] = make(map[string]*ShardProgress, len(shards))
 			for shardName, sp := range shards {
-				clone := *sp
-				cp.ShardProgress[className][shardName] = &clone
+				cp.ShardProgress[className][shardName] = &ShardProgress{
+					Status:          sp.Status,
+					ObjectsExported: sp.ObjectsExported,
+					Error:           sp.Error,
+					SkipReason:      sp.SkipReason,
+				}
 			}
 		}
 	}
