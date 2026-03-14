@@ -120,8 +120,9 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	}
 
 	type compareProps struct {
-		Name    string
-		IsArray bool
+		Name       string
+		IsArray    bool
+		IsBlobHash bool
 	}
 	propsToCompare := make([]compareProps, 0)
 
@@ -150,8 +151,8 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if prop.ModuleConfig != nil {
-			if modConfig, ok := prop.ModuleConfig.(map[string]interface{})[class.Vectorizer]; ok {
-				if skip, ok2 := modConfig.(map[string]interface{})["skip"]; ok2 && skip == true {
+			if modConfig, ok := prop.ModuleConfig.(map[string]any)[class.Vectorizer]; ok {
+				if skip, ok2 := modConfig.(map[string]any)["skip"]; ok2 && skip == true {
 					continue
 				}
 			}
@@ -168,7 +169,11 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if _, ok := mediaPropsSet[prop.Name]; ok {
-			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
+			propsToCompare = append(propsToCompare, compareProps{
+				Name:       prop.Name,
+				IsArray:    schema.IsArrayDataType(prop.DataType),
+				IsBlobHash: schema.IsBlobHashDataType(prop.DataType),
+			})
 			continue
 		}
 	}
@@ -190,12 +195,12 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	if err != nil || oldObject == nil {
 		return true, nil
 	}
-	oldProps := oldObject.Schema.(map[string]interface{})
-	var newProps map[string]interface{}
+	oldProps := oldObject.Schema.(map[string]any)
+	var newProps map[string]any
 	if object.Properties == nil {
-		newProps = make(map[string]interface{})
+		newProps = make(map[string]any)
 	} else {
-		newProps = object.Properties.(map[string]interface{})
+		newProps = object.Properties.(map[string]any)
 	}
 	for _, propStruct := range propsToCompare {
 		valNew, isPresentNew := newProps[propStruct.Name]
@@ -212,10 +217,10 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		if propStruct.IsArray {
 			// empty strings do not have type information saved with them - the new value can also come from disk if
 			// an update happens
-			if _, ok := valOld.([]interface{}); ok && len(valOld.([]interface{})) == 0 {
+			if _, ok := valOld.([]any); ok && len(valOld.([]any)) == 0 {
 				valOld = []string{}
 			}
-			if _, ok := valNew.([]interface{}); ok && len(valNew.([]interface{})) == 0 {
+			if _, ok := valNew.([]any); ok && len(valNew.([]any)) == 0 {
 				valNew = []string{}
 			}
 
@@ -228,6 +233,14 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 				}
 			}
 		} else {
+			// For BlobHash properties, the stored (old) value is a hash while
+			// the incoming (new) value is the raw base64 data. Hash the new
+			// value so we compare hashes consistently.
+			if propStruct.IsBlobHash {
+				if newStr, ok := valNew.(string); ok {
+					valNew = schema.HashBlob(newStr)
+				}
+			}
 			if valOld != valNew {
 				return true, nil
 			}

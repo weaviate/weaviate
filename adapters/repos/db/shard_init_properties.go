@@ -220,7 +220,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 
 	// some datatypes are not added to the inverted index, so we can skip them here
 	switch schema.DataType(prop.DataType[0]) {
-	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeInt,
 		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
 		return nil
 	default:

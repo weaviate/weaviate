@@ -477,7 +477,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 		for _, pdt := range schema.PrimitiveDataTypes {
 			tokenization := ""
 			switch pdt {
-			case schema.DataTypeBlob:
+			case schema.DataTypeBlob, schema.DataTypeBlobHash:
 				// skip - not indexable
 				continue
 			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:

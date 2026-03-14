@@ -151,6 +151,7 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeGeoCoordinates),
 		string(DataTypePhoneNumber),
 		string(DataTypeBlob),
+		string(DataTypeBlobHash),
 		string(DataTypeUUID),
 		string(DataTypeUUIDArray),
 		string(DataTypeStringArray),
@@ -178,6 +179,20 @@ func IsBlobDataType(dt []string) bool {
 		}
 	}
 	return false
+}
+
+func IsBlobHashDataType(dt []string) bool {
+	for i := range dt {
+		if dt[i] == string(DataTypeBlobHash) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBlobLikeDataType returns true for both blob and blobHash data types.
+func IsBlobLikeDataType(dt []string) bool {
+	return IsBlobDataType(dt) || IsBlobHashDataType(dt)
 }
 
 func IsArrayDataType(dt []string) bool {

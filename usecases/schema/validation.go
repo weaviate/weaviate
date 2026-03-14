@@ -132,10 +132,10 @@ func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 		return fmt.Errorf("property '%s': `indexFilterable` not set", propName)
 	}
 
-	if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+	if isPrimitive && (primitiveDataType == schema.DataTypeBlob || primitiveDataType == schema.DataTypeBlobHash) {
 		if *property.IndexFilterable {
-			return fmt.Errorf("property: '%s': indexFilterable is not allowed for blob data type",
-				propName)
+			return fmt.Errorf("property: '%s': indexFilterable is not allowed for %s data type",
+				propName, primitiveDataType)
 		}
 	}
 

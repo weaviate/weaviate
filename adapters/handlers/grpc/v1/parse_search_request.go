@@ -897,7 +897,7 @@ func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, 
 		if err != nil {
 			return []search.SelectProperty{}, errors.Wrap(err, "get property data type")
 		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
 			continue
 		}
 		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
@@ -932,7 +932,7 @@ func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P)
 		if err != nil {
 			return []search.SelectProperty{}, errors.Wrap(err, "get nested property data type")
 		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
 			continue
 		}
 		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
@@ -1307,8 +1307,8 @@ OUTER:
 				continue OUTER
 			}
 		}
-		if propDataTypes[additionalProp] == schema.DataTypeBlob {
-			// make sure that blobs aren't added to the response payload by accident
+		if propDataTypes[additionalProp] == schema.DataTypeBlob || propDataTypes[additionalProp] == schema.DataTypeBlobHash {
+			// make sure that blobs/blobHash aren't added to the response payload by accident
 			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: false})
 		} else {
 			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
