@@ -520,58 +520,84 @@ func (s *Scheduler) assembleStatusFromPlan(
 	var lastCompleted time.Time
 
 	for nodeName := range plan.NodeAssignments {
-		nodeStatus, err := s.getNodeStatus(ctx, backend, id, bucket, path, nodeName)
-		if err != nil {
-			if !errors.As(err, &backup.ErrNotFound{}) {
-				return nil, false, fmt.Errorf("get status for node %s: %w", nodeName, err)
-			}
-			// No status file yet — treat as non-terminal and check liveness below
-			allTerminal = false
-			nodeStatus = &NodeStatus{
-				NodeName:      nodeName,
-				Status:        export.Transferring,
-				ShardProgress: make(map[string]map[string]*ShardProgress),
-			}
-		}
+		// The status file is read up to twice. The export goroutine writes
+		// the terminal status and then clears its activeExport flag. An
+		// IsRunning check that lands between those two events sees "not
+		// running" while the status file still shows Transferring/Started.
+		// A single re-read is sufficient because stopWriter blocks until
+		// the write completes before clearAndRelease clears activeExport,
+		// so the file is guaranteed to be on disk when IsRunning returns
+		// false. Snapshot aggregate flags so the retry starts from a clean
+		// slate for this node's contribution.
+		const maxStatusReads = 2
+		prevAllTerminal, prevAllSuccess, prevAnyFailed, prevError := allTerminal, allSuccess, anyFailed, status.Error
+		var (
+			nodeStatus           *NodeStatus
+			effectiveShardStatus export.ShardStatus
+			statusErr            error
+		)
+		for attempt := range maxStatusReads {
+			allTerminal, allSuccess, anyFailed, status.Error = prevAllTerminal, prevAllSuccess, prevAnyFailed, prevError
 
-		if nodeStatus.CompletedAt.After(lastCompleted) {
-			lastCompleted = nodeStatus.CompletedAt
-		}
-
-		// effectiveShardStatus defaults to Transferring and is overridden to
-		// Failed when a node is unreachable or no longer running the export.
-		effectiveShardStatus := export.ShardTransferring
-		switch nodeStatus.Status {
-		case export.Success:
-			effectiveShardStatus = export.ShardSuccess
-		case export.Failed:
-			effectiveShardStatus = export.ShardFailed
-			anyFailed = true
-			allSuccess = false
-			if status.Error == "" {
-				status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
-			}
-		case export.Started, export.Transferring, export.Canceled:
-			// Non-terminal (Transferring/Started): verify the node is still running
-			allTerminal = false
-			allSuccess = false
-			host, alive := s.nodeResolver.NodeHostname(nodeName)
-			if !alive {
-				anyFailed = true
-				effectiveShardStatus = export.ShardFailed
-				if status.Error == "" {
-					status.Error = fmt.Sprintf("node %s is no longer part of the cluster", nodeName)
+			nodeStatus, statusErr = s.getNodeStatus(ctx, backend, id, bucket, path, nodeName)
+			if statusErr != nil {
+				if !errors.As(statusErr, &backup.ErrNotFound{}) {
+					return nil, false, fmt.Errorf("get status for node %s: %w", nodeName, statusErr)
 				}
-			} else if s.client != nil {
-				running, runErr := s.client.IsRunning(ctx, host, id)
-				if runErr != nil || !running {
+				// No status file yet — treat as non-terminal and check liveness below
+				allTerminal = false
+				nodeStatus = &NodeStatus{
+					NodeName:      nodeName,
+					Status:        export.Transferring,
+					ShardProgress: make(map[string]map[string]*ShardProgress),
+				}
+			}
+
+			if nodeStatus.CompletedAt.After(lastCompleted) {
+				lastCompleted = nodeStatus.CompletedAt
+			}
+
+			// effectiveShardStatus defaults to Transferring and is overridden to
+			// Failed when a node is unreachable or no longer running the export.
+			effectiveShardStatus = export.ShardTransferring
+			switch nodeStatus.Status {
+			case export.Success:
+				effectiveShardStatus = export.ShardSuccess
+			case export.Failed:
+				effectiveShardStatus = export.ShardFailed
+				anyFailed = true
+				allSuccess = false
+				if status.Error == "" {
+					status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
+				}
+			case export.Started, export.Transferring, export.Canceled:
+				// Non-terminal (Transferring/Started): verify the node is still running
+				allTerminal = false
+				allSuccess = false
+				host, alive := s.nodeResolver.NodeHostname(nodeName)
+				if !alive {
 					anyFailed = true
 					effectiveShardStatus = export.ShardFailed
 					if status.Error == "" {
-						status.Error = fmt.Sprintf("node %s is no longer running export %s", nodeName, id)
+						status.Error = fmt.Sprintf("node %s is no longer part of the cluster", nodeName)
+					}
+				} else if s.client != nil {
+					running, runErr := s.client.IsRunning(ctx, host, id)
+					if runErr != nil || !running {
+						if attempt < maxStatusReads-1 {
+							// Re-read the status file — the goroutine may
+							// have written the terminal status by now.
+							continue
+						}
+						anyFailed = true
+						effectiveShardStatus = export.ShardFailed
+						if status.Error == "" {
+							status.Error = fmt.Sprintf("node %s is no longer running export %s", nodeName, id)
+						}
 					}
 				}
 			}
+			break
 		}
 		// Record per-shard status: use node's ShardProgress when available,
 		// but override non-terminal shards if the node is effectively failed.
