@@ -712,6 +712,9 @@ func TestScanJobExecute(t *testing.T) {
 
 		require.Error(t, gotErr)
 		assert.Contains(t, gotErr.Error(), "s3 upload failed")
+		// With incremental progress (interval=5, 10 objects), addWritten
+		// was called during scanning before the upload error surfaced.
+		assert.Equal(t, int64(10), written)
 	})
 }
 

@@ -537,7 +537,7 @@ rangeloop:
 		if shardErr != nil {
 			// setCleanupErr was already called by setErr (which triggered
 			// failFastCancel); here we only record per-shard status.
-			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, shardErr.Error(), "")
+			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, nodeStatus.GetShardWritten(className, shardName), shardErr.Error(), "")
 			release()
 			return
 		}
