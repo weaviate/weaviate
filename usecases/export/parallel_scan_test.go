@@ -574,8 +574,7 @@ func TestRangePipelineShutdown(t *testing.T) {
 		rp, _ := newTestPipeline(t, nil)
 		scanErr := fmt.Errorf("scan failed")
 
-		written, err := rp.Shutdown(scanErr)
-		assert.Equal(t, int64(0), written)
+		err := rp.Shutdown(scanErr)
 		assert.Equal(t, scanErr, err)
 	})
 
@@ -584,20 +583,18 @@ func TestRangePipelineShutdown(t *testing.T) {
 		uploadErr := fmt.Errorf("upload failed")
 		rp, _ := newTestPipeline(t, uploadErr)
 
-		written, err := rp.Shutdown(nil)
-		assert.Equal(t, int64(0), written)
+		err := rp.Shutdown(nil)
 		assert.Equal(t, uploadErr, err)
 	})
 
-	t.Run("success returns written count", func(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		rp, _ := newTestPipeline(t, nil)
 		require.NoError(t, rp.writer.WriteRow(ParquetRow{ID: "a"}))
 		require.NoError(t, rp.writer.WriteRow(ParquetRow{ID: "b"}))
 
-		written, err := rp.Shutdown(nil)
+		err := rp.Shutdown(nil)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(2), written)
 	})
 
 	t.Run("writer close error propagated", func(t *testing.T) {
@@ -608,8 +605,7 @@ func TestRangePipelineShutdown(t *testing.T) {
 		// Break the pipe so the flush write fails.
 		pr.Close()
 
-		written, err := rp.Shutdown(nil)
-		assert.Equal(t, int64(0), written)
+		err := rp.Shutdown(nil)
 		assert.Error(t, err)
 	})
 }

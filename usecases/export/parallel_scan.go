@@ -56,7 +56,7 @@ func (j *scanJob) execute() {
 
 	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer, j.addWritten, j.progressInterval)
 
-	if _, shutdownErr := pipeline.Shutdown(scanErr); shutdownErr != nil {
+	if shutdownErr := pipeline.Shutdown(scanErr); shutdownErr != nil {
 		j.setErr(shutdownErr)
 	}
 }
@@ -215,30 +215,30 @@ type rangePipeline struct {
 
 // Shutdown closes the writer pipeline and waits for the upload to finish.
 // If scanErr is non-nil, the pipeline is torn down and scanErr is returned.
-func (rp *rangePipeline) Shutdown(scanErr error) (int64, error) {
+func (rp *rangePipeline) Shutdown(scanErr error) error {
 	if scanErr != nil {
 		_ = rp.writer.Close()
 		rp.pw.CloseWithError(scanErr)
 		<-rp.uploadDone
-		return 0, scanErr
+		return scanErr
 	}
 
 	if err := rp.writer.Close(); err != nil {
 		rp.pw.CloseWithError(err)
 		<-rp.uploadDone
-		return 0, err
+		return err
 	}
 
 	if err := rp.pw.Close(); err != nil {
 		<-rp.uploadDone
-		return 0, err
+		return err
 	}
 
 	if uploadErr := <-rp.uploadDone; uploadErr != nil {
-		return 0, uploadErr
+		return uploadErr
 	}
 
-	return rp.writer.ObjectsWritten(), nil
+	return nil
 }
 
 // startRangeWriter creates a rangePipeline for a single key range.
