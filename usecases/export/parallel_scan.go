@@ -128,8 +128,9 @@ func computeNumRanges(count, parallelism int) int {
 // rows directly to a ParquetWriter. If endKey is nil, scans to the end.
 //
 // If addWritten is non-nil and progressInterval > 0, addWritten is called
-// every progressInterval objects (and once for any remainder at the end)
-// so that live progress is reported incrementally.
+// every progressInterval objects during scanning. Any remainder is flushed
+// at the end whenever addWritten is non-nil, so that the final count is
+// always reported.
 func scanRangeToWriter(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
