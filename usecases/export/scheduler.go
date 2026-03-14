@@ -282,7 +282,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 
 	// The export plan is always written before the export starts.
-	plan, planErr := s.getExportPlan(ctx, backendStore, id, bucket, path)
+	plan, planErr := readExportPlan(ctx, backendStore, id, bucket, path)
 	if planErr != nil {
 		if errors.As(planErr, &backup.ErrNotFound{}) {
 			return nil, ErrExportNotFound
@@ -328,7 +328,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 					WithField("export_id", id).
 					Warn("assembled terminal status had no CompletedAt; falling back to now")
 			}
-			if writeErr := s.writeMetadata(backendStore, id, bucket, path, assembled); writeErr != nil {
+			if writeErr := writeExportMetadata(backendStore, id, bucket, path, assembled, s.logger); writeErr != nil {
 				s.logger.WithField("action", "export_status").
 					WithField("export_id", id).
 					Warnf("failed to promote assembled status to metadata: %v", writeErr)
@@ -378,7 +378,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 	// Both single-node and multi-node write a plan, so use it as the
 	// primary source of truth for authorization and node assignments.
-	plan, err := s.getExportPlan(ctx, backendStore, id, bucket, path)
+	plan, err := readExportPlan(ctx, backendStore, id, bucket, path)
 	if err != nil {
 		if errors.As(err, &backup.ErrNotFound{}) {
 			return ErrExportNotFound
@@ -476,7 +476,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		StartedAt:   strfmt.DateTime(plan.StartedAt),
 		CompletedAt: strfmt.DateTime(time.Now().UTC()),
 	}
-	if err := s.writeMetadata(backendStore, id, bucket, path, cancelStatus); err != nil {
+	if err := writeExportMetadata(backendStore, id, bucket, path, cancelStatus, s.logger); err != nil {
 		s.logger.WithField("action", "export_cancel").
 			WithField("export_id", id).
 			Errorf("failed to persist canceled metadata: %v", err)
@@ -507,25 +507,19 @@ func (s *Scheduler) statusFromMetadata(backend modulecapabilities.BackupBackend,
 	return es, nil
 }
 
-// assembleStatusFromPlan reads per-node status files from the configured backup backend and assembles
-// overall status. The returned allTerminal flag is true when every node in
-// the plan has written a status file with a terminal status (Success or
-// Failed), distinguishing genuine completions from liveness-inferred failures.
-func (s *Scheduler) assembleStatusFromPlan(
-	ctx context.Context,
-	backend modulecapabilities.BackupBackend,
-	principal *models.Principal,
-	id, bucket, path string,
+// assembleNodeStatuses computes the overall export status from already-resolved
+// per-node statuses. It does NOT perform liveness checks — the caller is
+// responsible for enriching nodeStatuses beforehand (e.g. overriding
+// non-terminal nodes to Failed when unreachable).
+func assembleNodeStatuses(
 	plan *ExportPlan,
-) (_ *models.ExportStatusResponse, allTerminal bool, _ error) {
-	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
-		return nil, false, fmt.Errorf("authorization failed: %w", err)
-	}
-
+	homePath string,
+	nodeStatuses map[string]*NodeStatus,
+) (*models.ExportStatusResponse, bool) {
 	status := &models.ExportStatusResponse{
 		ID:          plan.ID,
 		Backend:     plan.Backend,
-		Path:        backend.HomeDir(id, bucket, path),
+		Path:        homePath,
 		Status:      string(export.Transferring),
 		StartedAt:   strfmt.DateTime(plan.StartedAt),
 		Classes:     plan.Classes,
@@ -534,98 +528,35 @@ func (s *Scheduler) assembleStatusFromPlan(
 
 	allSuccess := true
 	anyFailed := false
-	allTerminal = true
+	allTerminal := true
 	var lastCompleted time.Time
 
-	for nodeName := range plan.NodeAssignments {
-		// The status file is read up to twice. The export goroutine writes
-		// the terminal status and then clears its activeExport flag. An
-		// IsRunning check that lands between those two events sees "not
-		// running" while the status file still shows Transferring/Started.
-		// A single re-read is sufficient because stopWriter blocks until
-		// the write completes before clearAndRelease clears activeExport,
-		// so the file is guaranteed to be on disk when IsRunning returns
-		// false. Snapshot aggregate flags so the retry starts from a clean
-		// slate for this node's contribution.
-		const maxStatusReads = 2
-		prevAllTerminal, prevAllSuccess, prevAnyFailed, prevError := allTerminal, allSuccess, anyFailed, status.Error
-		var (
-			nodeStatus           *NodeStatus
-			effectiveShardStatus export.ShardStatus
-			statusErr            error
-		)
-		for attempt := range maxStatusReads {
-			allTerminal, allSuccess, anyFailed, status.Error = prevAllTerminal, prevAllSuccess, prevAnyFailed, prevError
-
-			nodeStatus, statusErr = s.getNodeStatus(ctx, backend, id, bucket, path, nodeName)
-			if statusErr != nil {
-				if !errors.As(statusErr, &backup.ErrNotFound{}) {
-					return nil, false, fmt.Errorf("get status for node %s: %w", nodeName, statusErr)
-				}
-				// No status file yet — treat as non-terminal and check liveness below
-				allTerminal = false
-				nodeStatus = &NodeStatus{
-					NodeName:      nodeName,
-					Status:        export.Transferring,
-					ShardProgress: make(map[string]map[string]*ShardProgress),
-				}
-			}
-
-			if nodeStatus.CompletedAt.After(lastCompleted) {
-				lastCompleted = nodeStatus.CompletedAt
-			}
-
-			// effectiveShardStatus defaults to Transferring and is overridden to
-			// Failed when a node is unreachable or no longer running the export.
-			effectiveShardStatus = export.ShardTransferring
-			switch nodeStatus.Status {
-			case export.Success:
-				effectiveShardStatus = export.ShardSuccess
-			case export.Failed:
-				effectiveShardStatus = export.ShardFailed
-				anyFailed = true
-				allSuccess = false
-				if status.Error == "" {
-					status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
-				}
-			case export.Started, export.Transferring, export.Canceled:
-				// Non-terminal (Transferring/Started): verify the node is still running
-				allTerminal = false
-				allSuccess = false
-				host, alive := s.nodeResolver.NodeHostname(nodeName)
-				if !alive {
-					anyFailed = true
-					effectiveShardStatus = export.ShardFailed
-					if status.Error == "" {
-						status.Error = fmt.Sprintf("node %s is no longer part of the cluster", nodeName)
-					}
-				} else if s.client != nil {
-					running, runErr := s.client.IsRunning(ctx, host, id)
-					if runErr != nil || !running {
-						if attempt < maxStatusReads-1 {
-							// Re-read the status file — the goroutine may
-							// have written the terminal status by now.
-							continue
-						}
-						anyFailed = true
-						effectiveShardStatus = export.ShardFailed
-						if status.Error == "" {
-							status.Error = fmt.Sprintf("node %s is no longer running export %s", nodeName, id)
-						}
-					}
-				}
-			}
-			break
+	for nodeName, nodeStatus := range nodeStatuses {
+		if nodeStatus.CompletedAt.After(lastCompleted) {
+			lastCompleted = nodeStatus.CompletedAt
 		}
-		// Record per-shard status: use node's ShardProgress when available,
-		// but override non-terminal shards if the node is effectively failed.
+
+		effectiveShardStatus := export.ShardTransferring
+		switch nodeStatus.Status {
+		case export.Success:
+			effectiveShardStatus = export.ShardSuccess
+		case export.Failed:
+			effectiveShardStatus = export.ShardFailed
+			anyFailed = true
+			allSuccess = false
+			if status.Error == "" {
+				status.Error = fmt.Sprintf("node %s failed: %s", nodeName, nodeStatus.Error)
+			}
+		default:
+			allTerminal = false
+			allSuccess = false
+		}
+
 		for className, shards := range plan.NodeAssignments[nodeName] {
 			if status.ShardStatus[className] == nil {
 				status.ShardStatus[className] = make(map[string]models.ShardProgress)
 			}
 			for _, shardName := range shards {
-				// Node may not have reported progress for this shard yet
-				// (e.g. no status file written, or shard not started).
 				sp := nodeStatus.ShardProgress[className][shardName]
 				if sp == nil {
 					sp = &ShardProgress{Status: effectiveShardStatus}
@@ -653,6 +584,89 @@ func (s *Scheduler) assembleStatusFromPlan(
 		status.TookInMs = lastCompleted.Sub(plan.StartedAt).Milliseconds()
 	}
 
+	return status, allTerminal
+}
+
+// assembleStatusFromPlan reads per-node status files from the configured backup backend and assembles
+// overall status. The returned allTerminal flag is true when every node in
+// the plan has written a status file with a terminal status (Success or
+// Failed), distinguishing genuine completions from liveness-inferred failures.
+func (s *Scheduler) assembleStatusFromPlan(
+	ctx context.Context,
+	backend modulecapabilities.BackupBackend,
+	principal *models.Principal,
+	id, bucket, path string,
+	plan *ExportPlan,
+) (_ *models.ExportStatusResponse, allTerminal bool, _ error) {
+	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(plan.Classes...)...); err != nil {
+		return nil, false, fmt.Errorf("authorization failed: %w", err)
+	}
+
+	homePath := backend.HomeDir(id, bucket, path)
+
+	// Read per-node statuses and apply liveness overrides for non-terminal nodes.
+	// The status file is read up to twice per node. The export goroutine writes
+	// the terminal status and then clears its activeExport flag. An IsRunning
+	// check that lands between those two events sees "not running" while the
+	// status file still shows Transferring/Started. A single re-read is
+	// sufficient because stopWriter blocks until the write completes before
+	// clearAndRelease clears activeExport, so the file is guaranteed to be on
+	// disk when IsRunning returns false.
+	const maxStatusReads = 2
+	nodeStatuses := make(map[string]*NodeStatus, len(plan.NodeAssignments))
+	for nodeName := range plan.NodeAssignments {
+		var nodeStatus *NodeStatus
+		for attempt := range maxStatusReads {
+			ns, err := readNodeStatus(ctx, backend, id, bucket, path, nodeName)
+			if err != nil {
+				if !errors.As(err, &backup.ErrNotFound{}) {
+					return nil, false, fmt.Errorf("get status for node %s: %w", nodeName, err)
+				}
+				ns = &NodeStatus{
+					NodeName:      nodeName,
+					Status:        export.Transferring,
+					ShardProgress: make(map[string]map[string]*ShardProgress),
+				}
+			}
+
+			// For non-terminal nodes, verify liveness and override to Failed if unreachable.
+			switch ns.Status {
+			case export.Success, export.Failed:
+				// Terminal — no liveness check needed.
+				nodeStatus = ns
+			default:
+				host, alive := s.nodeResolver.NodeHostname(nodeName)
+				if !alive {
+					ns.Status = export.Failed
+					if ns.Error == "" {
+						ns.Error = fmt.Sprintf("node %s is no longer part of the cluster", nodeName)
+					}
+					nodeStatus = ns
+				} else if s.client != nil {
+					running, runErr := s.client.IsRunning(ctx, host, id)
+					if runErr != nil || !running {
+						if attempt < maxStatusReads-1 {
+							// Re-read the status file — the goroutine may
+							// have written the terminal status by now.
+							continue
+						}
+						ns.Status = export.Failed
+						if ns.Error == "" {
+							ns.Error = fmt.Sprintf("node %s is no longer running export %s", nodeName, id)
+						}
+					}
+					nodeStatus = ns
+				} else {
+					nodeStatus = ns
+				}
+			}
+			break
+		}
+
+		nodeStatuses[nodeName] = nodeStatus
+	}
+
+	status, allTerminal := assembleNodeStatuses(plan, homePath, nodeStatuses)
 	return status, allTerminal, nil
 }
 
@@ -671,7 +685,7 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 			s.logger.WithField("action", "export").WithField("class", className).Errorf("shard ownership: %v", err)
 			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("failed to get shard ownership for class %s: %v", className, err)
-			s.writeMetadata(backend, exportID, bucket, path, status)
+			writeExportMetadata(backend, exportID, bucket, path, status, s.logger)
 			return fmt.Errorf("failed to get shard ownership for class %s: %w", className, err)
 		}
 
@@ -699,14 +713,16 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 		}
 		ni := exportNodeInfo{
 			req: &ExportRequest{
-				ID:           exportID,
-				Backend:      status.Backend,
-				Classes:      classes,
-				Shards:       classShards,
-				Bucket:       bucket,
-				Path:         path,
-				NodeName:     node,
-				SiblingNodes: siblings,
+				ID:              exportID,
+				Backend:         status.Backend,
+				Classes:         classes,
+				Shards:          classShards,
+				Bucket:          bucket,
+				Path:            path,
+				NodeName:        node,
+				SiblingNodes:    siblings,
+				StartedAt:       time.Time(status.StartedAt),
+				NodeAssignments: nodeAssignments,
 			},
 		}
 		if node != s.localNode {
@@ -762,14 +778,14 @@ func (s *Scheduler) performMultiNodeExport(ctx context.Context, backend moduleca
 			s.abortAll(exportID, prepared)
 			status.Status = string(export.Failed)
 			status.Error = fmt.Sprintf("commit node %s failed: %v", ni.req.NodeName, err)
-			s.writeMetadata(backend, exportID, bucket, path, status)
+			writeExportMetadata(backend, exportID, bucket, path, status, s.logger)
 			return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
 		}
 	}
 
 	status.Status = string(export.Started)
 
-	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
+	if err := writeExportMetadata(backend, exportID, bucket, path, status, s.logger); err != nil {
 		s.logger.WithField("action", "export").
 			WithField("export_id", exportID).
 			Errorf("failed to write metadata: %v", err)
@@ -879,7 +895,13 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 		NodeName: s.localNode,
 	}
 
-	exportErr := s.participant.doExport(ctx, backend, req)
+	nodeStatus := &NodeStatus{
+		NodeName:      req.NodeName,
+		Status:        export.Transferring,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
+	}
+
+	exportErr := s.participant.doExport(ctx, backend, req, nodeStatus)
 
 	// Clear the active export pointer and call cancel(nil). Because
 	// CancelCauseFunc is first-caller-wins, this establishes who writes
@@ -905,13 +927,13 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 
 		status.Status = string(export.Failed)
 		status.Error = exportErr.Error()
-		s.writeMetadata(backend, exportID, bucket, path, status)
+		writeExportMetadata(backend, exportID, bucket, path, status, s.logger)
 		return
 	}
 
 	status.Status = string(export.Success)
 
-	if err := s.writeMetadata(backend, exportID, bucket, path, status); err != nil {
+	if err := writeExportMetadata(backend, exportID, bucket, path, status, s.logger); err != nil {
 		s.logger.WithField("action", "export").
 			WithField("export_id", exportID).
 			Error(err)
@@ -926,13 +948,21 @@ func (s *Scheduler) performSingleNodeExport(ctx context.Context, cancel context.
 		Info("export completed successfully")
 }
 
-// writeMetadata writes the export metadata file (single-node path).
-// It uses a fresh context with a timeout so the write succeeds even if the
-// original context was canceled (e.g. during graceful shutdown).
-func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, exportID, bucket, path string, status *models.ExportStatusResponse) error {
+// writeExportMetadata converts an ExportStatusResponse to ExportMetadata and
+// writes it to the storage backend with retries. It uses a fresh context with
+// a timeout so the write succeeds even if the original context was canceled.
+func writeExportMetadata(
+	backend modulecapabilities.BackupBackend,
+	exportID, bucket, path string,
+	status *models.ExportStatusResponse,
+	logger logrus.FieldLogger,
+) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// CompletedAt is zero when no node reported a completion time, e.g.
+	// all nodes crashed before finishing or the export was canceled/shut down.
+	// Fall back to now so the metadata file always has a meaningful timestamp.
 	completedAt := time.Time(status.CompletedAt)
 	if completedAt.IsZero() {
 		completedAt = time.Now().UTC()
@@ -962,7 +992,7 @@ func (s *Scheduler) writeMetadata(backend modulecapabilities.BackupBackend, expo
 			return nil
 		}
 		if attempt < maxRetries-1 {
-			s.logger.WithField("action", "export_write_metadata").
+			logger.WithField("action", "export_write_metadata").
 				WithField("export_id", exportID).
 				Warnf("metadata write attempt %d failed, retrying: %v", attempt+1, err)
 			select {
@@ -986,8 +1016,8 @@ func (s *Scheduler) writeExportPlan(ctx context.Context, backend modulecapabilit
 	return err
 }
 
-// getExportPlan reads the export plan from S3
-func (s *Scheduler) getExportPlan(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) (*ExportPlan, error) {
+// readExportPlan reads and unmarshals the export plan from the storage backend.
+func readExportPlan(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path string) (*ExportPlan, error) {
 	data, err := backend.GetObject(ctx, exportID, exportPlanFile, bucket, path)
 	if err != nil {
 		return nil, fmt.Errorf("get export plan: %w", err)
@@ -1001,8 +1031,8 @@ func (s *Scheduler) getExportPlan(ctx context.Context, backend modulecapabilitie
 	return &plan, nil
 }
 
-// getNodeStatus reads a node's status file from the configured backup backend.
-func (s *Scheduler) getNodeStatus(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path, nodeName string) (*NodeStatus, error) {
+// readNodeStatus reads and unmarshals a node's status file from the storage backend.
+func readNodeStatus(ctx context.Context, backend modulecapabilities.BackupBackend, exportID, bucket, path, nodeName string) (*NodeStatus, error) {
 	key := fmt.Sprintf("node_%s_status.json", nodeName)
 	data, err := backend.GetObject(ctx, exportID, key, bucket, path)
 	if err != nil {
@@ -1038,7 +1068,7 @@ func (s *Scheduler) checkIfExportExists(ctx context.Context, backend modulecapab
 	}
 
 	// Also check the plan file, which is written before metadata in both paths.
-	_, err = s.getExportPlan(ctx, backend, exportID, bucket, path)
+	_, err = readExportPlan(ctx, backend, exportID, bucket, path)
 	if err == nil {
 		return fmt.Errorf("%w: export %q already exists at %q", ErrExportAlreadyExists, exportID, home)
 	}

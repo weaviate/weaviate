@@ -304,30 +304,83 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		p.clearAndRelease()
 	}()
 
-	if err := p.doExport(ctx, backend, req); err != nil {
-		p.logger.WithField("action", "export_participant").
-			WithField("export_id", req.ID).
-			WithField("node", req.NodeName).
-			Error(err)
-		return
-	}
-
-	p.logger.WithField("action", "export_participant").
-		WithField("export_id", req.ID).
-		WithField("node", req.NodeName).
-		Info("participant export completed successfully")
-}
-
-// doExport performs the actual export of all classes/shards in the request.
-// It uses an N-worker pool pattern: a single producer goroutine walks all
-// shards depth-first and submits scanJobs to workers via a shared channel.
-func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) error {
 	nodeStatus := &NodeStatus{
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
 		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
 
+	if err := p.doExport(ctx, backend, req, nodeStatus); err != nil {
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", req.ID).
+			WithField("node", req.NodeName).
+			Error(err)
+	} else {
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", req.ID).
+			WithField("node", req.NodeName).
+			Info("participant export completed successfully")
+	}
+
+	// After the final status flush (stopWriter in doExport), try to promote
+	// metadata if this is the last node to finish.
+	if len(req.SiblingNodes) > 0 {
+		p.tryPromoteMetadata(backend, req, nodeStatus)
+	}
+}
+
+// tryPromoteMetadata checks whether all nodes (own + siblings) have reached a
+// terminal status and, if so, writes the final export metadata file. This
+// promotes the multi-node export to a terminal state without requiring a
+// Status() API call.
+func (p *Participant) tryPromoteMetadata(backend modulecapabilities.BackupBackend, req *ExportRequest, ownStatus *NodeStatus) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Reconstruct the plan from the request
+	plan := &ExportPlan{
+		ID:              req.ID,
+		Backend:         req.Backend,
+		Classes:         req.Classes,
+		NodeAssignments: req.NodeAssignments,
+		StartedAt:       req.StartedAt,
+	}
+
+	// Read all node statuses (own snapshot + siblings).
+	nodeStatuses := map[string]*NodeStatus{req.NodeName: ownStatus.snapshot()}
+	for _, sibling := range req.SiblingNodes {
+		ns, err := readNodeStatus(ctx, backend, req.ID, req.Bucket, req.Path, sibling)
+		if err != nil {
+			// Sibling status not available — cannot determine if all are terminal.
+			return
+		}
+		if ns.Status != export.Success && ns.Status != export.Failed {
+			// Sibling still running.
+			return
+		}
+		nodeStatuses[sibling] = ns
+	}
+
+	// Assemble using shared logic (same as Status endpoint).
+	assembled, allTerminal := assembleNodeStatuses(plan, backend.HomeDir(req.ID, req.Bucket, req.Path), nodeStatuses)
+	if !allTerminal {
+		// There can be a race if a sibling wrote its status after we read it
+		// but before we assembled. The next Status() call will promote it.
+		return
+	}
+
+	// writeExportMetadata handles the CompletedAt zero-check fallback internally.
+	if err := writeExportMetadata(backend, req.ID, req.Bucket, req.Path, assembled, p.logger); err != nil {
+		p.logger.WithField("export_id", req.ID).
+			Warnf("last-node promotion: failed to write metadata: %v", err)
+	}
+}
+
+// doExport performs the actual export of all classes/shards in the request.
+// It uses an N-worker pool pattern: a single producer goroutine walks all
+// shards depth-first and submits scanJobs to workers via a shared channel.
+// The caller provides nodeStatus so it can inspect the final state after return.
+func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, nodeStatus *NodeStatus) error {
 	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
