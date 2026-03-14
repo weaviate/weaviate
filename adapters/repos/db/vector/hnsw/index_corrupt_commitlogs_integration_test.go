@@ -134,7 +134,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	})
 
 	t.Run("verify querying works", func(t *testing.T) {
-		res, _, err := index.SearchByVector(ctx, []float32{0.08, 0.08}, 100, nil)
+		res, _, err := index.SearchByVector(ctx, []float32{0.08, 0.08}, 100, nil, nil)
 		require.Nil(t, err)
 		assert.Len(t, res, 8)
 	})

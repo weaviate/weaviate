@@ -19,6 +19,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -28,7 +30,7 @@ const (
 	flatSearchCutoff      = 5_000
 )
 
-func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
 	if allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
@@ -143,7 +145,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		}
 	}
 
-	rescored := NewResultSet(k)
+	size := k
+	if selector != nil {
+		size = q.Len()
+	}
+	rescored := NewResultSet(size)
 	for id := range q.Iter() {
 		vec, err := h.vectorForId(ctx, id)
 		if err != nil {
@@ -165,7 +171,22 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		i++
 	}
 
-	return ids, dists, nil
+	return h.applySelector(ctx, selector, ids, dists, k)
+}
+
+func (h *HFresh) tempVectorForIDWithView(ctx context.Context, id uint64, _ *common.VectorSlice, _ common.BucketView) ([]float32, error) {
+	return h.vectorForId(ctx, id)
+}
+
+func (h *HFresh) applySelector(ctx context.Context, selector *searchparams.Selection, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
+	sel, err := selection.New(selector, h.distancer.distancer, h.tempVectorForIDWithView, k)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sel == nil {
+		return ids, dists, nil
+	}
+	return sel.Select(ctx, ids, dists, nil)
 }
 
 func (h *HFresh) SearchByVectorDistance(
@@ -174,6 +195,7 @@ func (h *HFresh) SearchByVectorDistance(
 	targetDistance float32,
 	maxLimit int64,
 	allow helpers.AllowList,
+	selector *searchparams.Selection,
 ) ([]uint64, []float32, error) {
 	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
 	var resultIDs []uint64
@@ -181,7 +203,7 @@ func (h *HFresh) SearchByVectorDistance(
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow)
+		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow, selector)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}

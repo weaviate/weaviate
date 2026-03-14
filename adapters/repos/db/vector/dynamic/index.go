@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -59,9 +60,9 @@ type VectorIndex interface {
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
-	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
-		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
+		maxLimit int64, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
@@ -340,16 +341,16 @@ func (dynamic *dynamic) Delete(ids ...uint64) error {
 	return dynamic.index.Delete(ids...)
 }
 
-func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SearchByVector(ctx, vector, k, allow)
+	return dynamic.index.SearchByVector(ctx, vector, k, allow, selector)
 }
 
-func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SearchByVectorDistance(ctx, vector, targetDistance, maxLimit, allow)
+	return dynamic.index.SearchByVectorDistance(ctx, vector, targetDistance, maxLimit, allow, selector)
 }
 
 func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error {

@@ -35,6 +35,16 @@ message VectorForTarget {
   repeated Vectors vectors = 3;
 }
 
+message Selection {
+  message MMR {
+    optional uint32 limit = 1;
+    optional float balance = 2;
+  }
+  oneof selection {
+    MMR mmr = 1;
+  }
+}
+
 message SearchOperatorOptions {
   enum Operator {
     OPERATOR_UNSPECIFIED = 0;
@@ -64,6 +74,7 @@ message Hybrid {
   Targets targets = 10;
   optional SearchOperatorOptions bm25_search_operator = 11;
   optional float alpha_param = 12;
+  optional Selection selection = 13;
 
   // only vector distance, but keep it extendable
   oneof threshold {
@@ -84,6 +95,7 @@ message NearVector {
   map <string, bytes> vector_per_target = 7 [deprecated = true]; // deprecated in 1.26.2 - use vector_for_targets
   repeated VectorForTarget vector_for_targets = 8;
   repeated Vectors vectors = 9;
+  optional Selection selection = 10;
 }
 
 message NearObject {
@@ -92,6 +104,7 @@ message NearObject {
   optional double distance = 3;
   repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 5;
+  optional Selection selection = 6;
 }
 
 message NearTextSearch {
@@ -109,6 +122,7 @@ message NearTextSearch {
   optional Move move_away = 5;
   repeated string target_vectors = 6 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 7;
+  optional Selection selection = 8;
 };
 
 message NearImageSearch {
@@ -117,6 +131,7 @@ message NearImageSearch {
   optional double distance = 3;
   repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 5;
+  optional Selection selection = 6;
 };
 
 message NearAudioSearch {
@@ -125,6 +140,7 @@ message NearAudioSearch {
   optional double distance = 3;
   repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 5;
+  optional Selection selection = 6;
 };
 
 message NearVideoSearch {
@@ -133,6 +149,7 @@ message NearVideoSearch {
   optional double distance = 3;
   repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 5;
+  optional Selection selection = 6;
 };
 
 message NearDepthSearch {
@@ -141,6 +158,7 @@ message NearDepthSearch {
   optional double distance = 3;
   repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 5;
+  optional Selection selection = 6;
 }
 
 message NearThermalSearch {
@@ -149,6 +167,7 @@ message NearThermalSearch {
   optional double distance = 3;
   repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 5;
+  optional Selection selection = 6;
 }
 
 message NearIMUSearch {
@@ -157,6 +176,7 @@ message NearIMUSearch {
   optional double distance = 3;
   repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 5;
+  optional Selection selection = 6;
 }
 
 message BM25 {
