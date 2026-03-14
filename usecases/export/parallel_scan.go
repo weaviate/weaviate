@@ -150,6 +150,12 @@ func scanRangeToWriter(
 	}
 
 	var pending int64
+	defer func() {
+		if addWritten != nil && pending > 0 {
+			addWritten(pending)
+		}
+	}()
+
 	for key != nil {
 		if endKey != nil && bytes.Compare(key, endKey) >= 0 {
 			break
@@ -187,10 +193,6 @@ func scanRangeToWriter(
 		}
 
 		key, val = cursor.Next()
-	}
-
-	if addWritten != nil && pending > 0 {
-		addWritten(pending)
 	}
 
 	return nil

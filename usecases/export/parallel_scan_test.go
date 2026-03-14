@@ -742,6 +742,44 @@ func assertUniqueIDs(t *testing.T, rows []ParquetRow) {
 	}
 }
 
+func TestScanRangeToWriter_ProgressCallbackOnError(t *testing.T) {
+	t.Parallel()
+
+	// Insert 250 valid objects, then a corrupt object at key 250.
+	// With interval=100 the scan reports [100, 100] via interval flushes.
+	// Object 250 triggers an ExportFieldsFromBinary error with pending=50.
+	// The defer must flush that remainder so total == 250.
+	const numObjects = 250
+	const interval int64 = 100
+
+	store, _ := createTestStore(t, numObjects)
+	t.Cleanup(func() { store.Shutdown(context.Background()) })
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	// Insert a corrupt value after the valid objects.
+	corruptKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(corruptKey, uint64(numObjects))
+	require.NoError(t, bucket.Put(corruptKey, []byte("not a valid storobj")))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	var callbacks []int64
+	addWritten := func(n int64) {
+		callbacks = append(callbacks, n)
+	}
+
+	var buf bytes.Buffer
+	writer, err := NewParquetWriter(&buf)
+	require.NoError(t, err)
+
+	err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer, addWritten, interval)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "extract export fields")
+
+	// Two interval flushes (100 each) plus the deferred remainder (50).
+	require.Equal(t, []int64{100, 100, 50}, callbacks)
+}
+
 func TestScanRangeToWriter_ProgressCallback(t *testing.T) {
 	t.Parallel()
 
