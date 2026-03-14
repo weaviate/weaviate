@@ -225,6 +225,10 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			origIndex := originalIndexPerClass[className][i]
 			batchObjects[origIndex].Err = err
 		}
+		// Convert BlobHash properties from raw base64 to hashes after vectorization.
+		for _, obj := range objectsForClass {
+			schema.HashBlobHashProperties(class.Class, obj)
+		}
 	}
 
 	return batchObjects, maxSchemaVersion

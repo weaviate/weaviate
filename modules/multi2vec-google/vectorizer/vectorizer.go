@@ -110,7 +110,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	audios := []string{}
 
 	if object.Properties != nil {
-		schemamap := object.Properties.(map[string]interface{})
+		schemamap := object.Properties.(map[string]any)
 		for _, propName := range moduletools.SortStringKeys(schemamap) {
 			switch val := schemamap[propName].(type) {
 			case string:

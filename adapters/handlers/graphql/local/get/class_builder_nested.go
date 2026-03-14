@@ -64,7 +64,7 @@ func (b *classBuilder) determinNestedPropertyType(dataType []string, propName st
 		return graphql.Boolean
 	case schema.DataTypeDate:
 		return graphql.String
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return graphql.String
 	case schema.DataTypeUUID:
 		return graphql.String

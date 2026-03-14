@@ -79,7 +79,7 @@ func (p *Provider) UsingRef2Vec(className string) bool {
 		return false
 	}
 
-	for modName := range cfg.(map[string]interface{}) {
+	for modName := range cfg.(map[string]any) {
 		if p.implementsReferenceVectorizer(p.GetByName(modName)) {
 			return true
 		}
@@ -175,7 +175,7 @@ func (p *Provider) shouldVectorizeClass(class *models.Class, targetVector string
 
 func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Object, class *models.Class,
 	findObjectFn modulecapabilities.FindObjectFn,
-	targetVector string, modConfig map[string]interface{},
+	targetVector string, modConfig map[string]any,
 ) (map[int]error, error) {
 	found := p.getModule(modConfig)
 	if found == nil {
@@ -340,7 +340,7 @@ func (p *Provider) addVectorToObject(object *models.Object,
 
 func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,
 	findObjectFn modulecapabilities.FindObjectFn,
-	targetVector string, modConfig map[string]interface{},
+	targetVector string, modConfig map[string]any,
 	logger logrus.FieldLogger,
 ) error {
 	vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
@@ -357,7 +357,7 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 
 func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *models.Class,
 	findObjectFn modulecapabilities.FindObjectFn,
-	targetVector string, modConfig map[string]interface{},
+	targetVector string, modConfig map[string]any,
 ) error {
 	found := p.getModule(modConfig)
 	if found == nil {
@@ -372,7 +372,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			var targetProperties []string
 			vecConfig, ok := modConfig[found.Name()]
 			if ok {
-				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
+				if properties, ok := vecConfig.(map[string]any)["properties"]; ok {
 					if propSlice, ok := properties.([]string); ok {
 						targetProperties = propSlice
 					}
@@ -402,7 +402,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			var targetProperties []string
 			vecConfig, ok := modConfig[found.Name()]
 			if ok {
-				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
+				if properties, ok := vecConfig.(map[string]any)["properties"]; ok {
 					if propSlice, ok := properties.([]string); ok {
 						targetProperties = propSlice
 					}
@@ -487,7 +487,7 @@ func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
 func (p *Provider) getVectorizer(class *models.Class, targetVector string) string {
 	if targetVector != "" && len(class.VectorConfig) > 0 {
 		if vectorConfig, ok := class.VectorConfig[targetVector]; ok {
-			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(vectorizer) == 1 {
+			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]any); ok && len(vectorizer) == 1 {
 				for vectorizerName := range vectorizer {
 					return vectorizerName
 				}
@@ -525,11 +525,11 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	return hnswConfig, nil
 }
 
-func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]interface{}, error) {
-	modConfigs := map[string]map[string]interface{}{}
+func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]any, error) {
+	modConfigs := map[string]map[string]any{}
 	// get all named vectorizers for classs
 	for name, vectorConfig := range class.VectorConfig {
-		modConfig, ok := vectorConfig.Vectorizer.(map[string]interface{})
+		modConfig, ok := vectorConfig.Vectorizer.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("class %v vectorizer %s not present", class.Class, name)
 		}
@@ -537,7 +537,7 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	}
 
 	if modelsext.ClassHasLegacyVectorIndex(class) && class.Vectorizer != config.VectorizerModuleNone {
-		if modConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
+		if modConfig, ok := class.ModuleConfig.(map[string]any); ok {
 			modConfigs[""] = modConfig
 		} else {
 			return nil, fmt.Errorf("no moduleconfig for class %v present", class.Class)
@@ -547,7 +547,7 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	return modConfigs, nil
 }
 
-func (p *Provider) getModule(modConfig map[string]interface{}) (found modulecapabilities.Module) {
+func (p *Provider) getModule(modConfig map[string]any) (found modulecapabilities.Module) {
 	for modName := range modConfig {
 		if err := p.ValidateVectorizer(modName); err == nil {
 			found = p.GetByName(modName)
@@ -565,7 +565,7 @@ func (p *Provider) VectorizerName(className string) (string, error) {
 	return name, nil
 }
 
-func (p *Provider) getClassVectorizer(className string) (string, interface{}, error) {
+func (p *Provider) getClassVectorizer(className string) (string, any, error) {
 	class := p.schemaGetter.ReadOnlyClass(className)
 	if class == nil {
 		// this should be impossible by the time this method gets called, but let's

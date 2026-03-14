@@ -38,7 +38,7 @@ func (e *comparableValueExtractor) extractFromBytes(objData []byte, propName str
 	}
 	if success {
 		switch e.dataTypesHelper.getType(propName) {
-		case schema.DataTypeBlob:
+		case schema.DataTypeBlob, schema.DataTypeBlobHash:
 			return &value[0]
 		case schema.DataTypeText:
 			return &value[0]
@@ -99,7 +99,7 @@ func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, pro
 	}
 
 	switch e.dataTypesHelper.getType(propName) {
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		s := value.(string)
 		return &s
 	case schema.DataTypeText:

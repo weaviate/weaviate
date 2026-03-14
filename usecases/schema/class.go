@@ -594,7 +594,7 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 	if property.IndexFilterable == nil {
 		property.IndexFilterable = &vTrue
 
-		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+		if isPrimitive && (primitiveDataType == schema.DataTypeBlob || primitiveDataType == schema.DataTypeBlobHash) {
 			property.IndexFilterable = &vFalse
 		}
 	}

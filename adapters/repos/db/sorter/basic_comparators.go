@@ -22,7 +22,7 @@ type basicComparatorProvider struct{}
 
 func (bcp *basicComparatorProvider) provide(dataType schema.DataType, order string) basicComparator {
 	switch dataType {
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return newStringComparator(order)
 	case schema.DataTypeText:
 		return newStringComparator(order)

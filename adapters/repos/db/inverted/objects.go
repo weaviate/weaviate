@@ -72,7 +72,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			continue
 		}
 
-		if schema.IsBlobDataType(prop.DataType) {
+		if schema.IsBlobLikeDataType(prop.DataType) {
 			continue
 		}
 
