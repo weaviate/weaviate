@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -419,16 +418,16 @@ func (p *Participant) submitJobs(
 
 			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
 			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
 				return fmt.Errorf("acquire shard %s/%s: %w", className, shardName, err)
 			}
 
 			if shard == nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, 0, "", skipReason)
+				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, "", skipReason)
 				continue
 			}
 
-			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, 0, "", "")
+			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, "", "")
 
 			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus, parallelism); err != nil {
 				return err
@@ -462,14 +461,14 @@ func (p *Participant) submitShardJobs(
 	if store == nil {
 		release()
 		err := fmt.Errorf("store not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
 		return err
 	}
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		release()
 		err := fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, err.Error(), "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
 		return err
 	}
 	ranges := computeRanges(bucket, parallelism)
@@ -481,6 +480,9 @@ func (p *Participant) submitShardJobs(
 		shardName: shardName,
 		isMT:      isMT,
 		logger:    p.logger,
+		onFlush: func(n int64) {
+			nodeStatus.AddShardExported(className, shardName, n)
+		},
 	}
 
 	// Thread-safe error collector for this shard. On the first error we
@@ -494,12 +496,6 @@ func (p *Participant) submitShardJobs(
 			shardErr = err
 			setCleanupErr(err)
 		})
-	}
-
-	// Thread-safe written counter for this shard.
-	var writtenSum atomic.Int64
-	addWritten := func(n int64) {
-		writtenSum.Add(n)
 	}
 
 	// Submit range jobs, tracked by a per-shard WaitGroup.
@@ -517,7 +513,6 @@ rangeloop:
 			writerCfg:  writerCfg,
 			wg:         &shardWg,
 			setErr:     setErr,
-			addWritten: addWritten,
 		}:
 		case <-ctx.Done():
 			setErr(ctx.Err())
@@ -527,8 +522,9 @@ rangeloop:
 		}
 	}
 
-	// Cleanup goroutine: waits for all range jobs, aggregates results,
-	// and releases the shard.
+	// Cleanup goroutine: waits for all range jobs, updates shard status,
+	// and releases the shard. The written count lives in the shard's atomic
+	// counter and is synced into ObjectsExported by SyncAndSnapshot.
 	cleanupWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer cleanupWg.Done()
@@ -537,17 +533,17 @@ rangeloop:
 		if shardErr != nil {
 			// setCleanupErr was already called by setErr (which triggered
 			// failFastCancel); here we only record per-shard status.
-			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, 0, shardErr.Error(), "")
+			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, shardErr.Error(), "")
 			release()
 			return
 		}
 
 		p.logger.WithField("class", className).
 			WithField("shard", shardName).
-			WithField("objects", writtenSum.Load()).
+			WithField("objects", nodeStatus.GetShardWritten(className, shardName)).
 			Info("shard export completed")
 
-		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, writtenSum.Load(), "", "")
+		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, "", "")
 		release()
 	}, p.logger)
 
@@ -620,7 +616,7 @@ func (p *Participant) startNodeStatusWriter(
 	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
 
 	flush := func() {
-		snap := nodeStatus.snapshot()
+		snap := nodeStatus.SyncAndSnapshot()
 		data, err := json.Marshal(snap)
 		if err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
