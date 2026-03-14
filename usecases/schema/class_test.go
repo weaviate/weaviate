@@ -1061,7 +1061,7 @@ func Test_Defaults_NestedProperties(t *testing.T) {
 								require.NotNil(t, np.IndexSearchable)
 								assert.True(t, *np.IndexSearchable)
 								assert.Equal(t, models.PropertyTokenizationWord, np.Tokenization)
-							case schema.DataTypeBlob:
+							case schema.DataTypeBlob, schema.DataTypeBlobHash:
 								require.NotNil(t, np.IndexFilterable)
 								assert.False(t, *np.IndexFilterable)
 								require.NotNil(t, np.IndexSearchable)

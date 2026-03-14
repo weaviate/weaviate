@@ -297,6 +297,11 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %w", propertyName, className, err)
 		}
+	case schema.DataTypeBlobHash:
+		data, err = blobHashVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid blobHash property '%s' on class '%s': %w", propertyName, className, err)
+		}
 	case schema.DataTypeTextArray:
 		data, err = stringArrayVal(pv, "text")
 		if err != nil {
@@ -562,6 +567,14 @@ func blobVal(val interface{}) (string, error) {
 	}
 
 	return typed, nil
+}
+
+// blobHashVal validates a base64-encoded blob. The original base64 data is
+// returned as-is so that the vectorizer can access the raw media content.
+// The conversion to a hash happens later, after vectorization, via
+// HashBlobHashProperties.
+func blobHashVal(val interface{}) (string, error) {
+	return blobVal(val)
 }
 
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
