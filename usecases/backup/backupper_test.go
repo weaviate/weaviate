@@ -41,7 +41,7 @@ func (r *backupper) waitForCompletion(n, ms int) backup.Status {
 		if i < 1 {
 			continue
 		}
-		if x := r.lastOp.get(); x.Status != "" {
+		if x := r.lastOp.get(); x.Status == backup.Success || x.Status == backup.Failed || x.Status == backup.Cancelled {
 			return x.Status
 		}
 	}
