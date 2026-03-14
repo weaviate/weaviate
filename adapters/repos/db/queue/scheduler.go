@@ -52,6 +52,11 @@ type SchedulerOptions struct {
 	ScheduleInterval time.Duration
 	// The interval between retries for failed tasks.
 	RetryInterval time.Duration
+	// MaxScheduleTime limits how long the scheduler drains queues per tick before
+	// yielding back to allow concurrent read operations (e.g. vector searches) to
+	// acquire index locks. Defaults to half of ScheduleInterval.
+	// Can be overridden via the QUEUE_SCHEDULER_MAX_SCHEDULE_TIME environment variable.
+	MaxScheduleTime time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
 }
@@ -102,12 +107,37 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		opts.RetryInterval = ri
 	}
 
+	if opts.MaxScheduleTime <= 0 {
+		var mt time.Duration
+
+		if opts.MaxScheduleTime < 0 {
+			opts.Logger.WithField("value", opts.MaxScheduleTime).Warn("MaxScheduleTime must be positive, using default")
+		}
+
+		v := os.Getenv("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME")
+
+		if v != "" {
+			mt, err = time.ParseDuration(v)
+			if err != nil {
+				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_MAX_SCHEDULE_TIME, using default")
+			} else if mt <= 0 {
+				opts.Logger.WithField("value", v).Warn("QUEUE_SCHEDULER_MAX_SCHEDULE_TIME must be positive, using default")
+				mt = 0
+			}
+		}
+
+		if mt == 0 {
+			mt = opts.ScheduleInterval / 2
+		}
+		opts.MaxScheduleTime = mt
+	}
+
 	s := Scheduler{
 		SchedulerOptions: opts,
 		activeTasks:      common.NewSharedGauge(),
 	}
 	s.queues.m = make(map[string]*queueState)
-	s.triggerCh = make(chan chan struct{})
+	s.triggerCh = make(chan chan struct{}, 1)
 
 	return &s
 }
@@ -316,7 +346,7 @@ func (s *Scheduler) runScheduler() {
 		case <-t.C:
 			s.schedule()
 		case ch := <-s.triggerCh:
-			s.scheduleQueues()
+			s.schedule()
 			close(ch)
 		}
 	}
@@ -340,15 +370,30 @@ func (s *Scheduler) Schedule(ctx context.Context) {
 	}
 }
 
+// triggerSchedule signals the scheduler to run schedule() immediately.
+// It is non-blocking: if the scheduler is busy or a trigger is already pending,
+// the signal is dropped (the current or pending run will cover the work).
+func (s *Scheduler) triggerSchedule() {
+	ch := make(chan struct{})
+	select {
+	case s.triggerCh <- ch:
+	default:
+		close(ch)
+	}
+}
+
 func (s *Scheduler) schedule() {
-	// as long as there are tasks to schedule, keep running
-	// in a tight loop
+	deadline := time.Now().Add(s.MaxScheduleTime)
 	for {
 		if s.ctx.Err() != nil {
 			return
 		}
 
 		if nothingScheduled := s.scheduleQueues(); nothingScheduled {
+			return
+		}
+
+		if time.Now().After(deadline) {
 			return
 		}
 	}
@@ -486,6 +531,12 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 						WithField("queue_size", q.q.Size()).
 						WithField("count", taskCount).
 						Debug("tasks processed")
+					// Signal the scheduler to pick up more work immediately
+					// instead of waiting for the next tick. This restores
+					// event-driven scheduling: workers stay continuously busy
+					// while work is available, with MaxScheduleTime still
+					// acting as the yield limit per scheduling burst.
+					s.triggerSchedule()
 				}
 			},
 			onCanceled: func() {
