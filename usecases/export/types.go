@@ -79,6 +79,10 @@ type ExportRequest struct {
 	Path         string              `json:"path"`
 	NodeName     string              `json:"nodeName"`
 	SiblingNodes []string            `json:"siblingNodes,omitempty"` // other node names in the same export
+
+	// Fields below are set for multi-node exports
+	StartedAt       time.Time                      `json:"startedAt,omitempty"`
+	NodeAssignments map[string]map[string][]string `json:"nodeAssignments,omitempty"` // node → className → []shardName
 }
 
 // NodeStatus is written to S3 by each participant node.
