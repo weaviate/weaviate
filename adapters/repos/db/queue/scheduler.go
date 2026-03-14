@@ -137,7 +137,7 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		activeTasks:      common.NewSharedGauge(),
 	}
 	s.queues.m = make(map[string]*queueState)
-	s.triggerCh = make(chan chan struct{})
+	s.triggerCh = make(chan chan struct{}, 1)
 
 	return &s
 }
@@ -346,7 +346,7 @@ func (s *Scheduler) runScheduler() {
 		case <-t.C:
 			s.schedule()
 		case ch := <-s.triggerCh:
-			s.scheduleQueues()
+			s.schedule()
 			close(ch)
 		}
 	}
@@ -367,6 +367,18 @@ func (s *Scheduler) Schedule(ctx context.Context) {
 		case <-ctx.Done():
 		}
 	default:
+	}
+}
+
+// triggerSchedule signals the scheduler to run schedule() immediately.
+// It is non-blocking: if the scheduler is busy or a trigger is already pending,
+// the signal is dropped (the current or pending run will cover the work).
+func (s *Scheduler) triggerSchedule() {
+	ch := make(chan struct{})
+	select {
+	case s.triggerCh <- ch:
+	default:
+		close(ch)
 	}
 }
 
@@ -519,6 +531,12 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 						WithField("queue_size", q.q.Size()).
 						WithField("count", taskCount).
 						Debug("tasks processed")
+					// Signal the scheduler to pick up more work immediately
+					// instead of waiting for the next tick. This restores
+					// event-driven scheduling: workers stay continuously busy
+					// while work is available, with MaxScheduleTime still
+					// acting as the yield limit per scheduling burst.
+					s.triggerSchedule()
 				}
 			},
 			onCanceled: func() {

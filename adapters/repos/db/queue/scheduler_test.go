@@ -608,11 +608,16 @@ func (q *countingQueue) getCount() int {
 	return q.calls
 }
 
-// TestSchedulerMaxScheduleTimeYielding checks that a tiny MaxScheduleTime
-// causes the scheduler to process at most one batch per ticker tick, while a
-// large MaxScheduleTime drains all available batches within a single tick.
+// TestSchedulerMaxScheduleTimeYielding checks scheduling behaviour under
+// different MaxScheduleTime values.
+//
+// With event-driven triggering, workers call triggerSchedule() when they
+// finish a batch, so the scheduler wakes up immediately for the next batch
+// without waiting for the ticker.  MaxScheduleTime still acts as a burst
+// limiter per schedule() invocation, but overall throughput is no longer
+// bounded by the tick rate.
 func TestSchedulerMaxScheduleTimeYielding(t *testing.T) {
-	t.Run("tiny MaxScheduleTime yields after one batch per tick", func(t *testing.T) {
+	t.Run("tiny MaxScheduleTime still drains queue via event-driven triggers", func(t *testing.T) {
 		const (
 			limit            = 20
 			scheduleInterval = 20 * time.Millisecond
@@ -631,16 +636,13 @@ func TestSchedulerMaxScheduleTimeYielding(t *testing.T) {
 		q := newCountingQueue("yield-test", limit)
 		s.RegisterQueue(q)
 
-		// Allow ~5 ticks to fire.
-		time.Sleep(5*scheduleInterval + scheduleInterval/2)
-
-		count := q.getCount()
-		// With MaxScheduleTime=1ns the deadline expires after the first
-		// scheduleQueues() call each tick, so count should be well below limit.
-		// Allow up to 3× tick count as generous margin for CI jitter.
-		require.Greater(t, count, 0, "expected at least 1 batch to be processed")
-		require.LessOrEqual(t, count, 15,
-			"expected ~1 batch/tick with 1 ns MaxScheduleTime; got %d in 5 ticks", count)
+		// Even with MaxScheduleTime=1ns (one batch per scheduling burst),
+		// event-driven triggering chains bursts together so all batches are
+		// processed well within a few tick intervals.
+		require.Eventually(t, func() bool {
+			return q.getCount() == limit
+		}, 5*scheduleInterval, time.Millisecond,
+			"expected all %d batches processed via event-driven scheduling; got %d", limit, q.getCount())
 	})
 
 	t.Run("large MaxScheduleTime drains queue in one tick", func(t *testing.T) {
