@@ -237,9 +237,9 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
-		meta := backend.getMeta()
-		assert.Equal(t, backup.Success, meta.Status)
-		assert.Equal(t, "", meta.Error)
+		status, errMsg := backend.getMetaStatus()
+		assert.Equal(t, backup.Success, status)
+		assert.Equal(t, "", errMsg)
 	})
 
 	t.Run("AbortBeforeCommit", func(t *testing.T) {
@@ -308,11 +308,11 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
-		meta := backend.getMeta()
-		assert.Equal(t, backup.Cancelled, meta.Status)
-		errMsg := context.Canceled.Error()
-		assert.Equal(t, errMsg, meta.Error)
-		assert.Contains(t, m.backupper.lastAsyncError.Error(), errMsg)
+		status, metaErr := backend.getMetaStatus()
+		assert.Equal(t, backup.Cancelled, status)
+		wantErr := context.Canceled.Error()
+		assert.Equal(t, wantErr, metaErr)
+		assert.Contains(t, m.backupper.lastAsyncError.Error(), wantErr)
 	})
 
 	t.Run("ExpirationTimeout", func(t *testing.T) {
