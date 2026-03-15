@@ -101,7 +101,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	})
 
 	t.Run("the corrupt node is now marked deleted", func(t *testing.T) {
-		_, ok := vectorIndex.tombstones[1]
+		ok := vectorIndex.tombstones.has(1)
 		assert.True(t, ok)
 	})
 }
@@ -150,138 +150,87 @@ func TestQueryVectorDistancer(t *testing.T) {
 // Test to verify that tombstoned nodes are excluded from unfiltered nearVector search results
 // This addresses issue https://github.com/weaviate/weaviate/issues/3868
 func TestTombstoneExclusionInUnfilteredSearch(t *testing.T) {
-	ctx := context.Background()
-	vectors := [][]float32{
-		{1.0, 1.0},   // docID 0
-		{2.0, 2.0},   // docID 1
-		{3.0, 3.0},   // docID 2
-		{10.0, 10.0}, // docID 3 (far away)
+	testCases := []struct {
+		name        string
+		multivector bool
+	}{
+		{"single vector", false},
+		{"multi vector", true},
 	}
 
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "tombstone-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewL2SquaredProvider(),
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return vectors[int(id)], nil
-		},
-		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
-	}, ent.UserConfig{
-		MaxConnections:        16,
-		EFConstruction:        64,
-		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
-	require.Nil(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			vectors := [][]float32{
+				{1.0, 1.0},   // docID 0
+				{2.0, 2.0},   // docID 1
+				{3.0, 3.0},   // docID 2
+				{10.0, 10.0}, // docID 3 (far away)
+			}
 
-	// Add all vectors to the index
-	for i := 0; i < len(vectors); i++ {
-		err := index.Add(ctx, uint64(i), vectors[i])
-		require.NoError(t, err)
+			index, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "tombstone-test",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewL2SquaredProvider(),
+				AllocChecker:          memwatch.NewDummyMonitor(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+				GetViewThunk: func() common.BucketView { return &noopBucketView{} },
+			}, ent.UserConfig{
+				MaxConnections:        16,
+				EFConstruction:        64,
+				VectorCacheMaxObjects: 100000,
+			}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.Nil(t, err)
+
+			if tc.multivector {
+				index.multivector.Store(true)
+			}
+
+			// Add all vectors to the index
+			for i := 0; i < len(vectors); i++ {
+				err := index.Add(ctx, uint64(i), vectors[i])
+				require.NoError(t, err)
+			}
+
+			// Verify initial search returns all documents
+			results, _, err := index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
+			require.NoError(t, err)
+			assert.Len(t, results, 4, "Should initially find all 4 documents")
+
+			// Delete the document with vector [2.0, 2.0] (docID 1)
+			err = index.Delete(uint64(1))
+			require.NoError(t, err)
+
+			// Verify the tombstone was added
+			ok := index.tombstones.has(uint64(1))
+			assert.True(t, ok, "Tombstone should be present for deleted docID 1")
+
+			// Search again - docID 1 should be excluded from results even though it's close to the query vector
+			results, _, err = index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
+			require.NoError(t, err)
+
+			// Should only find 3 documents now (docID 0, 2, 3)
+			assert.Len(t, results, 3, "Should find 3 documents after deletion")
+
+			// Verify that docID 1 is not in the results
+			foundDeleted := false
+			for _, id := range results {
+				if id == uint64(1) {
+					foundDeleted = true
+					break
+				}
+			}
+			assert.False(t, foundDeleted, "Deleted document with docID 1 should not appear in search results")
+
+			// Verify the remaining documents are correct
+			expectedIDs := []uint64{0, 2, 3}
+			sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+			assert.Equal(t, expectedIDs, results, "Should find the correct remaining documents")
+		})
 	}
-
-	// Verify initial search returns all documents
-	results, _, err := index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
-	require.NoError(t, err)
-	assert.Len(t, results, 4, "Should initially find all 4 documents")
-
-	// Delete the document with vector [2.0, 2.0] (docID 1)
-	err = index.Delete(uint64(1))
-	require.NoError(t, err)
-
-	// Verify the tombstone was added
-	_, ok := index.tombstones[uint64(1)]
-	assert.True(t, ok, "Tombstone should be present for deleted docID 1")
-
-	// Search again - docID 1 should be excluded from results even though it's close to the query vector
-	results, _, err = index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
-	require.NoError(t, err)
-
-	// Should only find 3 documents now (docID 0, 2, 3)
-	assert.Len(t, results, 3, "Should find 3 documents after deletion")
-
-	// Verify that docID 1 is not in the results
-	foundDeleted := false
-	for _, id := range results {
-		if id == uint64(1) {
-			foundDeleted = true
-			break
-		}
-	}
-	assert.False(t, foundDeleted, "Deleted document with docID 1 should not appear in search results")
-
-	// Verify the remaining documents are correct
-	expectedIDs := []uint64{0, 2, 3}
-	sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
-	assert.Equal(t, expectedIDs, results, "Should find the correct remaining documents")
-}
-
-// Test to verify that tombstoned nodes are excluded from unfiltered multi-vector search results
-func TestTombstoneExclusionInUnfilteredMultiVectorSearch(t *testing.T) {
-	ctx := context.Background()
-	vectors := [][]float32{
-		{1.0, 1.0},   // docID 0
-		{2.0, 2.0},   // docID 1
-		{3.0, 3.0},   // docID 2
-		{10.0, 10.0}, // docID 3 (far away)
-	}
-
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "tombstone-multivector-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewL2SquaredProvider(),
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return vectors[int(id)], nil
-		},
-		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
-	}, ent.UserConfig{
-		MaxConnections:        16,
-		EFConstruction:        64,
-		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
-	require.Nil(t, err)
-
-	// Add all vectors to the index
-	for i := 0; i < len(vectors); i++ {
-		err := index.Add(ctx, uint64(i), vectors[i])
-		require.NoError(t, err)
-	}
-
-	// Enable multivector for this test
-	index.multivector.Store(true)
-
-	// Verify initial search returns all documents
-	results, _, err := index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
-	require.NoError(t, err)
-	assert.Len(t, results, 4, "Should initially find all 4 documents")
-
-	// Delete the document with vector [2.0, 2.0] (docID 1)
-	err = index.Delete(uint64(1))
-	require.NoError(t, err)
-
-	// Verify the tombstone was added
-	_, ok := index.tombstones[uint64(1)]
-	assert.True(t, ok, "Tombstone should be present for deleted docID 1")
-
-	// Search again - docID 1 should be excluded from results even though it's close to the query vector
-	results, _, err = index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
-	require.NoError(t, err)
-
-	// Should only find 3 documents now (docID 0, 2, 3)
-	assert.Len(t, results, 3, "Should find 3 documents after deletion")
-
-	// Verify that docID 1 is not in the results
-	foundDeleted := false
-	for _, id := range results {
-		if id == uint64(1) {
-			foundDeleted = true
-			break
-		}
-	}
-	assert.False(t, foundDeleted, "Deleted document with docID 1 should not appear in search results")
 }
 
 func TestQueryMultiVectorDistancer(t *testing.T) {
