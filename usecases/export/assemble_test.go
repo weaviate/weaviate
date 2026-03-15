@@ -36,8 +36,8 @@ func TestAssembleNodeStatuses(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		plan              *ExportPlan // nil → built from nodeAssignments with defaults
-		homePath          string      // empty → defaultHomePath
+		meta              *ExportMetadata // nil → built from nodeAssignments with defaults
+		homePath          string          // empty → defaultHomePath
 		nodeAssignments   map[string]map[string][]string
 		nodeStatuses      map[string]*NodeStatus
 		wantStatus        string // also determines allTerminal: true for Success/Failed, false otherwise
@@ -258,8 +258,8 @@ func TestAssembleNodeStatuses(t *testing.T) {
 			},
 		},
 		{
-			name: "plan fields propagated to response",
-			plan: &ExportPlan{
+			name: "metadata fields propagated to response",
+			meta: &ExportMetadata{
 				ID: "my-export-123", Backend: "gcs", Classes: []string{"Article", "Product"},
 				NodeAssignments: map[string]map[string][]string{
 					"node1": {"Article": {"shard0"}},
@@ -303,8 +303,8 @@ func TestAssembleNodeStatuses(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			plan := tc.plan
-			if plan == nil {
+			meta := tc.meta
+			if meta == nil {
 				// Derive Classes from NodeAssignments keys.
 				classSet := map[string]struct{}{}
 				for _, classShards := range tc.nodeAssignments {
@@ -316,7 +316,7 @@ func TestAssembleNodeStatuses(t *testing.T) {
 				for c := range classSet {
 					classes = append(classes, c)
 				}
-				plan = &ExportPlan{
+				meta = &ExportMetadata{
 					ID:              "test-export",
 					Backend:         "s3",
 					Classes:         classes,
@@ -330,13 +330,13 @@ func TestAssembleNodeStatuses(t *testing.T) {
 				homePath = defaultHomePath
 			}
 
-			status, allTerminal := assembleNodeStatuses(plan, homePath, tc.nodeStatuses)
+			status, allTerminal := assembleNodeStatuses(meta, homePath, tc.nodeStatuses)
 
 			wantTerminal := tc.wantStatus == string(export.Success) || tc.wantStatus == string(export.Failed)
 			assert.Equal(t, wantTerminal, allTerminal)
 			assert.Equal(t, tc.wantStatus, status.Status)
-			assert.Equal(t, plan.ID, status.ID)
-			assert.Equal(t, plan.Backend, status.Backend)
+			assert.Equal(t, meta.ID, status.ID)
+			assert.Equal(t, meta.Backend, status.Backend)
 			assert.Equal(t, homePath, status.Path)
 
 			for _, substr := range tc.wantErrorContains {

@@ -142,7 +142,7 @@ func TestScheduler_CancelPropagatesBackendError(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrExportNotFound)
 }
 
-func TestScheduler_CancelReturnsNotFoundWhenPlanMissing(t *testing.T) {
+func TestScheduler_CancelReturnsNotFoundWhenMetadataMissing(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
@@ -169,10 +169,11 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 		written: map[string][]byte{},
 	}
 
-	// Store a plan so Cancel() can find it.
-	plan := &ExportPlan{
+	// Store initial metadata so Cancel() can find it.
+	initialMeta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
+		Status:  export.Started,
 		Classes: []string{"TestClass"},
 		NodeAssignments: map[string]map[string][]string{
 			"node1": {"TestClass": {"shard0"}},
@@ -180,9 +181,9 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 		},
 		StartedAt: time.Now().UTC(),
 	}
-	planData, err := json.Marshal(plan)
+	metaData, err := json.Marshal(initialMeta)
 	require.NoError(t, err)
-	backend.written[exportPlanFile] = planData
+	backend.written[exportMetadataFile] = metaData
 
 	// Both nodes reported terminal Failed status.
 	for _, nodeName := range []string{"node1", "node2"} {
@@ -230,27 +231,16 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			backend := &fakeBackend{}
 
-			// Write export plan — required for Status() to enter assemble path.
-			plan := &ExportPlan{
-				ID:      "test-export",
-				Backend: "s3",
-				Classes: []string{"TestClass"},
-				NodeAssignments: map[string]map[string][]string{
-					"node1": {"TestClass": {"shard0"}},
-				},
-				StartedAt: time.Now().UTC().Add(-10 * time.Second),
-			}
-			planData, err := json.Marshal(plan)
-			require.NoError(t, err)
-			_, err = backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
-			require.NoError(t, err)
-
-			// Write STARTED metadata — the stale state we want promoted.
+			// Write STARTED metadata with NodeAssignments — the stale state we want promoted.
 			startedMeta := &ExportMetadata{
 				ID:      "test-export",
 				Backend: "s3",
 				Status:  export.Started,
 				Classes: []string{"TestClass"},
+				NodeAssignments: map[string]map[string][]string{
+					"node1": {"TestClass": {"shard0"}},
+				},
+				StartedAt: time.Now().UTC().Add(-10 * time.Second),
 			}
 			metaData, err := json.Marshal(startedMeta)
 			require.NoError(t, err)

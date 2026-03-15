@@ -27,6 +27,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -308,6 +309,7 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		NodeName:      req.NodeName,
 		Status:        export.Transferring,
 		ShardProgress: make(map[string]map[string]*ShardProgress),
+		Version:       config.ServerVersion,
 	}
 
 	if err := p.doExport(ctx, backend, req, nodeStatus); err != nil {
@@ -337,8 +339,8 @@ func (p *Participant) tryPromoteMetadata(backend modulecapabilities.BackupBacken
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Reconstruct the plan from the request
-	plan := &ExportPlan{
+	// Build metadata from the request to use as input for assembleNodeStatuses.
+	meta := &ExportMetadata{
 		ID:              req.ID,
 		Backend:         req.Backend,
 		Classes:         req.Classes,
@@ -362,15 +364,25 @@ func (p *Participant) tryPromoteMetadata(backend modulecapabilities.BackupBacken
 	}
 
 	// Assemble using shared logic (same as Status endpoint).
-	assembled, allTerminal := assembleNodeStatuses(plan, backend.HomeDir(req.ID, req.Bucket, req.Path), nodeStatuses)
+	assembled, allTerminal := assembleNodeStatuses(meta, backend.HomeDir(req.ID, req.Bucket, req.Path), nodeStatuses)
 	if !allTerminal {
 		// There can be a race if a sibling wrote its status after we read it
 		// but before we assembled. The next Status() call will promote it.
 		return
 	}
 
-	// writeExportMetadata handles the CompletedAt zero-check fallback internally.
-	if err := writeExportMetadata(backend, req.ID, req.Bucket, req.Path, assembled, p.logger); err != nil {
+	promotedMeta := &ExportMetadata{
+		ID:              meta.ID,
+		Backend:         meta.Backend,
+		StartedAt:       meta.StartedAt,
+		CompletedAt:     time.Time(assembled.CompletedAt),
+		Status:          export.Status(assembled.Status),
+		Classes:         meta.Classes,
+		NodeAssignments: meta.NodeAssignments,
+		Error:           assembled.Error,
+		ShardStatus:     assembled.ShardStatus,
+	}
+	if err := writeExportMetadata(backend, req.ID, req.Bucket, req.Path, promotedMeta, p.logger); err != nil {
 		p.logger.WithField("export_id", req.ID).
 			Warnf("last-node promotion: failed to write metadata: %v", err)
 	}
