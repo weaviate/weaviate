@@ -82,6 +82,12 @@ type fakeBackend struct {
 	doneChan chan bool
 }
 
+func (fb *fakeBackend) getMeta() backup.BackupDescriptor {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.meta
+}
+
 func newFakeBackend() *fakeBackend {
 	return &fakeBackend{
 		doneChan: make(chan bool),

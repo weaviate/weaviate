@@ -237,8 +237,9 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
-		assert.Equal(t, backup.Success, backend.meta.Status)
-		assert.Equal(t, "", backend.meta.Error)
+		meta := backend.getMeta()
+		assert.Equal(t, backup.Success, meta.Status)
+		assert.Equal(t, "", meta.Error)
 	})
 
 	t.Run("AbortBeforeCommit", func(t *testing.T) {
@@ -307,9 +308,10 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
-		assert.Equal(t, backup.Cancelled, backend.meta.Status)
+		meta := backend.getMeta()
+		assert.Equal(t, backup.Cancelled, meta.Status)
 		errMsg := context.Canceled.Error()
-		assert.Equal(t, errMsg, backend.meta.Error)
+		assert.Equal(t, errMsg, meta.Error)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), errMsg)
 	})
 
