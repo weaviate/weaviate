@@ -508,6 +508,10 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			additionalProperties["vector"] = res.Vector
 		}
 
+		if params.AdditionalProperties.QueryVector && searchVector != nil {
+			additionalProperties["queryVector"] = searchVector
+		}
+
 		if len(params.AdditionalProperties.Vectors) > 0 {
 			vectors := make(map[string]models.Vector)
 			for _, targetVector := range params.AdditionalProperties.Vectors {

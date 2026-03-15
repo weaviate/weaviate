@@ -41,6 +41,7 @@ type Properties struct {
 	ExplainScore            bool                   `json:"explainScore"`
 	IsConsistent            bool                   `json:"isConsistent"`
 	Group                   bool                   `json:"group"`
+	QueryVector             bool                   `json:"queryVector"`
 
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.

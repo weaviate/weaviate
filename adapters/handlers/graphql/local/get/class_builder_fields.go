@@ -587,7 +587,7 @@ type additionalCheck struct {
 func (ac *additionalCheck) isAdditional(parentName, name string) bool {
 	if parentName == "_additional" {
 		if name == "classification" || name == "certainty" ||
-			name == "distance" || name == "id" || name == "vector" || name == "vectors" ||
+			name == "distance" || name == "id" || name == "vector" || name == "queryVector" || name == "vectors" ||
 			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
 			name == "score" || name == "explainScore" || name == "isConsistent" ||
 			name == "group" {
@@ -671,6 +671,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "vector" {
 							additionalProps.Vector = true
+							continue
+						}
+						if additionalProperty == "queryVector" {
+							additionalProps.QueryVector = true
 							continue
 						}
 						if additionalProperty == "vectors" {
