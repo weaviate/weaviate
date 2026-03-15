@@ -85,6 +85,7 @@ func TestCalculateShardPreCompressionSize(t *testing.T) {
 
 func TestCreateFileList(t *testing.T) {
 	t.Run("success with existing files", func(t *testing.T) {
+		t.Parallel()
 		tempDir := t.TempDir()
 
 		testFiles := []string{"file1.db", "file2.db"}
@@ -121,6 +122,7 @@ func TestCreateFileList(t *testing.T) {
 	})
 
 	t.Run("success with delete marker file", func(t *testing.T) {
+		t.Parallel()
 		tempDir := t.TempDir()
 
 		// Create a file with delete marker prefix
@@ -154,6 +156,7 @@ func TestCreateFileList(t *testing.T) {
 	})
 
 	t.Run("error when file not found at either path", func(t *testing.T) {
+		t.Parallel()
 		tempDir := t.TempDir()
 
 		// Create one existing file
@@ -198,32 +201,21 @@ func TestCreateFileList(t *testing.T) {
 // Files >= bigFileThreshold are "big" and get their own chunk.
 // chunkTargetSize = max(ChunkTargetSize, bigFileThreshold).
 // To have small files pack together, set MinChunkSize above the file sizes.
+//
+// Cases with expectChunkFiles also verify chunk isolation: metadata files never
+// leak into big/split-file chunks, and big files never appear in the metadata chunk.
 func TestProcessShard(t *testing.T) {
 	type testFile struct {
 		relPath string
 		size    int
 	}
 
-	// drainWriter is a mock Write implementation that drains the reader to unblock the pipe.
-	drainWriter := func(_ context.Context, _ string, _ string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
-		n, _ := io.Copy(io.Discard, r)
-		r.Close()
-		return n, nil
-	}
-
-	// collectingWriter returns a Write func that records the chunk keys and drains the reader.
-	collectingWriter := func(mu *sync.Mutex, keys *[]string) func(context.Context, string, string, string, string, backup.ReadCloserWithError) (int64, error) {
-		return func(_ context.Context, _ string, key string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
-			mu.Lock()
-			*keys = append(*keys, key)
-			mu.Unlock()
-			n, _ := io.Copy(io.Discard, r)
-			r.Close()
-			return n, nil
-		}
-	}
-
 	inMemData := bytes.Repeat([]byte("M"), 50) // 3 in-memory files × 50 = 150 bytes total
+	inMemFiles := map[string]struct{}{
+		"shard1/counter.bin":    {},
+		"shard1/proplength.bin": {},
+		"shard1/version.bin":    {},
+	}
 
 	tests := []struct {
 		name                 string
@@ -232,7 +224,8 @@ func TestProcessShard(t *testing.T) {
 		minChunkSize         int64
 		splitFileSize        int64
 		expectChunks         int
-		expectBigFilesChunks map[string]int // relPath → expected number of chunk keys in BigFilesChunk
+		expectBigFilesChunks map[string]int   // relPath → expected number of chunk keys in BigFilesChunk
+		expectChunkFiles     map[int][]string // chunk index (0-based) → tar entry names (nil map = skip tar verification)
 	}{
 		{
 			name: "all files fit in one chunk",
@@ -281,6 +274,10 @@ func TestProcessShard(t *testing.T) {
 			chunkTargetSize:      5000,
 			expectChunks:         2,
 			expectBigFilesChunks: map[string]int{"shard1/big.db": 1},
+			expectChunkFiles: map[int][]string{
+				0: {"shard1/counter.bin", "shard1/proplength.bin", "shard1/version.bin", "shard1/small.db", "shard1/small2.db"},
+				1: {"shard1/big.db"},
+			},
 		},
 		{
 			name: "file split across chunks via splitFile mechanism",
@@ -301,6 +298,13 @@ func TestProcessShard(t *testing.T) {
 			splitFileSize:        300,
 			expectChunks:         5,
 			expectBigFilesChunks: map[string]int{"shard1/huge.db": 4}, // 4 chunk keys (chunks 2-5)
+			expectChunkFiles: map[int][]string{
+				0: {"shard1/counter.bin", "shard1/proplength.bin", "shard1/version.bin", "shard1/small.db"},
+				1: {"shard1/huge.db"},
+				2: {"shard1/huge.db"},
+				3: {"shard1/huge.db"},
+				4: {"shard1/huge.db"},
+			},
 		},
 		{
 			name: "first and only file is big non-split",
@@ -314,6 +318,10 @@ func TestProcessShard(t *testing.T) {
 			chunkTargetSize:      5000,
 			expectChunks:         2,
 			expectBigFilesChunks: map[string]int{"shard1/big.db": 1},
+			expectChunkFiles: map[int][]string{
+				0: {"shard1/counter.bin", "shard1/proplength.bin", "shard1/version.bin"},
+				1: {"shard1/big.db"},
+			},
 		},
 		{
 			name: "first real file is big and triggers split",
@@ -387,6 +395,7 @@ func TestProcessShard(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tempDir := t.TempDir()
 			require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "shard1"), os.ModePerm))
 
@@ -399,12 +408,20 @@ func TestProcessShard(t *testing.T) {
 			}
 
 			var mu sync.Mutex
-			var chunkKeys []string
+			chunkData := make(map[string]*bytes.Buffer)
 
 			mockBackend := modulecapabilities.NewMockBackupBackend(t)
 			mockBackend.EXPECT().SourceDataPath().Return(tempDir)
 			mockBackend.EXPECT().Write(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(collectingWriter(&mu, &chunkKeys))
+				RunAndReturn(func(_ context.Context, _ string, key string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
+					buf := &bytes.Buffer{}
+					n, _ := io.Copy(buf, r)
+					r.Close()
+					mu.Lock()
+					chunkData[key] = buf
+					mu.Unlock()
+					return n, nil
+				})
 
 			shard := &backup.ShardDescriptor{
 				Name:                  "shard1",
@@ -447,7 +464,7 @@ func TestProcessShard(t *testing.T) {
 				assert.Equal(t, []string{"shard1"}, r.shards)
 			}
 			assert.Equal(t, int32(tt.expectChunks), lastChunk.Load())
-			assert.Len(t, chunkKeys, tt.expectChunks, "backend.Write call count")
+			assert.Len(t, chunkData, tt.expectChunks, "backend.Write call count")
 
 			// Verify BigFilesChunk tracking.
 			if tt.expectBigFilesChunks != nil {
@@ -459,10 +476,63 @@ func TestProcessShard(t *testing.T) {
 					assert.Len(t, info.ChunkKeys, expectedKeyCount, "chunk key count for %s", relPath)
 				}
 			}
+
+			// Verify tar entry names per chunk (chunk isolation).
+			for chunkIdx, expectedFiles := range tt.expectChunkFiles {
+				chunkID := int32(chunkIdx + 1)
+				key := fmt.Sprintf("TestClass/chunk-%d", chunkID)
+				buf, ok := chunkData[key]
+				require.True(t, ok, "chunk %d data not captured (key=%s)", chunkIdx, key)
+
+				var tarFiles []string
+				tr := tar.NewReader(buf) // NoCompression: raw tar, no gzip wrapper
+				for {
+					hdr, err := tr.Next()
+					if err == io.EOF {
+						break
+					}
+					require.NoError(t, err, "reading tar entry in chunk %d", chunkIdx)
+					tarFiles = append(tarFiles, hdr.Name)
+				}
+
+				require.ElementsMatch(t, expectedFiles, tarFiles,
+					"chunk %d: expected files %v, got %v", chunkIdx, expectedFiles, tarFiles)
+
+				// For the metadata-only chunk (chunk 0), verify no big/split files leaked in.
+				if chunkIdx == 0 {
+					for _, f := range tarFiles {
+						if _, isMeta := inMemFiles[f]; !isMeta {
+							for _, tf := range tt.files {
+								if tf.relPath == f {
+									assert.Less(t, int64(tf.size), tt.minChunkSize,
+										"chunk 0 contains big file %s (size=%d) alongside metadata", f, tf.size)
+								}
+							}
+						}
+					}
+				}
+
+				// For non-first chunks, verify metadata files never appear.
+				if chunkIdx > 0 {
+					for _, f := range tarFiles {
+						_, isMeta := inMemFiles[f]
+						assert.False(t, isMeta,
+							"chunk %d contains metadata file %s — metadata must only be in the first chunk", chunkIdx, f)
+					}
+				}
+			}
 		})
 	}
 
 	t.Run("shared lastChunk counter across shards", func(t *testing.T) {
+		t.Parallel()
+		// drainWriter is a mock Write implementation that drains the reader to unblock the pipe.
+		drainWriter := func(_ context.Context, _ string, _ string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
+			n, _ := io.Copy(io.Discard, r)
+			r.Close()
+			return n, nil
+		}
+
 		tempDir := t.TempDir()
 		require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "s1"), os.ModePerm))
 		require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "s2"), os.ModePerm))
@@ -553,6 +623,7 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tempDir := t.TempDir()
 			require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "shard1"), os.ModePerm))
 
@@ -724,6 +795,7 @@ func TestCalculateTop100Size(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			result := calculateTop100Size(tc.fileSizes, tc.numSkippedFiles, mb)
 			assert.Equal(t, tc.expected, result)
 		})
@@ -787,4 +859,580 @@ func TestReadAndUnzipChunk_TrailingBytes(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(destDir, "testfile.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, fileContent, got)
+}
+
+// incrementalTestEnv provides shared infrastructure for incremental backup round-trip tests.
+// It holds an in-memory chunk store (mock backend) and helpers for running production
+// processShard (backup) and writeTempFiles (restore) code paths.
+type incrementalTestEnv struct {
+	t          *testing.T
+	sourceDir  string
+	className  string
+	chunkMu    sync.Mutex
+	chunkStore map[string][]byte
+	cfg        config.Backup
+	inMemData  []byte
+}
+
+func newIncrementalTestEnv(t *testing.T, cfg config.Backup) *incrementalTestEnv {
+	return &incrementalTestEnv{
+		t:          t,
+		sourceDir:  t.TempDir(),
+		className:  "TestClass",
+		chunkStore: make(map[string][]byte),
+		cfg:        cfg,
+		inMemData:  bytes.Repeat([]byte("M"), 50),
+	}
+}
+
+func (e *incrementalTestEnv) writeFile(relPath string, data []byte) {
+	e.t.Helper()
+	fullPath := filepath.Join(e.sourceDir, relPath)
+	require.NoError(e.t, os.MkdirAll(filepath.Dir(fullPath), os.ModePerm))
+	require.NoError(e.t, os.WriteFile(fullPath, data, 0o644))
+}
+
+func (e *incrementalTestEnv) makeShardDesc(name string, files []string) *backup.ShardDescriptor {
+	return &backup.ShardDescriptor{
+		Name:                  name,
+		Node:                  "node1",
+		Files:                 files,
+		DocIDCounterPath:      filepath.Join(name, "counter.bin"),
+		DocIDCounter:          append([]byte{}, e.inMemData...),
+		PropLengthTrackerPath: filepath.Join(name, "proplength.bin"),
+		PropLengthTracker:     append([]byte{}, e.inMemData...),
+		ShardVersionPath:      filepath.Join(name, "version.bin"),
+		Version:               append([]byte{}, e.inMemData...),
+	}
+}
+
+func (e *incrementalTestEnv) storeWriterFn(backupID string) func(context.Context, string, string, string, string, backup.ReadCloserWithError) (int64, error) {
+	return func(_ context.Context, _ string, key string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
+		data, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			return 0, err
+		}
+		e.chunkMu.Lock()
+		e.chunkStore[backupID+"/"+key] = data
+		e.chunkMu.Unlock()
+		return int64(len(data)), nil
+	}
+}
+
+func (e *incrementalTestEnv) serveReaderFn() func(context.Context, string, string, string, string, io.WriteCloser) (int64, error) {
+	return func(_ context.Context, backupID, key, _, _ string, w io.WriteCloser) (int64, error) {
+		storeKey := backupID + "/" + key
+		e.chunkMu.Lock()
+		data, ok := e.chunkStore[storeKey]
+		e.chunkMu.Unlock()
+		if !ok {
+			w.Close()
+			return 0, fmt.Errorf("chunk not found: %s", storeKey)
+		}
+		n, err := io.Copy(w, bytes.NewReader(data))
+		w.Close()
+		return n, err
+	}
+}
+
+func (e *incrementalTestEnv) backup(backupID string, shardDescs []*backup.ShardDescriptor) map[int32][]string {
+	e.t.Helper()
+	mockBackend := modulecapabilities.NewMockBackupBackend(e.t)
+	mockBackend.EXPECT().SourceDataPath().Return(e.sourceDir)
+	mockBackend.EXPECT().Write(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(e.storeWriterFn(backupID + "/node1"))
+
+	u := &uploader{
+		cfg: e.cfg,
+		backend: nodeStore{
+			objectStore: objectStore{
+				backend:  mockBackend,
+				backupId: backupID + "/node1",
+			},
+		},
+		zipConfig: zipConfig{Level: int(NoCompression), GoPoolSize: 1},
+		log:       logrus.New(),
+	}
+
+	var lastChunk atomic.Int32
+	chunksMap := make(map[int32][]string)
+	for _, sd := range shardDescs {
+		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "")
+		require.NoError(e.t, err)
+		for _, r := range results {
+			chunksMap[r.chunk] = r.shards
+		}
+	}
+	return chunksMap
+}
+
+func (e *incrementalTestEnv) restore(backupID string, desc *backup.ClassDescriptor) string {
+	e.t.Helper()
+	restoreDir := e.t.TempDir()
+	restoreMock := modulecapabilities.NewMockBackupBackend(e.t)
+	// writeTempFiles never calls SourceDataPath — it uses classTempDir directly.
+	restoreMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(e.serveReaderFn())
+
+	fw := &fileWriter{
+		backend: nodeStore{
+			objectStore: objectStore{
+				backend:  restoreMock,
+				backupId: backupID + "/node1",
+				node:     "node1",
+			},
+		},
+		destDir:    restoreDir,
+		tempDir:    filepath.Join(restoreDir, TempDirectory),
+		compressed: true,
+		GoPoolSize: 4,
+		logger:     logrus.New(),
+	}
+
+	classTempDir := filepath.Join(fw.tempDir, e.className)
+	err := fw.writeTempFiles(context.Background(), classTempDir, "", "", desc, backup.CompressionNone)
+	require.NoError(e.t, err)
+	return classTempDir
+}
+
+func (e *incrementalTestEnv) verify(restoredDir string, files []string) {
+	e.t.Helper()
+	for _, relPath := range files {
+		originalData, err := os.ReadFile(filepath.Join(e.sourceDir, relPath))
+		require.NoError(e.t, err, "read original %s", relPath)
+		restoredData, err := os.ReadFile(filepath.Join(restoredDir, relPath))
+		require.NoError(e.t, err, "read restored %s (missing from restore)", relPath)
+		require.Equal(e.t, originalData, restoredData,
+			"file content mismatch for %s", relPath)
+	}
+}
+
+// TestIncrementalBackupWithChanges tests the full backup→mutate→incremental backup→restore
+// cycle using production processShard (backup) and writeTempFiles (restore) code paths.
+// Only the storage backend is mocked — chunks are stored in memory.
+//
+// This test verifies that new segment files (e.g. produced by flushing after changes)
+// are correctly included in incremental backups and that restoring base+incremental
+// chunks produces the same file state as the live shard directory.
+func TestIncrementalBackupWithChanges(t *testing.T) {
+	t.Run("single shard", func(t *testing.T) {
+		t.Parallel()
+		testIncrementalBackupWithChanges(t, 1)
+	})
+	t.Run("multi shard", func(t *testing.T) {
+		t.Parallel()
+		testIncrementalBackupWithChanges(t, 3)
+	})
+}
+
+func testIncrementalBackupWithChanges(t *testing.T, numShards int) {
+	env := newIncrementalTestEnv(t, config.Backup{
+		ChunkTargetSize: 512,
+		MinChunkSize:    500,
+		SplitFileSize:   256,
+	})
+	shard := func(i int) string { return fmt.Sprintf("shard%d", i) }
+
+	// --- Step 1: Create initial shard files on disk ---
+	type shardSetup struct {
+		name  string
+		files []string
+	}
+	shards := make([]shardSetup, numShards)
+	for si := range shards {
+		name := shard(si)
+		files := []string{
+			filepath.Join(name, "segment-001.db"),
+			filepath.Join(name, "segment-002.db"),
+			filepath.Join(name, "segment-003.db"),
+			filepath.Join(name, "big-segment.db"),
+		}
+		sizes := []int{100, 150, 80, 600}
+		for i, f := range files {
+			env.writeFile(f, bytes.Repeat([]byte{byte('A' + i)}, sizes[i]))
+		}
+		shards[si] = shardSetup{name: name, files: files}
+	}
+
+	// --- Step 2: Base backup ---
+	baseShardDescs := make([]*backup.ShardDescriptor, numShards)
+	for si, ss := range shards {
+		baseShardDescs[si] = env.makeShardDesc(ss.name, ss.files)
+	}
+	env.backup("base-backup", baseShardDescs)
+	t.Logf("base backup done")
+
+	// --- Step 3: Simulate deletes by adding new segment files ---
+	// In a real LSM store, deleting objects writes tombstone entries to the memtable.
+	// Flushing produces a new segment file on disk containing those entries.
+	// Here we simulate that by creating new segment files per shard.
+	newSegments := make(map[string][]string)
+	for _, ss := range shards {
+		newFile := filepath.Join(ss.name, "segment-004.db")
+		env.writeFile(newFile, bytes.Repeat([]byte("S"), 200))
+		newSegments[ss.name] = []string{newFile}
+	}
+
+	// --- Step 4: Incremental dedup via FillFileInfo ---
+	incrShardDescs := make([]*backup.ShardDescriptor, numShards)
+	allFilesByDesc := make(map[string][]string)
+
+	for si, ss := range shards {
+		allFiles := append(append([]string{}, ss.files...), newSegments[ss.name]...)
+		allFilesByDesc[ss.name] = allFiles
+
+		sd := env.makeShardDesc(ss.name, nil)
+		require.NoError(t, sd.FillFileInfo(allFiles, []backup.ShardAndID{
+			{ShardDesc: baseShardDescs[si], BackupID: "base-backup"},
+		}, env.sourceDir))
+
+		t.Logf("shard %s: %d new files, %d skipped",
+			ss.name, len(sd.Files), sd.IncrementalBackupInfo.NumFilesSkipped)
+		require.NotEmpty(t, sd.Files, "shard %s must have new files", ss.name)
+		incrShardDescs[si] = sd
+	}
+
+	// --- Step 5: Incremental backup ---
+	incrChunks := env.backup("incr-backup", incrShardDescs)
+	t.Logf("incremental backup: %d chunks", len(incrChunks))
+
+	// --- Step 6: Restore ---
+	restoredDir := env.restore("incr-backup", &backup.ClassDescriptor{
+		Name:   env.className,
+		Chunks: incrChunks,
+		Shards: incrShardDescs,
+	})
+
+	// --- Step 7: Verify ---
+	for _, ss := range shards {
+		env.verify(restoredDir, allFilesByDesc[ss.name])
+	}
+}
+
+// TestIncrementalBackupSplitFileVariants exercises three split-file scenarios that
+// the basic tombstone test does not cover:
+//  1. A split file that changes between base and incremental (size/content differ).
+//  2. A small file that grows past the split threshold in the incremental.
+//  3. A brand-new split file added only in the incremental (not in base at all).
+//
+// Each scenario uses production processShard + writeTempFiles with a mock backend.
+func TestIncrementalBackupSplitFileVariants(t *testing.T) {
+	t.Run("modified split file forces re-backup", func(t *testing.T) {
+		t.Parallel()
+		env := newIncrementalTestEnv(t, config.Backup{
+			ChunkTargetSize: 512,
+			MinChunkSize:    500,
+			SplitFileSize:   256,
+		})
+		s := "shard0"
+
+		// Base: small file packs into chunk 1; big file (600B) gets split across chunks 2-3.
+		env.writeFile(s+"/small.db", bytes.Repeat([]byte("A"), 100))
+		env.writeFile(s+"/big.db", bytes.Repeat([]byte("B"), 600))
+
+		baseSd := env.makeShardDesc(s, []string{s + "/small.db", s + "/big.db"})
+		env.backup("base", []*backup.ShardDescriptor{baseSd})
+
+		// Verify big.db was split (multiple chunk keys in BigFilesChunk).
+		require.NotNil(t, baseSd.BigFilesChunk)
+		require.Contains(t, baseSd.BigFilesChunk, s+"/big.db")
+		require.Greater(t, len(baseSd.BigFilesChunk[s+"/big.db"].ChunkKeys), 1,
+			"big.db should be split across multiple chunks")
+
+		// Modify big.db — different size forces FillFileInfo to re-include it.
+		env.writeFile(s+"/big.db", bytes.Repeat([]byte("X"), 800))
+
+		allFiles := []string{s + "/small.db", s + "/big.db"}
+		incrSd := env.makeShardDesc(s, nil)
+		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
+			{ShardDesc: baseSd, BackupID: "base"},
+		}, env.sourceDir))
+
+		// big.db size changed → must be re-backed-up, not skipped.
+		require.Contains(t, incrSd.Files, s+"/big.db")
+
+		incrChunks := env.backup("incr", []*backup.ShardDescriptor{incrSd})
+
+		// Verify big.db is split again in the incremental.
+		require.NotNil(t, incrSd.BigFilesChunk)
+		require.Contains(t, incrSd.BigFilesChunk, s+"/big.db")
+		require.Greater(t, len(incrSd.BigFilesChunk[s+"/big.db"].ChunkKeys), 1,
+			"modified big.db should be re-split in incremental")
+
+		restoredDir := env.restore("incr", &backup.ClassDescriptor{
+			Name: env.className, Chunks: incrChunks, Shards: []*backup.ShardDescriptor{incrSd},
+		})
+		env.verify(restoredDir, allFiles)
+	})
+
+	t.Run("small file grows into split territory", func(t *testing.T) {
+		t.Parallel()
+		env := newIncrementalTestEnv(t, config.Backup{
+			ChunkTargetSize: 512,
+			MinChunkSize:    500,
+			SplitFileSize:   256,
+		})
+		s := "shard0"
+
+		// Base: two small files, both pack into one chunk. Neither is big.
+		env.writeFile(s+"/small.db", bytes.Repeat([]byte("A"), 100))
+		env.writeFile(s+"/medium.db", bytes.Repeat([]byte("B"), 200))
+
+		baseSd := env.makeShardDesc(s, []string{s + "/small.db", s + "/medium.db"})
+		env.backup("base", []*backup.ShardDescriptor{baseSd})
+
+		// medium.db was small → not tracked in BigFilesChunk.
+		if baseSd.BigFilesChunk != nil {
+			require.NotContains(t, baseSd.BigFilesChunk, s+"/medium.db")
+		}
+
+		// Grow medium.db past big-file + split thresholds (700B > minChunkSize=500, > splitFileSize=256).
+		env.writeFile(s+"/medium.db", bytes.Repeat([]byte("G"), 700))
+
+		allFiles := []string{s + "/small.db", s + "/medium.db"}
+		incrSd := env.makeShardDesc(s, nil)
+		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
+			{ShardDesc: baseSd, BackupID: "base"},
+		}, env.sourceDir))
+
+		// medium.db was never in BigFilesChunk → FillFileInfo always includes it.
+		require.Contains(t, incrSd.Files, s+"/medium.db")
+
+		incrChunks := env.backup("incr", []*backup.ShardDescriptor{incrSd})
+
+		// Verify medium.db is now tracked as big/split in the incremental.
+		require.NotNil(t, incrSd.BigFilesChunk)
+		require.Contains(t, incrSd.BigFilesChunk, s+"/medium.db")
+
+		restoredDir := env.restore("incr", &backup.ClassDescriptor{
+			Name: env.className, Chunks: incrChunks, Shards: []*backup.ShardDescriptor{incrSd},
+		})
+		env.verify(restoredDir, allFiles)
+	})
+
+	t.Run("new split file in incremental only", func(t *testing.T) {
+		t.Parallel()
+		env := newIncrementalTestEnv(t, config.Backup{
+			ChunkTargetSize: 512,
+			MinChunkSize:    500,
+			SplitFileSize:   256,
+		})
+		s := "shard0"
+
+		// Base: only a small file.
+		env.writeFile(s+"/small.db", bytes.Repeat([]byte("A"), 100))
+
+		baseSd := env.makeShardDesc(s, []string{s + "/small.db"})
+		env.backup("base", []*backup.ShardDescriptor{baseSd})
+
+		// Add a brand-new big file that did not exist in the base backup at all.
+		env.writeFile(s+"/new-big.db", bytes.Repeat([]byte("N"), 700))
+
+		allFiles := []string{s + "/small.db", s + "/new-big.db"}
+		incrSd := env.makeShardDesc(s, nil)
+		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
+			{ShardDesc: baseSd, BackupID: "base"},
+		}, env.sourceDir))
+
+		// new-big.db not in base → must be in Files.
+		require.Contains(t, incrSd.Files, s+"/new-big.db")
+		// Nothing should be skipped (small.db wasn't big in base either).
+		require.Empty(t, incrSd.IncrementalBackupInfo.FilesPerBackup)
+
+		incrChunks := env.backup("incr", []*backup.ShardDescriptor{incrSd})
+
+		// new-big.db should be split across multiple chunks.
+		require.NotNil(t, incrSd.BigFilesChunk)
+		require.Contains(t, incrSd.BigFilesChunk, s+"/new-big.db")
+		require.Greater(t, len(incrSd.BigFilesChunk[s+"/new-big.db"].ChunkKeys), 1,
+			"new-big.db should be split across multiple chunks")
+
+		// Restore reads all chunks from the incremental backup only (no ReadFromOtherBackup).
+		restoredDir := env.restore("incr", &backup.ClassDescriptor{
+			Name: env.className, Chunks: incrChunks, Shards: []*backup.ShardDescriptor{incrSd},
+		})
+		env.verify(restoredDir, allFiles)
+	})
+}
+
+// TestIncrementalBackupChainWithManySplitFiles exercises concurrent restoration of many
+// split-file parts fetched from a 3-deep incremental backup chain.
+//
+// Layout: 4 shards × 8 large split files each, 3 backup generations.
+// The restore must concurrently fetch split-file chunks from all three backups via
+// Read (current) and ReadFromOtherBackup (two different base backups), reassembling
+// each file at the correct offsets with WriteAt.
+//
+// With splitFileSize=100 and files of 300-2000 bytes, each file produces 3-20 split
+// chunks. The total chunk count across all backups reaches 200+, all extracted
+// concurrently during restore.
+func TestIncrementalBackupChainWithManySplitFiles(t *testing.T) {
+	// Use small split/chunk sizes to maximize the number of split parts.
+	env := newIncrementalTestEnv(t, config.Backup{
+		ChunkTargetSize: 300,
+		MinChunkSize:    100,
+		SplitFileSize:   100,
+	})
+
+	type fileSpec struct {
+		rel  string
+		size int
+	}
+
+	writeSpecs := func(specs []fileSpec, fill byte) {
+		for _, f := range specs {
+			env.writeFile(f.rel, bytes.Repeat([]byte{fill}, f.size))
+		}
+	}
+	relPaths := func(specs []fileSpec) []string {
+		out := make([]string, len(specs))
+		for i, f := range specs {
+			out[i] = f.rel
+		}
+		return out
+	}
+
+	// --- Shard layout ---
+	// Each shard has a small anchor file (keeps Top100Size low so bigFileThreshold=100)
+	// and 8 large files that will each be split into many chunks (3-20 parts).
+	// 4 shards × 8 split files = 32 split files total.
+	mkShard := func(name string) []fileSpec {
+		return []fileSpec{
+			{name + "/small.db", 50},     // anchor: keeps bigFileThreshold=100
+			{name + "/seg-001.db", 800},  // 8 parts
+			{name + "/seg-002.db", 600},  // 6 parts
+			{name + "/seg-003.db", 1200}, // 12 parts
+			{name + "/seg-004.db", 500},  // 5 parts
+			{name + "/seg-005.db", 1500}, // 15 parts
+			{name + "/seg-006.db", 300},  // 3 parts
+			{name + "/seg-007.db", 2000}, // 20 parts
+			{name + "/seg-008.db", 1000}, // 10 parts
+		}
+	}
+
+	shardSpecs := [][]fileSpec{
+		mkShard("shard0"),
+		mkShard("shard1"),
+		mkShard("shard2"),
+		mkShard("shard3"),
+	}
+	shardNames := []string{"shard0", "shard1", "shard2", "shard3"}
+
+	for _, specs := range shardSpecs {
+		writeSpecs(specs, 'A')
+	}
+
+	// ========== Backup 1 (base): all files ==========
+	baseDescs := make([]*backup.ShardDescriptor, len(shardNames))
+	for i, specs := range shardSpecs {
+		baseDescs[i] = env.makeShardDesc(shardNames[i], relPaths(specs))
+	}
+	env.backup("backup-1", baseDescs)
+
+	totalSplitParts := 0
+	for _, sd := range baseDescs {
+		require.NotNil(t, sd.BigFilesChunk, "shard %s: BigFilesChunk should be populated", sd.Name)
+		for relPath, info := range sd.BigFilesChunk {
+			require.Greater(t, len(info.ChunkKeys), 1,
+				"shard %s: %s should be split", sd.Name, relPath)
+			totalSplitParts += len(info.ChunkKeys)
+		}
+	}
+	t.Logf("backup-1: %d total split-file parts across %d shards", totalSplitParts, len(shardNames))
+
+	// ========== Between backup-1 and backup-2 ==========
+	// Per shard: modify seg-001, seg-003 (different size), add seg-009.
+	for _, name := range shardNames {
+		env.writeFile(name+"/seg-001.db", bytes.Repeat([]byte("X"), 850))
+		env.writeFile(name+"/seg-003.db", bytes.Repeat([]byte("Y"), 1400))
+		env.writeFile(name+"/seg-009.db", bytes.Repeat([]byte("N"), 700))
+	}
+
+	// Build all-files lists (original + new file).
+	allFiles := make([][]string, len(shardNames))
+	for i, specs := range shardSpecs {
+		allFiles[i] = append(relPaths(specs), shardNames[i]+"/seg-009.db")
+	}
+
+	// Incremental dedup for backup-2.
+	incrDescs2 := make([]*backup.ShardDescriptor, len(shardNames))
+	for i := range shardNames {
+		sd := env.makeShardDesc(shardNames[i], nil)
+		require.NoError(t, sd.FillFileInfo(allFiles[i], []backup.ShardAndID{
+			{ShardDesc: baseDescs[i], BackupID: "backup-1"},
+		}, env.sourceDir))
+		incrDescs2[i] = sd
+	}
+
+	totalNew2, totalSkipped2 := 0, 0
+	for _, sd := range incrDescs2 {
+		totalNew2 += len(sd.Files)
+		totalSkipped2 += sd.IncrementalBackupInfo.NumFilesSkipped
+	}
+	t.Logf("backup-2 dedup: %d new files, %d skipped", totalNew2, totalSkipped2)
+
+	env.backup("backup-2", incrDescs2)
+
+	// ========== Between backup-2 and backup-3 ==========
+	// Per shard: modify seg-002, seg-005 (unchanged since backup-1), add seg-010.
+	for _, name := range shardNames {
+		env.writeFile(name+"/seg-002.db", bytes.Repeat([]byte("Z"), 650))
+		env.writeFile(name+"/seg-005.db", bytes.Repeat([]byte("W"), 1600))
+		env.writeFile(name+"/seg-010.db", bytes.Repeat([]byte("Q"), 900))
+	}
+
+	for i := range shardNames {
+		allFiles[i] = append(allFiles[i], shardNames[i]+"/seg-010.db")
+	}
+
+	// For backup-3, base references include BOTH backup-2 AND backup-1 (the full chain).
+	incrDescs3 := make([]*backup.ShardDescriptor, len(shardNames))
+	for i := range shardNames {
+		sd := env.makeShardDesc(shardNames[i], nil)
+		require.NoError(t, sd.FillFileInfo(allFiles[i], []backup.ShardAndID{
+			{ShardDesc: incrDescs2[i], BackupID: "backup-2"},
+			{ShardDesc: baseDescs[i], BackupID: "backup-1"},
+		}, env.sourceDir))
+		incrDescs3[i] = sd
+	}
+
+	totalNew3, totalSkipped3 := 0, 0
+	for _, sd := range incrDescs3 {
+		totalNew3 += len(sd.Files)
+		totalSkipped3 += sd.IncrementalBackupInfo.NumFilesSkipped
+	}
+	t.Logf("backup-3 dedup: %d new files, %d skipped", totalNew3, totalSkipped3)
+
+	// Verify the chain references both backup-1 and backup-2.
+	allFilesPerBackup := make(map[string]int)
+	for _, sd := range incrDescs3 {
+		for backupID, infos := range sd.IncrementalBackupInfo.FilesPerBackup {
+			allFilesPerBackup[backupID] += len(infos)
+		}
+	}
+	require.Contains(t, allFilesPerBackup, "backup-1", "restore must reference backup-1")
+	require.Contains(t, allFilesPerBackup, "backup-2", "restore must reference backup-2")
+	t.Logf("backup-3 references: backup-1=%d files, backup-2=%d files",
+		allFilesPerBackup["backup-1"], allFilesPerBackup["backup-2"])
+
+	incrChunks3 := env.backup("backup-3", incrDescs3)
+	t.Logf("backup-3: %d incremental chunks", len(incrChunks3))
+	t.Logf("total chunks in store: %d", len(env.chunkStore))
+
+	// ========== Restore from backup-3 ==========
+	// Concurrently fetches split-file chunks from all three backups:
+	//   - backup-3: modified seg-002, seg-005, new seg-010, small files
+	//   - backup-2 via ReadFromOtherBackup: modified seg-001, seg-003, new seg-009
+	//   - backup-1 via ReadFromOtherBackup: unchanged seg-004, seg-006, seg-007, seg-008
+	restoredDir := env.restore("backup-3", &backup.ClassDescriptor{
+		Name:   env.className,
+		Chunks: incrChunks3,
+		Shards: incrDescs3,
+	})
+
+	// Verify every file across all shards matches the current live state.
+	for i := range shardNames {
+		env.verify(restoredDir, allFiles[i])
+	}
 }
