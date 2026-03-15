@@ -723,6 +723,11 @@
           "format": "date-time",
           "description": "When the export started"
         },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export completed (successfully, with failure, or was canceled)"
+        },
         "tookInMs": {
           "type": "integer",
           "format": "int64",
@@ -1018,10 +1023,10 @@
         }
       }
     },
-    "ObjectTtlConfig":{
+    "ObjectTtlConfig": {
       "description": "Configuration of objects' time-to-live",
       "properties": {
-         "enabled": {
+        "enabled": {
           "description": "Whether or not object ttl is enabled for this collection (default: `false`).",
           "type": "boolean",
           "x-omitempty": false
@@ -9416,6 +9421,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Invalid export request",
             "schema": {
@@ -9494,6 +9505,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
             "schema": {
@@ -9563,6 +9580,12 @@
           },
           "409": {
             "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

@@ -395,7 +395,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	desc.Chunks = make(map[int32][]string, 1+nShards/2)
 	var (
-		lastChunk = int32(0)
+		lastChunk atomic.Int32
 		nWorker   = u.GoPoolSize
 	)
 	if nWorker > nShards {
@@ -426,10 +426,10 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	incrementalBackupSize := atomic.Int64{}
 
 	// processor
-	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
+	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chunkShards {
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
-		recvCh := make(chan chuckShards, nWorker)
+		recvCh := make(chan chunkShards, nWorker)
 		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
@@ -439,25 +439,13 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 						return err
 					}
 					for shard := range sender {
-						firstChunk := true
-						filesInShard, err := u.createFileList(shard)
-						if err != nil {
-							return fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
-						}
 						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
-						for {
-							chunk := atomic.AddInt32(&lastChunk, 1)
-							shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, shard, filesInShard, firstChunk, overrideBucket, overridePath)
-							if err != nil {
-								return err
-							}
-							if m := int32(len(shards)); m > 0 {
-								recvCh <- chuckShards{chunk, shards, preCompressionSize}
-							}
-							firstChunk = false
-							if len(filesInShard.Files) == 0 {
-								break
-							}
+						chunks, err := u.processShard(ctx, shard, desc.Name, &lastChunk, overrideBucket, overridePath)
+						if err != nil {
+							return err
+						}
+						for _, c := range chunks {
+							recvCh <- c
 						}
 					}
 					return nil
@@ -477,10 +465,42 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	return desc.PreCompressionSizeBytes, err
 }
 
-type chuckShards struct {
+type chunkShards struct {
 	chunk              int32
 	shards             []string
 	preCompressionSize int64
+}
+
+// processShard compresses a single shard into one or more chunks, handling split files
+// that span multiple chunks. It returns the produced chunks and any error.
+func (u *uploader) processShard(
+	ctx context.Context,
+	shard *backup.ShardDescriptor,
+	className string,
+	lastChunk *atomic.Int32,
+	overrideBucket, overridePath string,
+) ([]chunkShards, error) {
+	filesInShard, err := u.createFileList(shard)
+	if err != nil {
+		return nil, fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
+	}
+	var results []chunkShards
+	var fileSizeExceeded *SplitFile
+	firstChunk := true
+	for {
+		chunk := lastChunk.Add(1)
+		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath)
+		if err != nil {
+			return results, err
+		}
+		fileSizeExceeded = fileSizeExceededTmp
+		results = append(results, chunkShards{chunk, []string{shard.Name}, preCompressionSize})
+		firstChunk = false
+		if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+			break
+		}
+	}
+	return results, nil
 }
 
 func (u *uploader) compress(ctx context.Context,
@@ -489,25 +509,24 @@ func (u *uploader) compress(ctx context.Context,
 	shard *backup.ShardDescriptor, // shard to be backed up
 	filesInShard *backup.FileList,
 	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
+	fileSizeExceededWrite *SplitFile, // if not nil, continue from previous split
 	overrideBucket, overridePath string, // bucket name and path
-) ([]string, int64, error) {
+) (*SplitFile, int64, error) {
 	var (
-		chunkKey = chunkKey(class, chunk)
-		shards   = make([]string, 0, 10)
-		// add tolerance to enable better optimization of the chunk size
+		chunkKey           = chunkKey(class, chunk)
 		preCompressionSize atomic.Int64
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 
-	// minIndividualFileSize determines which files are "big" and get their own chunk (tracked for incremental dedup).
-	// chunkTargetSize controls the max size when packing small files together; it must be at least minIndividualFileSize.
-	minIndividualFileSize := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
-	chunkTargetSize := max(u.cfg.ChunkTargetSize, minIndividualFileSize)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, minIndividualFileSize)
+	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
+	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
+	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
 	if err != nil {
-		return shards, preCompressionSize.Load(), err
+		return nil, preCompressionSize.Load(), err
 	}
-	producer := func() (err error) {
+	producer := func() (_ *SplitFile, err error) {
 		defer func() {
 			// Capture close error and join with any existing error.
 			// Close writes tar/gzip trailers and could fail if the pipe is closed.
@@ -520,22 +539,33 @@ func (u *uploader) compress(ctx context.Context,
 		}()
 
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 
-		if _, err := zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize, chunkKey); err != nil {
-			return err
+		var fileSizeExceededInfo *SplitFile
+		if fileSizeExceededWrite != nil {
+			// Only write the split file part in this chunk; remaining space is intentionally
+			// left unused to keep the logic simple and avoid mixing split file parts with
+			// regular files in the same chunk.
+			fileSizeExceededInfo, err = zip.WriteSplitFile(ctx, shard, fileSizeExceededWrite, &preCompressionSize, chunkKey)
+			if err != nil {
+				return nil, fmt.Errorf("write split file for shard %q: %w", shard.Name, err)
+			}
+		} else {
+			_, fileSizeExceededInfo, err = zip.WriteShard(ctx, shard, filesInShard, firstChunkForShard, &preCompressionSize, chunkKey)
+			if err != nil {
+				return nil, fmt.Errorf("write files for shard %q: %w", shard.Name, err)
+			}
 		}
-		shards = append(shards, shard.Name)
 		shard.ClearTemporary()
 
 		if zip.compressorWriter != nil {
 			if err := zip.compressorWriter.Flush(); err != nil {
-				return fmt.Errorf("flush compressor: %w", err)
+				return nil, fmt.Errorf("flush compressor: %w", err)
 			}
 		}
 
-		return nil
+		return fileSizeExceededInfo, nil
 	}
 
 	// consumer
@@ -549,16 +579,16 @@ func (u *uploader) compress(ctx context.Context,
 		return nil
 	})
 
-	producerErr := producer()
+	fileSizeExceededInfo, producerErr := producer()
 	// Always wait for the consumer to finish to capture its error.
 	// If the consumer fails (e.g., network error), it closes the pipe, causing
 	// the producer to fail with "closed pipe". We need both errors to show
 	// the actual cause (consumer error), not just the symptom (closed pipe).
 	consumerErr := eg.Wait()
 	if producerErr != nil || consumerErr != nil {
-		return shards, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
+		return fileSizeExceededInfo, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
 	}
-	return shards, preCompressionSize.Load(), nil
+	return fileSizeExceededInfo, preCompressionSize.Load(), nil
 }
 
 // calculateShardPreCompressionSize calculates the total size of a shard before compression
@@ -762,13 +792,11 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		}
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
-			uz, w := NewUnzip(classTempDir, compressionType)
-
-			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
-			}, fw.logger)
-			_, err := uz.ReadChunk()
-			return err
+			return fw.readAndUnzipChunk(classTempDir, compressionType, chunk,
+				func(w io.WriteCloser) error {
+					_, err := fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+					return err
+				})
 		})
 	}
 
@@ -778,22 +806,11 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 			for _, incrementalBackupInfo := range incrementalBackupInfos { // files per base backup
 				for _, chunkId := range incrementalBackupInfo.ChunkKeys { // chunks for file
 					eg.Go(func() error {
-						uz, w := NewUnzip(classTempDir, compressionType)
-
-						errCh := enterrors.GoWrapperWithErrorCh(func() {
-							_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
-							if err != nil {
-								fw.logger.WithField("backup_id", backupId).Warnf("failed to read chunk from base backup: %v", err)
-							}
-						}, fw.logger)
-						_, err := uz.ReadChunk()
-						if err != nil {
-							return err
-						}
-						if readErr := <-errCh; readErr != nil {
-							return readErr
-						}
-						return nil
+						return fw.readAndUnzipChunk(classTempDir, compressionType, chunkId,
+							func(w io.WriteCloser) error {
+								_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+								return err
+							})
 					})
 				}
 			}
@@ -828,6 +845,48 @@ func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescri
 	destPath = path.Join(classTempDir, sd.ShardVersionPath)
 	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
 		return fmt.Errorf("write version file %s: %w", destPath, err)
+	}
+	return nil
+}
+
+// readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.
+// It propagates errors from both the download and the unzip so that partial
+// downloads are never silently accepted.
+func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType backup.CompressionType, chunkName string, readFn func(w io.WriteCloser) error) error {
+	uz, w := NewUnzip(classTempDir, compressionType)
+
+	readErrCh := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		var err error
+		// Ensure readErrCh is always signaled even if readFn panics,
+		// otherwise the receiver on readErrCh will hang forever.
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in readFn: %v", r)
+				readErrCh <- err
+				panic(r) // re-panic so GoWrapper still logs the full stack
+			}
+			readErrCh <- err
+		}()
+		err = readFn(w)
+		if err != nil {
+			fw.logger.WithField("chunk", chunkName).Errorf("failed to read chunk from backend: %v", err)
+		}
+	}, fw.logger)
+
+	_, unzipErr := uz.ReadChunk()
+	// Close the pipe reader so any in-progress pw.Write() in readFn unblocks
+	// with ErrClosedPipe. Without this, readFn can hang forever if the
+	// decompressor detected end-of-stream before io.Copy finished writing all
+	// bytes from the backend.
+	uz.Close()
+	// Always drain readErrCh to prevent leaking the readFn goroutine.
+	readErr := <-readErrCh
+	if unzipErr != nil {
+		return fmt.Errorf("unzip chunk %s: %w", chunkName, unzipErr)
+	}
+	if readErr != nil && !errors.Is(readErr, io.ErrClosedPipe) {
+		return fmt.Errorf("read chunk %s from backend: %w", chunkName, readErr)
 	}
 	return nil
 }

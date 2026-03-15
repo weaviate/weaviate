@@ -454,6 +454,66 @@ func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
 	assert.Equal(t, export.Failed, nodeStatus.Status)
 }
 
+func TestParticipant_SiblingFailureSetsStatusFailed(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	selector := &blockingSelector{
+		blockCh: make(chan struct{}),
+	}
+
+	p := &Participant{
+		shutdownCtx:    context.Background(),
+		selector:       selector,
+		backends:       &fakeBackendProvider{backend: backend},
+		logger:         logger,
+		statusInterval: 50 * time.Millisecond,
+	}
+
+	// Write a Failed status for the sibling node
+	siblingStatus := &NodeStatus{
+		NodeName: "node2",
+		Status:   export.Failed,
+		Error:    "disk full",
+	}
+	sibData, err := json.Marshal(siblingStatus)
+	require.NoError(t, err)
+	_, err = backend.Write(context.Background(), "test-export", "node_node2_status.json", "", "", newBytesReadCloser(sibData))
+	require.NoError(t, err)
+
+	req := &ExportRequest{
+		ID:           "test-export",
+		Backend:      "s3",
+		Classes:      []string{"TestClass"},
+		Shards:       map[string][]string{"TestClass": {"shard0"}},
+		NodeName:     "node1",
+		SiblingNodes: []string{"node2"},
+	}
+
+	require.NoError(t, p.Prepare(context.Background(), req))
+	require.NoError(t, p.Commit(context.Background(), "test-export"))
+
+	// Wait for the export goroutine to start
+	selector.waitForCall(t)
+
+	// Wait for the export to stop after sibling failure detection
+	require.Eventually(t, func() bool {
+		return !p.IsRunning("test-export")
+	}, 5*time.Second, 10*time.Millisecond, "expected export to stop after sibling failure")
+
+	// Verify the persisted node status has BOTH Status=Failed AND the
+	// sibling error message. Before the fix, Status would remain
+	// Transferring while Error was set — an inconsistent state.
+	written := backend.getWritten("node_node1_status.json")
+	require.NotNil(t, written, "expected node status to be written")
+
+	var nodeStatus NodeStatus
+	require.NoError(t, json.Unmarshal(written, &nodeStatus))
+	assert.Equal(t, export.Failed, nodeStatus.Status, "status must be Failed, not Transferring")
+	assert.Contains(t, nodeStatus.Error, "sibling node")
+	assert.Contains(t, nodeStatus.Error, "disk full")
+}
+
 func TestParticipant_CheckSiblingHealth(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -518,7 +578,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				SiblingNodes: tc.siblingNodes,
 			}
 
-			failed := p.siblingHasFailed(context.Background(), backend, req)
+			_, _, failed := p.siblingHasFailed(context.Background(), backend, req)
 			assert.Equal(t, tc.expectFailed, failed)
 		})
 	}

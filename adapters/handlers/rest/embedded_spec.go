@@ -2477,6 +2477,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Invalid export request",
             "schema": {
@@ -2553,6 +2559,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
             "schema": {
@@ -2620,6 +2632,12 @@ func init() {
           },
           "409": {
             "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7509,6 +7527,11 @@ func init() {
             "type": "string"
           }
         },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "Error message if export failed",
           "type": "string"
@@ -12374,6 +12397,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Invalid export request",
             "schema": {
@@ -12450,6 +12479,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
             "schema": {
@@ -12517,6 +12552,12 @@ func init() {
           },
           "409": {
             "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17687,6 +17728,11 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
         },
         "error": {
           "description": "Error message if export failed",
