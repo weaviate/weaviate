@@ -13,6 +13,7 @@ package search
 
 import (
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -38,6 +39,9 @@ type Result struct {
 	VectorWeights        map[string]string
 	IsConsistent         bool
 	Tenant               string
+	// Highlight contains highlighted text fragments from keyword search
+	Highlight   []additional.Highlight
+	QueryVector []float32 // the vector used for this search query
 	// Vectors              map[string][]float32
 
 	// Dimensions in case search was vector-based, 0 otherwise

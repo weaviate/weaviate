@@ -279,6 +279,15 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
+	// Populate query vector in results if requested
+	if params.AdditionalProperties.QueryVector && len(searchVectors) > 0 {
+		for i := range res {
+			if vec, ok := searchVectors[0].([]float32); ok {
+				res[i].QueryVector = vec
+			}
+		}
+	}
+
 	if params.Pagination.Autocut > 0 {
 		scores := make([]float32, len(res))
 		for i := range res {
@@ -514,6 +523,14 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 				vectors[targetVector] = res.Vectors[targetVector]
 			}
 			additionalProperties["vectors"] = vectors
+		}
+
+		if params.AdditionalProperties.QueryVector {
+			additionalProperties["queryVector"] = res.QueryVector
+		}
+
+		if params.AdditionalProperties.Highlight && len(res.Highlight) > 0 {
+			additionalProperties["highlight"] = res.Highlight
 		}
 
 		if params.AdditionalProperties.CreationTimeUnix {
