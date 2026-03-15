@@ -977,7 +977,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
-	exportScheduler := startExportScheduler(serverShutdownCtx, appState)
+	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
@@ -1115,32 +1115,18 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	return backupScheduler
 }
 
-func startExportScheduler(shutdownCtx context.Context, appState *state.State) *exportUsecase.Scheduler {
-	var client exportUsecase.ExportClient
-	var nodeResolver exportUsecase.NodeResolver
-	var localNode string
-
-	if appState.Cluster != nil {
-		localNode = appState.Cluster.LocalName()
-		if appState.ClusterHttpClient != nil {
-			client = clients.NewClusterExports(appState.ClusterHttpClient)
-			nodeResolver = appState.Cluster
-		}
-	}
-
-	exportScheduler := exportUsecase.NewScheduler(
-		shutdownCtx,
+func startExportScheduler(appState *state.State) *exportUsecase.Scheduler {
+	return exportUsecase.NewScheduler(
 		appState.Authorizer,
 		appState.ServerConfig.Config.Authorization.Rbac,
 		appState.DB,
 		appState.Modules,
 		appState.Logger,
-		client,
-		nodeResolver,
-		localNode,
+		clients.NewClusterExports(appState.ClusterHttpClient),
+		appState.Cluster,
+		appState.Cluster.LocalName(),
 		appState.ExportParticipant,
 	)
-	return exportScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState

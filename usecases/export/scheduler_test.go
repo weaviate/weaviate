@@ -91,7 +91,6 @@ func TestScheduler_StatusReturnsNotFoundWhenNothingExists(t *testing.T) {
 	backend := &fakeBackend{}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
 		backends:     &fakeBackendProvider{backend: backend},
@@ -109,7 +108,6 @@ func TestScheduler_StatusPropagatesBackendError(t *testing.T) {
 	backend := &errorBackend{err: fmt.Errorf("connection refused")}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
 		backends:     &fakeBackendProvider{backend: backend},
@@ -128,7 +126,6 @@ func TestScheduler_CancelPropagatesBackendError(t *testing.T) {
 	backend := &errorBackend{err: fmt.Errorf("permission denied")}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
 		backends:     &fakeBackendProvider{backend: backend},
@@ -147,7 +144,6 @@ func TestScheduler_CancelReturnsNotFoundWhenMetadataMissing(t *testing.T) {
 	backend := &fakeBackend{}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
 		backends:     &fakeBackendProvider{backend: backend},
@@ -198,11 +194,10 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 	}
 
 	s := &Scheduler{
-		shutdownCtx: context.Background(),
-		logger:      logger,
-		authorizer:  mocks.NewMockAuthorizer(),
-		backends:    &fakeBackendProvider{backend: backend},
-		client:      &fakeExportClient{},
+		logger:     logger,
+		authorizer: mocks.NewMockAuthorizer(),
+		backends:   &fakeBackendProvider{backend: backend},
+		client:     &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{
 			"node1": "host1:8080",
 			"node2": "host2:8080",
@@ -275,7 +270,6 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 			}
 
 			s := &Scheduler{
-				shutdownCtx:  context.Background(),
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
 				backends:     &fakeBackendProvider{backend: backend},

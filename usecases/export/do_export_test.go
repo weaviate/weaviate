@@ -49,10 +49,6 @@ func (s *shardSelector) ShardOwnership(context.Context, string) (map[string][]st
 	return nil, nil
 }
 
-func (s *shardSelector) ExportShardNames(string) ([]string, bool, error) {
-	return nil, false, nil
-}
-
 func (s *shardSelector) IsMultiTenant(_ context.Context, className string) bool {
 	return s.mt[className]
 }
