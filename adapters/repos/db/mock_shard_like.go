@@ -1840,67 +1840,6 @@ func (_c *MockShardLike_ObjectByID_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// ObjectByIDErrDeleted provides a mock function with given fields: ctx, id, props, _a3
-func (_m *MockShardLike) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, _a3 additional.Properties) (*storobj.Object, error) {
-	ret := _m.Called(ctx, id, props, _a3)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ObjectByIDErrDeleted")
-	}
-
-	var r0 *storobj.Object
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, search.SelectProperties, additional.Properties) (*storobj.Object, error)); ok {
-		return rf(ctx, id, props, _a3)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, search.SelectProperties, additional.Properties) *storobj.Object); ok {
-		r0 = rf(ctx, id, props, _a3)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*storobj.Object)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, strfmt.UUID, search.SelectProperties, additional.Properties) error); ok {
-		r1 = rf(ctx, id, props, _a3)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_ObjectByIDErrDeleted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ObjectByIDErrDeleted'
-type MockShardLike_ObjectByIDErrDeleted_Call struct {
-	*mock.Call
-}
-
-// ObjectByIDErrDeleted is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id strfmt.UUID
-//   - props search.SelectProperties
-//   - _a3 additional.Properties
-func (_e *MockShardLike_Expecter) ObjectByIDErrDeleted(ctx interface{}, id interface{}, props interface{}, _a3 interface{}) *MockShardLike_ObjectByIDErrDeleted_Call {
-	return &MockShardLike_ObjectByIDErrDeleted_Call{Call: _e.mock.On("ObjectByIDErrDeleted", ctx, id, props, _a3)}
-}
-
-func (_c *MockShardLike_ObjectByIDErrDeleted_Call) Run(run func(ctx context.Context, id strfmt.UUID, props search.SelectProperties, _a3 additional.Properties)) *MockShardLike_ObjectByIDErrDeleted_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(strfmt.UUID), args[2].(search.SelectProperties), args[3].(additional.Properties))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_ObjectByIDErrDeleted_Call) Return(_a0 *storobj.Object, _a1 error) *MockShardLike_ObjectByIDErrDeleted_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_ObjectByIDErrDeleted_Call) RunAndReturn(run func(context.Context, strfmt.UUID, search.SelectProperties, additional.Properties) (*storobj.Object, error)) *MockShardLike_ObjectByIDErrDeleted_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ObjectCount provides a mock function with given fields: ctx
 func (_m *MockShardLike) ObjectCount(ctx context.Context) (int, error) {
 	ret := _m.Called(ctx)
@@ -2009,6 +1948,122 @@ func (_c *MockShardLike_ObjectCountAsync_Call) Return(_a0 int64, _a1 error) *Moc
 }
 
 func (_c *MockShardLike_ObjectCountAsync_Call) RunAndReturn(run func(context.Context) (int64, error)) *MockShardLike_ObjectCountAsync_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ObjectDigestErrDeleted provides a mock function with given fields: ctx, id
+func (_m *MockShardLike) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ObjectDigestErrDeleted")
+	}
+
+	var r0 types.RepairResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) (types.RepairResponse, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID) types.RepairResponse); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(types.RepairResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, strfmt.UUID) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_ObjectDigestErrDeleted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ObjectDigestErrDeleted'
+type MockShardLike_ObjectDigestErrDeleted_Call struct {
+	*mock.Call
+}
+
+// ObjectDigestErrDeleted is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id strfmt.UUID
+func (_e *MockShardLike_Expecter) ObjectDigestErrDeleted(ctx interface{}, id interface{}) *MockShardLike_ObjectDigestErrDeleted_Call {
+	return &MockShardLike_ObjectDigestErrDeleted_Call{Call: _e.mock.On("ObjectDigestErrDeleted", ctx, id)}
+}
+
+func (_c *MockShardLike_ObjectDigestErrDeleted_Call) Run(run func(ctx context.Context, id strfmt.UUID)) *MockShardLike_ObjectDigestErrDeleted_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(strfmt.UUID))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_ObjectDigestErrDeleted_Call) Return(_a0 types.RepairResponse, _a1 error) *MockShardLike_ObjectDigestErrDeleted_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_ObjectDigestErrDeleted_Call) RunAndReturn(run func(context.Context, strfmt.UUID) (types.RepairResponse, error)) *MockShardLike_ObjectDigestErrDeleted_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ObjectDigests provides a mock function with given fields: ctx, query
+func (_m *MockShardLike) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
+	ret := _m.Called(ctx, query)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ObjectDigests")
+	}
+
+	var r0 []types.RepairResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []multi.Identifier) ([]types.RepairResponse, error)); ok {
+		return rf(ctx, query)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []multi.Identifier) []types.RepairResponse); ok {
+		r0 = rf(ctx, query)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]types.RepairResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []multi.Identifier) error); ok {
+		r1 = rf(ctx, query)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_ObjectDigests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ObjectDigests'
+type MockShardLike_ObjectDigests_Call struct {
+	*mock.Call
+}
+
+// ObjectDigests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - query []multi.Identifier
+func (_e *MockShardLike_Expecter) ObjectDigests(ctx interface{}, query interface{}) *MockShardLike_ObjectDigests_Call {
+	return &MockShardLike_ObjectDigests_Call{Call: _e.mock.On("ObjectDigests", ctx, query)}
+}
+
+func (_c *MockShardLike_ObjectDigests_Call) Run(run func(ctx context.Context, query []multi.Identifier)) *MockShardLike_ObjectDigests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]multi.Identifier))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_ObjectDigests_Call) Return(_a0 []types.RepairResponse, _a1 error) *MockShardLike_ObjectDigests_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_ObjectDigests_Call) RunAndReturn(run func(context.Context, []multi.Identifier) ([]types.RepairResponse, error)) *MockShardLike_ObjectDigests_Call {
 	_c.Call.Return(run)
 	return _c
 }
