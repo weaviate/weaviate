@@ -263,6 +263,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		readFromMemory = true
 		useBloomFilter = false
 	}
+	if len(contents) < segmentindex.HeaderSize {
+		return nil, fmt.Errorf("segment file too small: %d bytes, need at least %d for header",
+			len(contents), segmentindex.HeaderSize)
+	}
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
