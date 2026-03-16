@@ -294,6 +294,10 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
 			fakeReplicator := replicaTypes.NewMockReplicator(t)
+			fakeReplicator.EXPECT().
+				CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(replica.SimpleResponse{}).
+				Maybe()
 			logger, _ := test.NewNullLogger()
 
 			indices := clusterapi.NewReplicatedIndices(
