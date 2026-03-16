@@ -16,8 +16,10 @@ package types
 import (
 	context "context"
 
-	mock "github.com/stretchr/testify/mock"
+	filters "github.com/weaviate/weaviate/entities/filters"
 	hashtree "github.com/weaviate/weaviate/usecases/replica/hashtree"
+
+	mock "github.com/stretchr/testify/mock"
 
 	objects "github.com/weaviate/weaviate/usecases/objects"
 
@@ -387,6 +389,68 @@ func (_c *MockReplicator_FetchObjects_Call) Return(_a0 []replica.Replica, _a1 er
 }
 
 func (_c *MockReplicator_FetchObjects_Call) RunAndReturn(run func(context.Context, string, string, []strfmt.UUID) ([]replica.Replica, error)) *MockReplicator_FetchObjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// FindUUIDs provides a mock function with given fields: ctx, indexName, shardName, _a3, limit
+func (_m *MockReplicator) FindUUIDs(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+	ret := _m.Called(ctx, indexName, shardName, _a3, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindUUIDs")
+	}
+
+	var r0 []strfmt.UUID
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)); ok {
+		return rf(ctx, indexName, shardName, _a3, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int) []strfmt.UUID); ok {
+		r0 = rf(ctx, indexName, shardName, _a3, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]strfmt.UUID)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, *filters.LocalFilter, int) error); ok {
+		r1 = rf(ctx, indexName, shardName, _a3, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicator_FindUUIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindUUIDs'
+type MockReplicator_FindUUIDs_Call struct {
+	*mock.Call
+}
+
+// FindUUIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - indexName string
+//   - shardName string
+//   - _a3 *filters.LocalFilter
+//   - limit int
+func (_e *MockReplicator_Expecter) FindUUIDs(ctx interface{}, indexName interface{}, shardName interface{}, _a3 interface{}, limit interface{}) *MockReplicator_FindUUIDs_Call {
+	return &MockReplicator_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, indexName, shardName, _a3, limit)}
+}
+
+func (_c *MockReplicator_FindUUIDs_Call) Run(run func(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int)) *MockReplicator_FindUUIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*filters.LocalFilter), args[4].(int))
+	})
+	return _c
+}
+
+func (_c *MockReplicator_FindUUIDs_Call) Return(_a0 []strfmt.UUID, _a1 error) *MockReplicator_FindUUIDs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicator_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)) *MockReplicator_FindUUIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }
