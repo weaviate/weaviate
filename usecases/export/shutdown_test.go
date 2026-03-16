@@ -165,7 +165,7 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -176,7 +176,7 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// node2 is dead and has no status file → overall status should be FAILED
@@ -376,7 +376,7 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -386,7 +386,7 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
@@ -452,7 +452,7 @@ func TestScheduler_LivenessReReadResolvesRace(t *testing.T) {
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -462,7 +462,7 @@ func TestScheduler_LivenessReReadResolvesRace(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, allTerminal, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, allTerminal, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Success), status.Status, "re-read should resolve the race to Success")
@@ -510,7 +510,7 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -520,7 +520,7 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// Overall status stays Transferring
@@ -567,7 +567,7 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -577,7 +577,7 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
@@ -669,19 +669,20 @@ func TestScheduler_CancelAndExportRaceWritesMetadataOnce(t *testing.T) {
 				Classes: []string{"TestClass"},
 			}
 
-			// Write the export plan so Cancel() can find it.
-			plan := &ExportPlan{
+			// Write initial metadata so Cancel() can find it.
+			initialMeta := &ExportMetadata{
 				ID:      "test-export",
 				Backend: "s3",
+				Status:  export.Transferring,
 				Classes: []string{"TestClass"},
 				NodeAssignments: map[string]map[string][]string{
 					"node1": {"TestClass": nil},
 				},
 				StartedAt: time.Now().UTC(),
 			}
-			planData, err := json.Marshal(plan)
+			metaData, err := json.Marshal(initialMeta)
 			require.NoError(t, err)
-			_, err = backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
+			_, err = backend.Write(context.Background(), "test-export", exportMetadataFile, "", "", newBytesReadCloser(metaData))
 			require.NoError(t, err)
 
 			done := make(chan struct{})
@@ -756,7 +757,7 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -766,7 +767,7 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// Overall status is Success — skipped shards don't block completion

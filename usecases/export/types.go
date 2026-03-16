@@ -50,17 +50,18 @@ type ShardProgress struct {
 	SkipReason      string             `json:"skipReason,omitempty"`
 }
 
-// ExportMetadata is written to S3 alongside the parquet files
+// ExportMetadata is written to S3 alongside the parquet files.
+// It is the single source of truth for an export's configuration and status.
 type ExportMetadata struct {
-	ID          string                                     `json:"id"`
-	Backend     string                                     `json:"backend"`
-	StartedAt   time.Time                                  `json:"startedAt"`
-	CompletedAt time.Time                                  `json:"completedAt"`
-	Status      export.Status                              `json:"status"`
-	Classes     []string                                   `json:"classes"`
-	Error       string                                     `json:"error,omitempty"`
-	ShardStatus map[string]map[string]models.ShardProgress `json:"shardStatus,omitempty"`
-	Version     string                                     `json:"version"`
+	ID              string                                     `json:"id"`
+	Backend         string                                     `json:"backend"`
+	StartedAt       time.Time                                  `json:"startedAt"`
+	CompletedAt     time.Time                                  `json:"completedAt"`
+	Status          export.Status                              `json:"status"`
+	Classes         []string                                   `json:"classes"`
+	NodeAssignments map[string]map[string][]string             `json:"nodeAssignments,omitempty"` // node → className → []shardName
+	Error           string                                     `json:"error,omitempty"`
+	ShardStatus     map[string]map[string]models.ShardProgress `json:"shardStatus,omitempty"`
 }
 
 // exportNodeInfo holds per-node information during 2PC coordination.
@@ -79,6 +80,10 @@ type ExportRequest struct {
 	Path         string              `json:"path"`
 	NodeName     string              `json:"nodeName"`
 	SiblingNodes []string            `json:"siblingNodes,omitempty"` // other node names in the same export
+
+	// Fields below are set for multi-node exports
+	StartedAt       time.Time                      `json:"startedAt,omitempty"`
+	NodeAssignments map[string]map[string][]string `json:"nodeAssignments,omitempty"` // node → className → []shardName
 }
 
 // NodeStatus is written to S3 by each participant node.
@@ -91,6 +96,7 @@ type NodeStatus struct {
 	ShardProgress map[string]map[string]*ShardProgress `json:"shardProgress,omitempty"` // className → shardName → progress
 	Error         string                               `json:"error,omitempty"`
 	CompletedAt   time.Time                            `json:"completedAt,omitempty"`
+	Version       string                               `json:"version"`
 }
 
 // SetShardProgress updates a shard's export progress in a thread-safe manner.
@@ -200,6 +206,7 @@ func (ns *NodeStatus) SyncAndSnapshot() *NodeStatus {
 		Status:      ns.Status,
 		Error:       ns.Error,
 		CompletedAt: ns.CompletedAt,
+		Version:     ns.Version,
 	}
 	if len(ns.ShardProgress) > 0 {
 		cp.ShardProgress = make(map[string]map[string]*ShardProgress, len(ns.ShardProgress))
@@ -216,13 +223,4 @@ func (ns *NodeStatus) SyncAndSnapshot() *NodeStatus {
 		}
 	}
 	return cp
-}
-
-// ExportPlan is written to S3 by the coordinator
-type ExportPlan struct {
-	ID              string                         `json:"id"`
-	Backend         string                         `json:"backend"`
-	Classes         []string                       `json:"classes"`
-	NodeAssignments map[string]map[string][]string `json:"nodeAssignments"` // node → className → []shardName
-	StartedAt       time.Time                      `json:"startedAt"`
 }
