@@ -162,17 +162,9 @@ func addTypeInformation(r *aggregation.Result, params *aggregation.Params, getCl
 			}
 
 			out.SchemaType = string(dt)
-
 			if pdt.IsReference() {
 				out.Type = aggregation.PropertyTypeReference
 				out.ReferenceAggregation.PointingTo = property.DataType
-
-				// TODO(dyma): if this were ever nil, the first statement of the for-loop
-				// would panic with a nil pointer dereference. I don't think this can actually happen.
-				if r.Groups[i].Properties == nil { // prevent nil pointer dereference
-					r.Groups[i].Properties = map[string]aggregation.Property{}
-				}
-
 			}
 			r.Groups[i].Properties[property.Name] = out
 		}
