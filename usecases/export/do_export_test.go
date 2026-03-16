@@ -24,6 +24,14 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 )
 
+func newTestNodeStatus(nodeName string) *NodeStatus {
+	return &NodeStatus{
+		NodeName:      nodeName,
+		Status:        export.Transferring,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
+	}
+}
+
 // shardSelector is a test Selector that returns pre-configured testShard
 // instances from AcquireShardForExport.
 type shardSelector struct {
@@ -41,12 +49,12 @@ func (s *shardSelector) ShardOwnership(context.Context, string) (map[string][]st
 	return nil, nil
 }
 
-func (s *shardSelector) ExportShardNames(string) ([]string, bool, error) {
-	return nil, false, nil
-}
-
 func (s *shardSelector) IsMultiTenant(_ context.Context, className string) bool {
 	return s.mt[className]
+}
+
+func (s *shardSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bool {
+	return true
 }
 
 func (s *shardSelector) AcquireShardForExport(_ context.Context, className, shardName string) (ShardLike, func(), string, error) {
@@ -185,7 +193,7 @@ func TestDoExport(t *testing.T) {
 				NodeName: "node1",
 			}
 
-			err := p.doExport(context.Background(), backend, req)
+			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
 			require.NoError(t, err)
 
 			for _, ef := range tc.expected {
@@ -239,7 +247,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req)
+	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
 	require.NoError(t, err)
 
 	// Exported shard should have data.
@@ -290,7 +298,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(ctx, backend, req)
+	err := p.doExport(ctx, backend, req, newTestNodeStatus(req.NodeName))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -319,7 +327,7 @@ func TestDoExport_NilStore(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req)
+	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
 }
@@ -357,7 +365,7 @@ func TestDoExport_NilBucket(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err = p.doExport(context.Background(), backend, req)
+	err = p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "objects bucket not found")
 }
