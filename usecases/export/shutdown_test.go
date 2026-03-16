@@ -178,20 +178,12 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 // fakeNodeResolver returns hostnames only for nodes in its map.
 // Nodes not in the map are considered dead.
 type fakeNodeResolver struct {
-	nodes     map[string]string
-	nodeCount int
+	nodes map[string]string
 }
 
 func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	host, ok := r.nodes[nodeName]
 	return host, ok
-}
-
-func (r *fakeNodeResolver) NodeCount() int {
-	if r.nodeCount > 0 {
-		return r.nodeCount
-	}
-	return len(r.nodes) + 1 // +1 for local node
 }
 
 // blockingSelector blocks AcquireShardForExport until blockCh is closed.

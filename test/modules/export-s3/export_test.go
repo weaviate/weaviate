@@ -1376,13 +1376,14 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
-	// Create a class with async replication explicitly disabled on a multi-node cluster.
+	// Create a class with RF > 1 but async replication disabled.
 	helper.CreateClass(t, &models.Class{
 		Class: className,
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
+			Factor:       3,
 			AsyncEnabled: false,
 		},
 		ShardingConfig: map[string]interface{}{

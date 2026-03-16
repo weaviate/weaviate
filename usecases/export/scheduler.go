@@ -154,18 +154,16 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("%w: no exportable classes", ErrExportValidation)
 	}
 
-	// On multi-node clusters, require async replication for all exported classes.
-	if s.nodeResolver.NodeCount() > 1 {
-		var noAsync []string
-		for _, class := range classes {
-			if !s.selector.IsAsyncReplicationEnabled(ctx, class) {
-				noAsync = append(noAsync, class)
-			}
+	// Require async replication for all exported classes that have RF > 1.
+	var noAsync []string
+	for _, class := range classes {
+		if !s.selector.IsAsyncReplicationEnabled(ctx, class) {
+			noAsync = append(noAsync, class)
 		}
-		if len(noAsync) > 0 {
-			return nil, fmt.Errorf("%w: collections %v do not have async replication enabled, "+
-				"which is required for export on multi-node clusters", ErrExportValidation, noAsync)
-		}
+	}
+	if len(noAsync) > 0 {
+		return nil, fmt.Errorf("%w: classes %v do not have async replication enabled, "+
+			"which is required for export when replication factor > 1", ErrExportValidation, noAsync)
 	}
 
 	backendStore, err := s.backends.BackupBackend(backend)
