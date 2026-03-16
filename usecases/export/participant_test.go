@@ -26,6 +26,29 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 )
 
+func TestParticipant_PrepareValidation(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	p := NewParticipant(
+		context.Background(),
+		&blockingSelector{blockCh: make(chan struct{})},
+		&fakeBackendProvider{backend: &fakeBackend{}},
+		logger,
+	)
+
+	t.Run("nil request", func(t *testing.T) {
+		err := p.Prepare(context.Background(), nil)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrExportValidation)
+	})
+
+	t.Run("empty ID", func(t *testing.T) {
+		err := p.Prepare(context.Background(), &ExportRequest{})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrExportValidation)
+	})
+}
+
 func TestParticipant_RejectsSecondExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
