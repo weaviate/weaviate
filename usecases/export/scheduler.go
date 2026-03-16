@@ -159,7 +159,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
-		return nil, fmt.Errorf("initialize backend: %w", err)
+		return nil, fmt.Errorf("%w: initialize backend: %w", ErrExportValidation, err)
 	}
 
 	if err := s.checkIfExportExists(ctx, backendStore, id, bucket, path); err != nil {
@@ -209,7 +209,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
-		return nil, fmt.Errorf("initialize backend: %w", err)
+		return nil, fmt.Errorf("%w: initialize backend: %w", ErrExportValidation, err)
 	}
 
 	// Metadata is always written before the export starts.
@@ -282,7 +282,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}
 
 	if err := backendStore.Initialize(ctx, id, bucket, path); err != nil {
-		return fmt.Errorf("initialize backend: %w", err)
+		return fmt.Errorf("%w: initialize backend: %w", ErrExportValidation, err)
 	}
 
 	// Metadata is always written before the export starts.

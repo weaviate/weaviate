@@ -83,15 +83,15 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if req == nil {
-			return fmt.Errorf("request cannot be nil")
+			return fmt.Errorf("%w: request cannot be nil", ErrExportValidation)
 		}
 
 		if req.ID == "" {
-			return fmt.Errorf("export ID cannot be empty")
+			return fmt.Errorf("%w: export ID cannot be empty", ErrExportValidation)
 		}
 
 		if p.activeExport != "" {
-			return fmt.Errorf("active export %q already in progress", p.activeExport)
+			return fmt.Errorf("%w: export %q already in progress", ErrExportAlreadyActive, p.activeExport)
 		}
 
 		p.activeExport = req.ID
