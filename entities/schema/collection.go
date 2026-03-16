@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -66,18 +67,21 @@ const (
 	VectorIndexTypeEmpty VectorIndexType = iota
 	VectorIndexTypeHNSW
 	VectorIndexTypeFlat
+	VectorIndexTypeHFresh
 )
 
 var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
-		VectorIndexTypeHNSW:  vIndex.VectorIndexTypeHNSW,
-		VectorIndexTypeFlat:  vIndex.VectorIndexTypeFLAT,
-		VectorIndexTypeEmpty: "",
+		VectorIndexTypeHNSW:   vIndex.VectorIndexTypeHNSW,
+		VectorIndexTypeFlat:   vIndex.VectorIndexTypeFLAT,
+		VectorIndexTypeHFresh: vIndex.VectorIndexTypeHFresh,
+		VectorIndexTypeEmpty:  "",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
-		vIndex.VectorIndexTypeHNSW: VectorIndexTypeHNSW,
-		vIndex.VectorIndexTypeFLAT: VectorIndexTypeFlat,
-		"":                         VectorIndexTypeEmpty,
+		vIndex.VectorIndexTypeHNSW:   VectorIndexTypeHNSW,
+		vIndex.VectorIndexTypeFLAT:   VectorIndexTypeFlat,
+		vIndex.VectorIndexTypeHFresh: VectorIndexTypeHFresh,
+		"":                           VectorIndexTypeEmpty,
 	}
 )
 
@@ -372,6 +376,8 @@ func CollectionFromClass(m models.Class) (Collection, error) {
 		c.VectorIndexConfig = m.VectorIndexConfig.(hnsw.UserConfig)
 	case VectorIndexTypeFlat:
 		c.VectorIndexConfig = m.VectorIndexConfig.(flat.UserConfig)
+	case VectorIndexTypeHFresh:
+		c.VectorIndexConfig = m.VectorIndexConfig.(hfresh.UserConfig)
 	default:
 	}
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 
@@ -98,7 +99,8 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 		vector = searchVectors[0]
 	}
 
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
+	// Pass zero time to disable time-based filtering during hybrid search
+	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
 	if err != nil {
 		return nil, "", err
 	}
@@ -172,7 +174,8 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		vector = vectors[0]
 	}
 
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
+	// Pass zero time to disable time-based filtering during hybrid search
+	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
 	if err != nil {
 		return nil, "", err
 	}

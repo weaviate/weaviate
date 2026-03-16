@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -214,7 +214,7 @@ type RClient interface {
 		ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
 		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
@@ -226,6 +226,10 @@ type RClient interface {
 // FinderClient extends RClient with consistency checks
 type FinderClient struct {
 	cl RClient
+}
+
+func NewFinderClient(cl RClient) FinderClient {
+	return FinderClient{cl: cl}
 }
 
 // FullRead reads full object
@@ -287,7 +291,7 @@ func (fc FinderClient) Overwrite(ctx context.Context,
 }
 
 func (fc FinderClient) FindUUIDs(ctx context.Context,
-	host, class, shard string, filters *filters.LocalFilter,
+	host, class, shard string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	return fc.cl.FindUUIDs(ctx, host, class, shard, filters)
+	return fc.cl.FindUUIDs(ctx, host, class, shard, filters, limit)
 }

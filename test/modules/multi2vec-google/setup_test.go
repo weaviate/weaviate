@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ const (
 	location = "us-central1"
 )
 
-func TestMulti2VecGoogle_SingleNode(t *testing.T) {
+func TestMulti2VecGoogle_Vertex_SingleNode(t *testing.T) {
 	gcpProject := os.Getenv("GCP_PROJECT")
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
@@ -41,8 +41,25 @@ func TestMulti2VecGoogle_SingleNode(t *testing.T) {
 	}()
 	endpoint := compose.GetWeaviate().URI()
 
-	t.Run("multi2vec-google", testMulti2VecGoogle(endpoint, gcpProject, location, "multi2vec-google"))
-	t.Run("multi2vec-palm", testMulti2VecGoogle(endpoint, gcpProject, location, "multi2vec-palm"))
+	t.Run("multi2vec-google", testMulti2VecGoogleVertex(endpoint, gcpProject, location, "multi2vec-google"))
+	t.Run("multi2vec-palm", testMulti2VecGoogleVertex(endpoint, gcpProject, location, "multi2vec-palm"))
+}
+
+func TestMulti2VecGoogle_AIStudio_SingleNode(t *testing.T) {
+	googleApiKey := os.Getenv("GOOGLE_AISTUDIO_APIKEY")
+	if googleApiKey == "" {
+		t.Skip("skipping, GOOGLE_AISTUDIO_APIKEY environment variable not present")
+	}
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironment(ctx, googleApiKey)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+
+	t.Run("multi2vec-google", testMulti2VecGoogleAIStudio(endpoint, "multi2vec-google"))
+	// t.Run("multi2vec-palm", testMulti2VecGoogleAIStudio(endpoint, "multi2vec-palm"))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
@@ -50,11 +67,11 @@ func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
 	compose, err = composeModules(googleApiKey).
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(googleApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithMulti2VecGoogle(googleApiKey)
-	return
+	return composeModules
 }

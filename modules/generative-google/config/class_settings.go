@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,29 +48,6 @@ var (
 	DefaulGenerativeAIApiEndpoint     = "generativelanguage.googleapis.com"
 	DefaulGenerativeAIModelID         = "chat-bison-001"
 )
-
-var supportedVertexAIModels = []string{
-	DefaultGoogleModel,
-	"chat-bison-32k",
-	"chat-bison@002",
-	"chat-bison-32k@002",
-	"chat-bison@001",
-	"gemini-1.5-pro-preview-0514",
-	"gemini-1.5-pro-preview-0409",
-	"gemini-1.5-flash-preview-0514",
-	"gemini-1.0-pro-002",
-	"gemini-1.0-pro-001",
-	"gemini-1.0-pro",
-}
-
-var supportedGenerativeAIModels = []string{
-	// chat-bison-001
-	DefaulGenerativeAIModelID,
-	"gemini-pro",
-	"gemini-ultra",
-	"gemini-1.5-flash-latest",
-	"gemini-1.5-pro-latest",
-}
 
 type ClassSettings interface {
 	Validate(class *models.Class) error
@@ -134,13 +111,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if topP < 0 || topP > 1 {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", topPProperty))
 	}
-	// Google MakerSuite
-	availableModels := append(supportedGenerativeAIModels, supportedVertexAIModels...)
-	model := ic.ModelID()
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint && !contains(availableModels, model) {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s is not supported available models are: %+v", model, availableModels))
-	}
-
 	if len(errorMessages) > 0 {
 		return fmt.Errorf("%s", strings.Join(errorMessages, ", "))
 	}
@@ -234,13 +204,4 @@ func (ic *classSettings) TopK() int {
 // 0.0 - 1.0
 func (ic *classSettings) TopP() float64 {
 	return ic.getFloatProperty(topPProperty, DefaultGoogleTopP)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

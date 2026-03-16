@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
@@ -38,16 +39,21 @@ func (suite *ReplicationNotImplementedTestSuite) SetupSuite() {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	mainCtx := context.Background()
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
-		WithWeaviateEnv("REPLICA_MOVEMENT_DISABLED", "true").
-		Start(mainCtx)
+		Start(ctx)
 	require.Nil(t, err)
+	if cancel != nil {
+		cancel()
+	}
 	suite.compose = compose
 	suite.down = func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}
@@ -106,6 +112,27 @@ func (suite *ReplicationNotImplementedTestSuite) TestReplicationNotImplemented()
 	t.Run("GET /replication/sharding-state", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams(), nil)
 		require.IsType(t, &replication.GetCollectionShardingStateNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for get collection sharding state but got %v", err))
+	})
+
+	t.Run("GET /replication/scale", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.GetReplicationScalePlan(
+			replication.NewGetReplicationScalePlanParams().
+				WithCollection("test-collection").
+				WithReplicationFactor(3),
+			nil)
+		require.IsType(t, &replication.GetReplicationScalePlanNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for get replication scale plan but got %v", err))
+	})
+
+	t.Run("POST /replication/scale", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+			replication.NewApplyReplicationScalePlanParams().
+				WithBody(&models.ReplicationScalePlan{
+					Collection:        "test-collection",
+					PlanID:            strfmt.UUID("123e4567-e89b-12d3-a456-426614174000"),
+					ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{},
+				}),
+			nil)
+		require.IsType(t, &replication.ApplyReplicationScalePlanNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for replication scale apply but got %v", err))
 	})
 }
 

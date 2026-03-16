@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,6 +39,10 @@ func New(client Client) *Vectorizer {
 type Client interface {
 	Vectorize(ctx context.Context,
 		texts, images []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
+	VectorizeQuery(ctx context.Context,
+		input []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
+	VectorizeImage(ctx context.Context,
+		images []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationCLIPResult[[]float32], error)
 }
 
 type ClassSettings interface {
@@ -56,7 +60,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, nil, []string{image}, cfg)
+	res, err := v.client.VectorizeImage(ctx, []string{image}, cfg)
 	if err != nil {
 		return nil, err
 	}

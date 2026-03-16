@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -148,9 +148,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			}
 		}
 
-		if schemaVersion > maxSchemaVersion {
-			maxSchemaVersion = schemaVersion
-		}
+		maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 	}
 	return maxSchemaVersion, nil
 }
@@ -538,7 +536,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 
 	totalTenants := 0
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
-	var maxSchemaVersion uint64
+	maxSchemaVersion := fetchedClasses[objects[0].Class].Version
 	for className, tenantNames := range classTenants {
 		vclass, exists := fetchedClasses[className]
 		if !exists || // invalid class
@@ -565,7 +563,8 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 		}
 
 		addStart := time.Now()
-		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
+		autoTenantVersion, err := m.addTenants(ctx, principal, className, tenants)
+		if err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
 		}
 		m.tenantsCount.Add(float64(len(tenants)))
@@ -573,9 +572,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 			"operation": "add",
 		}).Observe(time.Since(addStart).Seconds())
 
-		if vclass.Version > maxSchemaVersion {
-			maxSchemaVersion = vclass.Version
-		}
+		maxSchemaVersion = max(maxSchemaVersion, autoTenantVersion)
 	}
 
 	if totalTenants == 0 {
@@ -588,20 +585,20 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 
 func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
-) error {
+) (uint64, error) {
 	if len(tenants) == 0 {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
 	version, err := m.schemaManager.AddTenants(ctx, principal, class, tenants)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	err = m.schemaManager.WaitForUpdate(ctx, version)
 	if err != nil {
-		return fmt.Errorf("could not wait for update: %w", err)
+		return 0, fmt.Errorf("could not wait for update: %w", err)
 	}
 
-	return nil
+	return version, nil
 }

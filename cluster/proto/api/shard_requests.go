@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,9 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/go-openapi/strfmt"
 )
 
@@ -116,6 +119,47 @@ type ReplicationDetailsState struct {
 	StartTimeUnixMs int64 // Unix timestamp in milliseconds when the state was first entered
 }
 
+func (r *ReplicationDetailsState) UnmarshalJSON(data []byte) error {
+	type rawReplicationDetailsState struct {
+		State           string
+		Errors          json.RawMessage
+		StartTimeUnixMs int64
+	}
+	var raw rawReplicationDetailsState
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	r.State = raw.State
+	r.StartTimeUnixMs = raw.StartTimeUnixMs
+	// no errors in the message
+	if len(raw.Errors) == 0 || string(raw.Errors) == "null" || string(raw.Errors) == "[]" {
+		r.Errors = nil
+		return nil
+	}
+
+	// try to unmarshal as []ReplicationDetailsError
+	var replicationDetailsErrors []ReplicationDetailsError
+	if err := json.Unmarshal(raw.Errors, &replicationDetailsErrors); err == nil {
+		r.Errors = replicationDetailsErrors
+		return nil
+	}
+
+	// try to unmarshal as []string (legacy format)
+	var errors []string
+	if err := json.Unmarshal(raw.Errors, &errors); err == nil {
+		if len(errors) > 0 {
+			r.Errors = make([]ReplicationDetailsError, len(errors))
+			for i, msg := range errors {
+				r.Errors[i] = ReplicationDetailsError{Message: msg}
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("cannot unmarshal ReplicationDetailsState.Errors field neither to []ReplicationDetailsError or []string: %v", string(raw.Errors))
+}
+
 type ReplicationDetailsResponse struct {
 	Uuid         strfmt.UUID
 	Id           uint64
@@ -165,6 +209,17 @@ type ShardingState struct {
 	Shards     map[string][]string
 }
 
+type ReplicationScalePlan struct {
+	PlanID                       strfmt.UUID
+	Collection                   string
+	ShardReplicationScaleActions map[string]ShardReplicationScaleActions
+}
+
+type ShardReplicationScaleActions struct {
+	RemoveNodes map[string]struct{}
+	AddNodes    map[string]string
+}
+
 type ReplicationQueryShardingStateByCollectionRequest struct {
 	Collection string
 }
@@ -172,6 +227,15 @@ type ReplicationQueryShardingStateByCollectionRequest struct {
 type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 	Collection string
 	Shard      string
+}
+
+type ReplicationScalePlanRequest struct {
+	Collection        string
+	ReplicationFactor int
+}
+
+type ReplicationScalePlanResponse struct {
+	ReplicationScalePlan ReplicationScalePlan
 }
 
 type ReplicationDeleteAllRequest struct {

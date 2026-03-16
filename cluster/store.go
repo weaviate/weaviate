@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,6 +72,8 @@ type Config struct {
 	NodeID string
 	// Host is this node host name
 	Host string
+	// BindAddr is the address to bind to
+	BindAddr string
 	// RaftPort is used by internal RAFT communication
 	RaftPort int
 	// RPCPort is used by weaviate internal gRPC communication
@@ -144,8 +146,6 @@ type Config struct {
 	Parser schema.Parser
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema schema.LoadLegacySchema
-	// SaveLegacySchema is responsible for loading new schema into boltDB
-	SaveLegacySchema schema.SaveLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
 
@@ -177,11 +177,15 @@ type Config struct {
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 
-	ReplicaMovementDisabled bool
+	ReplicaMovementEnabled bool
 
 	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
 	// async replication can complete.
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
+
+	// DrainSleep is the time the node will wait for the cluster to process any ongoing
+	// operations before shutting down.
+	DrainSleep time.Duration
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -304,7 +308,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
-	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
 	return Store{
@@ -317,6 +321,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			RaftPort:           cfg.RaftPort,
 			IsLocalHost:        cfg.IsLocalHost,
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
+			LocalName:          cfg.NodeID,
+			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:      schemaManager,
 		snapshotter:        snapshotter,
@@ -435,21 +441,24 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	address := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
-	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
+	advertiseAddress := net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RaftPort))
+	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
-		return fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
+		return fmt.Errorf("net.resolve tcp address=%v: %w", advertiseAddress, err)
 	}
 
-	st.raftTransport, err = st.raftResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
+	bindAddress := net.JoinHostPort(st.cfg.BindAddr, fmt.Sprintf("%d", st.cfg.RaftPort))
+	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
-		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
+		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
 	st.log.WithFields(logrus.Fields{
-		"address":    address,
-		"tcpMaxPool": tcpMaxPool,
-		"tcpTimeout": tcpTimeout,
-	}).Info("tcp transport")
+		"action":                 "raft_tcp_transport",
+		"raft_bind_address":      bindAddress,
+		"raft_advertise_address": advertiseAddress,
+		"raft_tcp_max_pool":      tcpMaxPool,
+		"raft_tcp_timeout":       tcpTimeout,
+	}).Info("TCP transport")
 
 	return err
 }
@@ -460,8 +469,11 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	defer t.Stop()
 	for range t.C {
 
-		if leader := st.Leader(); leader != "" {
-			st.log.WithField("address", leader).Info("current Leader")
+		if leaderAddr := st.Leader(); leaderAddr != "" {
+			st.log.WithFields(logrus.Fields{
+				"action":         "leader_found",
+				"leader_address": leaderAddr,
+			}).Info("current leader")
 		} else {
 			continue
 		}
@@ -505,11 +517,6 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	}
 }
 
-// StoreSchemaV1() is responsible for saving new schema (RAFT) to boltDB
-func (st *Store) StoreSchemaV1() error {
-	return st.cfg.SaveLegacySchema(st.schemaManager.NewSchemaReader().States())
-}
-
 func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
 		return nil
@@ -517,7 +524,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
-	if st.IsLeader() {
+	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
 		st.log.Info("transferring leadership to another server")
 		if err := st.raft.LeadershipTransfer().Error(); err != nil {
 			st.log.WithError(err).Error("transferring leadership")
@@ -526,19 +533,27 @@ func (st *Store) Close(ctx context.Context) error {
 		}
 	}
 
+	// Shutdown memberlist after leave to clean up resources and connections
+	if err := st.cfg.NodeSelector.Shutdown(); err != nil {
+		st.log.WithError(err).Error("shutdown node from cluster")
+	}
+
+	// close transport to stop accepting new connections
+	// this prevents "transport shutdown" errors during raft shutdown
+	st.log.Info("closing raft transport ...")
+	if err := st.raftTransport.Close(); err != nil {
+		st.log.WithError(err).Warn("failed to close raft transport")
+	}
+
+	// shutdown raft after transport is closed to ensure clean termination
+	st.log.Info("shutting down raft ...")
 	if err := st.raft.Shutdown().Error(); err != nil {
-		return err
+		st.log.WithError(err).Warn("raft shutdown failed")
 	}
 
 	st.open.Store(false)
 
-	st.log.Info("closing raft-net ...")
-	if err := st.raftTransport.Close(); err != nil {
-		// it's not that fatal if we weren't able to close
-		// the transport, that's why just warn
-		st.log.WithError(err).Warn("close raft-net")
-	}
-
+	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
 	if err := st.logStore.Close(); err != nil {
 		return fmt.Errorf("close log store: %w", err)
@@ -758,6 +773,14 @@ func (st *Store) raftConfig() *raft.Config {
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
 
+	st.log.WithFields(logrus.Fields{
+		"heartbeat_timeout":    cfg.HeartbeatTimeout,
+		"election_timeout":     cfg.ElectionTimeout,
+		"leader_lease_timeout": cfg.LeaderLeaseTimeout,
+		"snapshot_interval":    cfg.SnapshotInterval,
+		"snapshot_threshold":   cfg.SnapshotThreshold,
+		"trailing_logs":        cfg.TrailingLogs,
+	}).Debug("current raft config")
 	return cfg
 }
 
@@ -857,7 +880,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	exNode := servers[0]
 	newNode := raft.Server{
 		ID:       raft.ServerID(st.cfg.NodeID),
-		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Address:  raft.ServerAddress(net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RPCPort))),
 		Suffrage: raft.Voter,
 	}
 

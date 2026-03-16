@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -586,7 +586,7 @@ func testConcurrentReadLockOperations(t *testing.T, s *schema) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				err := s.Read("TestClass", func(cls *models.Class, state *sharding.State) error {
+				err := s.Read("TestClass", true, func(cls *models.Class, state *sharding.State) error {
 					assert.Equal(t, "TestClass", cls.Class)
 					assert.NotNil(t, state)
 					return nil

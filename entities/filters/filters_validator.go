@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -88,7 +88,7 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 
 	if cw.getOperator() == OperatorIsNull {
 		if !cw.isType(schema.DataTypeBoolean) {
-			return errors.Errorf("operator IsNull requires a booleanValue, got %q instead",
+			return errors.Errorf("operator IsNull requires a booleanValue, got %v instead",
 				cw.getValueNameFromType())
 		}
 		return nil
@@ -104,7 +104,7 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 			OperatorLessThan, OperatorLessThanEqual:
 			// ok
 		default:
-			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %q instead",
+			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %v instead",
 				op)
 		}
 		if val := cw.getValue(); val.(int) < 0 {

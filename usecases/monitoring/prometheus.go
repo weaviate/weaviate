@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,10 @@
 package monitoring
 
 import (
+	"errors"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -65,18 +68,21 @@ type PrometheusMetrics struct {
 	QueryDimensions                     *prometheus.CounterVec
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
-	BackupRestoreDurations              *prometheus.SummaryVec
-	BackupStoreDurations                *prometheus.SummaryVec
-	BucketPauseDurations                *prometheus.SummaryVec
-	BackupRestoreClassDurations         *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations    *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
-	BackupRestoreDataTransferred        *prometheus.CounterVec
-	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
 	FileIOReads                         *prometheus.SummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
+
+	// Backup/Restore metrics
+	BackupRestoreDurations            *prometheus.SummaryVec
+	BackupStoreDurations              *prometheus.SummaryVec
+	BucketPauseDurations              *prometheus.SummaryVec
+	BackupRestoreClassDurations       *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations *prometheus.SummaryVec
+	BackupRestoreDataTransferred      *prometheus.CounterVec
+	BackupStoreDataTransferred        *prometheus.CounterVec
+	RestorePhaseDurations             *prometheus.HistogramVec
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -99,8 +105,17 @@ type PrometheusMetrics struct {
 	VectorIndexDurations               *prometheus.SummaryVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
-	VectorDimensionsSum                *prometheus.GaugeVec
-	VectorSegmentsSum                  *prometheus.GaugeVec
+	// IVF
+	VectorIndexPostings                      *prometheus.GaugeVec
+	VectorIndexPostingSize                   *prometheus.HistogramVec
+	VectorIndexPendingBackgroundOperations   *prometheus.GaugeVec
+	VectorIndexBackgroundOperationsDurations *prometheus.SummaryVec
+	VectorIndexBackgroundOperationsCount     *prometheus.GaugeVec
+	VectorIndexStoreOperationsDurations      *prometheus.SummaryVec
+
+	VectorDimensionsSum                 *prometheus.GaugeVec
+	VectorSegmentsSum                   *prometheus.GaugeVec
+	VectorIndexMemoryAllocationRejected prometheus.Counter
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -167,6 +182,12 @@ type PrometheusMetrics struct {
 	// Checksum metrics
 	ChecksumValidationDuration prometheus.Summary
 	ChecksumBytesRead          prometheus.Summary
+
+	objttlCount          prometheus.Counter
+	objttlFailureCount   prometheus.Counter
+	objttlRunning        prometheus.Gauge
+	objttlDuration       prometheus.Histogram
+	objttlObjectsDeleted prometheus.Counter
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -320,6 +341,11 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexOperations.DeletePartialMatch(labels)
 	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
 	pm.VectorIndexDurations.DeletePartialMatch(labels)
+	pm.VectorIndexPostings.DeletePartialMatch(labels)
+	pm.VectorIndexPostingSize.DeletePartialMatch(labels)
+	pm.VectorIndexPendingBackgroundOperations.DeletePartialMatch(labels)
+	pm.VectorIndexBackgroundOperationsDurations.DeletePartialMatch(labels)
+	pm.VectorIndexStoreOperationsDurations.DeletePartialMatch(labels)
 	pm.VectorIndexSize.DeletePartialMatch(labels)
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
@@ -367,6 +393,8 @@ var (
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
 	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
 
+	postingSizeBuckets = []float64{10, 40, 70, 100, 130, 160, 190, 250, 500, 1000, 1500, 2000, 3000, 5000, 10000}
+
 	metrics *PrometheusMetrics = nil
 )
 
@@ -383,8 +411,39 @@ func GetMetrics() *PrometheusMetrics {
 	return metrics
 }
 
+// EnsureRegisteredMetric tries to register the given metric with the given
+// registerer. If the metric is already registered, it returns the existing
+// metric.
+func EnsureRegisteredMetric[T prometheus.Collector](reg prometheus.Registerer, metric T) (T, bool, error) {
+	if err := reg.Register(metric); err != nil {
+		var alreadyRegistered prometheus.AlreadyRegisteredError
+		if errors.As(err, &alreadyRegistered) {
+			existing, ok := alreadyRegistered.ExistingCollector.(T)
+			if !ok {
+				return metric, true, fmt.Errorf("metric already registered but not as expected type: %T", metric)
+			}
+			return existing, true, nil
+		}
+		return metric, false, err
+	}
+
+	return metric, false, nil
+}
+
+func InitCounterVec(vec *prometheus.CounterVec, labelNames [][]string) {
+	for _, labels := range labelNames {
+		vec.WithLabelValues(labels...).Add(0)
+	}
+}
+
+func InitGaugeVec(vec *prometheus.GaugeVec, labelNames [][]string) {
+	for _, labels := range labelNames {
+		vec.WithLabelValues(labels...).Set(0)
+	}
+}
+
 func newPrometheusMetrics() *PrometheusMetrics {
-	return &PrometheusMetrics{
+	m := &PrometheusMetrics{
 		Registerer: prometheus.DefaultRegisterer,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
@@ -594,6 +653,31 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_index_durations_ms",
 			Help: "Duration of typical vector index operations (insert, delete)",
 		}, []string{"operation", "step", "class_name", "shard_name"}),
+		VectorIndexPostings: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_postings",
+			Help: "The size of the vector index postings. Typically much lower than number of vectors.",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexPostingSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vector_index_posting_size_vectors",
+			Help:    "The size of individual vectors in each posting list",
+			Buckets: postingSizeBuckets,
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexPendingBackgroundOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_pending_background_operations",
+			Help: "Number of background operations yet to be processed.",
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexBackgroundOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "vector_index_background_operations_durations_ms",
+			Help: "Duration of typical vector index background operations (split, merge, reassign)",
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexBackgroundOperationsCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_background_operations_count",
+			Help: "Total number of background operations (split, merge, reassign)",
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexStoreOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "vector_index_store_operations_durations_ms",
+			Help: "Duration of store operations (put, append, get)",
+		}, []string{"operation", "class_name", "shard_name"}),
 		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_dimensions_sum",
 			Help: "Total dimensions in a shard",
@@ -602,6 +686,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum",
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
+		VectorIndexMemoryAllocationRejected: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_vector_index_memory_allocation_rejected_total",
+			Help: "Total number of batch operations rejected per node due to insufficient memory",
+		}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -658,10 +746,15 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		RestorePhaseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_restore_phase_duration_seconds",
+			Help:    "Duration of restore phases (prepare, object_storage_download, schema_apply)",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
+		}, []string{"phase"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "shards_loaded",
+			Name: "7oaded",
 			Help: "Number of shards loaded",
 		}),
 		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{
@@ -850,6 +943,100 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of bytes read during checksum validation",
 		}),
 	}
+
+	if err := m.initObjectsTtl(); err != nil {
+		panic(err)
+	}
+
+	return m
+}
+
+func (m *PrometheusMetrics) initObjectsTtl() error {
+	var err error
+	minute := time.Minute.Seconds()
+	hour := time.Hour.Seconds()
+
+	m.objttlCount, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_count",
+			Help: "Count of object ttl deletions executions",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_count: %w", err)
+	}
+
+	m.objttlFailureCount, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_failure_count",
+			Help: "Count of object ttl deletions failures",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_failure_count: %w", err)
+	}
+
+	m.objttlRunning, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_objects_ttl_deletion_db_running",
+			Help: "Number of object ttl deletions running currently",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_running: %w", err)
+	}
+
+	m.objttlDuration, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name: "weaviate_objects_ttl_deletion_db_duration_seconds",
+			Help: "Duration of object ttl deletions in seconds",
+			Buckets: []float64{
+				minute, 5 * minute, 15 * minute, 30 * minute, hour,
+				2 * hour, 3 * hour, 4 * hour, 8 * hour, 16 * hour, 24 * hour,
+			},
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_duration: %w", err)
+	}
+
+	m.objttlObjectsDeleted, _, err = EnsureRegisteredMetric(m.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_objects_ttl_deletion_db_objects_deleted",
+			Help: "Count of all expired objects deleted",
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("registering objects_ttl_deletion_db_objects_deleted: %w", err)
+	}
+
+	return nil
+}
+
+// --- Objects TTL: main ---
+
+func (m *PrometheusMetrics) IncObjectsTtlCount() {
+	m.objttlCount.Inc()
+}
+
+func (m *PrometheusMetrics) IncObjectsTtlFailureCount() {
+	m.objttlFailureCount.Inc()
+}
+
+func (m *PrometheusMetrics) IncObjectsTtlRunning() {
+	m.objttlRunning.Inc()
+}
+
+func (m *PrometheusMetrics) DecObjectsTtlRunning() {
+	m.objttlRunning.Dec()
+}
+
+func (m *PrometheusMetrics) AddObjectsTtlObjectsDeleted(count float64) {
+	m.objttlObjectsDeleted.Add(count)
+}
+
+func (m *PrometheusMetrics) ObserveObjectsTtlDuration(d time.Duration) {
+	m.objttlDuration.Observe(d.Seconds())
 }
 
 type OnceUponATimer struct {

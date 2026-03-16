@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,24 +18,28 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
+
+// tombstoneCleanupMemoryNeeded is the estimated memory (in bytes) required for
+// HNSW tombstone cleanup. Used both for the pre-check before starting cleanup
+// and for periodic checks during cleanup to abort on memory pressure.
+const tombstoneCleanupMemoryNeeded = 100 * 1024 * 1024
 
 type breakCleanUpTombstonedNodesFunc func() bool
 
@@ -80,16 +84,21 @@ func (h *hnsw) Delete(ids ...uint64) error {
 		}
 
 		if h.getEntrypoint() == id {
-			beforeDeleteEP := time.Now()
-			defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
+			if err := func() error {
+				beforeDeleteEP := time.Now()
+				defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
 
-			denyList := h.tombstonesAsDenyList()
-			if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
-				return errors.Wrap(err, "reset index")
-			} else if !onlyNode {
-				if err := h.deleteEntrypoint(node, denyList); err != nil {
-					return errors.Wrap(err, "delete entrypoint")
+				denyList := h.tombstonesAsDenyList()
+				if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
+					return errors.Wrap(err, "reset index")
+				} else if !onlyNode {
+					if err := h.deleteEntrypoint(node, denyList); err != nil {
+						return errors.Wrap(err, "delete entrypoint")
+					}
 				}
+				return nil
+			}(); err != nil {
+				return err
 			}
 		}
 	}
@@ -302,7 +311,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		if err != nil {
 			entsentry.Recover(err)
 			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
-			debug.PrintStack()
+			enterrors.PrintStack(h.logger)
 		}
 	}()
 
@@ -320,6 +329,57 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
 	if !ok {
 		return executed, nil
+	}
+
+	// Start a background goroutine that periodically checks memory pressure.
+	// If pressure is detected, memCancel is called and the cleanup aborts
+	// gracefully via the breakCleanUpTombstonedNodes check. This is started
+	// after copyTombstonesToAllowList to avoid spawning a goroutine/ticker
+	// on cycles where there are no tombstones to clean.
+	memCtx, memCancel := context.WithCancel(resetCtx)
+	defer memCancel()
+
+	// Re-bind the break function to include the memory pressure context
+	// before spawning the monitor goroutine (which checks immediately).
+	breakCleanUpTombstonedNodes = func() bool {
+		return resetCtx.Err() != nil || memCtx.Err() != nil || shouldAbort()
+	}
+
+	if h.allocChecker != nil {
+		check := func() bool {
+			if err := h.allocChecker.CheckAlloc(int64(tombstoneCleanupMemoryNeeded)); err != nil {
+				h.logger.WithFields(logrus.Fields{
+					"action": "hnsw_tombstone_cleanup",
+					"event":  "tombstone_cleanup_aborted_memory_pressure",
+					"class":  h.className,
+					"shard":  h.shardName,
+					"id":     h.id,
+				}).Error(err)
+				memCancel()
+				return true
+			}
+			return false
+		}
+
+		// Check synchronously before starting cleanup. Only spawn the
+		// periodic monitor if the initial check passes.
+		if !check() {
+			enterrors.GoWrapper(func() {
+				ticker := time.NewTicker(h.tombstoneMemCheckInterval)
+				defer ticker.Stop()
+
+				for {
+					select {
+					case <-ticker.C:
+						if check() {
+							return
+						}
+					case <-memCtx.Done():
+						return
+					}
+				}
+			}, h.logger)
+		}
 	}
 
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
@@ -391,6 +451,7 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	}
 
 	it := deleteList.Iterator()
+	defer it.Stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if h.getEntrypoint() == id {
 			// this a special case because:
@@ -450,18 +511,19 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
 ) (ok bool, err error) {
 	h.RLock()
-	size := len(h.nodes)
+	size := uint64(len(h.nodes))
 	h.RUnlock()
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ch := make(chan uint64)
-	var cancelled atomic.Bool
 
+	var cancelled atomic.Bool
+	var workCounter atomic.Uint64 // Workers claim work by incrementing this counter
 	processedIDs := &sync.Map{}
 
-	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
+	deletionConcurrency := tombstoneDeletionConcurrency()
+	for i := 0; i < deletionConcurrency; i++ {
 		g.Go(func() error {
 			for {
 				if breakCleanUpTombstonedNodes() {
@@ -469,71 +531,56 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					cancel()
 					return nil
 				}
-				select {
-				case <-ctx.Done():
-					return nil
-				case deletedID, ok := <-ch:
-					if !ok {
-						return nil
-					}
-					// Check if already COMPLETED processing
-					if _, alreadyProcessed := processedIDs.Load(deletedID); alreadyProcessed {
-						continue
-					}
 
-					h.shardedNodeLocks.RLock(deletedID)
-					if deletedID >= uint64(size) || deletedID >= uint64(len(h.nodes)) || h.nodes[deletedID] == nil {
-						h.shardedNodeLocks.RUnlock(deletedID)
-						continue
-					}
-					h.shardedNodeLocks.RUnlock(deletedID)
-					h.resetLock.RLock()
-					if h.getEntrypoint() != deletedID {
-						if _, err := h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
-							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
-								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
-						}
-					}
-					h.resetLock.RUnlock()
+				// Check for cancellation
+				if ctx.Err() != nil {
+					return nil
 				}
+
+				// Claim next work item using atomic counter (no channel overhead)
+				id := workCounter.Add(1) - 1
+				if id >= size {
+					return nil // No more work
+				}
+
+				// Update progress periodically
+				if id%1000 == 0 {
+					h.metrics.TombstoneCycleProgress(float64(id) / float64(size))
+					if id%1_000_000 == 0 {
+						h.logger.WithFields(logrus.Fields{
+							"action":          "tombstone_cleanup_progress",
+							"class":           h.className,
+							"shard":           h.shardName,
+							"total_nodes":     size,
+							"processed_nodes": id,
+						}).
+							Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, id, size)
+					}
+				}
+
+				// Check if already processed (can happen due to recursive processing)
+				if _, alreadyProcessed := processedIDs.Load(id); alreadyProcessed {
+					continue
+				}
+
+				h.shardedNodeLocks.RLock(id)
+				if id >= size || id >= uint64(len(h.nodes)) || h.nodes[id] == nil {
+					h.shardedNodeLocks.RUnlock(id)
+					continue
+				}
+				h.shardedNodeLocks.RUnlock(id)
+
+				h.resetLock.RLock()
+				if h.getEntrypoint() != id {
+					if _, err := h.reassignNeighbor(ctx, id, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
+						h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
+							Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+					}
+				}
+				h.resetLock.RUnlock()
 			}
 		})
 	}
-
-LOOP:
-	for i := 0; i < size; i++ {
-		if breakCleanUpTombstonedNodes() {
-			cancelled.Store(true)
-			cancel()
-		}
-		select {
-		case ch <- uint64(i):
-			if i%1000 == 0 {
-				// updating the metric has virtually no cost, so we can do it every 1k
-				h.metrics.TombstoneCycleProgress(float64(i) / float64(size))
-			}
-			if i%1_000_000 == 0 {
-				// the interval of 1M is rather arbitrary, but if we have less than 1M
-				// nodes in the graph tombstones cleanup should be so fast, we don't
-				// need to log the progress.
-				h.logger.WithFields(logrus.Fields{
-					"action":          "tombstone_cleanup_progress",
-					"class":           h.className,
-					"shard":           h.shardName,
-					"total_nodes":     size,
-					"processed_nodes": i,
-				}).
-					Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
-			}
-		case <-ctx.Done():
-			// before https://github.com/weaviate/weaviate/issues/4615 the context
-			// would not be canceled if a routine panicked. However, with the fix, it is
-			// now valid to wait for a cancelation – even if a panic occurs.
-			break LOOP
-		}
-	}
-
-	close(ch)
 
 	err = g.Wait()
 	if errors.Is(err, context.Canceled) {
@@ -572,6 +619,15 @@ func (h *hnsw) reassignNeighbor(
 		return true, nil
 	}
 
+	neighborNode.Lock()
+	neighborLevel := neighborNode.level
+	if !connectionsPointTo(neighborNode.connections, deleteList) {
+		// nothing needs to be changed, skip
+		neighborNode.Unlock()
+		return true, nil
+	}
+	neighborNode.Unlock()
+
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
@@ -590,19 +646,10 @@ func (h *hnsw) reassignNeighbor(
 			return false, errors.Wrap(err, "get neighbor vec")
 		}
 	}
-	neighborNode.Lock()
-	neighborLevel := neighborNode.level
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
-		// nothing needs to be changed, skip
-		neighborNode.Unlock()
-		return true, nil
-	}
-	neighborNode.Unlock()
-
-	neighborNode.markAsMaintenance()
 
 	// the new recursive implementation no longer needs an entrypoint, so we can
 	// just pass this dummy value to make the neighborFinderConnector happy
+	neighborNode.markAsMaintenance()
 	dummyEntrypoint := uint64(0)
 	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
@@ -615,10 +662,12 @@ func (h *hnsw) reassignNeighbor(
 }
 
 func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
-	iter := connections.Iterator()
-	for iter.Next() {
-		_, atLevel := iter.Current()
-		for _, pointer := range atLevel {
+	// Use CopyLayer with buffer reuse to avoid allocations per layer
+	buffer := make([]uint64, 0, 64)
+
+	for layer := uint8(0); layer < connections.Layers(); layer++ {
+		buffer = connections.CopyLayer(buffer, layer)
+		for _, pointer := range buffer {
 			if needles.Contains(pointer) {
 				return true
 			}
@@ -849,6 +898,7 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	it := deleteList.Iterator()
+	defer it.Stop()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if breakCleanUpTombstonedNodes() {
 			return false, nil

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,12 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		return nil
 	}
 	h.compressActionLock.Lock()
-	defer h.compressActionLock.Unlock()
+	released := false
+	defer func() {
+		if !released {
+			h.compressActionLock.Unlock()
+		}
+	}()
 	data := h.cache.All()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
@@ -57,7 +62,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				}
 			}
 
-			if p == nil {
+			if len(p) == 0 {
 				// already deleted, ignore
 				continue
 			}
@@ -68,7 +73,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 		}
 		if cfg.PQ.Enabled {
-			dims := int(h.dims)
+			dims := int(h.dims.Load())
 
 			if cfg.PQ.Segments <= 0 {
 				cfg.PQ.Segments = common.CalculateOptimalSegments(dims)
@@ -79,11 +84,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector())
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector())
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -94,11 +99,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector())
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.makeBucketOptions, h.allocChecker, h.getTargetVector())
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
@@ -110,32 +115,22 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		var err error
 		if singleVector {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.makeBucketOptions, h.allocChecker, h.getTargetVector())
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.makeBucketOptions, h.allocChecker, h.getTargetVector())
 		}
 		if err != nil {
 			return err
 		}
 	} else if cfg.RQ.Enabled {
-		var err error
-		h.trackRQOnce.Do(func() {
-			if singleVector {
-				h.compressor, err = compressionhelpers.NewRQCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
-			} else {
-				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
-			}
-			if err == nil {
-				h.rqConfig.RescoreLimit = cfg.RQ.RescoreLimit
-				h.compressor.PersistCompression(h.commitLog)
-			}
-		})
-		if err != nil {
-			return err
-		}
+		h.rqActive.Store(true)
+		released = true
+		h.compressActionLock.Unlock()
+		h.checkAndCompress()
+		return nil
 	}
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),

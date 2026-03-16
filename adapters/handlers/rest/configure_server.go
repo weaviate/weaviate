@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/cron"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
@@ -94,6 +95,10 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	}
 
 	return c
+}
+
+func configureCrons(appState *state.State, serverShutdownCtx context.Context) *cron.Crons {
+	return cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
 }
 
 func configureAPIKey(appState *state.State) *apikey.ApiKey {

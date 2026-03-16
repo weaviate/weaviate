@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,7 +31,7 @@ import (
 // swagger:model Class
 type Class struct {
 
-	// Name of the class (a.k.a. 'collection') (required). Multiple words should be concatenated in CamelCase, e.g. `ArticleAuthor`.
+	// Name of the collection (formerly 'class') (required). Multiple words should be concatenated in CamelCase, e.g. `ArticleAuthor`.
 	Class string `json:"class,omitempty"`
 
 	// Description of the collection for metadata purposes.
@@ -45,6 +45,9 @@ type Class struct {
 
 	// multi tenancy config
 	MultiTenancyConfig *MultiTenancyConfig `json:"multiTenancyConfig,omitempty"`
+
+	// object Ttl config
+	ObjectTTLConfig *ObjectTTLConfig `json:"objectTtlConfig,omitempty"`
 
 	// Define properties of the collection.
 	Properties []*Property `json:"properties"`
@@ -61,10 +64,10 @@ type Class struct {
 	// Vector-index config, that is specific to the type of index selected in vectorIndexType
 	VectorIndexConfig interface{} `json:"vectorIndexConfig,omitempty"`
 
-	// Name of the vector index to use, eg. (HNSW)
+	// Name of the vector index type to use for the collection (e.g. `hnsw` or `flat`).
 	VectorIndexType string `json:"vectorIndexType,omitempty"`
 
-	// Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.
+	// Specify how the vectors for this collection should be determined. The options are either `none` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as `text2vec-weaviate`. If left empty, it will use the globally configured default ([`DEFAULT_VECTORIZER_MODULE`](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be `none` or a specific module.
 	Vectorizer string `json:"vectorizer,omitempty"`
 }
 
@@ -77,6 +80,10 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateMultiTenancyConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateObjectTTLConfig(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -128,6 +135,25 @@ func (m *Class) validateMultiTenancyConfig(formats strfmt.Registry) error {
 				return ve.ValidateName("multiTenancyConfig")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("multiTenancyConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Class) validateObjectTTLConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.ObjectTTLConfig) { // not required
+		return nil
+	}
+
+	if m.ObjectTTLConfig != nil {
+		if err := m.ObjectTTLConfig.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("objectTtlConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("objectTtlConfig")
 			}
 			return err
 		}
@@ -219,6 +245,10 @@ func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateObjectTTLConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateProperties(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -261,6 +291,22 @@ func (m *Class) contextValidateMultiTenancyConfig(ctx context.Context, formats s
 				return ve.ValidateName("multiTenancyConfig")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("multiTenancyConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Class) contextValidateObjectTTLConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ObjectTTLConfig != nil {
+		if err := m.ObjectTTLConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("objectTtlConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("objectTtlConfig")
 			}
 			return err
 		}

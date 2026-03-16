@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -242,7 +242,9 @@ func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, 
 	limit := m.localLimitOrGlobalLimit(int64(offset), paramLimit)
 
 	if int64(offset+limit) > m.config.Config.QueryMaximumResults {
-		return 0, 0, errors.New("query maximum results exceeded")
+		return 0, 0, fmt.Errorf(
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
+			offset, limit, m.config.Config.QueryMaximumResults)
 	}
 
 	return offset, limit, nil

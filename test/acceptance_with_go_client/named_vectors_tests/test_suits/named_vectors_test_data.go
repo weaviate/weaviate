@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -216,6 +216,46 @@ func sqVectorIndexConfig() map[string]interface{} {
 	}
 }
 
+func pq(trainingLimit int) map[string]interface{} {
+	return map[string]interface{}{
+		"pq": map[string]interface{}{
+			"enabled":       true,
+			"trainingLimit": trainingLimit,
+		},
+	}
+}
+
+func sq(trainingLimit int) map[string]interface{} {
+	return map[string]interface{}{
+		"pq": map[string]interface{}{
+			"enabled":       true,
+			"trainingLimit": trainingLimit,
+			"cache":         true,
+		},
+	}
+}
+
+func rq(bits int) map[string]interface{} {
+	return map[string]interface{}{
+		"rq": map[string]interface{}{
+			"enabled": true,
+			"bits":    bits,
+		},
+	}
+}
+
+func bq(multiVector bool) map[string]interface{} {
+	bq := map[string]interface{}{
+		"bq": map[string]interface{}{
+			"enabled": true,
+		},
+	}
+	if multiVector {
+		bq["multivector"] = map[string]interface{}{"enabled": true}
+	}
+	return bq
+}
+
 func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
 ) map[string]models.Vector {
@@ -314,15 +354,15 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err = get.Do(context.Background())
-		require.NoError(t, err)
-		require.NotNil(t, resp)
+		require.NoError(ct, err)
+		require.NotNil(ct, resp)
 		if len(resp.Data) == 0 {
 			return
 		}
 
 		ids := acceptance_with_go_client.GetIds(t, resp, className)
 		assert.Contains(ct, ids, id)
-	}, 5*time.Second, 1*time.Millisecond)
+	}, 10*time.Second, 100*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }

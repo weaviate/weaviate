@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,56 +21,54 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/klauspost/compress/zstd"
+	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
 
-type replicator interface {
-	// Write endpoints
-	ReplicateObject(ctx context.Context, indexName, shardName,
-		requestID string, object *storobj.Object, schemaVersion uint64) replica.SimpleResponse
-	ReplicateObjects(ctx context.Context, indexName, shardName,
-		requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse
-	ReplicateUpdate(ctx context.Context, indexName, shardName,
-		requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse
-	ReplicateDeletion(ctx context.Context, indexName, shardName,
-		requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64) replica.SimpleResponse
-	ReplicateDeletions(ctx context.Context, indexName, shardName,
-		requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) replica.SimpleResponse
-	ReplicateReferences(ctx context.Context, indexName, shardName,
-		requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse
-	CommitReplication(indexName, shardName, requestID string) interface{}
-	AbortReplication(indexName, shardName, requestID string) interface{}
-	OverwriteObjects(ctx context.Context, index, shard string,
-		vobjects []*objects.VObject) ([]types.RepairResponse, error)
-	// Read endpoints
-	FetchObject(ctx context.Context, indexName,
-		shardName string, id strfmt.UUID) (replica.Replica, error)
-	FetchObjects(ctx context.Context, class,
-		shardName string, ids []strfmt.UUID) ([]replica.Replica, error)
-	DigestObjects(ctx context.Context, class, shardName string,
-		ids []strfmt.UUID) (result []types.RepairResponse, err error)
-	DigestObjectsInRange(ctx context.Context, class, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
-	HashTreeLevel(ctx context.Context, index, shard string,
-		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
-}
-
 type replicatedIndices struct {
-	shards replicator
-	auth   auth
+	replicator replicaTypes.Replicator
+	auth       auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
+
+	requestQueueConfig cluster.RequestQueueConfig
+	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
+	// overwhelming the system with requests during spikes (also allows for backpressure)
+	requestQueue chan queuedRequest
+	// requestQueueMu guards access to the queue during shutdown
+	requestQueueMu sync.RWMutex
+	// startWorkersOnce ensures that the workers are started only once
+	startWorkersOnce sync.Once
+	// set to true when shutting down
+	isShutdown atomic.Bool
+	// workerWg waits for all workers to finish
+	workerWg sync.WaitGroup
+	logger   logrus.FieldLogger
+	// nodeReady reports whether the node is ready to accept requests
+	nodeReady func() bool
 }
+
+var (
+	errReplicatedIndicesShutdown  = errors.New("replicated indices shutting down")
+	errReplicatedIndicesQueueFull = errors.New("replicated indices request queue full")
+)
+
+const (
+	responseShuttingDown = "503 Service Unavailable - shutting down"
+	responseQueueFull    = "too many buffered requests"
+)
 
 var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -82,7 +80,7 @@ var (
 	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`)
+		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -91,11 +89,93 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
-	return &replicatedIndices{
-		shards:                 shards,
+func NewReplicatedIndices(
+	replicator replicaTypes.Replicator,
+	auth auth,
+	maintenanceModeEnabled func() bool,
+	requestQueueConfig cluster.RequestQueueConfig,
+	logger logrus.FieldLogger,
+	nodeReady func() bool,
+) *replicatedIndices {
+	// validate the requestQueueConfig
+	if requestQueueConfig.QueueFullHttpStatus == 0 {
+		logger.WithField("default_status", cluster.DefaultRequestQueueFullHttpStatus).Debug("no replicated indices buffer full http status provided, using default")
+		requestQueueConfig.QueueFullHttpStatus = cluster.DefaultRequestQueueFullHttpStatus
+	}
+	if requestQueueConfig.QueueFullHttpStatus != http.StatusTooManyRequests && requestQueueConfig.QueueFullHttpStatus != http.StatusGatewayTimeout {
+		logger.WithField("status", requestQueueConfig.QueueFullHttpStatus).Warn("unexpected replicated indices buffer full http status")
+	}
+
+	i := &replicatedIndices{
+		replicator:             replicator,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
+		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
+		requestQueueConfig:     requestQueueConfig,
+		logger:                 logger,
+		nodeReady:              nodeReady,
+	}
+	if requestQueueConfig.IsEnabled != nil && requestQueueConfig.IsEnabled.Get() {
+		i.startWorkersOnce.Do(i.startWorkers)
+	}
+	return i
+}
+
+func (i *replicatedIndices) queueEnabled() bool {
+	return i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get()
+}
+
+func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errReplicatedIndicesShutdown):
+		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
+	case errors.Is(err, errReplicatedIndicesQueueFull):
+		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
+	default:
+		i.logger.WithError(err).Error("unhandled error in replicated indices handler")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter, wg *sync.WaitGroup) error {
+	i.requestQueueMu.RLock()
+	defer i.requestQueueMu.RUnlock()
+
+	if i.isShutdown.Load() {
+		return errReplicatedIndicesShutdown
+	}
+
+	select {
+	case i.requestQueue <- queuedRequest{r: r, w: w, wg: wg}:
+		return nil
+	default:
+		return errReplicatedIndicesQueueFull
+	}
+}
+
+type queuedRequest struct {
+	r *http.Request
+	w http.ResponseWriter
+	// when the request is done being handled, the waitgroup is done
+	wg *sync.WaitGroup
+}
+
+func (i *replicatedIndices) startWorkers() {
+	for j := 0; j < max(1, i.requestQueueConfig.NumWorkers); j++ {
+		i.workerWg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer i.workerWg.Done()
+			for rq := range i.requestQueue {
+				if rq.r.Context().Err() != nil {
+					if rq.wg != nil {
+						rq.wg.Done() //nolint:SA2000
+					}
+					rq.w.WriteHeader(http.StatusRequestTimeout)
+					continue
+				}
+				i.handleRequest(rq)
+			}
+		}, i.logger)
 	}
 }
 
@@ -105,104 +185,140 @@ func (i *replicatedIndices) Indices() http.Handler {
 
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
 		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
-		// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
-		// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
-		switch {
-		case regxObjectsDigest.MatchString(path):
-			if r.Method == http.MethodGet {
-				i.getObjectsDigest().ServeHTTP(w, r)
-				return
-			}
 
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regexObjectsDigestsInRange.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.getObjectsDigestsInRange().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxHashTreeLevel.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.getHashTreeLevel().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxOverwriteObjects.MatchString(path):
-			if r.Method == http.MethodPut {
-				i.putOverwriteObjects().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxObject.MatchString(path):
-			if r.Method == http.MethodDelete {
-				i.deleteObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodPatch {
-				i.patchObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodGet {
-				i.getObject().ServeHTTP(w, r)
-				return
-			}
-
-			if regxReferences.MatchString(path) {
-				if r.Method == http.MethodPost {
-					i.postRefs().ServeHTTP(w, r)
-					return
-				}
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		case regxObjects.MatchString(path):
-			if r.Method == http.MethodGet {
-				i.getObjectsMulti().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodPost {
-				i.postObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodDelete {
-				i.deleteObjects().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		case regxCommitPhase.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.executeCommitPhase().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		default:
-			http.NotFound(w, r)
+		if i.nodeReady != nil && !i.nodeReady() {
+			http.Error(w, "503 Node not ready", http.StatusServiceUnavailable)
 			return
 		}
+
+		if i.isShutdown.Load() {
+			i.writeResponse(w, errReplicatedIndicesShutdown)
+			return
+		}
+
+		if i.queueEnabled() {
+			i.startWorkersOnce.Do(i.startWorkers)
+
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			err := i.enqueueRequest(r, w, wg)
+			if err != nil {
+				wg.Done() //nolint:SA2000
+				i.writeResponse(w, err)
+				return
+			}
+			wg.Wait() // worker calls Done() after handling request
+			return
+		}
+
+		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
+	}
+}
+
+func (i *replicatedIndices) handleRequest(qr queuedRequest) {
+	if qr.wg != nil {
+		defer qr.wg.Done()
+	}
+	r := qr.r
+	w := qr.w
+	path := r.URL.Path
+
+	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
+	// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
+	switch {
+	case regxObjectsDigest.MatchString(path):
+		if r.Method == http.MethodGet {
+			i.getObjectsDigest().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regexObjectsDigestsInRange.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.getObjectsDigestsInRange().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxHashTreeLevel.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.getHashTreeLevel().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxOverwriteObjects.MatchString(path):
+		if r.Method == http.MethodPut {
+			i.putOverwriteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxObject.MatchString(path):
+		if r.Method == http.MethodDelete {
+			i.deleteObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodPatch {
+			i.patchObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodGet {
+			i.getObject().ServeHTTP(w, r)
+			return
+		}
+
+		if regxReferences.MatchString(path) {
+			if r.Method == http.MethodPost {
+				i.postRefs().ServeHTTP(w, r)
+				return
+			}
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	case regxObjects.MatchString(path):
+		if r.Method == http.MethodGet {
+			i.getObjectsMulti().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			i.postObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodDelete {
+			i.deleteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	case regxCommitPhase.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.executeCommitPhase().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	default:
+		http.NotFound(w, r)
+		return
 	}
 }
 
@@ -226,9 +342,9 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 
 		switch cmd {
 		case "commit":
-			resp = i.shards.CommitReplication(index, shard, requestID)
+			resp = i.replicator.CommitReplication(r.Context(), index, shard, requestID)
 		case "abort":
-			resp = i.shards.AbortReplication(index, shard, requestID)
+			resp = i.replicator.AbortReplication(r.Context(), index, shard, requestID)
 		default:
 			http.Error(w, fmt.Sprintf("unrecognized command: %s", cmd), http.StatusNotImplemented)
 			return
@@ -321,7 +437,7 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
+		resp := i.replicator.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -362,16 +478,14 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 			return
 		}
 
-		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
+		results, err := i.replicator.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "digest objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 
 		if err != nil {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusInternalServerError)
+			http.Error(w, "digest objects: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -409,8 +523,7 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		digests, err := i.shards.DigestObjectsInRange(r.Context(),
-			index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
+		digests, err := i.replicator.DigestObjectsInRange(r.Context(), index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
 				http.StatusInternalServerError)
@@ -446,9 +559,13 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 		}
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+
+		reqPayload, err := readRequestBodyWithOptionalCompression(
+			r.Body,
+			r.Header.Get("X-Request-Compression"),
+		)
 		if err != nil {
-			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -459,7 +576,7 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 			return
 		}
 
-		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
+		results, err := i.replicator.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
 		if err != nil {
 			http.Error(w, "hashtree level: "+err.Error(),
 				http.StatusInternalServerError)
@@ -474,6 +591,33 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 
 		w.Write(resBytes)
 	})
+}
+
+func readRequestBodyWithOptionalCompression(
+	body io.ReadCloser,
+	compressionHeader string,
+) ([]byte, error) {
+	if compressionHeader == "" {
+		// No compression header – read raw body (backward compatibility)
+		return io.ReadAll(body)
+	}
+
+	if compressionHeader != "zstd" {
+		return nil, fmt.Errorf("compression algorithm unsupported: %s", compressionHeader)
+	}
+
+	zstdr, err := zstd.NewReader(body)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd reader: %w", err)
+	}
+	defer zstdr.Close()
+
+	b, err := io.ReadAll(zstdr)
+	if err != nil {
+		return nil, fmt.Errorf("read decompressed body: %w", err)
+	}
+
+	return b, nil
 }
 
 func (i *replicatedIndices) putOverwriteObjects() http.Handler {
@@ -500,7 +644,7 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 			return
 		}
 
-		results, err := i.shards.OverwriteObjects(r.Context(), index, shard, vobjs)
+		results, err := i.replicator.OverwriteObjects(r.Context(), index, shard, vobjs)
 		if err != nil {
 			http.Error(w, "overwrite objects: "+err.Error(),
 				http.StatusInternalServerError)
@@ -550,7 +694,7 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), deletionTime, schemaVersion)
+		resp := i.replicator.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), deletionTime, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -601,7 +745,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
+		resp := i.replicator.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -626,13 +770,13 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes)
+	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
+	resp := i.replicator.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
 	if localIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
@@ -657,13 +801,13 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	resp := i.shards.ReplicateObjects(r.Context(), index, shard, requestID, objs, schemaVersion)
+	resp := i.replicator.ReplicateObjects(r.Context(), index, shard, requestID, objs, schemaVersion)
 	if localIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
@@ -691,15 +835,9 @@ func (i *replicatedIndices) getObject() http.Handler {
 
 		defer r.Body.Close()
 
-		var (
-			resp replica.Replica
-			err  error
-		)
-
-		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
+		resp, err := i.replicator.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -753,10 +891,9 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		resp, err := i.shards.FetchObjects(r.Context(), index, shard, ids)
+		resp, err := i.replicator.FetchObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {
@@ -808,7 +945,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs, schemaVersion)
+		resp := i.replicator.ReplicateReferences(r.Context(), index, shard, requestID, refs, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -833,4 +970,59 @@ func localIndexNotReady(resp replica.SimpleResponse) bool {
 		}
 	}
 	return false
+}
+
+// Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
+func (i *replicatedIndices) Close(ctx context.Context) error {
+	i.logger.WithField("action", "close_replicated_indices").Debug("attempting to shut down replicated indices")
+	if i.isShutdown.CompareAndSwap(false, true) {
+		i.logger.WithField("action", "close_replicated_indices").Debug("shutting down replicated indices")
+		// Set a timeout for graceful shutdown
+		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
+		if shutdownTimeoutSeconds == 0 {
+			shutdownTimeoutSeconds = cluster.DefaultRequestQueueShutdownTimeoutSeconds
+		}
+
+		// Create a context with timeout for shutdown
+		shutdownCtx, cancel := context.WithTimeout(ctx, time.Duration(shutdownTimeoutSeconds)*time.Second)
+		defer cancel()
+
+		// Wait for workers to finish with timeout
+		done := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			i.workerWg.Wait()
+			close(done)
+		}, i.logger)
+
+		i.requestQueueMu.Lock()
+		close(i.requestQueue)
+		i.requestQueueMu.Unlock()
+		select {
+		case <-done:
+			// Workers finished gracefully
+			i.logger.WithField("action", "close_replicated_indices").Debug("workers finished gracefully")
+		case <-shutdownCtx.Done():
+			// Timeout reached, workers are still running
+			err := fmt.Errorf("shutdown timeout reached, some workers may still be running")
+			i.logger.WithField("action", "close_replicated_indices").WithError(err).Warn("shutdown timeout reached, attempting to drain queue")
+			for {
+				select {
+				case rq, ok := <-i.requestQueue:
+					if !ok {
+						i.logger.WithField("action", "close_replicated_indices").Debug("queue closed")
+						return err
+					}
+					func() {
+						defer rq.wg.Done()
+						rq.w.WriteHeader(http.StatusRequestTimeout)
+					}()
+				default:
+					i.logger.WithField("action", "close_replicated_indices").Debug("no more requests to drain")
+					return err
+				}
+			}
+		}
+		i.logger.WithField("action", "close_replicated_indices").Debug("replicated indices shutdown complete")
+	}
+	return nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -111,20 +111,25 @@ func assembleFSMigrationPlan(entries []os.DirEntry, rootPath string, fm *fileMat
 				entry.Name(),
 				fmt.Sprintf("geo.%s.%s", csp.geoProp, vectorIndexCommitLog))
 		} else if ok, css := fm.isPqDir(entry); ok {
+			lowercaseClassName := strings.ToLower(entry.Name())
 			for _, cs := range css {
 				plan.append(cs.class, cs.shard,
-					path.Join(strings.ToLower(entry.Name()), cs.shard, "compressed_objects"),
-					path.Join("lsm", helpers.VectorsCompressedBucketLSM))
+					path.Join(lowercaseClassName, cs.shard, "compressed_objects"),
+					path.Join("lsm", helpers.GetCompressedBucketName(lowercaseClassName)))
 			}
 
 			// explicitly rename Class directory starting with uppercase to lowercase
 			// as MkdirAll will not create lowercased dir if uppercased one exists
 			oldClassRoot := path.Join(rootPath, entry.Name())
-			newClassRoot := path.Join(rootPath, strings.ToLower(entry.Name()))
+			newClassRoot := path.Join(rootPath, lowercaseClassName)
 			if err := os.Rename(oldClassRoot, newClassRoot); err != nil {
 				return nil, fmt.Errorf(
 					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",
 					oldClassRoot, newClassRoot, err)
+			}
+			if f, err := os.Open(filepath.Dir(newClassRoot)); err == nil {
+				f.Sync()
+				f.Close()
 			}
 		}
 	}

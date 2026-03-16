@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	anyscaleParams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	contextualaiParams "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
@@ -131,7 +132,11 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 		generative.Options = p.aws(opts)
 		p.providerName = awsParams.Name
 	case *pb.GenerativeProvider_Cohere:
-		generative.Options = p.cohere(query.GetCohere())
+		opts := query.GetCohere()
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
+		}
+		generative.Options = p.cohere(opts)
 		p.providerName = cohereParams.Name
 	case *pb.GenerativeProvider_Mistral:
 		generative.Options = p.mistral(query.GetMistral())
@@ -165,6 +170,9 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	case *pb.GenerativeProvider_Xai:
 		generative.Options = p.xai(query.GetXai())
 		p.providerName = xaiParams.Name
+	case *pb.GenerativeProvider_Contextualai:
+		generative.Options = p.contextualai(query.GetContextualai())
+		p.providerName = contextualaiParams.Name
 	default:
 		// do nothing
 	}
@@ -205,13 +213,17 @@ func (p *Parser) anthropic(in *pb.GenerativeAnthropic) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		anthropicParams.Name: anthropicParams.Params{
 			BaseURL:         in.GetBaseUrl(),
 			Model:           in.GetModel(),
 			Temperature:     in.Temperature,
 			MaxTokens:       p.int64ToInt(in.MaxTokens),
-			StopSequences:   in.StopSequences.GetValues(),
+			StopSequences:   stopSequences,
 			TopP:            in.TopP,
 			TopK:            p.int64ToInt(in.TopK),
 			Images:          p.getStringPtrs(in.Images),
@@ -237,6 +249,10 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		awsParams.Name: awsParams.Params{
 			Service:         in.GetService(),
@@ -247,6 +263,7 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 			Model:           in.GetModel(),
 			Temperature:     in.Temperature,
 			MaxTokens:       p.int64ToInt(in.MaxTokens),
+			StopSequences:   stopSequences,
 			Images:          p.getStringPtrs(in.Images),
 			ImageProperties: p.getStrings(in.ImageProperties),
 		},
@@ -257,6 +274,10 @@ func (p *Parser) cohere(in *pb.GenerativeCohere) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		cohereParams.Name: cohereParams.Params{
 			BaseURL:          in.GetBaseUrl(),
@@ -265,9 +286,11 @@ func (p *Parser) cohere(in *pb.GenerativeCohere) map[string]any {
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
 			K:                p.int64ToInt(in.K),
 			P:                in.P,
-			StopSequences:    in.StopSequences.GetValues(),
+			StopSequences:    stopSequences,
 			FrequencyPenalty: in.FrequencyPenalty,
 			PresencePenalty:  in.PresencePenalty,
+			Images:           p.getStringPtrs(in.Images),
+			ImageProperties:  p.getStrings(in.ImageProperties),
 		},
 	}
 }
@@ -349,6 +372,10 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var stopSequences []string
+	if in.StopSequences != nil {
+		stopSequences = in.StopSequences.GetValues()
+	}
 	return map[string]any{
 		googleParams.Name: googleParams.Params{
 			ApiEndpoint:      in.GetApiEndpoint(),
@@ -360,7 +387,7 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
 			TopP:             in.TopP,
 			TopK:             p.int64ToInt(in.TopK),
-			StopSequences:    in.StopSequences.GetValues(),
+			StopSequences:    stopSequences,
 			PresencePenalty:  in.PresencePenalty,
 			FrequencyPenalty: in.FrequencyPenalty,
 			Images:           p.getStringPtrs(in.Images),
@@ -434,6 +461,27 @@ func (p *Parser) xai(in *pb.GenerativeXAI) map[string]any {
 			MaxTokens:       p.int64ToInt(in.MaxTokens),
 			Images:          p.getStringPtrs(in.Images),
 			ImageProperties: p.getStrings(in.ImageProperties),
+		},
+	}
+}
+
+func (p *Parser) contextualai(in *pb.GenerativeContextualAI) map[string]any {
+	if in == nil {
+		return nil
+	}
+	var knowledge []string
+	if in.GetKnowledge() != nil {
+		knowledge = in.GetKnowledge().GetValues()
+	}
+	return map[string]any{
+		contextualaiParams.Name: contextualaiParams.Params{
+			Model:           in.GetModel(),
+			Temperature:     in.Temperature,
+			TopP:            in.TopP,
+			MaxNewTokens:    p.int64ToInt(in.MaxNewTokens),
+			SystemPrompt:    in.GetSystemPrompt(),
+			AvoidCommentary: in.AvoidCommentary,
+			Knowledge:       knowledge,
 		},
 	}
 }

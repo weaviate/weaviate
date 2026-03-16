@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,8 @@ const (
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage, hostname string, exposeGRPCPort bool,
+	weaviateImage, hostname string,
+	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
@@ -78,12 +79,14 @@ func startWeaviate(ctx context.Context,
 	}
 	env := map[string]string{
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
-		"LOG_LEVEL":                 "debug",
-		"QUERY_DEFAULTS_LIMIT":      "20",
-		"PERSISTENCE_DATA_PATH":     "./data",
-		"DEFAULT_VECTORIZER_MODULE": "none",
-		"FAST_FAILURE_DETECTION":    "true",
-		"DISABLE_TELEMETRY":         "true",
+		"LOG_LEVEL":                         "debug",
+		"QUERY_DEFAULTS_LIMIT":              "20",
+		"PERSISTENCE_DATA_PATH":             "./data",
+		"DEFAULT_VECTORIZER_MODULE":         "none",
+		"MEMBERLIST_FAST_FAILURE_DETECTION": "true",
+		"DISABLE_TELEMETRY":                 "true",
+		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
+		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -101,16 +104,38 @@ func startWeaviate(ctx context.Context,
 		wait.ForListeningPort(httpPort),
 		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
 	}
+
+	// Expose the cluster API port (CLUSTER_DATA_BIND_PORT) if configured.
+	// This allows tests to access /v1/cluster/* endpoints from the host.
+	var (
+		clusterPort     nat.Port
+		hasClusterPort  bool
+		clusterPortStr  string
+		clusterPortSpec string
+	)
+	if p, ok := env["CLUSTER_DATA_BIND_PORT"]; ok && p != "" {
+		clusterPortStr = p
+		clusterPortSpec = fmt.Sprintf("%s/tcp", clusterPortStr)
+		clusterPort = nat.Port(clusterPortSpec)
+		exposedPorts = append(exposedPorts, clusterPortSpec)
+		// Wait until the cluster API port is listening as well, so tests don't race it.
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(clusterPort))
+		hasClusterPort = true
+	}
 	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
+	debugPort := nat.Port("6060/tcp")
+	if exposeDebugPort {
+		exposedPorts = append(exposedPorts, "6060/tcp")
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
 		Hostname:       containerName,
-		Name:           containerName,
 		Networks:       []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},
@@ -125,10 +150,12 @@ func startWeaviate(ctx context.Context,
 				PostStarts: []testcontainers.ContainerHook{
 					func(ctx context.Context, container testcontainers.Container) error {
 						for _, waitStrategy := range waitStrategies {
-							ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
-							defer cancel()
+							if err := func() error {
+								ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
+								defer cancel()
 
-							if err := waitStrategy.WaitUntilReady(ctx, container); err != nil {
+								return waitStrategy.WaitUntilReady(ctx, container)
+							}(); err != nil {
 								return err
 							}
 						}
@@ -155,12 +182,28 @@ func startWeaviate(ctx context.Context,
 	}
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{httpPort, httpUri}
+
+	// Map the cluster API endpoint if the port is exposed.
+	if hasClusterPort {
+		clusterURI, err := c.PortEndpoint(ctx, clusterPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[CLUSTER] = endpoint{clusterPort, clusterURI}
+	}
 	if exposeGRPCPort {
 		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")
 		if err != nil {
 			return nil, err
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
+	}
+	if exposeDebugPort {
+		debugUri, err := c.PortEndpoint(ctx, debugPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
 	return &DockerContainer{
 		name:        containerName,

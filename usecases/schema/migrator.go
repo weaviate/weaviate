@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,7 @@ type Migrator interface {
 	AddProperty(ctx context.Context, className string,
 		props ...*models.Property) error
 	UpdateProperty(ctx context.Context, className string,
-		propName string, newName *string) error
+		property *models.Property) error
 	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	esync "github.com/weaviate/weaviate/entities/sync"
 
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
@@ -37,6 +38,7 @@ func TestShardActivity(t *testing.T) {
 				closingCtx:          context.Background(),
 				partitioningEnabled: true,
 				shards:              shardMap{},
+				shardCreateLocks:    esync.NewKeyRWLocker(),
 			},
 			"NonMT": {
 				Config: IndexConfig{
@@ -46,6 +48,7 @@ func TestShardActivity(t *testing.T) {
 				closingCtx:          context.Background(),
 				partitioningEnabled: false,
 				shards:              shardMap{},
+				shardCreateLocks:    esync.NewKeyRWLocker(),
 			},
 		},
 	}

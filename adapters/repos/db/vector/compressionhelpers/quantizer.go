@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,7 @@
 package compressionhelpers
 
 import (
-	"encoding/binary"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type quantizerDistancer[T byte | uint64] interface {
@@ -23,6 +23,7 @@ type quantizerDistancer[T byte | uint64] interface {
 type quantizer[T byte | uint64] interface {
 	DistanceBetweenCompressedVectors(x, y []T) (float32, error)
 	Encode(vec []float32) []T
+	Decode(compressed []T) []float32
 	NewQuantizerDistancer(a []float32) quantizerDistancer[T]
 	NewCompressedQuantizerDistancer(a []T) quantizerDistancer[T]
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
@@ -55,9 +56,7 @@ func (pq *ProductQuantizer) ReturnQuantizerDistancer(distancer quantizerDistance
 
 func (bq *BinaryQuantizer) CompressedBytes(compressed []uint64) []byte {
 	slice := make([]byte, len(compressed)*8)
-	for i := range compressed {
-		binary.LittleEndian.PutUint64(slice[i*8:], compressed[i])
-	}
+	byteops.CopySliceToBytes(slice, compressed)
 	return slice
 }
 
@@ -67,10 +66,7 @@ func (bq *BinaryQuantizer) FromCompressedBytes(compressed []byte) []uint64 {
 		l++
 	}
 	slice := make([]uint64, l)
-
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 
@@ -92,9 +88,7 @@ func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []by
 	slice := (*buffer)[len(*buffer)-l:]
 	*buffer = (*buffer)[:len(*buffer)-l]
 
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 

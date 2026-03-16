@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package modgoogle
 import (
 	"context"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
@@ -28,19 +29,34 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer/batchtext"
 )
 
 const (
-	Name       = "text2vec-google"
-	LegacyName = "text2vec-palm"
+	Name             = "text2vec-google"
+	LegacyName       = "text2vec-palm"
+	defaultBatchSize = 50
 )
+
+var batchSettings = batch.Settings{
+	TokenMultiplier:    1.3,
+	MaxObjectsPerBatch: 150,
+	MaxTimePerBatch:    float64(10),
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 20000 },
+	HasTokenLimit:      true,
+	ReturnsRateLimit:   false,
+}
 
 func New() *GoogleModule {
 	return &GoogleModule{}
 }
 
 type GoogleModule struct {
-	vectorizer                   text2vecbase.TextVectorizer[[]float32]
+	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
+	vectorizerBatchSimple        batchtext.Vectorizer[[]float32]
+	useBatchSimpleVectorizer     bool
+	batchSize                    int
+	vectorizerWithTitleProperty  text2vecbase.TextVectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -106,7 +122,24 @@ func (m *GoogleModule) initVectorizer(ctx context.Context, timeout time.Duration
 	useGoogleAuth := entcfg.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
 	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.useBatchSimpleVectorizer = entcfg.Enabled(os.Getenv("USE_T2V_GOOGLE_BATCH_SIMPLE_LOGIC"))
+	m.vectorizerBatchSimple = batchtext.NewWithAltNames(Name, m.AltNames(), vectorizer.LowerCaseInput, client)
+	m.batchSize = defaultBatchSize
+	if batchSizeStr := os.Getenv("T2V_GOOGLE_BATCH_SIMPLE_BATCH_SIZE"); batchSizeStr != "" {
+		if batchSize, err := strconv.Atoi(batchSizeStr); err == nil && batchSize > 0 {
+			m.batchSize = batchSize
+		} else {
+			logger.Warnf("invalid (must be a positive number > 0) T2V_GOOGLE_BATCH_SIMPLE_BATCH_SIZE value: %s, using default: %v", batchSizeStr, m.batchSize)
+		}
+	}
+
+	m.vectorizerWithTitleProperty = vectorizer.New(client)
+
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizerWithAltNames(batchSettings.TokenMultiplier, m.Name(), m.AltNames(), vectorizer.LowerCaseInput),
+	)
+
 	m.metaProvider = client
 
 	return nil
@@ -120,11 +153,27 @@ func (m *GoogleModule) initAdditionalPropertiesProvider() error {
 func (m *GoogleModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	if m.useBatchSimpleVectorizer {
+		// use batch simple logic
+		return m.vectorizerBatchSimple.Object(ctx, obj, cfg)
+	}
+	// use default batch logic
+	icheck := vectorizer.NewClassSettings(cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, icheck)
 }
 
 func (m *GoogleModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	icheck := vectorizer.NewClassSettings(cfg)
+	if m.useBatchSimpleVectorizer {
+		// use batch simple logic
+		return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizerBatchSimple.Objects, m.batchSize)
+	}
+	// use default batch logic
+	if icheck.TitleProperty() == "" {
+		vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+		return vecs, nil, errs
+	}
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizerWithTitleProperty.Object)
 }
 
 func (m *GoogleModule) MetaInfo() (map[string]interface{}, error) {
@@ -138,6 +187,11 @@ func (m *GoogleModule) AdditionalProperties() map[string]modulecapabilities.Addi
 func (m *GoogleModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
+	if m.useBatchSimpleVectorizer {
+		// use batch simple logic
+		return m.vectorizerBatchSimple.Texts(ctx, []string{input}, cfg)
+	}
+	// use default batch logic
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,18 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
-func (sg *SegmentGroup) newRoaringSetRangeReaders() ([]roaringsetrange.InnerReader, func()) {
-	segments, release := sg.getAndLockSegments()
-
-	readers := make([]roaringsetrange.InnerReader, len(segments))
-	for i, segment := range segments {
-		readers[i] = segment.newRoaringSetRangeReader()
-	}
-
-	return readers, release
-}
-
-func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
+func (s *segment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 	var segmentCursor roaringsetrange.SegmentCursor
 	if s.readFromMemory {
 		segmentCursor = roaringsetrange.NewSegmentCursorMmap(s.contents[s.dataStartPos:s.dataEndPos])

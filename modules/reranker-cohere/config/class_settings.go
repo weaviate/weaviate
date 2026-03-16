@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,27 +12,17 @@
 package config
 
 import (
-	"github.com/pkg/errors"
+	"errors"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
-	modelProperty = "model"
-)
-
-const (
+	DefaultBaseURL     = "https://api.cohere.ai"
 	DefaultCohereModel = "rerank-v3.5"
 )
-
-var availableCohereModels = []string{
-	"rerank-v3.5",
-	"rerank-english-v3.0",
-	"rerank-multilingual-v3.0",
-	"rerank-english-v2.0",
-	"rerank-multilingual-v2.0",
-}
 
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
@@ -48,32 +38,21 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultCohereModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
-	}
 
+	if model := ic.Model(); model == "" {
+		return errors.New("no model provided")
+	}
 	return nil
 }
 
-func (ic *classSettings) getStringProperty(name string, defaultValue string) *string {
-	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
-	return &asString
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableCohereModels, model)
+func (cs *classSettings) BaseURL() string {
+	return cs.getStringProperty("baseURL", DefaultBaseURL)
 }
 
 func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultCohereModel)
+	return ic.getStringProperty("model", DefaultCohereModel)
 }
 
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
+func (ic *classSettings) getStringProperty(name string, defaultValue string) string {
+	return ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, defaultValue, defaultValue)
 }

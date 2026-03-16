@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package hnsw
 
@@ -26,11 +25,17 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type persistenceIntegrationNoopBucketView struct{}
+
+func (n *persistenceIntegrationNoopBucketView) ReleaseView() {}
 
 func TestHnswPersistence(t *testing.T) {
 	dirName := t.TempDir()
@@ -45,11 +50,13 @@ func TestHnswPersistence(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -82,11 +89,13 @@ func TestHnswPersistence(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -115,11 +124,13 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -187,11 +198,13 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 
 	// build a new index from the (uncondensed, corrupted) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -222,11 +235,13 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -268,11 +283,13 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -302,11 +319,13 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}
 
 	index, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -355,11 +374,13 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	secondIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -399,11 +420,13 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	// build a new index from the (uncondensed) commit log
 	thirdIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -438,11 +461,13 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log
 	fourthIndex, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,

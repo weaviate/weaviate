@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,28 +59,27 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 	compose, err = composeModules().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviateCluster(3).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
-		WithText2VecContextionary().
-		WithText2VecTransformers().
+		WithText2VecModel2Vec().
 		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
 		WithText2VecVoyageAI(os.Getenv("VOYAGEAI_APIKEY")).
@@ -95,7 +94,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithGenerativeAnthropic(os.Getenv("ANTHROPIC_APIKEY")).
 		WithGenerativeFriendliAI(os.Getenv("FRIENDLI_TOKEN")).
 		WithQnAOpenAI().
-		WithRerankerCohere().
+		WithRerankerCohere(os.Getenv("COHERE_APIKEY")).
 		WithRerankerVoyageAI()
-	return
+	return composeModules
 }

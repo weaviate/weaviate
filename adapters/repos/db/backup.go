@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,12 +15,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -46,36 +49,40 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	return nil
 }
 
-// ListBackupable returns a list of all classes which can be backed up.
-func (db *DB) ListBackupable() []string {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-
-	cs := make([]string, 0, len(db.indices))
-
-	for _, idx := range db.indices {
-		cls := string(idx.Config.ClassName)
-		cs = append(cs, cls)
-	}
-
-	return cs
-}
-
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
 		for _, c := range classes {
-			desc := backup.ClassDescriptor{Name: c}
-			idx := db.GetIndex(schema.ClassName(c))
-			if idx == nil {
-				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
-			} else if err := idx.descriptor(ctx, bakid, &desc); err != nil {
-				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
-			}
+			desc := backup.ClassDescriptor{Name: c, BackupID: bakid}
+			func() {
+				idx := db.GetIndex(schema.ClassName(c))
+				if idx == nil {
+					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
+					return
+				}
+				idx.closeLock.RLock()
+				defer idx.closeLock.RUnlock()
+				if idx.closed {
+					desc.Error = fmt.Errorf("index for class %v is closed", c)
+					return
+				}
+				var classBaseDescr []*backup.ClassDescriptor
+				for _, b := range baseDescrs {
+					classbaseDescrTmp := b.GetClassDescriptor(c)
+					if classbaseDescrTmp == nil {
+						continue
+					}
+					classBaseDescr = append(classBaseDescr, classbaseDescrTmp)
+				}
+				if err := idx.descriptor(ctx, bakid, &desc, classBaseDescr); err != nil {
+					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
+				}
+			}()
+
 			ds <- desc
 			if desc.Error != nil {
 				break
@@ -85,53 +92,6 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	}
 	enterrors.GoWrapper(f, db.logger)
 	return ds
-}
-
-func (db *DB) ShardsBackup(
-	ctx context.Context, bakID, class string, shards []string,
-) (_ backup.ClassDescriptor, err error) {
-	cd := backup.ClassDescriptor{Name: class}
-	idx := db.GetIndex(schema.ClassName(class))
-	if idx == nil {
-		return cd, fmt.Errorf("no index for class %q", class)
-	}
-
-	if err := idx.initBackup(bakID); err != nil {
-		return cd, fmt.Errorf("init backup state for class %q: %w", class, err)
-	}
-
-	defer func() {
-		if err != nil {
-			enterrors.GoWrapper(func() { idx.ReleaseBackup(ctx, bakID) }, db.logger)
-		}
-	}()
-
-	sm := make(map[string]ShardLike, len(shards))
-	for _, shardName := range shards {
-		shard := idx.shards.Load(shardName)
-		if shard == nil {
-			return cd, fmt.Errorf("no shard %q for class %q", shardName, class)
-		}
-		sm[shardName] = shard
-	}
-
-	// prevent writing into the index during collection of metadata
-	idx.shardTransferMutex.Lock()
-	defer idx.shardTransferMutex.Unlock()
-	for shardName, shard := range sm {
-		if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
-			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
-		}
-
-		sd := backup.ShardDescriptor{Name: shardName}
-		if err := shard.ListBackupFiles(ctx, &sd); err != nil {
-			return cd, fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
-		}
-
-		cd.Shards = append(cd.Shards, &sd)
-	}
-
-	return cd, nil
 }
 
 // ReleaseBackup release resources acquired by the index during backup
@@ -154,13 +114,21 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx != nil {
+		idx.closeLock.RLock()
+		defer idx.closeLock.RUnlock()
 		return idx.ReleaseBackup(ctx, bakID)
+	} else {
+		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
+		path := filepath.Join(db.config.RootPath, backup.DeleteMarkerAdd(indexID(schema.ClassName(class))))
+		exists, err := diskio.DirExists(path)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return os.RemoveAll(path)
+		}
 	}
 	return nil
-}
-
-func (db *DB) ClassExists(name string) bool {
-	return db.IndexExists(schema.ClassName(name))
 }
 
 // Shards returns the list of nodes where shards of class are contained.
@@ -170,7 +138,10 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	var nodes []string
 	var shardCount int
 
-	err := db.schemaReader.Read(class, func(_ *models.Class, state *sharding.State) error {
+	err := db.schemaReader.Read(class, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
+		}
 		shardCount = len(state.Physical)
 		if shardCount == 0 {
 			nodes = []string{}
@@ -214,26 +185,45 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
+			// closelock is hold by the caller
 			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
-	// prevent writing into the index during collection of metadata
-	i.shardTransferMutex.Lock()
-	defer i.shardTransferMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
 		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
+
+		var shardBaseDescr []backup.ShardAndID
+		for _, classBaseDescr := range classBaseDescrs {
+			shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(name)
+			if shardBaseDescrTmp == nil {
+				continue
+			}
+			shardBaseDescr = append(shardBaseDescr, backup.ShardAndID{
+				ShardDesc: shardBaseDescrTmp,
+				BackupID:  classBaseDescr.BackupID,
+			})
+		}
+		// prevent writing into the index during collection of metadata
+		i.backupLock.Lock(name)
+		defer i.backupLock.Unlock(name)
 		var sd backup.ShardDescriptor
-		if err := s.ListBackupFiles(ctx, &sd); err != nil {
+
+		files, err := s.ListBackupFiles(ctx, &sd)
+		if err != nil {
 			return fmt.Errorf("list shard %v files: %w", s.Name(), err)
+		}
+
+		if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
 		}
 
 		desc.Shards = append(desc.Shards, &sd)
@@ -308,7 +298,10 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 
 func (i *Index) marshalShardingState() ([]byte, error) {
 	var jsonBytes []byte
-	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, state *sharding.State) error {
+	err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
+		}
 		bytes, jsonErr := state.JSON()
 		if jsonErr != nil {
 			return jsonErr
@@ -341,11 +334,6 @@ func (i *Index) marshalAliases() ([]byte, error) {
 	}
 	return b, err
 }
-
-const (
-	mutexRetryDuration  = time.Millisecond * 500
-	mutexNotifyDuration = 20 * time.Second
-)
 
 // shardTransfer is an adapter built around rwmutex that facilitates cooperative blocking between write and read locks
 type shardTransfer struct {

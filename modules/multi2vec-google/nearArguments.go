@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,10 @@
 package modclip
 
 import (
+	"maps"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
@@ -36,31 +39,27 @@ func (m *Module) initNearVideo() error {
 	return nil
 }
 
+func (m *Module) initNearAudio() error {
+	m.nearAudioSearcher = nearAudio.NewSearcher(m.audioVectorizer)
+	m.nearAudioGraphqlProvider = nearAudio.New()
+	return nil
+}
+
 func (m *Module) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
-	for name, arg := range m.nearImageGraphqlProvider.Arguments() {
-		arguments[name] = arg
-	}
-	for name, arg := range m.nearTextGraphqlProvider.Arguments() {
-		arguments[name] = arg
-	}
-	for name, arg := range m.nearVideoGraphqlProvider.Arguments() {
-		arguments[name] = arg
-	}
+	maps.Copy(arguments, m.nearImageGraphqlProvider.Arguments())
+	maps.Copy(arguments, m.nearTextGraphqlProvider.Arguments())
+	maps.Copy(arguments, m.nearVideoGraphqlProvider.Arguments())
+	maps.Copy(arguments, m.nearAudioGraphqlProvider.Arguments())
 	return arguments
 }
 
 func (m *Module) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
-	for name, arg := range m.nearImageSearcher.VectorSearches() {
-		vectorSearches[name] = arg
-	}
-	for name, arg := range m.nearTextSearcher.VectorSearches() {
-		vectorSearches[name] = arg
-	}
-	for name, arg := range m.nearVideoSearcher.VectorSearches() {
-		vectorSearches[name] = arg
-	}
+	maps.Copy(vectorSearches, m.nearImageSearcher.VectorSearches())
+	maps.Copy(vectorSearches, m.nearTextSearcher.VectorSearches())
+	maps.Copy(vectorSearches, m.nearVideoSearcher.VectorSearches())
+	maps.Copy(vectorSearches, m.nearAudioSearcher.VectorSearches())
 	return vectorSearches
 }
 

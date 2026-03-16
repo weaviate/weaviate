@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -123,7 +123,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 
 func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantName string) string {
 	type schemaReaderWithRead interface {
-		Read(className string, readerFunc func(*models.Class, *sharding.State) error) error
+		Read(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error
 	}
 
 	reader, ok := schemaReader.(schemaReaderWithRead)
@@ -133,7 +133,11 @@ func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantNa
 
 	var tenantStatus string
 
-	err := reader.Read(className, func(_ *models.Class, state *sharding.State) error {
+	err := reader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("no sharding state found for class %s", className)
+		}
+
 		physical, exists := state.Physical[tenantName]
 		if !exists {
 			return fmt.Errorf("tenant %s	 not found in class %s", tenantName, className)

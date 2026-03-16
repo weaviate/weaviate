@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -223,7 +223,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.ErrorIs(t, err, ErrClassNotFound)
 	_, err = sc.ShardOwner("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
-	err = sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil })
+	err = sc.Read("C", true, func(c *models.Class, s *sharding.State) error { return nil })
 	assert.ErrorIs(t, err, ErrClassNotFound)
 
 	// Add Single Tenant Class (PartitioningEnabled: false (default))
@@ -254,7 +254,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	versionedClass := sc.ReadOnlyVersionedClass("C")
 	assert.Equal(t, versionedClass.Class, cls1)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{})
-	assert.Nil(t, sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil }))
+	assert.Nil(t, sc.Read("C", true, func(c *models.Class, s *sharding.State) error { return nil }))
 
 	// Shards
 	_, err = sc.ShardOwner("C", "S1")

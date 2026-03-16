@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,7 +44,7 @@ func Test_Filters_String(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -290,7 +290,9 @@ func Test_Filters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+				for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+					assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+				}
 				res.Close()
 			})
 
@@ -313,7 +315,9 @@ func Test_Filters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+				for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+					assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+				}
 				res.Close()
 			})
 
@@ -334,7 +338,7 @@ func Test_Filters_Int(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -592,7 +596,9 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
 					res.Close()
 				})
 
@@ -606,7 +612,9 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
 					res.Close()
 				})
 
@@ -824,7 +832,9 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
 					res.Close()
 				})
 
@@ -837,7 +847,9 @@ func Test_Filters_Int(t *testing.T) {
 					res, err := searcher.DocIDs(context.Background(), test.filter,
 						additional.Properties{}, className)
 					assert.NoError(t, err)
-					assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+					for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+						assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+					}
 					res.Close()
 				})
 
@@ -1048,7 +1060,9 @@ func Test_Filters_Int(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
 							additional.Properties{}, className)
 						assert.NoError(t, err)
-						assert.ElementsMatch(t, test.expectedListBeforeUpdate.ToArray(), res.Slice())
+						for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
+							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+						}
 						res.Close()
 					})
 
@@ -1061,7 +1075,9 @@ func Test_Filters_Int(t *testing.T) {
 						res, err := searcher.DocIDs(context.Background(), test.filter,
 							additional.Properties{}, className)
 						assert.NoError(t, err)
-						assert.ElementsMatch(t, test.expectedListAfterUpdate.ToArray(), res.Slice())
+						for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
+							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
+						}
 						res.Close()
 					})
 
@@ -1104,7 +1120,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())

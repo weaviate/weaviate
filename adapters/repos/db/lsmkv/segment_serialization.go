@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -281,6 +281,55 @@ type segmentCollectionNode struct {
 	offset     int
 }
 
+func (s segmentCollectionNode) KeyIndexAndWriteToRedux(w io.Writer, buf []byte) (segmentindex.KeyRedux, error) {
+	written := 0
+	valueLen := uint64(len(s.values))
+	binary.LittleEndian.PutUint64(buf, valueLen)
+	if _, err := w.Write(buf[0:8]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write values len for node")
+	}
+	written += 8
+
+	for i, value := range s.values {
+		if value.tombstone {
+			buf[0] = 0x01
+		} else {
+			buf[0] = 0x00
+		}
+
+		valueLen := uint64(len(value.value))
+		binary.LittleEndian.PutUint64(buf[1:9], valueLen)
+		if _, err := w.Write(buf[0:9]); err != nil {
+			return segmentindex.KeyRedux{}, errors.Wrapf(err, "write len of value %d", i)
+		}
+		written += 9
+
+		n, err := w.Write(value.value)
+		if err != nil {
+			return segmentindex.KeyRedux{}, errors.Wrapf(err, "write value %d", i)
+		}
+		written += n
+	}
+
+	keyLength := uint32(len(s.primaryKey))
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err := w.Write(s.primaryKey)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	return segmentindex.KeyRedux{
+		ValueEnd: s.offset + written,
+		Key:      s.primaryKey,
+	}, nil
+}
+
 func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
 	written := 0
@@ -408,12 +457,11 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 // As a result calling this method only makes sense if you plan on calling it
 // multiple times. Calling it just once on an uninitialized node does not have
 // major advantages over calling ParseCollectionNode.
-func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
+func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode, buf []byte) error {
 	// offset is only the local offset relative to "in". In the end we need to
 	// update the global offset.
 	offset := 0
 
-	buf := make([]byte, 9)
 	_, err := io.ReadFull(r, buf[0:8])
 	if err != nil {
 		return fmt.Errorf("read values len: %w", err)

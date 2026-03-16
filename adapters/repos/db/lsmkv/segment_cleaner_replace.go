@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,7 @@ import (
 type segmentCleanerReplace struct {
 	w                        io.WriteSeeker
 	bufw                     *bufio.Writer
-	cursor                   *segmentCursorReplace
+	cursor                   innerCursorReplaceAllKeys
 	keyExistsFn              keyExistsOnUpperSegmentsFunc
 	version                  uint16
 	level                    uint16
@@ -37,7 +37,7 @@ type segmentCleanerReplace struct {
 	enableChecksumValidation bool
 }
 
-func newSegmentCleanerReplace(w io.WriteSeeker, cursor *segmentCursorReplace,
+func newSegmentCleanerReplace(w io.WriteSeeker, cursor innerCursorReplaceAllKeys,
 	keyExistsFn keyExistsOnUpperSegmentsFunc, level, secondaryIndexCount uint16,
 	scratchSpacePath string, enableChecksumValidation bool,
 ) *segmentCleanerReplace {

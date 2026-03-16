@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package hnsw
 
@@ -24,11 +23,17 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type corruptCommitlogsNoopBucketView struct{}
+
+func (n *corruptCommitlogsNoopBucketView) ReleaseView() {}
 
 func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	ctx := context.Background()
@@ -54,6 +59,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
 				return NewCommitLogger(rootPath, "corrupt_test", logger,
 					cyclemanager.NewCallbackGroupNoop())
@@ -65,6 +71,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &corruptCommitlogsNoopBucketView{} },
 		}, hnswent.UserConfig{
 			MaxConnections:         100,
 			EFConstruction:         100,
@@ -86,7 +93,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("create a corrupt commit log file without deleting the original",
 		func(t *testing.T) {
 			input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath,
-				"corrupt_test"))
+				"corrupt_test"), common.NewOSFS())
 			require.Nil(t, err)
 			require.True(t, ok)
 
@@ -107,6 +114,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	t.Run("create a new one from the disk files", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: MakeNoopCommitLogger, // no longer need a real one
 			ID:                    "corrupt_test",
 			RootPath:              rootPath,
@@ -115,6 +123,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &corruptCommitlogsNoopBucketView{} },
 		}, hnswent.UserConfig{
 			MaxConnections:         100,
 			EFConstruction:         100,

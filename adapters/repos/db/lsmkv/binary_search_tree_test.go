@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,10 +13,14 @@ package lsmkv
 
 import (
 	"crypto/rand"
+	"fmt"
+	mathrand "math/rand"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // This test asserts that the *binarySearchTree.insert
@@ -130,4 +134,191 @@ func TestInsertNetAdditions_Replace(t *testing.T) {
 		require.Equal(t, 1, len(flat))
 		require.True(t, flat[0].tombstone)
 	})
+}
+
+func TestBSTReplace_Flatten(t *testing.T) {
+	t.Run("flattened bst is snapshot of current bst", func(t *testing.T) {
+		key1 := "key-1"
+		key2 := "key-2"
+		key3 := "key-3"
+		key4 := "key-4"
+
+		keys := map[string][]byte{
+			key1: []byte(key1),
+			key2: []byte(key2),
+			key3: []byte(key3),
+			key4: []byte(key4),
+		}
+		vals := map[string][]byte{
+			key1: []byte("val-1"),
+			key2: []byte("val-2"),
+			key3: []byte("val-3"),
+		}
+		valsUpdated := map[string][]byte{
+			key1: []byte("val-11"),
+			key2: []byte("val-22"),
+			key3: []byte("val-33"),
+			key4: []byte("val-44"),
+		}
+		skeys := map[string][]byte{
+			key1: []byte("skey=1"),
+			key2: []byte("skey=2"),
+			key3: []byte("skey=3"),
+		}
+		skeysUpdated := map[string][]byte{
+			key1: []byte("skey=11"),
+			key2: []byte("skey=22"),
+			key3: []byte("skey=33"),
+			key4: []byte("skey=44"),
+		}
+
+		type expectedFlattened struct {
+			key       []byte
+			val       []byte
+			skey      []byte
+			tombstone bool
+		}
+		assertFlattenedMatches := func(t *testing.T, flattened []*binarySearchNode, expected []expectedFlattened) {
+			t.Helper()
+			require.Len(t, flattened, len(expected))
+			for i, exp := range expected {
+				assert.Equal(t, exp.key, flattened[i].key)
+				assert.Equal(t, exp.val, flattened[i].value)
+				assert.Equal(t, exp.skey, flattened[i].secondaryKeys[0])
+				assert.Equal(t, exp.tombstone, flattened[i].tombstone)
+			}
+		}
+
+		bst := &binarySearchTree{}
+		// mixed order
+		bst.insert(keys[key3], vals[key3], [][]byte{skeys[key3]})
+		bst.insert(keys[key1], vals[key1], [][]byte{skeys[key1]})
+		bst.setTombstone(keys[key2], vals[key2], [][]byte{skeys[key2]})
+
+		expectedBeforeUpdate := []expectedFlattened{
+			{keys[key1], vals[key1], skeys[key1], false},
+			{keys[key2], vals[key2], skeys[key2], true},
+			{keys[key3], vals[key3], skeys[key3], false},
+		}
+
+		flatBeforeUpdate := bst.flattenInOrder()
+		assertFlattenedMatches(t, flatBeforeUpdate, expectedBeforeUpdate)
+
+		t.Run("flattened bst does not change on bst update", func(t *testing.T) {
+			// mixed order
+			bst.setTombstone(keys[key3], valsUpdated[key3], [][]byte{skeysUpdated[key3]})
+			bst.insert(keys[key4], valsUpdated[key4], [][]byte{skeysUpdated[key4]})
+			bst.setTombstone(keys[key1], valsUpdated[key1], [][]byte{skeysUpdated[key1]})
+			bst.insert(keys[key2], valsUpdated[key2], [][]byte{skeysUpdated[key2]})
+
+			expectedAfterUpdate := []expectedFlattened{
+				{keys[key1], valsUpdated[key1], skeysUpdated[key1], true},
+				{keys[key2], valsUpdated[key2], skeysUpdated[key2], false},
+				{keys[key3], valsUpdated[key3], skeysUpdated[key3], true},
+				{keys[key4], valsUpdated[key4], skeysUpdated[key4], false},
+			}
+
+			flatAfterUpdate := bst.flattenInOrder()
+			assertFlattenedMatches(t, flatBeforeUpdate, expectedBeforeUpdate)
+			assertFlattenedMatches(t, flatAfterUpdate, expectedAfterUpdate)
+		})
+	})
+}
+
+func TestBinarySearchTree_Exists(t *testing.T) {
+	t.Run("key exists and is not tombstoned", func(t *testing.T) {
+		tree := &binarySearchTree{}
+		key := []byte("test-key")
+		value := []byte("test-value")
+
+		tree.insert(key, value, nil)
+
+		err := tree.exists(key)
+		require.NoError(t, err)
+	})
+
+	t.Run("key does not exist", func(t *testing.T) {
+		tree := &binarySearchTree{}
+
+		err := tree.exists([]byte("nonexistent"))
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("key is tombstoned", func(t *testing.T) {
+		tree := &binarySearchTree{}
+		key := []byte("test-key")
+		value := []byte("test-value")
+
+		tree.insert(key, value, nil)
+		tree.setTombstone(key, nil, nil)
+
+		err := tree.exists(key)
+		assert.True(t, lsmkv.IsDeletedOrNotFound(err))
+	})
+
+	t.Run("empty tree", func(t *testing.T) {
+		tree := &binarySearchTree{}
+
+		err := tree.exists([]byte("any-key"))
+		assert.ErrorIs(t, err, lsmkv.NotFound)
+	})
+
+	t.Run("exists returns same error as get for all cases", func(t *testing.T) {
+		tree := &binarySearchTree{}
+
+		// Test nonexistent key
+		_, getErr := tree.get([]byte("nonexistent"))
+		existsErr := tree.exists([]byte("nonexistent"))
+		assert.ErrorIs(t, getErr, lsmkv.NotFound)
+		assert.ErrorIs(t, existsErr, lsmkv.NotFound)
+
+		// Test existing key
+		key := []byte("test-key")
+		tree.insert(key, []byte("value"), nil)
+
+		_, getErr = tree.get(key)
+		existsErr = tree.exists(key)
+		assert.NoError(t, getErr)
+		assert.NoError(t, existsErr)
+
+		// Test tombstoned key
+		tree.setTombstone(key, nil, nil)
+
+		_, getErr = tree.get(key)
+		existsErr = tree.exists(key)
+		assert.True(t, lsmkv.IsDeletedOrNotFound(getErr))
+		assert.True(t, lsmkv.IsDeletedOrNotFound(existsErr))
+	})
+}
+
+func buildTree(size, keySize, valSize int) *binarySearchTree {
+	rnd := mathrand.New(mathrand.NewSource(42))
+	tree := &binarySearchTree{}
+	for i := 0; i < size; i++ {
+		key := make([]byte, keySize)
+		val := make([]byte, valSize)
+		// deterministic pseudo-random content
+		_, _ = rnd.Read(key)
+		_, _ = rnd.Read(val)
+		tree.insert(key, val, nil)
+	}
+	return tree
+}
+
+func BenchmarkFlattenInOrder(b *testing.B) {
+	cases := []int{1, 100, 1000, 10000}
+
+	for _, size := range cases {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			tree := buildTree(size, 16, 64)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				flat := tree.flattenInOrder()
+				if len(flat) != size {
+					b.Fatalf("unexpected flattened length: got=%d want=%d", len(flat), size)
+				}
+			}
+		})
+	}
 }

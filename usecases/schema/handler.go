@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,14 +14,13 @@ package schema
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,6 +49,7 @@ type SchemaManager interface {
 	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
+	UpdateProperty(ctx context.Context, class string, property *models.Property) (uint64, error)
 	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
 	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
 	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)
@@ -60,7 +60,6 @@ type SchemaManager interface {
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]any
 	StorageCandidates() []string
-	StoreSchemaV1() error
 
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
 	// from an up to date schema.
@@ -99,9 +98,11 @@ type SchemaReader interface {
 	ShardReplicas(class, shard string) ([]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardOwner(class, shard string) (string, error)
-	Read(class string, reader func(*models.Class, *sharding.State) error) error
+	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
+	ReadSchema(reader func(models.Class, uint64)) error
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
+	LocalActiveShardsCount(class string) (int, error)
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias
@@ -146,8 +147,11 @@ type Handler struct {
 	clusterState            clusterState
 	configParser            VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
-	parser                  Parser
-	classGetter             *ClassGetter
+
+	// scaleOut scaleOut
+
+	parser      Parser
+	classGetter *ClassGetter
 
 	asyncIndexingEnabled bool
 }
@@ -182,7 +186,7 @@ func NewHandler(
 		cloud:                   cloud,
 		classGetter:             classGetter,
 
-		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
+		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
 	return handler, nil
 }
@@ -303,8 +307,4 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]any {
 	return h.schemaManager.Stats()
-}
-
-func (h *Handler) StoreSchemaV1() error {
-	return h.schemaManager.StoreSchemaV1()
 }

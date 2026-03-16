@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package rbac
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
@@ -220,6 +222,87 @@ func TestRestoreEmptyData(t *testing.T) {
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
 	require.Len(t, policies, 5)
+}
+
+// TestRestoreInvalidatesEnforceCache verifies that Restore() properly
+// invalidates the enforce cache so that concurrent Enforce() calls during
+// Restore() do not re-populate the cache with stale results that persist
+// after Restore() completes.
+func TestRestoreInvalidatesEnforceCache(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	principal := &models.Principal{
+		Username: "cache-user",
+		UserType: models.UserTypeInput(authentication.AuthTypeDb),
+	}
+	user := conv.UserNameWithTypeFromId("cache-user", authentication.AuthTypeDb)
+	role := conv.PrefixRoleName("cache-role")
+	resource := "collections/TestClass"
+
+	// Add a policy granting READ (but no user assignment yet).
+	_, err = m.casbin.AddNamedPolicy("p", role, resource, authorization.READ, authorization.SchemaDomain)
+	require.NoError(t, err)
+
+	// Snapshot before assigning the user — this snapshot has the policy but
+	// no user-to-role mapping.
+	data, err := m.Snapshot()
+	require.NoError(t, err)
+
+	// Now assign the user to the role and warm the enforce cache.
+	_, err = m.casbin.AddRoleForUser(user, role)
+	require.NoError(t, err)
+	require.NoError(t, m.casbin.InvalidateCache())
+
+	allowed, err := m.checkPermissions(principal, resource, authorization.READ)
+	require.NoError(t, err)
+	require.True(t, allowed)
+
+	// Hammer checkPermissions() concurrently during Restore(). Without the
+	// restoreLock in Restore() and checkPermissions(), a concurrent reader can
+	// re-cache a stale "true" after LoadPolicy() clears the cache.
+	const concurrentReaders = 10
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	stopWorkers := func() {
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+		wg.Wait()
+	}
+	defer stopWorkers()
+
+	for range concurrentReaders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				// Return values are intentionally ignored — we only care that
+				// concurrent calls don't re-populate the cache with stale entries.
+				m.checkPermissions(principal, resource, authorization.READ)
+			}
+		}()
+	}
+
+	err = m.Restore(data)
+	require.NoError(t, err)
+
+	stopWorkers()
+
+	// After Restore and all concurrent readers have stopped, the user should
+	// not have access. If the cache still holds a stale "true", this fails.
+	allowed, err = m.checkPermissions(principal, resource, authorization.READ)
+	require.NoError(t, err)
+	assert.False(t, allowed, "enforce cache was not invalidated during Restore; stale cached result returned")
 }
 
 func TestSnapshotAndRestoreUpgrade(t *testing.T) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -79,8 +79,15 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
+			methodName:       "CancelRestore",
+			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
+			expectedVerb:     authorization.DELETE,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
+		},
+		{
 			methodName:     "List",
-			additionalArgs: []interface{}{"filesystem"},
+			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
 			classes:        []string{"ABC"},
 			ignoreAuthZ:    true,
 		},
@@ -125,11 +132,12 @@ func Test_Authorization(t *testing.T) {
 							Status:  backup.Success,
 						},
 					},
-					Status:        backup.Success,
-					ID:            "123",
-					Version:       "2.1",
-					ServerVersion: "x.x.x",
-					Error:         "",
+					Status:          backup.Success,
+					ID:              "123",
+					Version:         "2.1",
+					ServerVersion:   "x.x.x",
+					Error:           "",
+					CompressionType: backup.CompressionZSTD,
 				})
 				require.Nil(t, err)
 				var dd backup.DistributedBackupDescriptor
@@ -188,7 +196,7 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 		in[i] = reflect.ValueOf(param)
 	}
 	out = m.Call(in)
-	return
+	return out, err
 }
 
 func allExportedMethods(subject interface{}) []string {

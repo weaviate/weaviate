@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoadSegments bool) error {
+func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	before := time.Now()
 	defer func() {
 		took := time.Since(before)
@@ -82,7 +82,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
-	s.initProperties(eg, class, lazyLoadSegments)
+	s.initProperties(eg, class)
 
 	err := eg.Wait()
 	if err != nil {
@@ -92,16 +92,16 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 	}
 
 	// Object bucket must be available, initAsyncReplication depends on it
-	if s.index.asyncReplicationEnabled() {
+	if s.index.AsyncReplicationEnabled() {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
 
-		err = s.initAsyncReplication()
+		err = s.initAsyncReplication(s.index.AsyncReplicationConfig())
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
 	} else if s.index.replicationEnabled() {
-		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+		s.index.logger.Debugf("async replication disabled on shard %q", s.ID())
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
@@ -121,12 +121,18 @@ func (s *Shard) initLSMStore() error {
 		"index": s.index.ID(),
 		"class": s.index.Config.ClassName,
 	})
+
 	var metrics *lsmkv.Metrics
+	var err error
+
 	if s.promMetrics != nil {
-		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		metrics, err = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		if err != nil {
+			return fmt.Errorf("init lsmkv metrics: %w", err)
+		}
 	}
 
-	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
+	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics, s.index.bucketLoadLimiter,
 		s.cycleCallbacks.compactionCallbacks,
 		s.cycleCallbacks.compactionAuxCallbacks,
 		s.cycleCallbacks.flushCallbacks)
@@ -140,24 +146,12 @@ func (s *Shard) initLSMStore() error {
 }
 
 func (s *Shard) initObjectBucket(ctx context.Context) error {
-	opts := []lsmkv.BucketOption{
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndices(2),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
+	opts := s.makeDefaultBucketOptions(lsmkv.StrategyReplace,
+		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithKeepTombstones(true),
-		s.dynamicMemtableSizing(),
-		s.memtableDirtyConfig(),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
-		s.segmentCleanupConfig(),
-		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithCalcCountNetAdditions(true),
-		// dont lazy segment load object bucket - we need it in most (all?) operations
-		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
-		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
-	}
+		lsmkv.WithLazySegmentLoading(false), // always load
+	)
 
 	if s.metrics != nil && !s.metrics.grouped {
 		// If metrics are grouped we cannot observe the count of an individual

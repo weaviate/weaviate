@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,9 @@
 package memwatch
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"runtime"
@@ -142,18 +144,27 @@ func TestMappings(t *testing.T) {
 	t.Run("current memory settings", func(t *testing.T) {
 		switch runtime.GOOS {
 		case "linux":
-			assert.Greater(t, getCurrentMappings(), int64(0))
-			assert.Less(t, getCurrentMappings(), int64(math.MaxInt64))
+			assert.Greater(t, getCurrentMappings(make([]byte, 32*1024)), int64(0))
+			assert.Less(t, getCurrentMappings(make([]byte, 32*1024)), int64(math.MaxInt64))
 		case "darwin":
-			assert.Equal(t, getCurrentMappings(), int64(0))
+			assert.Equal(t, getCurrentMappings(make([]byte, 32*1024)), int64(0))
 		}
+	})
+
+	t.Run("test currentMappingsLinux with simulation file", func(t *testing.T) {
+		file := createTestMappingsFile(t, 5001)
+		defer os.Remove(file.Name())
+		defer file.Close()
+
+		result := currentMappingsLinux(file.Name(), make([]byte, 32*1024))
+		assert.Equal(t, int64(5001), result, "Should count exactly 5001 mappings")
 	})
 
 	t.Run("check mappings, by open many file mappings and close them only after the test is done", func(t *testing.T) {
 		if runtime.GOOS == "darwin" {
 			t.Skip("macOS does not have a limit on mappings")
 		}
-		currentMappings := getCurrentMappings()
+		currentMappings := getCurrentMappings(make([]byte, 32*1024))
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
@@ -179,7 +190,7 @@ func TestMappings(t *testing.T) {
 
 			// there might be other processes that use mappings. Don't check any specific number just that we have
 			// reached the limit
-			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(); mappingsLeft <= 0 {
+			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(make([]byte, 32*1024)); mappingsLeft <= 0 {
 				limitReached = true
 				break
 			} else {
@@ -231,7 +242,7 @@ func TestMappings(t *testing.T) {
 	})
 
 	t.Run("check reservations", func(t *testing.T) {
-		currentMappings := getCurrentMappings()
+		currentMappings := getCurrentMappings(make([]byte, 32*1024))
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		maxMappings := getMaxMemoryMappings()
@@ -303,4 +314,82 @@ func (f *fakeLimitSetter) SetMemoryLimit(newLimit int64) int64 {
 	}
 
 	return f.limit
+}
+
+func createTestMappingsFile(t testing.TB, numMappings int) *os.File {
+	file, err := os.CreateTemp("", "test_maps_*")
+	require.NoError(t, err)
+
+	for i := 0; i < numMappings; i++ {
+		startAddr := fmt.Sprintf("%08x", i*0x1000)
+		endAddr := fmt.Sprintf("%08x", (i+1)*0x1000)
+		perms := "r-xp"
+		offset := fmt.Sprintf("%08x", i*0x1000)
+		dev := "00:00"
+		inode := fmt.Sprintf("%d", 1000+i)
+		pathname := "/lib/x86_64-linux-gnu/libc.so.6"
+
+		line := fmt.Sprintf("%s-%s %s %s %s %s %s\n",
+			startAddr, endAddr, perms, offset, dev, inode, pathname)
+		_, err := file.WriteString(line)
+		require.NoError(t, err)
+	}
+
+	_, err = file.Seek(0, 0)
+	require.NoError(t, err)
+
+	return file
+}
+
+func BenchmarkCurrentMappingsLinuxComparison(b *testing.B) {
+	// Create a large simulation file with 100k mappings
+	file := createTestMappingsFile(b, 100000)
+	defer os.Remove(file.Name())
+	defer file.Close()
+
+	filePath := file.Name()
+
+	// Original implementation
+	originalCurrentMappingsLinux := func(filePath string) int64 {
+		file, err := os.Open(filePath)
+		if err != nil {
+			return 0
+		}
+		defer file.Close()
+
+		var mappings int64
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			mappings++
+		}
+
+		if err := scanner.Err(); err != nil {
+			return 0
+		}
+
+		return mappings
+	}
+
+	b.Run("Original", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			result := originalCurrentMappingsLinux(filePath)
+			if result != 100000 {
+				b.Fatalf("Expected 100000 mappings, got %d", result)
+			}
+		}
+	})
+
+	b.Run("New", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			buf := make([]byte, 32*1024)
+			result := currentMappingsLinux(filePath, buf)
+			if result != 100000 {
+				b.Fatalf("Expected 100000 mappings, got %d", result)
+			}
+		}
+	})
 }

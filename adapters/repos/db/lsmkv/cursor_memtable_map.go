@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,8 +20,6 @@ import (
 type memtableCursorMap struct {
 	data    []*binarySearchNodeMap
 	current int
-	lock    func()
-	unlock  func()
 }
 
 func (m *Memtable) newMapCursor() innerCursorMap {
@@ -37,17 +35,10 @@ func (m *Memtable) newMapCursor() innerCursorMap {
 
 	data := m.keyMap.flattenInOrder()
 
-	return &memtableCursorMap{
-		data:   data,
-		lock:   m.RLock,
-		unlock: m.RUnlock,
-	}
+	return &memtableCursorMap{data: data}
 }
 
 func (c *memtableCursorMap) first() ([]byte, []MapPair, error) {
-	c.lock()
-	defer c.unlock()
-
 	if len(c.data) == 0 {
 		return nil, nil, lsmkv.NotFound
 	}
@@ -60,9 +51,6 @@ func (c *memtableCursorMap) first() ([]byte, []MapPair, error) {
 }
 
 func (c *memtableCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
-	c.lock()
-	defer c.unlock()
-
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
 		return nil, nil, lsmkv.NotFound
@@ -85,9 +73,6 @@ func (c *memtableCursorMap) posLargerThanEqual(key []byte) int {
 }
 
 func (c *memtableCursorMap) next() ([]byte, []MapPair, error) {
-	c.lock()
-	defer c.unlock()
-
 	c.current++
 	if c.current >= len(c.data) {
 		return nil, nil, lsmkv.NotFound

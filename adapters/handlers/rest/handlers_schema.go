@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -143,6 +143,27 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(params.Body)
+}
+
+func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPropertiesDeleteParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, params.PropertyName, params.IndexName)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
@@ -367,6 +388,8 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaObjectsDeleteHandlerFunc(h.deleteClass)
 	api.SchemaSchemaObjectsPropertiesAddHandler = schema.
 		SchemaObjectsPropertiesAddHandlerFunc(h.addClassProperty)
+	api.SchemaSchemaObjectsPropertiesDeleteHandler = schema.
+		SchemaObjectsPropertiesDeleteHandlerFunc(h.deleteClassPropertyIndex)
 
 	api.SchemaSchemaObjectsUpdateHandler = schema.
 		SchemaObjectsUpdateHandlerFunc(h.updateClass)

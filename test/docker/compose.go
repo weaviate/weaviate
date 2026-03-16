@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
@@ -48,6 +49,8 @@ import (
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
+	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
@@ -98,29 +101,30 @@ const (
 )
 
 type Compose struct {
-	enableModules              []string
-	defaultVectorizerModule    string
-	withMinIO                  bool
-	withGCS                    bool
-	withAzurite                bool
-	withBackendFilesystem      bool
-	withBackendS3              bool
-	withBackendS3Buckets       map[string]string
-	withBackupS3Bucket         string
-	withOffloadS3Bucket        string
-	withBackendGCS             bool
-	withBackendGCSBucket       string
-	withBackendAzure           bool
-	withBackendAzureContainer  string
-	withTransformers           bool
-	withTransformersImage      string
-	withModel2Vec              bool
-	withContextionary          bool
-	withQnATransformers        bool
-	withWeaviateExposeGRPCPort bool
-	withSecondWeaviate         bool
-	withWeaviateCluster        bool
-	withWeaviateClusterSize    int
+	enableModules               []string
+	defaultVectorizerModule     string
+	withMinIO                   bool
+	withGCS                     bool
+	withAzurite                 bool
+	withBackendFilesystem       bool
+	withBackendS3               bool
+	withBackendS3Buckets        map[string]string
+	withBackupS3Bucket          string
+	withOffloadS3Bucket         string
+	withBackendGCS              bool
+	withBackendGCSBucket        string
+	withBackendAzure            bool
+	withBackendAzureContainer   string
+	withTransformers            bool
+	withTransformersImage       string
+	withModel2Vec               bool
+	withContextionary           bool
+	withQnATransformers         bool
+	withWeaviateExposeGRPCPort  bool
+	withWeaviateExposeDebugPort bool
+	withSecondWeaviate          bool
+	withWeaviateCluster         bool
+	withWeaviateClusterSize     int
 
 	withWeaviateAuth               bool
 	withWeaviateBasicAuth          bool
@@ -401,6 +405,12 @@ func (d *Compose) WithText2MultivecJinaAI(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithRerankerJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankerjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
 	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankernvidia.Name)
@@ -468,12 +478,25 @@ func (d *Compose) WithGenerativeAnthropic(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeContextualAI(apiKey string) *Compose {
+	d.weaviateEnvs["CONTEXTUALAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativecontextualai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerContextualAI(apiKey string) *Compose {
+	d.weaviateEnvs["CONTEXTUALAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modrerankercontextualai.Name)
+	return d
+}
+
 func (d *Compose) WithQnAOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modqnaopenai.Name)
 	return d
 }
 
-func (d *Compose) WithRerankerCohere() *Compose {
+func (d *Compose) WithRerankerCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
 	return d
 }
@@ -503,9 +526,22 @@ func (d *Compose) WithWeaviate() *Compose {
 	return d.With1NodeCluster()
 }
 
+func (d *Compose) WithWeaviateWithAllPorts() *Compose {
+	d.With1NodeCluster()
+	d.withWeaviateExposeGRPCPort = true
+	d.withWeaviateExposeDebugPort = true
+	return d
+}
+
 func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
+func (d *Compose) WithWeaviateWithDebugPort() *Compose {
+	d.With1NodeCluster()
+	d.withWeaviateExposeDebugPort = true
 	return d
 }
 
@@ -878,7 +914,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, "/v1/.well-known/ready")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready")
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -899,6 +935,7 @@ func (d *Compose) With1NodeCluster() *Compose {
 
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
+	d.withWeaviateExposeDebugPort = true
 	d.withWeaviateClusterSize = 3
 	return d
 }
@@ -932,10 +969,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	if d.withWeaviateAuth {
 		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
-		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
+		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
+		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.weaviate.cloud/Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
-		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
+		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "roles"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
 	}
@@ -1012,7 +1049,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node1"))
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node1"))
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -1028,7 +1065,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -1045,7 +1082,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node3"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}

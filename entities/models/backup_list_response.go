@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// BackupListResponse The definition of a backup create response body
+// BackupListResponse The definition of a backup create response body.
 //
 // swagger:model BackupListResponse
 type BackupListResponse []*BackupListResponseItems0
@@ -90,7 +90,7 @@ func (m BackupListResponse) ContextValidate(ctx context.Context, formats strfmt.
 // swagger:model BackupListResponseItems0
 type BackupListResponseItems0 struct {
 
-	// The list of classes for which the existed backup process
+	// The list of collections (classes) for which the backup process was started.
 	Classes []string `json:"classes"`
 
 	// Timestamp when the backup process completed (successfully or with failure)
@@ -100,12 +100,15 @@ type BackupListResponseItems0 struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
+	// Size of the backup in Gibs
+	Size float64 `json:"size,omitempty"`
+
 	// Timestamp when the backup process started
 	// Format: date-time
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
-	// status of backup process
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
+	// Status of backup process.
+	// Enum: [STARTED TRANSFERRING TRANSFERRED FINALIZING SUCCESS FAILED CANCELLING CANCELED]
 	Status string `json:"status,omitempty"`
 }
 
@@ -159,7 +162,7 @@ var backupListResponseItems0TypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","FINALIZING","SUCCESS","FAILED","CANCELLING","CANCELED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -178,11 +181,17 @@ const (
 	// BackupListResponseItems0StatusTRANSFERRED captures enum value "TRANSFERRED"
 	BackupListResponseItems0StatusTRANSFERRED string = "TRANSFERRED"
 
+	// BackupListResponseItems0StatusFINALIZING captures enum value "FINALIZING"
+	BackupListResponseItems0StatusFINALIZING string = "FINALIZING"
+
 	// BackupListResponseItems0StatusSUCCESS captures enum value "SUCCESS"
 	BackupListResponseItems0StatusSUCCESS string = "SUCCESS"
 
 	// BackupListResponseItems0StatusFAILED captures enum value "FAILED"
 	BackupListResponseItems0StatusFAILED string = "FAILED"
+
+	// BackupListResponseItems0StatusCANCELLING captures enum value "CANCELLING"
+	BackupListResponseItems0StatusCANCELLING string = "CANCELLING"
 
 	// BackupListResponseItems0StatusCANCELED captures enum value "CANCELED"
 	BackupListResponseItems0StatusCANCELED string = "CANCELED"

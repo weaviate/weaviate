@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -471,7 +471,7 @@ func Test_Compactor(t *testing.T) {
 	}
 }
 
-func cursorCompactor(t *testing.T, leftCursor, rightCursor *SegmentCursor, maxNewFileSize int64, cleanup, checkSum bool) []byte {
+func cursorCompactor(t *testing.T, leftCursor, rightCursor SegmentCursor, maxNewFileSize int64, cleanup, checkSum bool) []byte {
 	t.Helper()
 	dir := t.TempDir()
 

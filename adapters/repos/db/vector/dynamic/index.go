@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,6 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -34,12 +33,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -53,6 +52,7 @@ var dynamicBucket = []byte("dynamic")
 type Index interface {
 	// UnderlyingIndex returns the underlying index type (flat or hnsw)
 	UnderlyingIndex() common.IndexType
+	IsUpgraded() bool
 }
 
 type VectorIndex interface {
@@ -63,16 +63,18 @@ type VectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	SwitchCommitLogs(ctx context.Context) error
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
-	PostStartup()
+	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	ContainsDoc(docID uint64) bool
+	Preload(id uint64, vector []float32)
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	// Iterate over all indexed document ids in the index.
 	// Consistency or order is not guaranteed, as the index may be concurrently modified.
@@ -99,7 +101,8 @@ type dynamic struct {
 	className                    string
 	prometheusMetrics            *monitoring.PrometheusMetrics
 	vectorForIDThunk             common.VectorForID[float32]
-	tempVectorForIDThunk         common.TempVectorForID[float32]
+	getViewThunk                 common.GetViewThunk
+	tempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
 	distanceProvider             distancer.Provider
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
@@ -107,23 +110,19 @@ type dynamic struct {
 	upgraded                     atomic.Bool
 	upgradeOnce                  sync.Once
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	hnswUC                       hnswent.UserConfig
+	uc                           ent.UserConfig
 	db                           *bbolt.DB
 	ctx                          context.Context
 	cancel                       context.CancelFunc
 	hnswDisableSnapshots         bool
 	hnswSnapshotOnStartup        bool
 	hnswWaitForCachePrefill      bool
-	LazyLoadSegments             bool
-	flatBQ                       bool
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	AllocChecker                 memwatch.AllocChecker
+	MakeBucketOptions            lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled         bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
-	if !entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
-		return nil, errors.New("the dynamic index can only be created under async indexing environment")
-	}
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -136,17 +135,13 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	flatConfig := flat.Config{
-		ID:                           cfg.ID,
-		RootPath:                     cfg.RootPath,
-		TargetVector:                 cfg.TargetVector,
-		Logger:                       cfg.Logger,
-		DistanceProvider:             cfg.DistanceProvider,
-		MinMMapSize:                  cfg.MinMMapSize,
-		MaxWalReuseSize:              cfg.MaxWalReuseSize,
-		LazyLoadSegments:             cfg.LazyLoadSegments,
-		AllocChecker:                 cfg.AllocChecker,
-		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
-		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+		ID:                cfg.ID,
+		RootPath:          cfg.RootPath,
+		TargetVector:      cfg.TargetVector,
+		Logger:            cfg.Logger,
+		DistanceProvider:  cfg.DistanceProvider,
+		AllocChecker:      cfg.AllocChecker,
+		MakeBucketOptions: cfg.MakeBucketOptions,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -160,48 +155,28 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		className:                    cfg.ClassName,
 		prometheusMetrics:            cfg.PrometheusMetrics,
 		vectorForIDThunk:             cfg.VectorForIDThunk,
-		tempVectorForIDThunk:         cfg.TempVectorForIDThunk,
+		getViewThunk:                 cfg.GetViewThunk,
+		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
 		distanceProvider:             cfg.DistanceProvider,
 		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
 		store:                        store,
 		threshold:                    uc.Threshold,
 		tombstoneCallbacks:           cfg.TombstoneCallbacks,
-		hnswUC:                       uc.HnswUC,
+		uc:                           uc,
 		db:                           cfg.SharedDB,
 		ctx:                          ctx,
 		cancel:                       cancel,
 		hnswDisableSnapshots:         cfg.HNSWDisableSnapshots,
 		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
-		LazyLoadSegments:             cfg.LazyLoadSegments,
-		flatBQ:                       uc.FlatUC.BQ.Enabled,
-		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
-		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+		AllocChecker:                 cfg.AllocChecker,
+		MakeBucketOptions:            cfg.MakeBucketOptions,
+		AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
 	}
 
-	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
-		return err
-	})
+	upgraded, err := index.init(&cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "create dynamic bolt bucket")
-	}
-
-	upgraded := false
-
-	err = cfg.SharedDB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-
-		v := b.Get(index.dbKey())
-		if v == nil {
-			return nil
-		}
-
-		upgraded = v[0] != 0
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "get dynamic state")
+		return nil, err
 	}
 
 	if upgraded {
@@ -215,17 +190,18 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				ClassName:                    index.className,
 				PrometheusMetrics:            index.prometheusMetrics,
 				VectorForIDThunk:             index.vectorForIDThunk,
-				TempVectorForIDThunk:         index.tempVectorForIDThunk,
+				GetViewThunk:                 index.getViewThunk,
+				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
 				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
 				DisableSnapshots:             index.hnswDisableSnapshots,
 				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
-				LazyLoadSegments:             index.LazyLoadSegments,
 				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
-				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
-				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+				AllocChecker:                 index.AllocChecker,
+				MakeBucketOptions:            index.MakeBucketOptions,
+				AsyncIndexingEnabled:         index.AsyncIndexingEnabled,
 			},
-			index.hnswUC,
+			index.uc.HnswUC,
 			index.tombstoneCallbacks,
 			index.store,
 		)
@@ -250,7 +226,7 @@ func (dynamic *dynamic) Type() common.IndexType {
 
 func (dynamic *dynamic) dbKey() []byte {
 	var key []byte
-	if dynamic.targetVector == "fef" {
+	if dynamic.targetVector != "" {
 		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
 		key = append(key, composerUpgradedKey...)
 		key = append(key, '_')
@@ -270,11 +246,68 @@ func (dynamic *dynamic) getBucketName() string {
 	return helpers.VectorsBucketLSM
 }
 
-func (dynamic *dynamic) getCompressedBucketName() string {
-	if dynamic.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, dynamic.targetVector)
+func (dynamic *dynamic) init(cfg *Config) (bool, error) {
+	upgraded := false
+
+	hnswDirExists := false
+	_, err := os.Stat(hnswCommitLogDirectory(cfg.RootPath, cfg.ID))
+	if err == nil {
+		hnswDirExists = true
 	}
-	return helpers.VectorsCompressedBucketLSM
+
+	dbKey := dynamic.dbKey()
+	err = cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+		if err != nil {
+			return err
+		}
+
+		if cfg.TargetVector == "" {
+			v := b.Get(dbKey)
+			if v == nil {
+				return nil
+			}
+
+			upgraded = v[0] != 0
+			return nil
+		}
+
+		// a bug in earlier versions caused target vectors to all use the same key.
+		// this is a mitigation to preserve existing upgraded state and migrate to
+		// target-vector-specific keys going forward.
+
+		// first, check if there's an entry for this specific target vector
+		v := b.Get(dbKey)
+		if v != nil {
+			upgraded = v[0] != 0
+			return nil
+		}
+
+		// if not, let's create one by default
+		// and infer the upgraded state from the existence of the HNSW dir
+		if hnswDirExists {
+			err = b.Put(dbKey, []byte{1})
+		} else {
+			err = b.Put(dbKey, []byte{0})
+		}
+		if err != nil {
+			return errors.Wrap(err, "migrate dynamic state for target vector")
+		}
+
+		// if the HNSW dir exists, we assume it was upgraded
+		upgraded = hnswDirExists
+
+		return nil
+	})
+	if err != nil {
+		return false, errors.Wrap(err, "get dynamic state")
+	}
+
+	return upgraded, nil
+}
+
+func (dynamic *dynamic) getCompressedBucketName() string {
+	return helpers.GetCompressedBucketName(dynamic.targetVector)
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -330,7 +363,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	} else {
-		dynamic.hnswUC = parsed.HnswUC
+		dynamic.uc = parsed
 		dynamic.RLock()
 		defer dynamic.RUnlock()
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
@@ -338,7 +371,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	return nil
 }
 
-func (dynamic *dynamic) Drop(ctx context.Context) error {
+func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 	if dynamic.ctx.Err() != nil {
 		// already dropped
 		return nil
@@ -353,8 +386,11 @@ func (dynamic *dynamic) Drop(ctx context.Context) error {
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
-	os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
-	return dynamic.index.Drop(ctx)
+	if !keepFiles {
+		os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
+	}
+
+	return dynamic.index.Drop(ctx, keepFiles)
 }
 
 func (dynamic *dynamic) Flush() error {
@@ -376,16 +412,19 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	dynamic.Lock()
 	defer dynamic.Unlock()
 
-	if err := dynamic.db.Close(); err != nil {
-		return err
-	}
 	return dynamic.index.Shutdown(ctx)
 }
 
-func (dynamic *dynamic) SwitchCommitLogs(ctx context.Context) error {
+func (dynamic *dynamic) PrepareForBackup(ctx context.Context) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SwitchCommitLogs(ctx)
+	return dynamic.index.PrepareForBackup(ctx)
+}
+
+func (dynamic *dynamic) ResumeAfterBackup(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ResumeAfterBackup(ctx)
 }
 
 func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {
@@ -400,16 +439,22 @@ func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
 	return dynamic.index.ValidateBeforeInsert(vector)
 }
 
-func (dynamic *dynamic) PostStartup() {
+func (dynamic *dynamic) PostStartup(ctx context.Context) {
 	dynamic.Lock()
 	defer dynamic.Unlock()
-	dynamic.index.PostStartup()
+	dynamic.index.PostStartup(ctx)
 }
 
 func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.ContainsDoc(docID)
+}
+
+func (dynamic *dynamic) Preload(id uint64, vector []float32) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	dynamic.index.Preload(id, vector)
 }
 
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
@@ -440,9 +485,7 @@ func (dynamic *dynamic) Upgraded() bool {
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 
@@ -459,12 +502,14 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	dynamic.upgradeOnce.Do(func() {
 		enterrors.GoWrapper(func() {
 			defer callback()
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
 
 			err := dynamic.doUpgrade()
 			if err != nil {
 				dynamic.logger.WithError(err).Error("failed to upgrade index")
 				return
 			}
+			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
 		}, dynamic.logger)
 	})
 
@@ -487,16 +532,18 @@ func (dynamic *dynamic) doUpgrade() error {
 			ClassName:                    dynamic.className,
 			PrometheusMetrics:            dynamic.prometheusMetrics,
 			VectorForIDThunk:             dynamic.vectorForIDThunk,
-			TempVectorForIDThunk:         dynamic.tempVectorForIDThunk,
+			GetViewThunk:                 dynamic.getViewThunk,
+			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
 			DistanceProvider:             dynamic.distanceProvider,
 			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
 			DisableSnapshots:             dynamic.hnswDisableSnapshots,
 			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
 			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
-			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
-			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
+			AllocChecker:                 dynamic.AllocChecker,
+			MakeBucketOptions:            dynamic.MakeBucketOptions,
+			AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
 		},
-		dynamic.hnswUC,
+		dynamic.uc.HnswUC,
 		dynamic.tombstoneCallbacks,
 		dynamic.store,
 	)
@@ -510,6 +557,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		dynamic.RUnlock()
 		return err
 	}
+
+	// Start commit-log maintenance on the new HNSW index. The cache prefill
+	// is a no-op because cachePrefilled was already set during init (fresh
+	// index with no commit-log state) and the cache is populated by AddBatch.
+	index.PostStartup(dynamic.ctx)
 
 	// end of read-only zone
 	dynamic.RUnlock()
@@ -532,7 +584,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
-	dynamic.index.Drop(dynamic.ctx)
+	dynamic.index.Drop(dynamic.ctx, false)
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
 
@@ -546,7 +598,16 @@ func (dynamic *dynamic) doUpgrade() error {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+	// Due to the potential for a different quantizer using a different endianness
+	// we remove the bucket here if needed
+	removeCompressedBucket := false
+	if dynamic.uc.FlatUC.BQ.Enabled || dynamic.uc.FlatUC.RQ.Enabled {
+		if !dynamic.uc.HnswUC.BQ.Enabled && !dynamic.uc.HnswUC.RQ.Enabled {
+			removeCompressedBucket = true
+		}
+	}
+
+	if removeCompressedBucket {
 		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
 		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
 		if err != nil {
@@ -659,6 +720,22 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Type()
+}
+
+func (dynamic *dynamic) IsUpgraded() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.upgraded.Load()
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
+}
+
+func hnswCommitLogDirectory(rootPath, name string) string {
+	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
 // to make sure the dynamic index satisfies the Index interface

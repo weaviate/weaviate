@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -116,7 +116,7 @@ func (os *objectScannerLSM) scan() error {
 					return newContext.Err()
 				}
 				binary.LittleEndian.PutUint64(docIDBytes, id)
-				res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
+				res, err := os.objectsBucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: Context!
 				if err != nil {
 					return err
 				}

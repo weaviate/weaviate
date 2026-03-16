@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -462,7 +462,9 @@ func (db *DB) getTotalLimit(pagination *filters.Pagination, addl additional.Prop
 		return 0, fmt.Errorf("invalid default limit: %v", db.getLimit(pagination.Limit))
 	}
 	if !addl.ReferenceQuery && totalLimit > int(db.config.QueryMaximumResults) {
-		return 0, errors.New("query maximum results exceeded")
+		return 0, fmt.Errorf(
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
+			pagination.Offset, db.getLimit(pagination.Limit), db.config.QueryMaximumResults)
 	}
 	return totalLimit, nil
 }

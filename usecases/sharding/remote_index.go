@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -94,7 +94,7 @@ type RemoteIndexClient interface {
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
@@ -354,7 +354,7 @@ func (ri *RemoteIndex) Aggregate(
 }
 
 func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -366,7 +366,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters)
+	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters, limit)
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
@@ -453,7 +453,6 @@ func (ri *RemoteIndex) queryAllReplicas(
 
 	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
 		var mu sync.Mutex // protect resp + errlist
-		var searchResult ReplicasSearchResult
 		var errList error
 
 		wg := sync.WaitGroup{}
@@ -467,6 +466,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
+				var searchResult ReplicasSearchResult
 
 				if errC := ctx.Err(); errC != nil {
 					mu.Lock()
@@ -499,7 +499,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 			return nil, errList
 		}
 		if len(resp) != int(queriesSent.Load()) {
-			log.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(resp), len(replicas))
+			log.Warnf("full replicas search response does not match amount of queries sent: response=%d replicas=%d", len(resp), queriesSent.Load())
 		}
 		return resp, nil
 	}
@@ -535,11 +535,11 @@ func (ri *RemoteIndex) queryReplicas(
 				return resp, node, nil
 			}
 		}
-		return
+		return resp, node, err
 	}
 	first := rand.Intn(len(replicas))
 	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
 		return queryUntil(replicas[:first])
 	}
-	return
+	return resp, node, err
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,15 +51,17 @@ type ClientService interface {
 
 	BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error)
 
+	BackupsRestoreCancel(params *BackupsRestoreCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreCancelNoContent, error)
+
 	BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-BackupsCancel cancels backup
+BackupsCancel cancels a backup
 
-Cancel created backup with specified ID
+Cancels an ongoing backup operation identified by its ID.
 */
 func (a *Client) BackupsCancel(params *BackupsCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCancelNoContent, error) {
 	// TODO: Validate the params before sending
@@ -98,9 +100,9 @@ func (a *Client) BackupsCancel(params *BackupsCancelParams, authInfo runtime.Cli
 }
 
 /*
-BackupsCreate starts a backup process
+BackupsCreate creates a backup
 
-Start creating a backup for a set of collections. <br/><br/>Notes: <br/>- Weaviate uses gzip compression by default. <br/>- Weaviate stays usable while a backup process is ongoing.
+Initiates the creation of a backup for specified collections on a designated backend storage.<br/><br/>Notes:<br/>- Backups are compressed using gzip by default.<br/>- Weaviate remains operational during the backup process.
 */
 func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -139,9 +141,9 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 }
 
 /*
-BackupsCreateStatus gets backup process status
+BackupsCreateStatus gets backup creation status
 
-Returns status of backup creation attempt for a set of collections. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using this endpoint.
+Checks the status of a specific backup creation process identified by its ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
 */
 func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateStatusOK, error) {
 	// TODO: Validate the params before sending
@@ -221,9 +223,9 @@ func (a *Client) BackupsList(params *BackupsListParams, authInfo runtime.ClientA
 }
 
 /*
-BackupsRestore starts a restoration process
+BackupsRestore restores from a backup
 
-Starts a process of restoring a backup for a set of collections. <br/><br/>Any backup can be restored to any machine, as long as the number of nodes between source and target are identical.<br/><br/>Requrements:<br/><br/>- None of the collections to be restored already exist on the target restoration node(s).<br/>- The node names of the backed-up collections' must match those of the target restoration node(s).
+Initiates the restoration of collections from a specified backup located on a designated backend.<br/><br/>Requirements:<br/>- Target cluster must have the same number of nodes as the source cluster where the backup was created.<br/>- Collections included in the restore must not already exist on the target cluster.<br/>- Node names must match between the backup and the target cluster.
 */
 func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error) {
 	// TODO: Validate the params before sending
@@ -262,9 +264,50 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 }
 
 /*
-BackupsRestoreStatus gets restore process status
+BackupsRestoreCancel cancels a backup restoration
 
-Returns status of a backup restoration attempt for a set of classes. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using the this endpoint.
+Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.
+*/
+func (a *Client) BackupsRestoreCancel(params *BackupsRestoreCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreCancelNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewBackupsRestoreCancelParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "backups.restore.cancel",
+		Method:             "DELETE",
+		PathPattern:        "/backups/{backend}/{id}/restore",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &BackupsRestoreCancelReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*BackupsRestoreCancelNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for backups.restore.cancel: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+BackupsRestoreStatus gets backup restoration status
+
+Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.<br/><br/>Client libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.
 */
 func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error) {
 	// TODO: Validate the params before sending

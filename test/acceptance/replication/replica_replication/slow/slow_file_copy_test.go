@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -52,23 +53,21 @@ func TestReplicationTestSuite(t *testing.T) {
 
 func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
 	t := suite.T()
-	mainCtx := context.Background()
+	ctx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "20s").
-		Start(mainCtx)
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()

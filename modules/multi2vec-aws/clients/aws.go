@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,24 +38,32 @@ func New(awsAccessKey, awsSecret, awsSessionToken string, timeout time.Duration,
 func (v *vectorizer) Vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
-	return v.vectorize(ctx, texts, images, cfg)
+	return v.vectorize(ctx, texts, images, cfg, aws.GenericIndex)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context,
-	input []string, cfg moduletools.ClassConfig,
+	texts []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
-	return v.vectorize(ctx, input, nil, cfg)
+	return v.vectorize(ctx, texts, nil, cfg, aws.GenericRetrieval)
+}
+
+func (v *vectorizer) VectorizeImage(ctx context.Context,
+	images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	return v.vectorize(ctx, nil, images, cfg, aws.GenericRetrieval)
 }
 
 func (v *vectorizer) vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
+	embeddingPurpose aws.EmbeddingPurpose,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	config := ent.NewClassSettings(cfg)
 	settings := aws.Settings{
-		Model:      config.Model(),
-		Region:     config.Region(),
-		Dimensions: config.Dimensions(),
-		Service:    aws.Bedrock,
+		Model:            config.Model(),
+		Region:           config.Region(),
+		Dimensions:       config.Dimensions(),
+		Service:          aws.Bedrock,
+		EmbeddingPurpose: embeddingPurpose,
 	}
 	return v.client.VectorizeMultiModal(ctx, texts, images, settings)
 }

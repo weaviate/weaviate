@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -67,8 +68,6 @@ type Service struct {
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
 func New(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, svrMetrics *monitoring.GRPCServerMetrics) *Service {
-	rpcListenAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	raftAdvertisedAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort)
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
 	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
@@ -102,12 +101,12 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
-	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
 		Raft:               raft,
 		replicationEngine:  replicationEngine,
-		raftAddr:           raftAdvertisedAddress,
+		raftAddr:           net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		config:             &cfg,
 		rpcClient:          client,
 		rpcServer:          svr,
@@ -119,7 +118,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	if c.config.ReplicaMovementDisabled {
+	if !c.config.ReplicaMovementEnabled {
 		return
 	}
 
@@ -219,7 +218,7 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if !c.config.ReplicaMovementDisabled {
+	if c.config.ReplicaMovementEnabled {
 		c.logger.Info("closing replication engine ...")
 		if c.cancelReplicationEngine != nil {
 			c.cancelReplicationEngine()

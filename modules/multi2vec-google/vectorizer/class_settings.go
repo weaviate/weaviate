@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,9 +23,11 @@ import (
 )
 
 const (
+	apiEndpointProperty          = "apiEndpoint"
 	locationProperty             = "location"
 	projectIDProperty            = "projectId"
 	modelIDProperty              = "modelId"
+	modelProperty                = "model"
 	dimensionsProperty           = "dimensions"
 	videoIntervalSecondsProperty = "videoIntervalSeconds"
 )
@@ -35,6 +37,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
+	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaultModelID               = "multimodalembedding@001"
 )
 
@@ -45,19 +48,25 @@ var (
 	availableVideoIntervalSeconds = []int64{4, 8, 15, defaultVideoIntervalSeconds}
 )
 
+var fields = []string{basesettings.TextFieldsProperty, basesettings.ImageFieldsProperty, basesettings.VideoFieldsProperty, basesettings.AudioFieldsProperty}
+
 type classSettings struct {
-	base *basesettings.BaseClassSettings
+	base *basesettings.BaseClassMultiModalSettings
 	cfg  moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:  cfg,
-		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2vec-google", []string{"multi2vec-palm"}, nil),
+		base: basesettings.NewBaseClassMultiModalSettingsWithAltNames(cfg, false, "multi2vec-google", []string{"multi2vec-palm"}, nil),
 	}
 }
 
 // Google params
+func (ic *classSettings) ApiEndpoint() string {
+	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
+}
+
 func (ic *classSettings) Location() string {
 	return ic.getStringProperty(locationProperty, "")
 }
@@ -66,113 +75,60 @@ func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) ModelID() string {
+func (ic *classSettings) Model() string {
+	if model := ic.getStringProperty(modelProperty, ""); model != "" {
+		return model
+	}
 	return ic.getStringProperty(modelIDProperty, DefaultModelID)
 }
 
-func (ic *classSettings) Dimensions() int64 {
-	return ic.getInt64Property(dimensionsProperty, defaultDimensions1408)
+func (ic *classSettings) Dimensions() *int64 {
+	var defaultDimensions *int64
+	if ic.isLegacyModel() {
+		defaultDimensions = &defaultDimensions1408
+	}
+	return ic.getInt64Property(dimensionsProperty, defaultDimensions)
 }
 
-func (ic *classSettings) VideoIntervalSeconds() int64 {
-	return ic.getInt64Property(videoIntervalSecondsProperty, defaultVideoIntervalSeconds)
+func (ic *classSettings) VideoIntervalSeconds() *int64 {
+	return ic.getInt64Property(videoIntervalSecondsProperty, &defaultVideoIntervalSeconds)
 }
 
 // CLIP module specific settings
 func (ic *classSettings) ImageField(property string) bool {
-	return ic.field("imageFields", property)
+	return ic.base.ImageField(property)
 }
 
 func (ic *classSettings) ImageFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("image")
+	return ic.base.ImageFieldsWeights()
 }
 
 func (ic *classSettings) TextField(property string) bool {
-	return ic.field("textFields", property)
+	return ic.base.TextField(property)
 }
 
 func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("text")
+	return ic.base.TextFieldsWeights()
 }
 
 func (ic *classSettings) VideoField(property string) bool {
-	return ic.field("videoFields", property)
+	return ic.base.VideoField(property)
 }
 
 func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("video")
+	return ic.base.VideoFieldsWeights()
+}
+
+func (ic *classSettings) AudioField(property string) bool {
+	return ic.base.AudioField(property)
+}
+
+func (ic *classSettings) AudioFieldsWeights() ([]float32, error) {
+	return ic.base.AudioFieldsWeights()
 }
 
 func (ic *classSettings) Properties() ([]string, error) {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return nil, errors.New("empty config")
-	}
-	props := make([]string, 0)
-
-	fields := []string{"textFields", "imageFields", "videoFields"}
-
-	for _, field := range fields {
-		fields, ok := ic.base.GetSettings()[field]
-		if !ok {
-			continue
-		}
-
-		fieldsArray, ok := fields.([]interface{})
-		if !ok {
-			return nil, errors.Errorf("%s must be an array", field)
-		}
-
-		for _, value := range fieldsArray {
-			v, ok := value.(string)
-			if !ok {
-				return nil, errors.Errorf("%s must be a string", field)
-			}
-			props = append(props, v)
-		}
-	}
-	return props, nil
-}
-
-func (ic *classSettings) field(name, property string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return false
-	}
-
-	fields, ok := ic.base.GetSettings()[name]
-	if !ok {
-		return false
-	}
-
-	fieldsArray, ok := fields.([]interface{})
-	if !ok {
-		return false
-	}
-
-	fieldNames := make([]string, len(fieldsArray))
-	for i, value := range fieldsArray {
-		fieldNames[i] = value.(string)
-	}
-
-	for i := range fieldNames {
-		if fieldNames[i] == property {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	return ic.base.GetPropertyAsString(name, defaultValue)
-}
-
-func (ic *classSettings) getInt64Property(name string, defaultValue int64) int64 {
-	if val := ic.base.GetPropertyAsInt64(name, &defaultValue); val != nil {
-		return *val
-	}
-	return defaultValue
+	return ic.base.VectorizableProperties(fields)
 }
 
 func (ic *classSettings) Validate() error {
@@ -183,69 +139,39 @@ func (ic *classSettings) Validate() error {
 
 	var errorMessages []string
 
-	model := ic.ModelID()
-	location := ic.Location()
-	if location == "" {
-		errorMessages = append(errorMessages, "location setting needs to be present")
-	}
-
-	projectID := ic.ProjectID()
-	if projectID == "" {
-		errorMessages = append(errorMessages, "projectId setting needs to be present")
-	}
-
-	dimensions := ic.Dimensions()
-	if !validateSetting(dimensions, availableDimensions) {
-		return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
-	}
-
-	videoIntervalSeconds := ic.VideoIntervalSeconds()
-	if !validateSetting(videoIntervalSeconds, availableVideoIntervalSeconds) {
-		return errors.Errorf("wrong videoIntervalSeconds setting for %s model, available videoIntervalSeconds are: %v", model, availableVideoIntervalSeconds)
-	}
-
-	imageFields, imageFieldsOk := ic.cfg.Class()["imageFields"]
-	textFields, textFieldsOk := ic.cfg.Class()["textFields"]
-	videoFields, videoFieldsOk := ic.cfg.Class()["videoFields"]
-	if !imageFieldsOk && !textFieldsOk && !videoFieldsOk {
-		errorMessages = append(errorMessages, "textFields or imageFields or videoFields setting needs to be present")
-	}
-
-	if videoFieldsOk && dimensions != defaultDimensions1408 {
-		errorMessages = append(errorMessages, fmt.Sprintf("videoFields support only %d dimensions setting", defaultDimensions1408))
-	}
-
-	if imageFieldsOk {
-		imageFieldsCount, err := ic.validateFields("image", imageFields)
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
+	model := ic.Model()
+	if ic.ApiEndpoint() == "" {
+		// Google Vertex AI mandatory settings validation
+		location := ic.Location()
+		if location == "" {
+			errorMessages = append(errorMessages, "location setting needs to be present")
 		}
-		err = ic.validateWeights("image", imageFieldsCount)
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
+
+		projectID := ic.ProjectID()
+		if projectID == "" {
+			errorMessages = append(errorMessages, "projectId setting needs to be present")
 		}
 	}
 
-	if textFieldsOk {
-		textFieldsCount, err := ic.validateFields("text", textFields)
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
+	if ic.isLegacyModel() {
+		dimensions := ic.Dimensions()
+		if !validateSetting(*dimensions, availableDimensions) {
+			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
 		}
-		err = ic.validateWeights("text", textFieldsCount)
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
+
+		videoIntervalSeconds := ic.VideoIntervalSeconds()
+		if !validateSetting(*videoIntervalSeconds, availableVideoIntervalSeconds) {
+			return errors.Errorf("wrong videoIntervalSeconds setting for %s model, available videoIntervalSeconds are: %v", model, availableVideoIntervalSeconds)
+		}
+
+		_, videoFieldsOk := ic.base.GetSettings()[basesettings.VideoFieldsProperty]
+		if videoFieldsOk && *dimensions != defaultDimensions1408 {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s support only %d dimensions setting", basesettings.VideoFieldsProperty, defaultDimensions1408))
 		}
 	}
 
-	if videoFieldsOk {
-		videoFieldsCount, err := ic.validateFields("video", videoFields)
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
-		}
-		err = ic.validateWeights("video", videoFieldsCount)
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
-		}
+	if err := ic.base.ValidateMultiModal(fields); err != nil {
+		errorMessages = append(errorMessages, err.Error())
 	}
 
 	if len(errorMessages) > 0 {
@@ -255,86 +181,19 @@ func (ic *classSettings) Validate() error {
 	return nil
 }
 
-func (ic *classSettings) validateFields(name string, fields interface{}) (int, error) {
-	fieldsArray, ok := fields.([]interface{})
-	if !ok {
-		return 0, errors.Errorf("%sFields must be an array", name)
-	}
-
-	if len(fieldsArray) == 0 {
-		return 0, errors.Errorf("must contain at least one %s field name in %sFields", name, name)
-	}
-
-	for _, value := range fieldsArray {
-		v, ok := value.(string)
-		if !ok {
-			return 0, errors.Errorf("%sField must be a string", name)
-		}
-		if len(v) == 0 {
-			return 0, errors.Errorf("%sField values cannot be empty", name)
-		}
-	}
-
-	return len(fieldsArray), nil
+// Helper methods
+func (ic *classSettings) getStringProperty(name, defaultValue string) string {
+	return ic.base.GetPropertyAsString(name, defaultValue)
 }
 
-func (ic *classSettings) validateWeights(name string, count int) error {
-	weights, ok := ic.getWeights(name)
-	if ok {
-		if len(weights) != count {
-			return errors.Errorf("weights.%sFields does not equal number of %sFields", name, name)
-		}
-		_, err := ic.getWeightsArray(weights)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (ic *classSettings) getWeights(name string) ([]interface{}, bool) {
-	weights, ok := ic.base.GetSettings()["weights"]
-	if ok {
-		weightsObject, ok := weights.(map[string]interface{})
-		if ok {
-			fieldWeights, ok := weightsObject[fmt.Sprintf("%sFields", name)]
-			if ok {
-				fieldWeightsArray, ok := fieldWeights.([]interface{})
-				if ok {
-					return fieldWeightsArray, ok
-				}
-			}
-		}
-	}
-
-	return nil, false
-}
-
-func (ic *classSettings) getWeightsArray(weights []interface{}) ([]float32, error) {
-	weightsArray := make([]float32, len(weights))
-	for i := range weights {
-		weight, err := ic.getNumber(weights[i])
-		if err != nil {
-			return nil, err
-		}
-		weightsArray[i] = weight
-	}
-	return weightsArray, nil
-}
-
-func (ic *classSettings) getFieldsWeights(name string) ([]float32, error) {
-	weights, ok := ic.getWeights(name)
-	if ok {
-		return ic.getWeightsArray(weights)
-	}
-	return nil, nil
-}
-
-func (ic *classSettings) getNumber(in interface{}) (float32, error) {
-	return ic.base.GetNumber(in)
+func (ic *classSettings) getInt64Property(name string, defaultValue *int64) *int64 {
+	return ic.base.GetPropertyAsInt64(name, defaultValue)
 }
 
 func validateSetting[T string | int64](value T, availableValues []T) bool {
 	return slices.Contains(availableValues, value)
+}
+
+func (ic *classSettings) isLegacyModel() bool {
+	return ic.Model() == "multimodalembedding@001"
 }

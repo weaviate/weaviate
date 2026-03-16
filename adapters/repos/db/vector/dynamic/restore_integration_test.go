@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package dynamic
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -21,6 +20,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -30,14 +32,11 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"go.etcd.io/bbolt"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
@@ -72,6 +71,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	config := Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
@@ -86,9 +86,11 @@ func TestBackup_Integration(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
 	}
 
 	uc := ent.UserConfig{
@@ -102,7 +104,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	idx, err := New(config, uc, store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(ctx, i, vectors[i])
@@ -120,14 +122,9 @@ func TestBackup_Integration(t *testing.T) {
 	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
 
-	// open the db again
-	db, err = bbolt.Open(dbPath, 0o666, nil)
-	require.NoError(t, err)
-	config.SharedDB = db
-
 	idx, err = New(config, uc, store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
 	assert.Equal(t, recall1, recall2)
 }

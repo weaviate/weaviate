@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package hnsw
 
@@ -25,10 +24,16 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type backupIntegrationNoopBucketView struct{}
+
+func (n *backupIntegrationNoopBucketView) ReleaseView() {}
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
@@ -58,17 +63,19 @@ func TestBackup_Integration(t *testing.T) {
 	combinedCtrl := cyclemanager.NewCombinedCallbackCtrl(2, logger, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
 
 	idx, err := New(Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupIntegrationNoopBucketView{} },
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},
 	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, nil)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	t.Run("insert vector into index", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
@@ -89,7 +96,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("switch commit logs", func(t *testing.T) {
-		err = idx.SwitchCommitLogs(ctx)
+		err = idx.PrepareForBackup(ctx)
 		require.Nil(t, err)
 	})
 
@@ -106,7 +113,7 @@ func TestBackup_Integration(t *testing.T) {
 
 		// by this point there should be two files in the commitlog directory.
 		// one is the active log file, and the other is the previous active
-		// log which was in use prior to `SwitchCommitLogs`. additionally,
+		// log which was in use prior to `PrepareForBackup`. additionally,
 		// maintenance has been paused, so we shouldn't see any .condensed
 		// files either.
 		//
@@ -115,9 +122,9 @@ func TestBackup_Integration(t *testing.T) {
 		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
 		//
-		// additionally snapshot was created which consist of 2 files,
-		// so total of 3 files are expected
-		assert.Len(t, files, 3)
+		// additionally snapshot was created which consist of 1 file,
+		// so total of 2 files are expected
+		assert.Len(t, files, 2)
 
 		filesUnique := make(map[string]struct{}, len(files))
 		for i := range files {

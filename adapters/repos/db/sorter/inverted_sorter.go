@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -338,13 +338,13 @@ func (is *invertedSorter) extractDocIDsFromBitmap(
 			// through the ids found in this row as well as the starting offset
 			if !forbidEarlyExit && totalCountBefore+len(found) >= limit {
 				earlyExit = true
-				return
+				return found, earlyExit
 			}
 		}
 	}
 
 	earlyExit = false
-	return
+	return found, earlyExit
 }
 
 func (is *invertedSorter) startNestedSort(

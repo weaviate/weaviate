@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -676,7 +676,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				if asyncIndexingEnabled {
 					assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
 				} else {
-					assert.ErrorContains(t, err, `the dynamic index can only be created under async indexing environment`)
+					assert.ErrorContains(t, err, `the dynamic index can only be created when async indexing is enabled`)
 				}
 			})
 		})

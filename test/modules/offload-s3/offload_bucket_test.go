@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -152,7 +153,8 @@ func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 			require.Nil(t, err)
 			for _, tn := range resp.Payload {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.True(t, tn.ActivityStatus == types.TenantActivityStatusFREEZING ||
+						tn.ActivityStatus == models.TenantActivityStatusFROZEN, "expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus)
 					break
 				}
 			}

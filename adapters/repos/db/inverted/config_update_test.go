@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -93,7 +93,7 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 		}
 
 		err := ValidateUserConfigUpdate(validInitial, updated)
-		require.EqualError(t, err, "BM25.b must be <= 0 and <= 1")
+		require.EqualError(t, err, "BM25.b must be >= 0 and <= 1")
 	})
 
 	t.Run("with invalid updated Stopwords preset config", func(t *testing.T) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,13 +22,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // prevents a regression of
@@ -49,9 +51,11 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			ID:                    "bug-2155",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewL2SquaredProvider(),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &noopBucketView{} },
 		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
@@ -113,9 +117,11 @@ func TestQueryVectorDistancer(t *testing.T) {
 		ID:                    "bug-2155",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
+		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
@@ -150,12 +156,15 @@ func TestQueryMultiVectorDistancer(t *testing.T) {
 		ID:                    "bug-2155",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewDotProductProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[0][int(id)], nil
 		},
 		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
 			return vectors[int(id)], nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		GetViewThunk:      func() common.BucketView { return &noopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections:        30,
 		EFConstruction:        128,
@@ -192,11 +201,13 @@ func TestAcornPercentage(t *testing.T) {
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-			AcornFilterRatio:     0.4,
+			GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AcornFilterRatio:             0.4,
 		}, ent.UserConfig{
 			MaxConnections:        16,
 			EFConstruction:        16,
@@ -305,8 +316,12 @@ func TestRescore(t *testing.T) {
 				h := &hnsw{
 					rescoreConcurrency: test.concurrency,
 					logger:             logger,
-					TempVectorForIDThunk: func(
-						ctx context.Context, id uint64, container *common.VectorSlice,
+					allocChecker:       memwatch.NewDummyMonitor(),
+					GetViewThunk: func() common.BucketView {
+						return &noopBucketView{}
+					},
+					TempVectorForIDWithViewThunk: func(
+						ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView,
 					) ([]float32, error) {
 						return vectors[id], nil
 					},
@@ -355,3 +370,8 @@ func (f *fakeCompressionDistancer) DistanceToNode(id uint64) (float32, error) {
 func (f *fakeCompressionDistancer) DistanceToFloat(vec []float32) (float32, error) {
 	return f.distFn(f.queryVec, vec), nil
 }
+
+// noopBucketView is a no-op implementation of common.BucketView for testing
+type noopBucketView struct{}
+
+func (n *noopBucketView) ReleaseView() {}

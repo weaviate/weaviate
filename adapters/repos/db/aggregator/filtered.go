@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -142,7 +142,7 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 	kw.ChooseSearchableProperties(class)
 
 	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
-		propertyspecific.Indices{}, fa.classSearcher,
+		propertyspecific.Indices{}, fa.classSearcher, fa.stopwords,
 		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,
 	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw, additional.Properties{})
 	if err != nil {

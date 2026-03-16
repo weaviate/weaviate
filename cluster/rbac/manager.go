@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -222,7 +222,10 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateAssignRoles(req, m.authNconfig)
+	reqs, err := migrateAssignRoles(req, m.authNconfig)
+	if err != nil {
+		return fmt.Errorf("migrateAssign: %w", err)
+	}
 	for _, req := range reqs {
 		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
 			return err
@@ -265,7 +268,10 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateRevokeRoles(req)
+	reqs, err := migrateRevokeRoles(req)
+	if err != nil {
+		return fmt.Errorf("migrateRevoke: %w", err)
+	}
 	for _, req := range reqs {
 		if err := m.authZ.RevokeRolesForUser(req.User, req.Roles...); err != nil {
 			return err

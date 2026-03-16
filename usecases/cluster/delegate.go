@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // _OpCode represents the type of supported operation
@@ -88,15 +88,15 @@ func (d *spaceMsg) marshal() (data []byte, err error) {
 func (d *spaceMsg) unmarshal(data []byte) (err error) {
 	rd := bytes.NewReader(data)
 	if err = binary.Read(rd, binary.BigEndian, &d.header); err != nil {
-		return
+		return err
 	}
 	if err = binary.Read(rd, binary.BigEndian, &d.DiskUsage); err != nil {
-		return
+		return err
 	}
 
 	// decode node name start by its length
 	if d.NodeLen, err = rd.ReadByte(); err != nil {
-		return
+		return err
 	}
 	begin := len(data) - rd.Len()
 	end := begin + int(d.NodeLen)
@@ -115,10 +115,11 @@ type delegate struct {
 	Name     string
 	dataPath string
 	log      logrus.FieldLogger
-	sync.Mutex
+	//  All the methods must be thread-safe,
+	// see https://github.com/hashicorp/memberlist/blob/master/delegate.go#L7-L8
+	sync.RWMutex
 	Cache map[string]NodeInfo
 
-	mutex    sync.Mutex
 	hostInfo NodeInfo
 
 	metadata NodeMetadata
@@ -130,14 +131,14 @@ type NodeMetadata struct {
 }
 
 func (d *delegate) setOwnSpace(x DiskUsage) {
-	d.mutex.Lock()
+	d.Lock()
+	defer d.Unlock()
 	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli()}
-	d.mutex.Unlock()
 }
 
 func (d *delegate) ownInfo() NodeInfo {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 	return d.hostInfo
 }
 
@@ -236,8 +237,8 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 
 // get returns info about about a specific node in the cluster
 func (d *delegate) get(node string) (NodeInfo, bool) {
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 	x, ok := d.Cache[node]
 	return x, ok
 }
@@ -265,8 +266,8 @@ func (d *delegate) delete(node string) {
 func (d *delegate) sortCandidates(names []string) []string {
 	rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
 
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 	m := d.Cache
 	sort.Slice(names, func(i, j int) bool {
 		return (m[names[j]].Available >> 25) < (m[names[i]].Available >> 25)
@@ -306,15 +307,44 @@ type events struct {
 
 // NotifyJoin is invoked when a node is detected to have joined.
 // The Node argument must not be modified.
-func (e events) NotifyJoin(*memberlist.Node) {}
+func (e events) NotifyJoin(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "join",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Debug("node joined cluster")
+}
 
 // NotifyLeave is invoked when a node is detected to have left.
 // The Node argument must not be modified.
 func (e events) NotifyLeave(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "leave",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Debug("node left cluster")
 	e.d.delete(node.Name)
 }
 
 // NotifyUpdate is invoked when a node is detected to have
 // updated, usually involving the meta data. The Node argument
 // must not be modified.
-func (e events) NotifyUpdate(*memberlist.Node) {}
+func (e events) NotifyUpdate(node *memberlist.Node) {
+	if node == nil {
+		return
+	}
+	e.d.log.WithFields(logrus.Fields{
+		"action":    "memberlist_event",
+		"event":     "update",
+		"node":      node.Name,
+		"node_addr": node.Addr.String(),
+	}).Debug("node updated in cluster")
+}

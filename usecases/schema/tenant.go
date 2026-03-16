@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,18 +74,18 @@ func (h *Handler) AddTenants(ctx context.Context,
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
 	if !allowOverHundred && len(tenants) > 100 {
 		err = uco.NewErrInvalidUserInput(ErrMsgMaxAllowedTenants)
-		return
+		return validated, err
 	}
 	uniq := make(map[string]*models.Tenant)
 	for i, requested := range tenants {
 		if errMsg := schema.ValidateTenantName(requested.Name); errMsg != nil {
 			err = uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, errMsg.Error())
-			return
+			return validated, err
 		}
 		_, found := uniq[requested.Name]
 		if found {
 			err = uco.NewErrInvalidUserInput("tenant name %s existed multiple times", requested.Name)
-			return
+			return validated, err
 		}
 		uniq[requested.Name] = requested
 	}
@@ -95,7 +95,7 @@ func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated
 		validated[i] = tenant
 		i++
 	}
-	return
+	return validated, err
 }
 
 func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*models.Tenant,
@@ -177,15 +177,23 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
-	if _, err = h.schemaManager.UpdateTenants(ctx, class, &req); err != nil {
+	version, err := h.schemaManager.UpdateTenants(ctx, class, &req)
+	if err != nil {
 		return nil, err
 	}
 
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
-	uTenants, _, err := h.schemaManager.QueryTenants(class, tNames)
+	tenantsStatus, err := h.schemaReader.TenantsShardsWithVersion(ctx, version, class, tNames...)
 	if err != nil {
 		return nil, err
+	}
+	uTenants := make([]*models.Tenant, 0, len(tenantsStatus))
+	for name, status := range tenantsStatus {
+		uTenants = append(uTenants, &models.Tenant{
+			Name:           name,
+			ActivityStatus: schema.ActivityStatus(status),
+		})
 	}
 	return uTenants, err
 }
@@ -333,7 +341,7 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 		}
 		return nil
 	}
-	return ts, h.schemaReader.Read(class, f)
+	return ts, h.schemaReader.Read(class, true, f)
 }
 
 // convert the new tenant names (that are only used as input) to the old tenant names that are used throughout the code

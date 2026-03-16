@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,15 +55,13 @@ func TestText2VecAWS_SingleNode(t *testing.T) {
 }
 
 func createSingleNodeEnvironment(ctx context.Context, accessKey, secretKey, sessionToken string,
-) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules(accessKey, secretKey, sessionToken).
+) (*docker.DockerCompose, error) {
+	return composeModules(accessKey, secretKey, sessionToken).
 		WithWeaviate().
 		Start(ctx)
-	return
 }
 
-func composeModules(accessKey, secretKey, sessionToken string) (composeModules *docker.Compose) {
-	composeModules = docker.New().
+func composeModules(accessKey, secretKey, sessionToken string) *docker.Compose {
+	return docker.New().
 		WithMulti2VecAWS(accessKey, secretKey, sessionToken)
-	return
 }

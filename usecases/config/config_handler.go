@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -60,6 +60,12 @@ const (
 var DefaultUsingBlockMaxWAND = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || entcfg.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE"))
 
 const (
+	// Lazy load shard auto-detection thresholds
+	DefaultLazyLoadShardCountThreshold  = 1000
+	DefaultLazyLoadShardSizeThresholdGB = 100.0 // 100GB
+)
+
+const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
 
 	DefaultDiskUseWarningPercentage  = uint64(80)
@@ -69,6 +75,14 @@ const (
 	//       the measurement is reliable. once
 	//       confirmed, we can set this to 90
 	DefaultMemUseReadonlyPercentage = uint64(0)
+)
+
+const (
+	DefaultObjectsTTLDeleteSchedule      = "" // disabled
+	DefaultObjectsTTLBatchSize           = 10_000
+	DefaultObjectsTTLConcurrencyFactor   = 1
+	DefaultObjectsTTLPauseEveryNoBatches = 10
+	DefaultObjectsTTLPauseDuration       = time.Minute
 )
 
 // Flags are input options
@@ -104,6 +118,7 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
+	Backup                              Backup                   `json:"backup" yaml:"backup"`
 	Name                                string                   `json:"name" yaml:"name"`
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -132,10 +147,13 @@ type Config struct {
 	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
+	MaximumConcurrentBucketLoads        int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
+	EnableLazyLoadShards                bool                     `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold         int                      `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB        float64                  `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
@@ -148,16 +166,22 @@ type Config struct {
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
+	TelemetryURL                        string                   `json:"telemetry_url" yaml:"telemetry_url"`
+	TelemetryPushInterval               time.Duration            `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
+	HNSWGeoIndexEF                      int                      `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
+	AsyncIndexingEnabled                bool                     `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
 	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
+	HFreshEnabled                       bool                     `json:"hfresh_enabled" yaml:"hfresh_enabled"`
+	ReplicationEngineFileCopyChunkSize  int                      `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -167,7 +191,7 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
-	ReplicaMovementDisabled         bool                                 `json:"replica_movement_disabled" yaml:"replica_movement_disabled"`
+	ReplicaMovementEnabled          bool                                 `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration] `json:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT" yaml:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
@@ -225,6 +249,17 @@ type Config struct {
 
 	// The minimum timeout for the server to wait before it returns an error
 	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
+
+	// Time expired objects should be deleted at by background routine
+	// accepts format: https://github.com/netresearch/go-cron?tab=readme-ov-file#cron-expression-format
+	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
+	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
+	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
+	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -344,6 +379,22 @@ type QueryDefaults struct {
 	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
+// DefaultBackupMinChunkSize is the default minimum size for backup chunks
+const DefaultBackupMinChunkSize = 1024 * 1024 // 1MB
+
+// DefaultBackupChunkTargetSize is the default target size for packing small files into chunks
+const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
+
+// DefaultBackupSplitFileSize is the default size for splitting large files during backup
+const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
+
+// Backup contains backup-related configuration
+type Backup struct {
+	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
+	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
+	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
+}
+
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
 const (
 	DefaultQueryDefaultsLimit        int64 = 10
@@ -356,10 +407,12 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port       int    `json:"port" yaml:"port"`
-	CertFile   string `json:"certFile" yaml:"certFile"`
-	KeyFile    string `json:"keyFile" yaml:"keyFile"`
-	MaxMsgSize int    `json:"maxMsgSize" yaml:"maxMsgSize"`
+	Port            int           `json:"port" yaml:"port"`
+	CertFile        string        `json:"certFile" yaml:"certFile"`
+	KeyFile         string        `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize      int           `json:"maxMsgSize" yaml:"maxMsgSize"`
+	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
+	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
 }
 
 type Profiling struct {
@@ -421,7 +474,7 @@ const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward
 const (
 	// minimal interval for new hnws snapshot to be created after last one
 	DefaultHNSWSnapshotIntervalSeconds                  = 6 * 3600 // 6h
-	DefaultHNSWSnapshotDisabled                         = true
+	DefaultHNSWSnapshotDisabled                         = false
 	DefaultHNSWSnapshotOnStartup                        = true
 	DefaultHNSWSnapshotMinDeltaCommitlogsNumber         = 1
 	DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage = 5 // 5%
@@ -514,7 +567,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -539,10 +592,12 @@ type Raft struct {
 	SnapshotThreshold uint64
 	TrailingLogs      uint64
 
-	HeartbeatTimeout       time.Duration
-	ElectionTimeout        time.Duration
-	LeaderLeaseTimeout     time.Duration
-	TimeoutsMultiplier     int
+	HeartbeatTimeout   time.Duration
+	ElectionTimeout    time.Duration
+	LeaderLeaseTimeout time.Duration
+	TimeoutsMultiplier *runtime.DynamicValue[int]
+	DrainSleep         *runtime.DynamicValue[time.Duration]
+
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

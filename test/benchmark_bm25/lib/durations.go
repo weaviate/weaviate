@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,7 @@ package lib
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -28,8 +28,7 @@ type LatencyStats struct {
 
 func AnalyzeLatencies(in []time.Duration) LatencyStats {
 	out := LatencyStats{}
-	sort.Slice(in, func(a, b int) bool { return in[a] < in[b] })
-
+	slices.Sort(in)
 	out.Min = in[0]
 	out.Max = in[len(in)-1]
 

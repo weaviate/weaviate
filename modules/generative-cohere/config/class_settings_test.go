@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package config
 import (
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -38,7 +37,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:         "command-r",
+			wantModel:         "command-a-03-2025",
 			wantMaxTokens:     2048,
 			wantTemperature:   0,
 			wantK:             0,
@@ -64,17 +63,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantStopSequences: []string{"stop1", "stop2"},
 			wantBaseURL:       "https://api.cohere.ai",
 			wantErr:           nil,
-		},
-		{
-			name: "wrong model configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "wrong-model",
-				},
-			},
-			wantErr: errors.Errorf("wrong Cohere model name, available model names are: " +
-				"[command-r-plus command-r command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
-				"command-medium-nightly xlarge medium command command-light command-nightly command-light-nightly base base-light]"),
 		},
 		{
 			name: "default settings with command-light-nightly",

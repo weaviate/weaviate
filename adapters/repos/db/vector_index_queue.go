@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,7 +62,7 @@ func NewVectorIndexQueue(
 	viq := VectorIndexQueue{
 		shard:        shard,
 		scheduler:    shard.scheduler,
-		asyncEnabled: asyncEnabled(),
+		asyncEnabled: shard.index.AsyncIndexingEnabled,
 	}
 	viq.vectorIndex = index
 
@@ -109,13 +109,13 @@ func NewVectorIndexQueue(
 	return &viq, nil
 }
 
-func (iq *VectorIndexQueue) Close() error {
+func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 	if iq == nil {
 		// the queue is nil when the shard is not fully initialized
 		return nil
 	}
 
-	return iq.DiskQueue.Close()
+	return iq.DiskQueue.Close(ctx)
 }
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {

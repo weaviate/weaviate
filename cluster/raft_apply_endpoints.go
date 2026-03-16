@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,11 +47,12 @@ func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.Sta
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
+func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
-	req := cmd.UpdateClassRequest{Class: cls, State: ss}
+
+	req := cmd.UpdateClassRequest{Class: cls}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)
@@ -61,6 +62,7 @@ func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
+
 	return s.Execute(ctx, command)
 }
 
@@ -102,6 +104,23 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_PROPERTY,
+		Class:      class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
+func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property) (uint64, error) {
+	if class == "" || property == nil {
+		return 0, fmt.Errorf("empty property or empty class name: %w", schema.ErrBadRequest)
+	}
+	req := cmd.UpdatePropertyRequest{Property: property}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
 		Class:      class,
 		SubCommand: subCommand,
 	}
@@ -272,14 +291,6 @@ func (s *Raft) UpdateTenantsProcess(ctx context.Context, class string, req *cmd.
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
-}
-
-func (s *Raft) StoreSchemaV1() error {
-	command := &cmd.ApplyRequest{
-		Type: cmd.ApplyRequest_TYPE_STORE_SCHEMA_V1,
-	}
-	_, err := s.Execute(context.Background(), command)
-	return err
 }
 
 func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, error) {

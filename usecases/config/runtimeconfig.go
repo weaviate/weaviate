@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,34 +29,48 @@ import (
 // WeaviateRuntimeConfig is the collection all the supported configs that is
 // managed dynamically and can be overridden during runtime.
 type WeaviateRuntimeConfig struct {
-	MaximumAllowedCollectionsCount  *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	AutoschemaEnabled               *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
-	AsyncReplicationDisabled        *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
-	RevectorizeCheckDisabled        *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
-	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_async_wait" yaml:"replica_movement_minimum_async_wait"`
-	TenantActivityReadLogLevel      *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
-	TenantActivityWriteLogLevel     *runtime.DynamicValue[string]        `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
-	QuerySlowLogEnabled             *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
-	QuerySlowLogThreshold           *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
-	InvertedSorterDisabled          *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
-	UsageGCSBucket                  *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
-	UsageGCSPrefix                  *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
-	UsageS3Bucket                   *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
-	UsageS3Prefix                   *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
-	UsageScrapeInterval             *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
-	UsageShardJitterInterval        *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
-	UsagePolicyVersion              *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
-	UsageVerifyPermissions          *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
+	MaximumAllowedCollectionsCount       *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	AutoschemaEnabled                    *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
+	AsyncReplicationDisabled             *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	AsyncReplicationClusterMaxWorkers    *runtime.DynamicValue[int]           `json:"async_replication_cluster_max_workers" yaml:"async_replication_cluster_max_workers"`
+	RevectorizeCheckDisabled             *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+	ReplicaMovementMinimumAsyncWait      *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_async_wait" yaml:"replica_movement_minimum_async_wait"`
+	TenantActivityReadLogLevel           *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	TenantActivityWriteLogLevel          *runtime.DynamicValue[string]        `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+	QuerySlowLogEnabled                  *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold                *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
+	InvertedSorterDisabled               *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	UsageGCSBucket                       *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	UsageGCSPrefix                       *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	UsageS3Bucket                        *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
+	UsageS3Prefix                        *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
+	UsageScrapeInterval                  *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	UsageShardJitterInterval             *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
+	UsagePolicyVersion                   *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
+	UsageVerifyPermissions               *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
+	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
+	OperationalMode                      *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
+	DefaultQuantization                  *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 
-	// Experimental configs. Will be removed in the future.
-	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
-	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
-	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`
-	OIDCUsernameClaim     *runtime.DynamicValue[string]   `yaml:"exp_oidc_username_claim" json:"exp_oidc_username_claim"`
-	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
-	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
-	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
-	DefaultQuantization   *runtime.DynamicValue[string]   `yaml:"default_quantization" json:"default_quantization"`
+	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
+	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
+	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// RAFT specific configs
+	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
+	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`
+
+	// Authentication OIDC settings
+	OIDCIssuer            *runtime.DynamicValue[string]   `json:"authentication_oidc_issuer" yaml:"authentication_oidc_issuer"`
+	OIDCClientID          *runtime.DynamicValue[string]   `json:"authentication_oidc_client_id" yaml:"authentication_oidc_client_id"`
+	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_skip_client_id_check" json:"authentication_oidc_skip_client_id_check"`
+	OIDCUsernameClaim     *runtime.DynamicValue[string]   `yaml:"authentication_oidc_username_claim" json:"authentication_oidc_username_claim"`
+	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_groups_claim" json:"authentication_oidc_groups_claim"`
+	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"authentication_oidc_scopes" json:"authentication_oidc_scopes"`
+	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_certificate" json:"authentication_oidc_certificate"`
+	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
@@ -64,9 +78,6 @@ func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
 	var conf WeaviateRuntimeConfig
 
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
-
-	// To catch fields different than ones in the struct (say typo)
-	dec.KnownFields(true)
 
 	// Am empty runtime yaml file is still a valid file. So treating io.EOF as
 	// non-error case returns default values of config.
@@ -156,7 +167,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[int])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[float64]:
@@ -166,7 +177,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[float64])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[bool]:
@@ -176,7 +187,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[bool])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[time.Duration]:
@@ -186,7 +197,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[time.Duration])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[string]:
@@ -196,7 +207,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[string])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[[]string]:
@@ -206,27 +217,32 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[[]string])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		default:
 			panic(fmt.Sprintf("not recognized type: %#v, %#v", pi, si))
 		}
 
-		if !reflect.DeepEqual(r.newV, r.oldV) {
+		if r.err != nil || !reflect.DeepEqual(r.newV, r.oldV) {
 			logRecords = append(logRecords, r)
 		}
 
 	}
 
 	// log the changes made as INFO for auditing.
-	for _, v := range logRecords {
-		log.WithFields(logrus.Fields{
+	for _, r := range logRecords {
+		logger := log.WithFields(logrus.Fields{
 			"action":    "runtime_overrides_changed",
-			"field":     v.field,
-			"old_value": v.oldV,
-			"new_value": v.newV,
-		}).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", v.field, v.oldV, v.newV)
+			"field":     r.field,
+			"old_value": r.oldV,
+		})
+
+		if r.err != nil {
+			logger.WithError(r.err).Errorf("runtime overrides: config '%v' change failed", r.field)
+			continue
+		}
+		logger.WithField("new_value", r.newV).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", r.field, r.oldV, r.newV)
 	}
 
 	for match, f := range hooks {
@@ -250,12 +266,13 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 // updateLogRecord is used to record changes during updating runtime config.
 type updateLogRecord struct {
 	field      string
+	err        error
 	oldV, newV any
 }
 
 func matchUpdatedFields(match string, records []updateLogRecord) bool {
 	for _, v := range records {
-		if strings.Contains(v.field, match) {
+		if strings.HasPrefix(v.field, match) {
 			return true
 		}
 	}

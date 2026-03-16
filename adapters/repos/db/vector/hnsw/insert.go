@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -24,12 +23,20 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
+)
+
+const (
+	// bytesPerFloat32 represents the number of bytes used by a float32 value.
+	bytesPerFloat32 = 4
+
+	// overheadPerVector represents the estimated overhead in bytes per vector (e.g., slice header, etc.).
+	overheadPerVector = 30
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
-	dims := int(atomic.LoadInt32(&h.dims))
+	dims := int(h.dims.Load())
 
 	// no vectors exist
 	if dims == 0 {
@@ -53,7 +60,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
-	dims := int(atomic.LoadInt32(&h.dims))
+	dims := int(h.dims.Load())
 
 	// no vectors exist
 	if dims == 0 {
@@ -96,10 +103,72 @@ func (h *hnsw) validatePQSegments(dims int) error {
 	return nil
 }
 
+func (h *hnsw) checkAndCompress() error {
+	var err error
+	if h.rqActive.Load() {
+		// Defer RQ initialization until the cache is fully prefilled.
+		if !h.cachePrefilled.Load() {
+			return nil
+		}
+		h.trackRQOnce.Do(func() {
+			h.compressActionLock.Lock()
+			defer h.compressActionLock.Unlock()
+			singleVector := !h.multivector.Load() || h.muvera.Load()
+			if singleVector {
+				h.compressor, err = compressionhelpers.NewRQCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector())
+			} else {
+				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector())
+			}
+
+			if err == nil {
+				h.Lock()
+				defer h.Unlock()
+				h.compressed.Store(true)
+				if h.cache != nil {
+
+					data := h.cache.All()
+					if singleVector {
+						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+							func(index uint64) {
+								if data[index] == nil {
+									return
+								}
+								h.compressor.Preload(index, data[index])
+							})
+					} else {
+						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+							func(index uint64) {
+								if len(data[index]) == 0 {
+									return
+								}
+								docID, relativeID := h.cache.GetKeys(index)
+								h.compressor.PreloadPassage(index, docID, relativeID, data[index])
+							})
+					}
+					h.cache.Drop()
+				}
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+	}
+	return err
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	if err := h.allocChecker.CheckAlloc(estimateBatchMemory(vectors)); err != nil {
+		h.metrics.MemoryAllocationRejected()
+		return fmt.Errorf("add batch of %d vectors: %w", len(vectors), err)
+	}
+
 	if h.multivector.Load() && !h.muvera.Load() {
 		return errors.Errorf("AddBatch called on multivector index")
 	}
@@ -115,12 +184,12 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		dims := len(vectors[0])
 		for _, vec := range vectors {
 			if len(vec) != dims {
-				err = errors.Errorf("addBatch called with vectors of different lengths")
+				err = errors.Errorf("addBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
 				return
 			}
 		}
 		if err == nil {
-			atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+			h.dims.Store(int32(len(vectors[0])))
 		}
 	})
 
@@ -128,35 +197,17 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	if h.rqConfig.Enabled && h.rqActive {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
-
-			if err == nil {
-				h.Lock()
-				defer h.Unlock()
-				h.compressed.Store(true)
-				if h.cache != nil {
-					h.cache.Drop()
-				}
-				h.cache = nil
-				h.compressor.PersistCompression(h.commitLog)
-			}
-		})
-		if err != nil {
-			return err
-		}
+	err = h.checkAndCompress()
+	if err != nil {
+		return err
 	}
-
-	levels := make([]int, len(ids))
+	levels := make([]uint8, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
 		if maxId < id {
 			maxId = id
 		}
-		levels[i] = int(h.generateLevel()) // TODO: represent level as uint8
+		levels[i] = h.generateLevel()
 	}
 	h.RLock()
 	if maxId >= uint64(len(h.nodes)) {
@@ -182,7 +233,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
-			level: levels[i],
+			level: int(levels[i]),
 		}
 		globalBefore := time.Now()
 		if len(vector) == 0 {
@@ -248,56 +299,30 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		for _, doc := range vectors {
 			for _, vec := range doc {
 				if len(vec) != dim {
-					err = errors.Errorf("addMultiBatch called with vectors of different lengths")
+					err = errors.Errorf("addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), dim)
 					return
 				}
 			}
 		}
 		if err == nil {
-			atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+			h.dims.Store(int32(len(vectors[0][0])))
 		}
 	})
 
 	if err != nil {
 		return err
 	}
-	if h.rqConfig.Enabled && h.rqActive {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
 
-			if err == nil {
-				h.Lock()
-				data := h.cache.All()
-				h.compressor.GrowCache(h.vecIDcounter)
-				compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-					func(index uint64) {
-						if len(data[index]) == 0 {
-							return
-						}
-						docID, relativeID := h.cache.GetKeys(index)
-						h.compressor.PreloadPassage(index, docID, relativeID, data[index])
-					})
-				h.compressed.Store(true)
-				h.cache.Drop()
-				h.compressor.PersistCompression(h.commitLog)
-				h.Unlock()
-			}
-		})
-		if err != nil {
-			return err
-		}
-	}
+	err = h.checkAndCompress()
 	if err != nil {
 		return err
 	}
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])
-		levels := make([]int, numVectors)
+		levels := make([]uint8, numVectors)
 		for j := range numVectors {
-			levels[j] = int(h.generateLevel()) // TODO: represent level as uint8
+			levels[j] = h.generateLevel()
 		}
 
 		h.Lock()
@@ -353,7 +378,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			node := &vertex{
 				id:    uint64(nodeId),
-				level: levels[j],
+				level: int(levels[j]),
 			}
 
 			h.Lock()
@@ -536,14 +561,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if singleVector {
-		if h.compressed.Load() {
-			h.compressor.Preload(node.id, nodeVec)
-		} else {
-			h.cache.Preload(node.id, nodeVec)
-		}
-	}
+	h.Preload(node.id, nodeVec)
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
@@ -551,4 +569,25 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 func (h *hnsw) generateLevel() uint8 {
 	return uint8(math.Floor(-math.Log(max(h.randFunc(), 1e-19)) * h.levelNormalizer))
+}
+
+func (h *hnsw) Preload(id uint64, vector []float32) {
+	singleVector := !h.multivector.Load() || h.muvera.Load()
+	if singleVector {
+		if h.compressed.Load() {
+			h.compressor.Preload(id, vector)
+		} else {
+			h.cache.Preload(id, vector)
+		}
+	}
+}
+
+func estimateBatchMemory(vecs [][]float32) int64 {
+	var sum int64
+	for _, item := range vecs {
+		// use same logic as in memwatch.EstimateObjectMemory
+		sum += int64(len(item))*bytesPerFloat32 + overheadPerVector
+	}
+
+	return sum
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,8 +17,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
+
+type configTestBucketView struct{}
+
+func (configTestBucketView) ReleaseView() {}
 
 func Test_ValidConfig(t *testing.T) {
 	err := validConfig().Validate()
@@ -64,6 +69,14 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("vectorForIDThunk cannot be nil"),
 		},
+		{
+			config: func() Config {
+				v := validConfig()
+				v.GetViewThunk = nil
+				return v
+			},
+			expectedErr: errors.Errorf("getViewThunk cannot be nil"),
+		},
 	}
 
 	for _, test := range tests {
@@ -81,5 +94,6 @@ func validConfig() Config {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) { return nil, nil },
 		VectorForIDThunk:      func(context.Context, uint64) ([]float32, error) { return nil, nil },
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		GetViewThunk:          func() common.BucketView { return configTestBucketView{} },
 	}
 }
