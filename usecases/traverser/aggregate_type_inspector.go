@@ -75,26 +75,32 @@ func (i *typeInspector) extendResWithType(res *aggregation.Result, propName stri
 		return err
 	}
 
+	var dt schema.DataType
+	switch {
+	case propType.IsPrimitive():
+		dt = propType.AsPrimitive()
+	case propType.IsNested():
+		dt = propType.AsNested() // TODO: check if sufficient just schematype
+	case propType.IsReference():
+		dt = schema.DataTypeCRef
+	}
+
 	for groupIndex, group := range res.Groups {
 		prop, ok := group.Properties[propName]
 		if !ok {
 			prop = aggregation.Property{}
 		}
 
-		if propType.IsPrimitive() {
-			prop.SchemaType = string(propType.AsPrimitive())
-		} else if propType.IsNested() { // TODO nested -> check if sufficient just schematype
-			prop.SchemaType = string(propType.AsNested())
-		} else {
+		prop.SchemaType = string(dt)
+
+		if propType.IsReference() {
 			prop.Type = aggregation.PropertyTypeReference
-			prop.SchemaType = string(schema.DataTypeCRef)
 			prop.ReferenceAggregation.PointingTo = dataType
-			if res.Groups[groupIndex].Properties == nil {
-				// prevent nil pointer panic
+			if res.Groups[groupIndex].Properties == nil { // prevent nil pointer dereference
 				res.Groups[groupIndex].Properties = map[string]aggregation.Property{}
 			}
-		}
 
+		}
 		res.Groups[groupIndex].Properties[propName] = prop
 	}
 
