@@ -14,7 +14,6 @@ package export
 import (
 	"fmt"
 	"io"
-	"sync/atomic"
 
 	"github.com/parquet-go/parquet-go"
 )
@@ -39,7 +38,7 @@ type ParquetWriter struct {
 	writer    *parquet.GenericWriter[ParquetRow]
 	buffer    []ParquetRow
 	batchSize int
-	written   atomic.Int64
+	onFlush   func(int64) // called after each successful flush with the number of rows flushed
 }
 
 // NewParquetWriter creates a new Parquet writer
@@ -84,8 +83,10 @@ func (pw *ParquetWriter) Flush() error {
 		return fmt.Errorf("write batch to parquet: %w", err)
 	}
 
-	pw.written.Add(n)
 	pw.buffer = pw.buffer[:0] // Reset buffer
+	if pw.onFlush != nil {
+		pw.onFlush(n)
+	}
 	return nil
 }
 
@@ -95,11 +96,6 @@ func (pw *ParquetWriter) Close() error {
 		return err
 	}
 	return pw.writer.Close()
-}
-
-// ObjectsWritten returns the total number of objects written
-func (pw *ParquetWriter) ObjectsWritten() int64 {
-	return pw.written.Load()
 }
 
 // SetFileMetadata sets a key/value pair in the Parquet file metadata.
