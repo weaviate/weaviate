@@ -224,6 +224,10 @@ func (s *blockingSelector) IsMultiTenant(_ context.Context, _ string) bool {
 	return false
 }
 
+func (s *blockingSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bool {
+	return true
+}
+
 func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), string, error) {
 	s.initCalledCh()
 	s.calledMu.Lock()
@@ -783,6 +787,10 @@ func (s *emptySelector) ShardOwnership(context.Context, string) (map[string][]st
 
 func (s *emptySelector) IsMultiTenant(_ context.Context, _ string) bool {
 	return false
+}
+
+func (s *emptySelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bool {
+	return true
 }
 
 func (s *emptySelector) AcquireShardForExport(_ context.Context, _, _ string) (ShardLike, func(), string, error) {
