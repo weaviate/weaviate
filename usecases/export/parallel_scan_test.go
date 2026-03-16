@@ -253,57 +253,6 @@ func TestComputeNumRanges(t *testing.T) {
 	}
 }
 
-// TestScanAllRanges verifies that splitting a bucket into multiple ranges and
-// scanning each range independently produces the exact same set of objects as
-// the original bucket — no duplicates from overlapping boundaries, no gaps
-// from missed keys.
-func TestScanAllRanges(t *testing.T) {
-	t.Parallel()
-
-	const numObjects = 250_000
-	const parallelism = 10
-
-	store, inserted := createTestStore(t, numObjects)
-	defer store.Shutdown(context.Background())
-	require.Equal(t, numObjects, inserted)
-
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	require.NotNil(t, bucket)
-
-	ranges := computeRanges(bucket, parallelism)
-	require.Greater(t, len(ranges), 1, "test requires multiple ranges to be meaningful")
-
-	// Scan each range into its own in-memory parquet file.
-	var allRows []ParquetRow
-	for i, r := range ranges {
-		var buf bytes.Buffer
-		writer, err := NewParquetWriter(&buf)
-		require.NoError(t, err)
-
-		err = scanRangeToWriter(context.Background(), bucket, r.start, r.end, writer)
-		require.NoError(t, err)
-		require.NoError(t, writer.Close())
-
-		rows := readParquetRows(t, buf.Bytes())
-		t.Logf("range %d: %d rows", i, len(rows))
-		allRows = append(allRows, rows...)
-	}
-
-	assert.Len(t, allRows, numObjects, "total rows should match inserted objects")
-
-	assertUniqueIDs(t, allRows)
-
-	// Verify every expected ID is present (no gaps).
-	expected := make(map[string]struct{}, numObjects)
-	for i := range numObjects {
-		expected[fmt.Sprintf("00000000-0000-0000-0000-%012d", i)] = struct{}{}
-	}
-	for _, row := range allRows {
-		delete(expected, row.ID)
-	}
-	assert.Empty(t, expected, "missing %d IDs from scan output", len(expected))
-}
-
 // scanToRows is a test helper that calls scanRangeToWriter with an in-memory
 // ParquetWriter and returns the decoded rows (or error).
 func scanToRows(t *testing.T, ctx context.Context, bucket *lsmkv.Bucket, start, end []byte) ([]ParquetRow, error) {
@@ -336,57 +285,77 @@ func TestScanRangeToWriter(t *testing.T) {
 		return k
 	}
 
+	optKey := func(i int) []byte {
+		if i < 0 {
+			return nil
+		}
+		return makeKey(i)
+	}
+
 	expectedID := func(i int) string {
 		return fmt.Sprintf("00000000-0000-0000-0000-%012d", i)
 	}
 
-	t.Run("full scan with nil start and nil end", func(t *testing.T) {
-		t.Parallel()
-		rows, err := scanToRows(t, context.Background(), bucket, nil, nil)
-		require.NoError(t, err)
-		assert.Len(t, rows, numObjects)
-	})
+	boundaryTests := []struct {
+		name    string
+		startAt int // negative means nil
+		endAt   int // negative means nil
+		count   int
+		firstID string
+		lastID  string
+	}{
+		{
+			name:    "full scan with nil start and nil end",
+			startAt: -1, endAt: -1,
+			count: numObjects,
+		},
+		{
+			name:    "bounded range excludes endKey",
+			startAt: 10, endAt: 20,
+			count:   10,
+			firstID: expectedID(10),
+			lastID:  expectedID(19),
+		},
+		{
+			name:    "nil start scans from beginning",
+			startAt: -1, endAt: 5,
+			count:   5,
+			firstID: expectedID(0),
+			lastID:  expectedID(4),
+		},
+		{
+			name:    "nil end scans to end of bucket",
+			startAt: 95, endAt: -1,
+			count:   5,
+			firstID: expectedID(95),
+			lastID:  expectedID(99),
+		},
+		{
+			name:    "start equals end produces zero rows",
+			startAt: 50, endAt: 50,
+			count: 0,
+		},
+		{
+			name:    "start beyond last key produces zero rows",
+			startAt: numObjects + 10, endAt: -1,
+			count: 0,
+		},
+	}
 
-	t.Run("bounded range excludes endKey", func(t *testing.T) {
-		t.Parallel()
-		rows, err := scanToRows(t, context.Background(), bucket, makeKey(10), makeKey(20))
-		require.NoError(t, err)
-		require.Len(t, rows, 10)
-		assert.Equal(t, expectedID(10), rows[0].ID)
-		assert.Equal(t, expectedID(19), rows[len(rows)-1].ID)
-	})
-
-	t.Run("nil start scans from beginning", func(t *testing.T) {
-		t.Parallel()
-		rows, err := scanToRows(t, context.Background(), bucket, nil, makeKey(5))
-		require.NoError(t, err)
-		require.Len(t, rows, 5)
-		assert.Equal(t, expectedID(0), rows[0].ID)
-		assert.Equal(t, expectedID(4), rows[len(rows)-1].ID)
-	})
-
-	t.Run("nil end scans to end of bucket", func(t *testing.T) {
-		t.Parallel()
-		rows, err := scanToRows(t, context.Background(), bucket, makeKey(95), nil)
-		require.NoError(t, err)
-		require.Len(t, rows, 5)
-		assert.Equal(t, expectedID(95), rows[0].ID)
-		assert.Equal(t, expectedID(99), rows[len(rows)-1].ID)
-	})
-
-	t.Run("start equals end produces zero rows", func(t *testing.T) {
-		t.Parallel()
-		rows, err := scanToRows(t, context.Background(), bucket, makeKey(50), makeKey(50))
-		require.NoError(t, err)
-		assert.Empty(t, rows)
-	})
-
-	t.Run("start beyond last key produces zero rows", func(t *testing.T) {
-		t.Parallel()
-		rows, err := scanToRows(t, context.Background(), bucket, makeKey(numObjects+10), nil)
-		require.NoError(t, err)
-		assert.Empty(t, rows)
-	})
+	for _, tc := range boundaryTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rows, err := scanToRows(t, context.Background(), bucket, optKey(tc.startAt), optKey(tc.endAt))
+			require.NoError(t, err)
+			require.Len(t, rows, tc.count)
+			if tc.firstID != "" {
+				assert.Equal(t, tc.firstID, rows[0].ID)
+			}
+			if tc.lastID != "" {
+				assert.Equal(t, tc.lastID, rows[len(rows)-1].ID)
+			}
+		})
+	}
 
 	t.Run("adjacent ranges have no overlap and no gaps", func(t *testing.T) {
 		t.Parallel()
@@ -408,6 +377,45 @@ func TestScanRangeToWriter(t *testing.T) {
 
 		_, err := scanToRows(t, ctx, bucket, nil, nil)
 		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("computed ranges cover all objects without duplicates or gaps", func(t *testing.T) {
+		t.Parallel()
+
+		const largeObjects = 250_000
+		const parallelism = 10
+
+		largeStore, inserted := createTestStore(t, largeObjects)
+		t.Cleanup(func() { largeStore.Shutdown(context.Background()) })
+		require.Equal(t, largeObjects, inserted)
+
+		largeBucket := largeStore.Bucket(helpers.ObjectsBucketLSM)
+		require.NotNil(t, largeBucket)
+
+		ranges := computeRanges(largeBucket, parallelism)
+		require.Greater(t, len(ranges), 1, "test requires multiple ranges to be meaningful")
+
+		// Scan each range into its own in-memory parquet file.
+		var allRows []ParquetRow
+		for i, r := range ranges {
+			rows, scanErr := scanToRows(t, context.Background(), largeBucket, r.start, r.end)
+			require.NoError(t, scanErr)
+			t.Logf("range %d: %d rows", i, len(rows))
+			allRows = append(allRows, rows...)
+		}
+
+		assert.Len(t, allRows, largeObjects, "total rows should match inserted objects")
+		assertUniqueIDs(t, allRows)
+
+		// Verify every expected ID is present (no gaps).
+		expected := make(map[string]struct{}, largeObjects)
+		for i := range largeObjects {
+			expected[fmt.Sprintf("00000000-0000-0000-0000-%012d", i)] = struct{}{}
+		}
+		for _, row := range allRows {
+			delete(expected, row.ID)
+		}
+		assert.Empty(t, expected, "missing %d IDs from scan output", len(expected))
 	})
 }
 
@@ -574,8 +582,7 @@ func TestRangePipelineShutdown(t *testing.T) {
 		rp, _ := newTestPipeline(t, nil)
 		scanErr := fmt.Errorf("scan failed")
 
-		written, err := rp.Shutdown(scanErr)
-		assert.Equal(t, int64(0), written)
+		err := rp.Shutdown(scanErr)
 		assert.Equal(t, scanErr, err)
 	})
 
@@ -584,20 +591,18 @@ func TestRangePipelineShutdown(t *testing.T) {
 		uploadErr := fmt.Errorf("upload failed")
 		rp, _ := newTestPipeline(t, uploadErr)
 
-		written, err := rp.Shutdown(nil)
-		assert.Equal(t, int64(0), written)
+		err := rp.Shutdown(nil)
 		assert.Equal(t, uploadErr, err)
 	})
 
-	t.Run("success returns written count", func(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		rp, _ := newTestPipeline(t, nil)
 		require.NoError(t, rp.writer.WriteRow(ParquetRow{ID: "a"}))
 		require.NoError(t, rp.writer.WriteRow(ParquetRow{ID: "b"}))
 
-		written, err := rp.Shutdown(nil)
+		err := rp.Shutdown(nil)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(2), written)
 	})
 
 	t.Run("writer close error propagated", func(t *testing.T) {
@@ -608,8 +613,7 @@ func TestRangePipelineShutdown(t *testing.T) {
 		// Break the pipe so the flush write fails.
 		pr.Close()
 
-		written, err := rp.Shutdown(nil)
-		assert.Equal(t, int64(0), written)
+		err := rp.Shutdown(nil)
 		assert.Error(t, err)
 	})
 }
@@ -649,8 +653,9 @@ func TestScanJobExecute(t *testing.T) {
 		}
 
 		var wg sync.WaitGroup
-		var written int64
 		var gotErr error
+		var written int64
+		cfg.onFlush = func(n int64) { written += n }
 
 		wg.Add(1)
 		job := scanJob{
@@ -661,7 +666,6 @@ func TestScanJobExecute(t *testing.T) {
 			writerCfg:  cfg,
 			wg:         &wg,
 			setErr:     func(err error) { gotErr = err },
-			addWritten: func(n int64) { written = n },
 		}
 		job.execute()
 		wg.Wait()
@@ -691,8 +695,9 @@ func TestScanJobExecute(t *testing.T) {
 		}
 
 		var wg sync.WaitGroup
-		var written int64
 		var gotErr error
+		var written int64
+		cfg.onFlush = func(n int64) { written += n }
 
 		wg.Add(1)
 		job := scanJob{
@@ -703,14 +708,16 @@ func TestScanJobExecute(t *testing.T) {
 			writerCfg:  cfg,
 			wg:         &wg,
 			setErr:     func(err error) { gotErr = err },
-			addWritten: func(n int64) { written = n },
 		}
 		job.execute()
 		wg.Wait()
 
 		require.Error(t, gotErr)
 		assert.Contains(t, gotErr.Error(), "s3 upload failed")
-		assert.Equal(t, int64(0), written)
+		// The scan succeeded and the final flush wrote all 10 objects to
+		// the pipe before the upload error was detected. onFlush fires
+		// during writer.Close() which happens before we read uploadDone.
+		assert.Equal(t, int64(10), written)
 	})
 }
 
@@ -740,4 +747,74 @@ func assertUniqueIDs(t *testing.T, rows []ParquetRow) {
 		}
 		seen[r.ID] = struct{}{}
 	}
+}
+
+func TestParquetWriter_OnFlush(t *testing.T) {
+	t.Parallel()
+
+	const numObjects = 25
+	const batchSize = 10
+
+	t.Run("fires on each batch and final close", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := createTestStore(t, numObjects)
+		t.Cleanup(func() { store.Shutdown(context.Background()) })
+		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+		require.NotNil(t, bucket)
+
+		var callbacks []int64
+
+		var buf bytes.Buffer
+		writer, err := NewParquetWriter(&buf)
+		require.NoError(t, err)
+		writer.batchSize = batchSize
+		writer.onFlush = func(n int64) {
+			callbacks = append(callbacks, n)
+		}
+
+		err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+
+		// With 25 objects and batchSize=10, we get flushes at 10, 20, then
+		// 5 remaining on Close.
+		require.Equal(t, []int64{10, 10, 5}, callbacks)
+
+		rows := readParquetRows(t, buf.Bytes())
+		assert.Len(t, rows, numObjects)
+	})
+
+	t.Run("suppressed after scan error", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := createTestStore(t, numObjects)
+		t.Cleanup(func() { store.Shutdown(context.Background()) })
+		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+		require.NotNil(t, bucket)
+
+		// Insert a corrupt value after the valid objects.
+		corruptKey := make([]byte, 8)
+		binary.BigEndian.PutUint64(corruptKey, uint64(numObjects))
+		require.NoError(t, bucket.Put(corruptKey, []byte("not a valid storobj")))
+		require.NoError(t, bucket.FlushAndSwitch())
+
+		var callbacks []int64
+
+		var buf bytes.Buffer
+		writer, err := NewParquetWriter(&buf)
+		require.NoError(t, err)
+		writer.batchSize = batchSize
+		writer.onFlush = func(n int64) {
+			callbacks = append(callbacks, n)
+		}
+
+		err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "extract export fields")
+
+		// Two batch flushes (10 each) fired during scanning.
+		// The remaining 5 objects were buffered but not flushed before the error.
+		require.Equal(t, []int64{10, 10}, callbacks)
+	})
 }

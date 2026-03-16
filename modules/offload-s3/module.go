@@ -42,6 +42,7 @@ const (
 	s3BucketAutoCreate = "OFFLOAD_S3_BUCKET_AUTO_CREATE"
 	s3Bucket           = "OFFLOAD_S3_BUCKET"
 	concurrency        = "OFFLOAD_S3_CONCURRENCY"
+	workers            = "OFFLOAD_S3_WORKERS"
 	timeout            = "OFFLOAD_TIMEOUT"
 )
 
@@ -64,6 +65,14 @@ type Module struct {
 }
 
 func New() *Module {
+	workersCount := 256
+	if workers := os.Getenv(workers); workers != "" {
+		workersN, err := strconv.Atoi(workers)
+		if err != nil {
+			logrus.WithError(err).Error("failed to parse workers count")
+		}
+		workersCount = workersN
+	}
 	return &Module{
 		Endpoint:    "",
 		Bucket:      "weaviate-offload",
@@ -83,7 +92,7 @@ func New() *Module {
 			Flags: []cli.Flag{
 				&cli.IntFlag{
 					Name:  "numworkers",
-					Value: 256,
+					Value: workersCount,
 					Usage: "number of workers execute operation on each object",
 				},
 				&cli.IntFlag{
