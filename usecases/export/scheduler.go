@@ -162,8 +162,9 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		}
 	}
 	if len(noAsync) > 0 {
-		return nil, fmt.Errorf("%w: classes %v do not have async replication enabled, "+
-			"which is required for export when replication factor > 1", ErrExportValidation, noAsync)
+		return nil, fmt.Errorf("%w: collections %v require async replication for export "+
+			"(replication factor > 1) but it is not active; either enable it per collection "+
+			"or check whether it is globally disabled at the cluster level", ErrExportValidation, noAsync)
 	}
 
 	backendStore, err := s.backends.BackupBackend(backend)
