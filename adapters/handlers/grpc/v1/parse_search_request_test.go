@@ -968,7 +968,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 				HybridSearch: &pb.Hybrid{Query: "query", UseAlphaParam: true},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, Alpha: 0.75},
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, Alpha: common_filters.DefaultAlpha},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
