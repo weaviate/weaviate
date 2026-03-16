@@ -286,3 +286,10 @@ func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Contex
 		return nil
 	}
 }
+
+func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
+	return func(b *Bucket) error {
+		b.skipSecondaryKeyCheck = skip
+		return nil
+	}
+}
