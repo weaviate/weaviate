@@ -22,7 +22,7 @@ type ExportClient interface {
 	// Commit tells a participant to start the export.
 	Commit(ctx context.Context, host, exportID string) error
 	// Abort tells a participant to release its reservation.
-	Abort(ctx context.Context, host, exportID string)
+	Abort(ctx context.Context, host, exportID string) error
 	// IsRunning checks whether a participant node is still running the given export.
 	IsRunning(ctx context.Context, host, exportID string) (bool, error)
 }

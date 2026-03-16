@@ -2438,7 +2438,7 @@ func init() {
     },
     "/export/{backend}": {
       "post": {
-        "description": "Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.",
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
         "tags": [
           "export"
         ],
@@ -2473,6 +2473,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2553,6 +2559,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
             "schema": {
@@ -2562,6 +2574,83 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.local.export.status"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Cancel an export",
+        "operationId": "export.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional bucket name where the export is stored.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional path prefix within the bucket.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
         ]
       }
     },
@@ -7341,7 +7430,8 @@ func init() {
       "description": "Request to create a new export operation",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "file_format"
       ],
       "properties": {
         "config": {
@@ -7364,6 +7454,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
         },
         "id": {
           "description": "Unique identifier for this export. Must be URL-safe.",
@@ -7430,6 +7527,11 @@ func init() {
             "type": "string"
           }
         },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "Error message if export failed",
           "type": "string"
@@ -7464,7 +7566,9 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED",
+            "SKIPPED"
           ]
         },
         "tookInMs": {
@@ -9240,6 +9344,10 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
+        },
         "status": {
           "description": "Status of this shard's export",
           "type": "string",
@@ -9247,7 +9355,9 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED",
+            "SKIPPED"
           ]
         }
       }
@@ -9830,7 +9940,7 @@ func init() {
       "name": "backups"
     },
     {
-      "description": "Operations for exporting Weaviate data to Parquet format on external storage backends (S3, GCS, Azure, or filesystem). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate Parquet file containing object IDs, vectors, properties, and metadata.",
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata.",
       "name": "exports"
     },
     {
@@ -12248,7 +12358,7 @@ func init() {
     },
     "/export/{backend}": {
       "post": {
-        "description": "Initiates an export operation that writes collections to Parquet files on the specified backend storage (S3, GCS, Azure, or filesystem). Each collection is exported to a separate Parquet file.",
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
         "tags": [
           "export"
         ],
@@ -12283,6 +12393,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12363,6 +12479,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
             "schema": {
@@ -12372,6 +12494,83 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.local.export.status"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Cancel an export",
+        "operationId": "export.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional bucket name where the export is stored.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional path prefix within the bucket.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
         ]
       }
     },
@@ -17419,7 +17618,8 @@ func init() {
       "description": "Request to create a new export operation",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "file_format"
       ],
       "properties": {
         "config": {
@@ -17442,6 +17642,13 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
         },
         "id": {
           "description": "Unique identifier for this export. Must be URL-safe.",
@@ -17522,6 +17729,11 @@ func init() {
             "type": "string"
           }
         },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "Error message if export failed",
           "type": "string"
@@ -17556,7 +17768,9 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED",
+            "SKIPPED"
           ]
         },
         "tookInMs": {
@@ -19541,6 +19755,10 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
+        },
         "status": {
           "description": "Status of this shard's export",
           "type": "string",
@@ -19548,7 +19766,9 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED",
+            "SKIPPED"
           ]
         }
       }
@@ -20143,7 +20363,7 @@ func init() {
       "name": "backups"
     },
     {
-      "description": "Operations for exporting Weaviate data to Parquet format on external storage backends (S3, GCS, Azure, or filesystem). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate Parquet file containing object IDs, vectors, properties, and metadata.",
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata.",
       "name": "exports"
     },
     {

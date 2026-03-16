@@ -184,6 +184,51 @@ func (o *ExportStatusNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// ExportStatusUnprocessableEntityCode is the HTTP code returned for type ExportStatusUnprocessableEntity
+const ExportStatusUnprocessableEntityCode int = 422
+
+/*
+ExportStatusUnprocessableEntity Invalid request (e.g., unsupported backend)
+
+swagger:response exportStatusUnprocessableEntity
+*/
+type ExportStatusUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewExportStatusUnprocessableEntity creates ExportStatusUnprocessableEntity with default headers values
+func NewExportStatusUnprocessableEntity() *ExportStatusUnprocessableEntity {
+
+	return &ExportStatusUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the export status unprocessable entity response
+func (o *ExportStatusUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ExportStatusUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the export status unprocessable entity response
+func (o *ExportStatusUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ExportStatusUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ExportStatusInternalServerErrorCode is the HTTP code returned for type ExportStatusInternalServerError
 const ExportStatusInternalServerErrorCode int = 500
 
