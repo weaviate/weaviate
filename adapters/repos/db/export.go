@@ -263,5 +263,19 @@ func (db *DB) IsMultiTenant(_ context.Context, className string) bool {
 	return class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 }
 
+// IsAsyncReplicationEnabled returns true if the class has async replication
+// enabled and it is not globally disabled at the cluster level.
+func (db *DB) IsAsyncReplicationEnabled(_ context.Context, className string) bool {
+	if db.config.Replication.AsyncReplicationDisabled.Get() {
+		return false
+	}
+	idx := db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return false
+	}
+	class := idx.getClass()
+	return class != nil && class.ReplicationConfig != nil && class.ReplicationConfig.AsyncEnabled
+}
+
 // ListClasses returns all class names (already exists on DB, this is a convenience alias comment).
 // DB.ListClasses is defined in index.go.

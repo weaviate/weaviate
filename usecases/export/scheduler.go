@@ -67,6 +67,7 @@ type Selector interface {
 	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
 	AcquireShardForExport(ctx context.Context, className, shardName string) (shard ShardLike, release func(), skipReason string, err error)
 	IsMultiTenant(ctx context.Context, className string) bool
+	IsAsyncReplicationEnabled(ctx context.Context, className string) bool
 }
 
 // ShardLike is an alias for db.ShardLike
@@ -151,6 +152,20 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 	if len(classes) == 0 {
 		return nil, fmt.Errorf("%w: no exportable classes", ErrExportValidation)
+	}
+
+	// On multi-node clusters, require async replication for all exported classes.
+	if s.nodeResolver.NodeCount() > 1 {
+		var noAsync []string
+		for _, class := range classes {
+			if !s.selector.IsAsyncReplicationEnabled(ctx, class) {
+				noAsync = append(noAsync, class)
+			}
+		}
+		if len(noAsync) > 0 {
+			return nil, fmt.Errorf("%w: collections %v do not have async replication enabled, "+
+				"which is required for export on multi-node clusters", ErrExportValidation, noAsync)
+		}
 	}
 
 	backendStore, err := s.backends.BackupBackend(backend)

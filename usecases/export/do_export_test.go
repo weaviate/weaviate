@@ -53,6 +53,10 @@ func (s *shardSelector) IsMultiTenant(_ context.Context, className string) bool 
 	return s.mt[className]
 }
 
+func (s *shardSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bool {
+	return true
+}
+
 func (s *shardSelector) AcquireShardForExport(_ context.Context, className, shardName string) (ShardLike, func(), string, error) {
 	if s.skipped != nil {
 		if reasons, ok := s.skipped[className]; ok {

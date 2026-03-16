@@ -30,6 +30,7 @@ type ExportClient interface {
 // NodeResolver resolves node names to hostnames.
 type NodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
+	NodeCount() int
 }
 
 // ExportStatusResponse is the JSON payload for GET /exports/status.
