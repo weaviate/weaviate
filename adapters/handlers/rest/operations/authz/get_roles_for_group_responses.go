@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -216,7 +216,7 @@ func (o *GetRolesForGroupNotFound) WriteResponse(rw http.ResponseWriter, produce
 const GetRolesForGroupUnprocessableEntityCode int = 422
 
 /*
-GetRolesForGroupUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
+GetRolesForGroupUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 
 swagger:response getRolesForGroupUnprocessableEntity
 */

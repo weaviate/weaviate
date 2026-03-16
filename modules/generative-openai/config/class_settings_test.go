@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -266,17 +266,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: fmt.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0"),
-		},
-		{
-			name: "Third party provider, use max tokens",
-			cfg: fakeClassConfig{
-				classConfig: map[string]any{
-					"model":     "model-that-openai-does-not-have",
-					"baseURL":   "https://something-else.com",
-					"maxTokens": 4096,
-				},
-			},
-			wantErr: fmt.Errorf("wrong OpenAI model name, available model names are: [gpt-3.5-turbo gpt-3.5-turbo-16k gpt-3.5-turbo-1106 gpt-4 gpt-4-32k gpt-4-1106-preview gpt-4o gpt-4o-mini gpt-5 gpt-5-mini gpt-5-nano]"),
 		},
 		{
 			name: "Wrong frequencyPenalty configured",

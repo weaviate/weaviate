@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,4 +38,28 @@ func ClassGetVectorConfig(class *models.Class, targetVector string) (models.Vect
 	}
 
 	return models.VectorConfig{}, false
+}
+
+func ClassUsesVectorisation(class *models.Class) bool {
+	needsVectorisation := func(name string) bool {
+		return name != "" && name != "none"
+	}
+	if class == nil {
+		return false
+	}
+	if needsVectorisation(class.Vectorizer) {
+		return true
+	}
+	for _, cfg := range class.VectorConfig {
+		vectorizer, ok := cfg.Vectorizer.(map[string]any)
+		if !ok {
+			continue
+		}
+		for vectorizerKey := range vectorizer {
+			if needsVectorisation(vectorizerKey) {
+				return true
+			}
+		}
+	}
+	return false
 }

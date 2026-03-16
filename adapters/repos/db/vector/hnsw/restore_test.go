@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -28,9 +29,14 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 var logger, _ = test.NewNullLogger()
+
+type restoreNoopBucketView struct{}
+
+func (n *restoreNoopBucketView) ReleaseView() {}
 
 func Test_RestartFromZeroSegments(t *testing.T) {
 	testPath := t.TempDir()
@@ -65,13 +71,16 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 		ID:                    "main",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView { return &restoreNoopBucketView{} },
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}
 
 	_, err = New(
@@ -113,6 +122,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, noopCallback)
 		},
+		AllocChecker: memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			vec := vectors[int(id)]
 			if vec == nil {
@@ -120,14 +130,15 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		GetViewThunk:                 func() common.BucketView { return &restoreNoopBucketView{} },
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 	}
 
 	store := testinghelpers.NewDummyStore(t)
 
 	idx, err := New(config, hnswuc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(ctx, i, vectors[i])
@@ -140,7 +151,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 
 	idx, err = New(config, hnswuc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
-	idx.PostStartup()
+	idx.PostStartup(context.Background())
 
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, idx, truths)
 	assert.Equal(t, recall1, recall2)

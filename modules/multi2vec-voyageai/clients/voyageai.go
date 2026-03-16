@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,7 @@ func newVoyageAIUrlBuilder() *voyageaiUrlBuilder {
 	}
 }
 
-func (c *voyageaiUrlBuilder) URL(baseURL string) string {
+func (c *voyageaiUrlBuilder) URL(baseURL, model string) string {
 	if baseURL != "" {
 		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
 	}
@@ -53,10 +53,10 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context,
-	texts, images []string, cfg moduletools.ClassConfig,
+	texts, images, videos []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, texts, images, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, texts, images, videos, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),
@@ -68,7 +68,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, input, nil, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, input, nil, nil, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),
@@ -80,7 +80,19 @@ func (v *vectorizer) VectorizeImageQuery(ctx context.Context,
 	images []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
-	return v.client.VectorizeMultiModal(ctx, nil, images, voyageai.Settings{
+	return v.client.VectorizeMultiModal(ctx, nil, images, nil, voyageai.Settings{
+		BaseURL:   settings.BaseURL(),
+		Model:     settings.Model(),
+		Truncate:  settings.Truncate(),
+		InputType: voyageai.Query,
+	})
+}
+
+func (v *vectorizer) VectorizeVideoQuery(ctx context.Context,
+	videos []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	settings := ent.NewClassSettings(cfg)
+	return v.client.VectorizeMultiModal(ctx, nil, nil, videos, voyageai.Settings{
 		BaseURL:   settings.BaseURL(),
 		Model:     settings.Model(),
 		Truncate:  settings.Truncate(),

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,6 +42,16 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 		// try one more time after 1 second
 		<-time.After(1 * time.Second)
 		require.NoError(t, compose.StopAt(ctx, index, nil))
+	}
+	<-time.After(1 * time.Second) // give time for shutdown
+}
+
+func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int, timeout time.Duration) {
+	<-time.After(1 * time.Second)
+	if err := compose.StopAt(ctx, index, &timeout); err != nil {
+		// try one more time after 1 second
+		<-time.After(1 * time.Second)
+		require.NoError(t, compose.StopAt(ctx, index, &timeout))
 	}
 	<-time.After(1 * time.Second) // give time for shutdown
 }
@@ -134,6 +144,18 @@ func GetTenantObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, n
 	return helper.GetTenantObjectFromNode(t, class, id, nodename, tenant)
 }
 
+func GetObjectWithVector(t *testing.T, host, class string, id strfmt.UUID) (*models.Object, error) {
+	t.Helper()
+	helper.SetupClient(host)
+	return helper.GetObject(t, class, id, "vector")
+}
+
+func GetObjectFromNodeWithVector(t *testing.T, host, class string, id strfmt.UUID, nodename string) (*models.Object, error) {
+	t.Helper()
+	helper.SetupClient(host)
+	return helper.GetObjectFromNodeWithVector(t, class, id, nodename)
+}
+
 func PatchObject(t *testing.T, host string, patch *models.Object) {
 	t.Helper()
 	helper.SetupClient(host)
@@ -144,6 +166,12 @@ func UpdateObjectCL(t *testing.T, host string, obj *models.Object, cl types.Cons
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.UpdateObjectCL(t, obj, cl)
+}
+
+func PatchObjectCL(t *testing.T, host string, obj *models.Object, cl types.ConsistencyLevel) error {
+	t.Helper()
+	helper.SetupClient(host)
+	return helper.PatchObjectCL(t, obj, cl)
 }
 
 func AddReferences(t *testing.T, host string, refs []*models.BatchReference) {

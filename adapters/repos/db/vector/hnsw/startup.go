@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -24,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -95,18 +95,20 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			Info("snapshots disabled, loading from commit log")
 	}
 
-	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)
+	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp, h.fs)
 	if err != nil {
 		return err
 	}
 
-	state, err = loadCommitLoggerState(h.logger, fileNames, state, h.metrics)
+	state, err = loadCommitLoggerState(h.fs, h.logger, fileNames, state, h.metrics)
 	if err != nil {
 		return errors.Wrap(err, "load commit logger state")
 	}
 
 	if state == nil {
-		// nothing to do
+		// Mark the cache as prefilled for fresh indexes so that compression
+		// (e.g. RQ via checkAndCompress) can proceed immediately.
+		h.cachePrefilled.Store(true)
 		return nil
 	}
 
@@ -140,7 +142,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		h.cache.Drop()
 		if state.CompressionPQData != nil {
 			data := state.CompressionPQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 
 			if len(data.Encoders) > 0 {
 				// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
@@ -157,7 +159,9 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.makeBucketOptions,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -168,7 +172,9 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.makeBucketOptions,
 						h.allocChecker,
+						h.getTargetVector(),
 					)
 				}
 				if err != nil {
@@ -177,7 +183,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			}
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
@@ -187,7 +193,9 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.makeBucketOptions,
 					h.allocChecker,
+					h.getTargetVector(),
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -198,7 +206,9 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.makeBucketOptions,
 					h.allocChecker,
+					h.getTargetVector(),
 				)
 			}
 			if err != nil {
@@ -224,13 +234,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
-		if len(h.nodes) > 0 {
-			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
-				h.dims = int32(len(vec))
-			}
-		}
 	} else {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
+	}
+
+	if h.dims.Load() == 0 {
+		h.setDimensionsFromEntrypoint()
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -248,7 +257,16 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	return nil
 }
 
-func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+func (h *hnsw) setDimensionsFromEntrypoint() {
+	if len(h.nodes) > 0 {
+		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+			h.dims.Store(int32(len(vec)))
+		}
+	}
+}
+
+func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
+	h.dims.Store(int32(data.InputDim))
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -265,6 +283,8 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
+				h.getTargetVector(),
 			)
 		})
 	} else {
@@ -282,6 +302,8 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
+				h.getTargetVector(),
 			)
 		})
 	}
@@ -289,7 +311,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 	return err
 }
 
-func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -306,6 +328,8 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
+				h.getTargetVector(),
 			)
 		})
 	} else {
@@ -323,6 +347,8 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
+				h.getTargetVector(),
 			)
 		})
 	}
@@ -335,15 +361,45 @@ func (h *hnsw) restoreDocMappings() error {
 	maxNodeID := uint64(0)
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
+
+	// Get the mappings bucket - handle case where it might be nil
+	bucket := h.store.Bucket(h.id + "_mv_mappings")
+	if bucket == nil {
+		err := errors.New("multivector mappings bucket not found")
+		h.logger.WithField("action", "restore_doc_mappings").
+			WithError(err)
+		return err
+	}
+
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
 		binary.BigEndian.PutUint64(buf, node.id)
-		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
+		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
+			// If the mapping is not found (e.g., due to corrupted state after ungraceful shutdown),
+			// log a warning and skip this node instead of failing completely
+			h.logger.WithFields(map[string]interface{}{
+				"action":  "restore_doc_mappings",
+				"node_id": node.id,
+				"error":   err.Error(),
+			}).Error("skipping node with missing doc mapping")
+			h.nodes[node.id] = nil
+			continue
 		}
+
+		// Validate that we have enough bytes for a uint64 (8 bytes)
+		if len(docIDBytes) < 8 {
+			h.logger.WithFields(map[string]interface{}{
+				"action":       "restore_doc_mappings",
+				"node_id":      node.id,
+				"bytes_length": len(docIDBytes),
+			}).Error("skipping node with invalid doc mapping data")
+			h.nodes[node.id] = nil
+			continue
+		}
+
 		docID := binary.BigEndian.Uint64(docIDBytes)
 		if docID != prevDocID {
 			relativeID = 0
@@ -380,33 +436,36 @@ func (h *hnsw) populateKeys() {
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	if !h.cachePrefilled.Load() {
+		return false
+	}
+
 	if h.allocChecker != nil {
 		// allocChecker is optional, we can only check if it was actually set
 
 		// It's hard to estimate how much memory we'd need to do a successful
-		// hnsw delete cleanup. The value below is probalby vastly overstated.
+		// hnsw delete cleanup. The value below is probably vastly overstated.
 		// However, without a doubt, delete cleanup could lead to temporary
 		// memory increases, either because it loads vectors into cache or
 		// because it rewrites connections in a way that they could need more
 		// memory than before. Either way, it's probably a good idea not to
 		// start a cleanup cycle if we are already this close to running out of
 		// memory.
-		memoryNeeded := int64(100 * 1024 * 1024)
+		memoryNeeded := int64(tombstoneCleanupMemoryNeeded)
 
 		if err := h.allocChecker.CheckAlloc(memoryNeeded); err != nil {
 			h.logger.WithFields(logrus.Fields{
 				"action": "hnsw_tombstone_cleanup",
 				"event":  "cleanup_skipped_oom",
 				"class":  h.className,
-			}).WithError(err).
-				Warnf("skipping hnsw cleanup due to memory pressure")
+			}).Warnf("skipping hnsw cleanup due to memory pressure: %v", err)
 			return false
 		}
 	}
 	executed, err := h.cleanUpTombstonedNodes(shouldAbort)
 	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
-			WithError(err).Error("tombstone cleanup errord")
+			Error(err)
 	}
 	return executed
 }
@@ -427,12 +486,19 @@ func (h *hnsw) resetTombstoneMetric() {
 // the shard creation. Some post-startup routines, such as prefilling the
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
-func (h *hnsw) PostStartup() {
+func (h *hnsw) PostStartup(ctx context.Context) {
 	h.commitLog.InitMaintenance()
-	h.prefillCache()
+	h.prefillCache(ctx)
 }
 
-func (h *hnsw) prefillCache() {
+func (h *hnsw) prefillCache(ctx context.Context) {
+	// If the cache is already marked as prefilled (e.g. fresh index with no
+	// commit-log state), there is nothing to do. Skipping avoids launching a
+	// goroutine that could race with checkAndCompress on h.cache/h.compressor.
+	if h.cachePrefilled.Load() {
+		return
+	}
+
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
@@ -441,9 +507,6 @@ func (h *hnsw) prefillCache() {
 	}
 
 	prefillCacheFunc := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
-		defer cancel()
-
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
 			"duration": 60 * time.Minute,
@@ -452,17 +515,19 @@ func (h *hnsw) prefillCache() {
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor.PrefillCache()
+				h.compressor.PrefillCache(ctx)
 			} else {
-				h.compressor.PrefillMultiCache(h.docIDVectors)
+				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)
 		}
 
 		if err != nil {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}
+
+		h.cachePrefilled.Store(true)
 	}
 
 	if h.waitForCachePrefill {

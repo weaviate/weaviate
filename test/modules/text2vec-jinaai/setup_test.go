@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,11 +46,11 @@ func createSingleNodeEnvironment(ctx context.Context, jinaApiKey string,
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", fmt.Sprintf("%.0fs", companies.DefaultTimeout.Seconds())).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(jinaApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecJinaAI(jinaApiKey)
-	return
+	return composeModules
 }

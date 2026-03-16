@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,10 +57,6 @@ func (m *MockSchemaExecutor) LoadShard(class string, shard string) {
 	m.Called(class, shard)
 }
 
-func (m *MockSchemaExecutor) DropShard(class string, shard string) {
-	m.Called(class, shard)
-}
-
 func (m *MockSchemaExecutor) ShutdownShard(class string, shard string) {
 	m.Called(class, shard)
 }
@@ -80,6 +76,11 @@ func (m *MockSchemaExecutor) DeleteClass(name string, hasFrozen bool) error {
 }
 
 func (m *MockSchemaExecutor) AddProperty(class string, req cmd.AddPropertyRequest) error {
+	args := m.Called(class, req)
+	return args.Error(0)
+}
+
+func (m *MockSchemaExecutor) UpdateProperty(class string, req cmd.UpdatePropertyRequest) error {
 	args := m.Called(class, req)
 	return args.Error(0)
 }

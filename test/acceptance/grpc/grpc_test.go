@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -265,6 +265,43 @@ func TestGRPC(t *testing.T) {
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.GroupByResults)
 		require.Len(t, resp.GroupByResults, 1)
+	})
+
+	t.Run("Search returning nested objects implicitly", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			Properties: &pb.PropertiesRequest{
+				NonRefProperties: []string{"title", "meta"},
+			},
+			NearText: &pb.NearTextSearch{
+				Query: []string{"Dune"},
+			},
+			Limit:       1,
+			Uses_123Api: true,
+			Uses_125Api: true,
+			Uses_127Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Results)
+		require.Len(t, resp.Results, 1)
+
+		title := resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue()
+		require.Equal(t, "Dune", title)
+
+		isbn := resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["isbn"].GetTextValue()
+		require.Equal(t, "978-0593099322", isbn)
+
+		objText := resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["obj"].GetObjectValue().Fields["text"].GetTextValue()
+		require.Equal(t, "some text", objText)
+
+		objs := resp.Results[0].Properties.NonRefProps.Fields["meta"].GetObjectValue().Fields["objs"].GetListValue().GetObjectValues()
+		require.NotNil(t, objs)
+		require.Len(t, objs.Values, 1)
+		require.Equal(t, "some text", objs.Values[0].GetFields()["text"].GetTextValue())
+
+		_, ok := resp.Results[0].Properties.NonRefProps.Fields["reviews"]
+		require.False(t, ok)
 	})
 
 	t.Run("Aggregate", func(t *testing.T) {

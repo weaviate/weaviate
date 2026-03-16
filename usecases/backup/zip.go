@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,49 +22,134 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/klauspost/compress/zstd"
+	entBackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // CompressionLevel represents supported compression level
 type CompressionLevel int
 
 const (
-	DefaultCompression CompressionLevel = iota
-	BestSpeed
-	BestCompression
+	GzipDefaultCompression CompressionLevel = iota
+	GzipBestSpeed
+	GzipBestCompression
+	ZstdBestSpeed
+	ZstdDefaultCompression
+	ZstdBestCompression
+	NoCompression
 )
 
-type zip struct {
-	sourcePath string
-	w          *tar.Writer
-	gzw        *gzip.Writer
-	pipeWriter *io.PipeWriter
-	counter    func() int64
+const (
+	PAXRecordSplitFileOffsetName = "WEAVIATE.fileOffset"
+)
+
+type SplitFile struct {
+	AbsPath        string
+	RelPath        string
+	FileInfo       fs.FileInfo
+	AlreadyWritten int64
+	PartSize       int64 // even part size computed once when the split is created
 }
 
-func NewZip(sourcePath string, level int) (zip, io.ReadCloser) {
+type compressor interface {
+	Flush() error
+	Write(p []byte) (n int, err error)
+	Close() error
+}
+
+type zip struct {
+	sourcePath          string
+	w                   *tar.Writer
+	compressorWriter    compressor
+	pipeWriter          *io.PipeWriter
+	maxChunkSizeInBytes int64
+	bigFileThreshold    int64
+	splitFileSizeBytes  int64
+}
+
+// NewZip creates a new zip writer for backup chunks. There are three size thresholds:
+//
+//   - bigFileThreshold: files >= this size get their own dedicated chunk (auto-calculated
+//     from the 100 biggest files in the shard).
+//   - splitFileSize: files exceeding this size are split across multiple chunks.
+//     Must be >= bigFileThreshold.
+//   - chunkTargetSize: the target size for chunks that pack multiple small files together.
+func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFileThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
-	gzw, _ := gzip.NewWriterLevel(pw, zipLevel(level))
 	reader := &readCloser{src: pr, n: 0}
 
+	var gzw compressor
+	var tarW *tar.Writer
+
+	switch CompressionLevel(level) {
+	case NoCompression:
+		// produce raw tar stream without compression
+		tarW = tar.NewWriter(pw)
+	case ZstdBestSpeed, ZstdDefaultCompression, ZstdBestCompression:
+		var zstdLevel zstd.EncoderLevel
+		switch CompressionLevel(level) {
+		case ZstdBestSpeed:
+			zstdLevel = zstd.SpeedFastest
+		case ZstdDefaultCompression:
+			zstdLevel = zstd.SpeedDefault
+		case ZstdBestCompression:
+			zstdLevel = zstd.SpeedBetterCompression
+		default: // makes linter happy
+			return zip{}, nil, fmt.Errorf("unknown zstd compression level %v", level)
+		}
+		gzw, _ = zstd.NewWriter(pw, zstd.WithEncoderLevel(zstdLevel))
+		tarW = tar.NewWriter(gzw)
+	case GzipDefaultCompression, GzipBestSpeed, GzipBestCompression:
+		gzw, _ = gzip.NewWriterLevel(pw, zipLevel(level))
+		tarW = tar.NewWriter(gzw)
+	default:
+		return zip{}, nil, fmt.Errorf("unknown compression level %v", level)
+	}
+	// splitFileSize must be at least bigFileThreshold, otherwise there would be no splitting.
+	// Check before zero-defaults turn disabled values into MaxInt64.
+	if bigFileThreshold > 0 && splitFileSize > 0 && splitFileSize < bigFileThreshold {
+		splitFileSize = bigFileThreshold
+	}
+	chunkTargetSizeInBytes := chunkTargetSize
+	if chunkTargetSizeInBytes == 0 {
+		chunkTargetSizeInBytes = int64(1<<63 - 1) // effectively no limit
+	}
+	if bigFileThreshold == 0 {
+		bigFileThreshold = int64(1<<63 - 1) // effectively no big files
+	}
+	if splitFileSize == 0 {
+		splitFileSize = int64(1<<63 - 1) // effectively no limit
+	}
 	return zip{
-		sourcePath: sourcePath,
-		gzw:        gzw,
-		w:          tar.NewWriter(gzw),
-		pipeWriter: pw,
-		counter:    reader.counter(),
-	}, reader
+		sourcePath:          sourcePath,
+		compressorWriter:    gzw,
+		w:                   tarW,
+		pipeWriter:          pw,
+		maxChunkSizeInBytes: chunkTargetSizeInBytes,
+		bigFileThreshold:    bigFileThreshold,
+		splitFileSizeBytes:  splitFileSize,
+	}, reader, nil
 }
 
 func (z *zip) Close() error {
+	return z.CloseWithError(nil)
+}
+
+// CloseWithError closes the zip and signals the given error to the consumer.
+// If err is non-nil, the consumer's read will return this error instead of EOF.
+func (z *zip) CloseWithError(err error) error {
 	var err1, err2, err3 error
 	err1 = z.w.Close()
-	err2 = z.gzw.Close()
-	if err := z.pipeWriter.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
-		err3 = err
+	if z.compressorWriter != nil {
+		err2 = z.compressorWriter.Close()
+	}
+	if closeErr := z.pipeWriter.CloseWithError(err); closeErr != nil && !errors.Is(closeErr, io.ErrClosedPipe) {
+		err3 = closeErr
 	}
 	if err1 != nil || err2 != nil || err3 != nil {
 		return fmt.Errorf("tar: %w, gzip: %w, pw: %w", err1, err2, err3)
@@ -73,74 +158,184 @@ func (z *zip) Close() error {
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
-func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (written int64, err error) {
-	var n int64 // temporary written bytes
-	for _, x := range [3]struct {
-		relPath string
-		data    []byte
-		modTime time.Time
-	}{
-		{relPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
-		{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
-		{relPath: sd.ShardVersionPath, data: sd.Version},
-	} {
-		if err := ctx.Err(); err != nil {
-			return written, err
-		}
-		info := vFileInfo{
-			name: filepath.Base(x.relPath),
-			size: len(x.data),
-		}
-		if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
-			return written, err
-		}
-		written += n
+func (z *zip) WriteShard(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, firstChunkForShard bool, preCompressionSize *atomic.Int64, chunkKey string) (int64, *SplitFile, error) {
+	var written int64
 
+	// write in-memory files only for the first chunk of the shard, these files are small and we can assume that they will
+	// always fit into the first chunk
+	if firstChunkForShard {
+		for _, x := range [3]struct {
+			relPath string
+			data    []byte
+			modTime time.Time
+		}{
+			{relPath: sd.DocIDCounterPath, data: sd.DocIDCounter},
+			{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
+			{relPath: sd.ShardVersionPath, data: sd.Version},
+		} {
+			if err := ctx.Err(); err != nil {
+				return written, nil, err
+			}
+			info := vFileInfo{
+				name: filepath.Base(x.relPath),
+				size: len(x.data),
+			}
+			preCompressionSize.Add(int64(len(x.data)))
+			n, err := z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data))
+			if err != nil {
+				return written, nil, err
+			}
+			written += n
+		}
 	}
 
-	n, err = z.WriteRegulars(ctx, sd.Files)
+	n, sizeExceededInfo, err := z.WriteRegulars(ctx, sd, filesInShard, preCompressionSize, chunkKey)
 	written += n
 
-	return
+	return written, sizeExceededInfo, err
 }
 
-func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int64, err error) {
-	for _, relPath := range relPaths {
+func (z *zip) WriteRegulars(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64, chunkKey string) (int64, *SplitFile, error) {
+	// Process files in sd.Files and remove them as we go (pop from front).
+
+	written := int64(0)
+	for filesInShard.Len() > 0 {
+		relPath := filesInShard.Peek()
 		if filepath.Base(relPath) == ".DS_Store" {
+			filesInShard.PopFront()
 			continue
 		}
 		if err := ctx.Err(); err != nil {
+			return written, nil, err
+		}
+		// If data was already written to this chunk (e.g. in-memory shard files),
+		// we must not force-write the first regular file when the chunk is full.
+		firstFile := preCompressionSize.Load() == 0
+		// Get pre-collected file size
+		fileSize, err := filesInShard.GetFileSize(relPath)
+		if err != nil {
+			return written, nil, err
+		}
+
+		// File doesn't fit in current chunk: either it's a big file that needs its own chunk, or it would exceed the
+		// chunk target size. Fill remaining space with small files and return.
+		if !firstFile && (fileSize >= z.bigFileThreshold || preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes) {
+			n, err := z.fillChunkWithSmallFiles(ctx, sd, filesInShard, preCompressionSize, chunkKey)
+			written += n
+			return written, nil, err
+		}
+
+		n, splitFile, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, chunkKey)
+		if err != nil {
+			return written, nil, err
+		}
+		filesInShard.PopFront()
+		written += n
+		if splitFile != nil {
+			return written, splitFile, nil
+		}
+		// Big file was first and got its own chunk — return immediately.
+		if fileSize >= z.bigFileThreshold {
+			return written, nil, nil
+		}
+	}
+	return written, nil, nil
+}
+
+const maxLookahead = 100
+
+// fillChunkWithSmallFiles scans ahead in the file list for files that fit in the
+// remaining chunk space, writes them, and removes them from the list. The big
+// file(s) that didn't fit stay at the front for the next chunk.
+func (z *zip) fillChunkWithSmallFiles(ctx context.Context, sd *entBackup.ShardDescriptor, filesInShard *entBackup.FileList, preCompressionSize *atomic.Int64, chunkKey string) (written int64, err error) {
+	limit := filesInShard.Len()
+	if limit > maxLookahead {
+		limit = maxLookahead
+	}
+
+	var writtenIndices []int
+	for i := range limit {
+		relPath := filesInShard.PeekAt(i)
+		if relPath == "" {
+			break
+		}
+		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, err := z.WriteRegular(ctx, relPath)
+
+		fileSize, err := filesInShard.GetFileSize(relPath)
+		if err != nil {
+			return written, err
+		}
+		// Skip big files — they get their own chunk.
+		// Also skip files that exceed the split threshold: WriteRegular
+		// would split them and return a SplitFile that we cannot propagate
+		// from here, so they must be handled by the main WriteRegulars loop.
+		// NewZip already enforces splitFileSize >= bigFileThreshold, so the
+		// first check normally covers this; the second is a defensive guard.
+		if fileSize >= z.bigFileThreshold || fileSize > z.splitFileSizeBytes {
+			continue
+		}
+		if preCompressionSize.Load()+fileSize > z.maxChunkSizeInBytes {
+			continue
+		}
+
+		n, _, err := z.WriteRegular(ctx, sd, relPath, fileSize, preCompressionSize, chunkKey)
 		if err != nil {
 			return written, err
 		}
 		written += n
+		writtenIndices = append(writtenIndices, i)
 	}
+
+	filesInShard.RemoveIndices(writtenIndices)
 	return written, nil
 }
 
-func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, err error) {
+func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, relPath string, fileSize int64, preCompressionSize *atomic.Int64, chunkKey string) (written int64, splitFile *SplitFile, err error) {
 	if err := ctx.Err(); err != nil {
-		return written, err
+		return 0, nil, err
 	}
-	// open file for read
-	absPath := filepath.Join(z.sourcePath, relPath)
-	info, err := os.Stat(absPath)
+
+	// open file for read, falling back to the delete-marker path if the
+	// collection was renamed during backup
+	info, err := z.statWithDeleteMarkerFallback(relPath)
 	if err != nil {
-		return written, fmt.Errorf("stat: %w", err)
+		return written, nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return 0, nil // ignore directories
+		return 0, nil, nil // ignore directories
 	}
-	f, err := os.Open(absPath)
+
+	// Check if the first file exceeds the chunk and needs splitting.
+	// Write the first part here so we don't waste the current chunk.
+	if fileSize > z.splitFileSizeBytes {
+		// Compute even part size so all chunks are roughly equal.
+		numParts := ceilDiv(fileSize, z.splitFileSizeBytes)
+		partSize := ceilDiv(fileSize, numParts)
+		absPath := filepath.Join(z.sourcePath, relPath)
+		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0, PartSize: partSize}
+		remainingSplitFile, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
+		if err != nil {
+			return 0, nil, err
+		}
+		return 0, remainingSplitFile, nil
+	}
+
+	if fileSize >= z.bigFileThreshold {
+		sd.TrackBigFileChunk(relPath, fileSize, info.ModTime(), chunkKey)
+	}
+
+	f, err := z.openWithDeleteMarkerFallback(relPath)
 	if err != nil {
-		return written, fmt.Errorf("open: %w", err)
+		return written, nil, err
 	}
 	defer f.Close()
 
-	return z.writeOne(ctx, info, relPath, f)
+	preCompressionSize.Add(fileSize)
+
+	written, err = z.writeOne(ctx, info, relPath, f)
+	return written, nil, err
 }
 
 func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
@@ -168,28 +363,127 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 			// we ignore in case the ctx was cancelled
 			return written, nil
 		}
-		return written, fmt.Errorf("copy: %s %w", relPath, err)
+		return written, fmt.Errorf("copy: %s with filesize %d: %w", relPath, info.Size(), err)
 	}
-	return
+	return written, err
 }
 
-// lastWritten number of bytes
-func (z *zip) lastWritten() int64 {
-	return z.counter()
+func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor, splitFile *SplitFile, preCompressionSize *atomic.Int64, chunkKey string) (*SplitFile, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if splitFile == nil || splitFile.FileInfo == nil {
+		return nil, fmt.Errorf("WriteSplitFile called with nil splitFile or nil FileInfo")
+	}
+
+	// Use the pre-computed even part size so all chunks are roughly equal.
+	amountToWrite := min(splitFile.FileInfo.Size()-splitFile.AlreadyWritten, splitFile.PartSize)
+
+	header, err := tar.FileInfoHeader(splitFile.FileInfo, splitFile.FileInfo.Name())
+	if err != nil {
+		return nil, fmt.Errorf("file header: %w", err)
+	}
+	header.Name = splitFile.RelPath
+	header.ChangeTime = splitFile.FileInfo.ModTime()
+	header.PAXRecords = map[string]string{
+		PAXRecordSplitFileOffsetName: strconv.FormatInt(splitFile.AlreadyWritten, 10),
+	}
+	header.Size = amountToWrite
+	if err := z.w.WriteHeader(header); err != nil {
+		return nil, fmt.Errorf("write header: %w", err)
+	}
+
+	f, err := os.Open(splitFile.AbsPath)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.Seek(splitFile.AlreadyWritten, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seek to offset %d in file %s: %w", splitFile.AlreadyWritten, splitFile.RelPath, err)
+	}
+
+	if _, err := io.CopyN(z.w, f, amountToWrite); err != nil {
+		return nil, fmt.Errorf("copy %d bytes from file %s: %w", amountToWrite, splitFile.RelPath, err)
+	}
+	splitFile.AlreadyWritten += amountToWrite
+	preCompressionSize.Add(amountToWrite)
+
+	// Track this chunk key in BigFilesChunk
+	sd.TrackBigFileChunk(splitFile.RelPath, splitFile.FileInfo.Size(), splitFile.FileInfo.ModTime(), chunkKey)
+
+	if splitFile.AlreadyWritten < splitFile.FileInfo.Size() {
+		return splitFile, nil
+	}
+	return nil, nil
+}
+
+// statWithDeleteMarkerFallback stats the file at relPath under the source
+// directory. If the file does not exist, it retries with the delete-marker
+// prefix in case the collection was renamed during an ongoing backup.
+func (z *zip) statWithDeleteMarkerFallback(relPath string) (os.FileInfo, error) {
+	absPath := filepath.Join(z.sourcePath, relPath)
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			info, err = os.Stat(filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath)))
+			if err != nil {
+				return nil, fmt.Errorf("stat: not found at original or delete-marker path: %w", err)
+			}
+			return info, nil
+		}
+		return nil, fmt.Errorf("stat: %w", err)
+	}
+	return info, nil
+}
+
+// openWithDeleteMarkerFallback opens the file at relPath under the source
+// directory. If the file does not exist, it retries with the delete-marker
+// prefix in case the collection was renamed during an ongoing backup.
+func (z *zip) openWithDeleteMarkerFallback(relPath string) (*os.File, error) {
+	absPath := filepath.Join(z.sourcePath, relPath)
+	f, err := os.Open(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			f, err = os.Open(filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath)))
+			if err != nil {
+				return nil, fmt.Errorf("open: not found at original or delete-marker path: %w", err)
+			}
+			return f, nil
+		}
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	return f, nil
+}
+
+type zstdWrapper struct {
+	z *zstd.Decoder
+}
+
+func (z zstdWrapper) Read(p []byte) (n int, err error) {
+	return z.z.Read(p)
+}
+
+func (z zstdWrapper) Close() error {
+	z.z.Close()
+	return nil
 }
 
 type unzip struct {
-	destPath   string
-	gzr        *gzip.Reader
-	r          *tar.Reader
-	pipeReader *io.PipeReader
+	destPath        string
+	gzr             io.ReadCloser
+	r               *tar.Reader
+	pipeReader      *io.PipeReader
+	compressionType entBackup.CompressionType
 }
 
-func NewUnzip(dst string) (unzip, io.WriteCloser) {
+func NewUnzip(dst string, compressionType entBackup.CompressionType) (unzip, io.WriteCloser) {
 	pr, pw := io.Pipe()
 	return unzip{
-		destPath:   dst,
-		pipeReader: pr,
+		destPath:        dst,
+		pipeReader:      pr,
+		compressionType: compressionType,
 	}, pw
 }
 
@@ -197,12 +491,26 @@ func (u *unzip) init() error {
 	if u.gzr != nil {
 		return nil
 	}
-	gz, err := gzip.NewReader(u.pipeReader)
-	if err != nil {
-		return fmt.Errorf("gzip.NewReader: %w", err)
+	var dec io.ReadCloser
+	var err error
+	switch u.compressionType {
+	case entBackup.CompressionNone:
+		u.r = tar.NewReader(u.pipeReader)
+		return nil
+	case entBackup.CompressionZSTD:
+		zstdDec, err := zstd.NewReader(u.pipeReader)
+		if err != nil {
+			return fmt.Errorf("zstd.NewReader: %w", err)
+		}
+		dec = zstdWrapper{z: zstdDec}
+	case entBackup.CompressionGZIP:
+		dec, err = gzip.NewReader(u.pipeReader)
+		if err != nil {
+			return fmt.Errorf("gzip.NewReader: %w", err)
+		}
 	}
-	u.gzr = gz
-	u.r = tar.NewReader(gz)
+	u.gzr = dec
+	u.r = tar.NewReader(dec)
 	return nil
 }
 
@@ -229,7 +537,7 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 	for {
 		header, err := u.r.Next()
 		if err != nil {
-			if err == io.EOF { // end of the loop
+			if errors.Is(err, io.EOF) { // end of the loop
 				return written, nil
 			}
 			return written, fmt.Errorf("fetch next: %w", err)
@@ -239,7 +547,10 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 		}
 
 		// target file
-		target := filepath.Join(u.destPath, header.Name)
+		target, err := diskio.SanitizeFilePathJoin(u.destPath, header.Name)
+		if err != nil {
+			return written, fmt.Errorf("sanitize file path %s: %w", header.Name, err)
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
@@ -261,17 +572,58 @@ func (u *unzip) ReadChunk() (written int64, err error) {
 	}
 }
 
+// offsetWriter wraps an *os.File and implements io.Writer using WriteAt
+// (pwrite) so that each Write lands at a deterministic offset without
+// touching the shared file-descriptor seek position. This makes it safe
+// for multiple goroutines to write different regions of the same file
+// concurrently.
+type offsetWriter struct {
+	f      *os.File
+	offset int64
+}
+
+func (w *offsetWriter) Write(p []byte) (int, error) {
+	n, err := w.f.WriteAt(p, w.offset)
+	w.offset += int64(n)
+	return n, err
+}
+
 func copyFile(target string, h *tar.Header, r io.Reader) (written int64, err error) {
-	f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(h.Mode))
-	if err != nil {
-		return written, fmt.Errorf("create: %w", err)
+	part, isSplitFile := h.PAXRecords[PAXRecordSplitFileOffsetName]
+	if isSplitFile {
+		startOffset, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid split file part %q: %w", part, err)
+		}
+
+		// open without truncating so out-of-order chunks can be written at their offsets
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(h.Mode))
+		if err != nil {
+			return 0, fmt.Errorf("open: %w", err)
+		}
+		defer f.Close()
+
+		// Use pwrite semantics (WriteAt) instead of seek+write so that
+		// concurrent goroutines can safely write different parts of the
+		// same file without racing on the shared file-descriptor offset.
+		n, err := io.CopyN(&offsetWriter{f: f, offset: startOffset}, r, h.Size)
+		if err != nil {
+			return n, fmt.Errorf("copy split: %w", err)
+		}
+		return n, nil
+	} else {
+		// O_TRUNC is not needed: restores always write into empty directories.
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(h.Mode))
+		if err != nil {
+			return written, fmt.Errorf("create: %w", err)
+		}
+		defer f.Close()
+		written, err = io.Copy(f, r)
+		if err != nil {
+			return written, fmt.Errorf("copy: %w", err)
+		}
+		return written, nil
 	}
-	defer f.Close()
-	written, err = io.Copy(f, r)
-	if err != nil {
-		return written, fmt.Errorf("copy: %w", err)
-	}
-	return written, nil
 }
 
 type vFileInfo struct {
@@ -288,22 +640,26 @@ func (v vFileInfo) IsDir() bool        { return false }
 func (v vFileInfo) Sys() interface{}   { return nil }
 
 type readCloser struct {
-	src io.ReadCloser
+	src *io.PipeReader
 	n   int64
 }
 
 func (r *readCloser) Read(p []byte) (n int, err error) {
 	n, err = r.src.Read(p)
 	atomic.AddInt64(&r.n, int64(n))
-	return
+	return n, err
 }
 
 func (r *readCloser) Close() error { return r.src.Close() }
 
-func (r *readCloser) counter() func() int64 {
-	return func() int64 {
-		return atomic.LoadInt64(&r.n)
-	}
+// CloseWithError closes the reader and signals the given error to the producer.
+// If err is non-nil, the producer's write will return this error instead of
+// the generic "io: read/write on closed pipe".
+func (r *readCloser) CloseWithError(err error) error { return r.src.CloseWithError(err) }
+
+// ceilDiv returns ⌈a/b⌉ using integer arithmetic.
+func ceilDiv(a, b int64) int64 {
+	return (a + b - 1) / b
 }
 
 func zipLevel(level int) int {
@@ -311,9 +667,9 @@ func zipLevel(level int) int {
 		return gzip.DefaultCompression
 	}
 	switch CompressionLevel(level) {
-	case BestSpeed:
+	case GzipBestSpeed:
 		return gzip.BestSpeed
-	case BestCompression:
+	case GzipBestCompression:
 		return gzip.BestCompression
 	default:
 		return gzip.DefaultCompression
@@ -323,24 +679,11 @@ func zipLevel(level int) int {
 type zipConfig struct {
 	Level      int
 	GoPoolSize int
-	ChunkSize  int
 }
 
 func newZipConfig(c Compression) zipConfig {
-	// convert from MB to byte because input already
-	// in MB and validated against min:2 max:512
-	switch c.ChunkSize = c.ChunkSize * 1024 * 1024; {
-	case c.ChunkSize == 0:
-		c.ChunkSize = DefaultChunkSize
-	case c.ChunkSize > maxChunkSize:
-		c.ChunkSize = maxChunkSize
-	case c.ChunkSize < minChunkSize:
-		c.ChunkSize = minChunkSize
-	}
-
 	return zipConfig{
 		Level:      int(c.Level),
 		GoPoolSize: routinePoolSize(c.CPUPercentage),
-		ChunkSize:  c.ChunkSize,
 	}
 }

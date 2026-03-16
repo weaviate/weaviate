@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -199,7 +199,7 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 	expected.assert(t)
 
 	// Check if pq store was migrated to main store as "vectors_compressed" subdir
-	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.VectorsCompressedBucketLSM)
+	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.GetCompressedBucketName(idx.Name()))
 	info, err := os.Stat(pqDir)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
@@ -211,7 +211,7 @@ func testDB(t *testing.T, root string, classes []*models.Class, states map[strin
 	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
 		return states[className].AllPhysicalShards(), nil
 	}).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
 			if className == class.Class {
 				return readFunc(class, states[className])

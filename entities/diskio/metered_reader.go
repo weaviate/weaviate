@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,14 +35,14 @@ func (m *MeteredReader) Read(p []byte) (n int, err error) {
 	n, err = m.file.Read(p)
 	took := time.Since(start).Nanoseconds()
 	if err != nil {
-		return
+		return n, err
 	}
 
 	if m.cb != nil {
 		m.cb(int64(n), took)
 	}
 
-	return
+	return n, err
 }
 
 // ReadAt passes the read through to the underlying reader. On a successful read,
@@ -53,14 +53,14 @@ func (m *MeteredReader) ReadAt(p []byte, off int64) (n int, err error) {
 	n, err = m.file.ReadAt(p, off)
 	took := time.Since(start).Nanoseconds()
 	if err != nil {
-		return
+		return n, err
 	}
 
 	if m.cb != nil {
 		m.cb(int64(n), took)
 	}
 
-	return
+	return n, err
 }
 
 func NewMeteredReader(file Reader, cb MeteredReaderCallback) *MeteredReader {

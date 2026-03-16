@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,12 +36,13 @@ const (
 )
 
 type embeddingsRequest struct {
-	Texts          []string        `json:"texts,omitempty"`
-	Images         []string        `json:"images,omitempty"`
-	Model          string          `json:"model,omitempty"`
-	InputType      InputType       `json:"input_type,omitempty"`
-	EmbeddingTypes []embeddingType `json:"embedding_types,omitempty"`
-	Truncate       string          `json:"truncate,omitempty"`
+	Texts           []string        `json:"texts,omitempty"`
+	Images          []string        `json:"images,omitempty"`
+	Model           string          `json:"model,omitempty"`
+	InputType       InputType       `json:"input_type,omitempty"`
+	EmbeddingTypes  []embeddingType `json:"embedding_types,omitempty"`
+	Truncate        string          `json:"truncate,omitempty"`
+	OutputDimension *int64          `json:"output_dimension,omitempty"`
 }
 
 type billedUnits struct {
@@ -71,7 +72,7 @@ type embeddings struct {
 type Client struct {
 	apiKey     string
 	httpClient *http.Client
-	urlBuilder *cohereUrlBuilder
+	urlBuilder UrlBuilder
 	logger     logrus.FieldLogger
 }
 
@@ -88,10 +89,11 @@ type embeddingType string
 const float embeddingType = "float"
 
 type Settings struct {
-	Model     string
-	Truncate  string
-	BaseURL   string
-	InputType InputType
+	Model      string
+	Truncate   string
+	BaseURL    string
+	InputType  InputType
+	Dimensions *int64
 }
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *Client {
@@ -100,7 +102,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *Clien
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		urlBuilder: newCohereUrlBuilder(),
+		urlBuilder: NewCohereUrlBuilder("/v2/embed"),
 		logger:     logger,
 	}
 }
@@ -170,18 +172,20 @@ func (c *Client) getEmbeddingRequest(inputs []string, settings Settings) embeddi
 			}
 		}
 		return embeddingsRequest{
-			Images:         images,
-			Model:          settings.Model,
-			InputType:      settings.InputType,
-			EmbeddingTypes: []embeddingType{float},
+			Images:          images,
+			Model:           settings.Model,
+			InputType:       settings.InputType,
+			EmbeddingTypes:  []embeddingType{float},
+			OutputDimension: settings.Dimensions,
 		}
 	default:
 		return embeddingsRequest{
-			Texts:          inputs,
-			Model:          settings.Model,
-			Truncate:       settings.Truncate,
-			InputType:      settings.InputType,
-			EmbeddingTypes: []embeddingType{float},
+			Texts:           inputs,
+			Model:           settings.Model,
+			Truncate:        settings.Truncate,
+			InputType:       settings.InputType,
+			EmbeddingTypes:  []embeddingType{float},
+			OutputDimension: settings.Dimensions,
 		}
 	}
 }
@@ -191,7 +195,7 @@ func (c *Client) getCohereUrl(ctx context.Context, baseURL string) string {
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return c.urlBuilder.url(passedBaseURL)
+	return c.urlBuilder.URL(passedBaseURL)
 }
 
 func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {

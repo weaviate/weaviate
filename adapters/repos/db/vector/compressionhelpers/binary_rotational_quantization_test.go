@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -117,6 +117,17 @@ func TestBRQCompressedDistanceEstimates(t *testing.T) {
 				m.Type(), dim, target, estimate, estimate/target, err, eps)
 		}
 	}
+}
+
+func TestBRQCompressedDecompressedKeepsTheOriginalSize(t *testing.T) {
+	dist := distancer.NewL2SquaredProvider()
+	rng := newRNG(123)
+	dim := 128
+	q := randomNormalVector(dim, rng)
+	rq := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), dist)
+	cq := rq.Encode(q)
+	x := rq.Decode(cq)
+	assert.Equal(t, len(x), len(q))
 }
 
 // The absolute error when estimating the dot product between unit vectors

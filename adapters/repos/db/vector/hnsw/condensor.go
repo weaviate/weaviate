@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,22 +22,25 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 type MemoryCondensor struct {
-	newLogFile *os.File
+	newLogFile common.File
 	newLog     *bufWriter
 	logger     logrus.FieldLogger
+	fs         common.FS
+	bufferSize int
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
 	c.logger.WithField("action", "hnsw_condensing").Infof("start hnsw condensing")
 	defer c.logger.WithField("action", "hnsw_condensing_complete").Infof("completed hnsw condensing")
 
-	fd, err := os.Open(fileName)
+	fd, err := c.fs.Open(fileName)
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
@@ -49,7 +52,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
 
-	newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
+	newLogFile, err := c.fs.OpenFile(fmt.Sprintf("%s.condensed", fileName),
 		os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
@@ -57,7 +60,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	c.newLogFile = newLogFile
 
-	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
+	c.newLog = NewWriterSize(c.newLogFile, c.bufferSize)
 
 	if res.Compressed {
 		if res.CompressionPQData != nil {
@@ -169,7 +172,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "close new commit log")
 	}
 
-	if err := os.Remove(fileName); err != nil {
+	if err := c.fs.Remove(fileName); err != nil {
 		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
 	}
 
@@ -336,7 +339,7 @@ func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
 	return ec.ToError()
 }
 
-func (c *MemoryCondensor) AddPQCompression(data compressionhelpers.PQData) error {
+func (c *MemoryCondensor) AddPQCompression(data compression.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
@@ -357,7 +360,7 @@ func (c *MemoryCondensor) AddPQCompression(data compressionhelpers.PQData) error
 	return err
 }
 
-func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error {
+func (c *MemoryCondensor) AddSQCompression(data compression.SQData) error {
 	toWrite := make([]byte, 11)
 	toWrite[0] = byte(AddSQ)
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
@@ -367,7 +370,7 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	return err
 }
 
-func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error {
+func (c *MemoryCondensor) AddRQCompression(data compression.RQData) error {
 	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
 	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
 	var buf bytes.Buffer
@@ -433,7 +436,7 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 	return err
 }
 
-func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (c *MemoryCondensor) AddBRQCompression(data compression.BRQData) error {
 	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
 	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
 	roundingSize := 4 * data.Rotation.OutputDim
@@ -467,5 +470,5 @@ func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) err
 }
 
 func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {
-	return &MemoryCondensor{logger: logger}
+	return &MemoryCondensor{logger: logger, fs: common.NewOSFS(), bufferSize: 1 * 1024 * 1024}
 }

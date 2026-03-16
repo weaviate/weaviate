@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -67,7 +67,7 @@ import (
 // Levels help the "eligible for compaction" cycle to find suitable compaction
 // pairs.
 type Compactor struct {
-	left, right  *SegmentCursor
+	left, right  SegmentCursor
 	currentLevel uint16
 	// Tells if deletions or keys without corresponding values
 	// can be removed from merged segment.
@@ -120,7 +120,7 @@ type Compactor struct {
 // to write the entire file in less than [SegmentWriterBufferSize] bytes, there
 // is no additional cost to using the fully-in-memory approach.
 func NewCompactor(w io.WriteSeeker,
-	left, right *SegmentCursor, level uint16,
+	left, right SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *Compactor {
@@ -209,7 +209,7 @@ func (c *Compactor) init() error {
 // nodeCompactor is a helper type to improve the code structure of merging
 // nodes in a compaction
 type nodeCompactor struct {
-	left, right           *SegmentCursor
+	left, right           SegmentCursor
 	keyLeft, keyRight     []byte
 	valueLeft, valueRight BitmapLayer
 	output                []segmentindex.Key

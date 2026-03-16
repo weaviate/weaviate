@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -76,13 +77,20 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	// pause indexing
 	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Pause()
-		return nil
+		return q.Pause(ctx)
 	})
+	// flush all the queue
+	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("flush vector index queues: %w", err)
+	}
 
+	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+		if err = index.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
@@ -104,14 +112,26 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
-	if s.haltForTransferInactivityTimer == nil {
+	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
 		return
 	}
 
-	if !s.haltForTransferInactivityTimer.Stop() {
-		<-s.haltForTransferInactivityTimer.C // drain the channel if necessary
+	// if Stop returns false, the timer has either already fired or been stopped.
+	// in the "already fired" case, there may be a value in t.C that we need to drain.
+	if !t.Stop() {
+		select {
+		case <-t.C:
+			// drained a pending tick.
+		default:
+			// channel was already drained; nothing to do.
+		}
 	}
-	s.haltForTransferInactivityTimer.Reset(s.haltForTransferInactivityTimeout)
+
+	t.Reset(d)
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {
@@ -147,33 +167,49 @@ func (s *Shard) mayInitInactivityMonitoring() {
 }
 
 // ListBackupFiles lists all files used to backup a shard
-func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
 	if s.haltForTransferCount == 0 {
-		return fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
+		return nil, fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
 	}
 
 	s.mayResetInactivityTimer()
 
-	var err error
 	if err := s.readBackupMetadata(ret); err != nil {
-		return err
+		return nil, err
 	}
 
-	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
-		return err
+	files, err := s.store.ListFiles(ctx, s.index.Config.RootPath)
+	if err != nil {
+		return nil, err
 	}
 
-	return s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
-		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
+	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		filesIdx, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
 		}
-		ret.Files = append(ret.Files, files...)
+		files = append(files, filesIdx...)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		filesVq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
+		}
+		files = append(files, filesVq...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -224,6 +260,15 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		})
 	})
 
+	g.Go(func() error {
+		return s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			if err := index.ResumeAfterBackup(ctx); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+			return nil
+		})
+	})
+
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}
@@ -234,10 +279,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
 
-	d.Node, err = s.nodeName()
-	if err != nil {
-		return fmt.Errorf("node name: %w", err)
-	}
+	d.Node = s.index.getSchema.NodeName()
 
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
@@ -266,12 +308,6 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	return nil
 }
 
-func (s *Shard) nodeName() (string, error) {
-	node, err := s.index.getSchema.ShardOwner(
-		s.index.Config.ClassName.String(), s.name)
-	return node, err
-}
-
 func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
@@ -283,7 +319,10 @@ func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (f
 
 	s.mayResetInactivityTimer()
 
-	finalPath := filepath.Join(s.Index().Config.RootPath, relativeFilePath)
+	finalPath, err := s.sanitizeFilePath(relativeFilePath)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("sanitize file path %q: %w", relativeFilePath, err)
+	}
 	return file.GetFileMetadata(finalPath)
 }
 
@@ -298,7 +337,10 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 
 	s.mayResetInactivityTimer()
 
-	finalPath := filepath.Join(s.Index().Config.RootPath, relativeFilePath)
+	finalPath, err := s.sanitizeFilePath(relativeFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize file path %q: %w", relativeFilePath, err)
+	}
 
 	reader, err := os.Open(finalPath)
 	if err != nil {
@@ -306,4 +348,33 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 	}
 
 	return reader, nil
+}
+
+func (s *Shard) sanitizeFilePath(relativeFilePath string) (string, error) {
+	// clean the path to remove any ../ or ./ sequences
+	cleanFilePath := filepath.Clean(relativeFilePath)
+	if filepath.IsAbs(cleanFilePath) {
+		return "", fmt.Errorf("relative file path %q is an absolute path", relativeFilePath)
+	}
+	combinedPath := filepath.Join(s.index.Config.RootPath, cleanFilePath)
+	finalPath, err := filepath.EvalSymlinks(combinedPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks for %q: %w", finalPath, err)
+	}
+	finalPath = filepath.Clean(finalPath)
+
+	// Resolve symlinks in root path - this is important for testing on MacOs where /var is a symlink
+	rootPath, err := filepath.EvalSymlinks(s.index.Config.RootPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks for root path %q: %w", s.index.Config.RootPath, err)
+	}
+
+	rel, err := filepath.Rel(rootPath, finalPath)
+	if err != nil {
+		return "", fmt.Errorf("make %q relative to %q: %w", finalPath, rootPath, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file path %q is outside shard root %q", finalPath, rootPath)
+	}
+	return finalPath, nil
 }

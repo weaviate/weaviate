@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,18 +17,30 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+)
+
+const (
+	MAX_CONCURRENT_STREAMS = 250
+	MAX_READ_FRAME_SIZE    = (16 * 1024 * 1024) // 16 MB
 )
 
 // Server represents the cluster API server
 type Server struct {
-	server   *http.Server
-	appState *state.State
+	server            *http.Server
+	appState          *state.State
+	replicatedIndices *replicatedIndices
+	grpc              *grpc.Server
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -44,11 +56,20 @@ func NewServer(appState *state.State) *Server {
 		Debugf("serving cluster api on port %d", port)
 
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
-	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost)
+	replicatedIndices := NewReplicatedIndices(
+		appState.DB,
+		auth,
+		appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
+		appState.Logger,
+		appState.ClusterService.Ready)
+
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
+	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
+	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
@@ -56,19 +77,36 @@ func NewServer(appState *state.State) *Server {
 			classifications.Transactions()))
 
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
-	mux.Handle("/nodes/", nodes.Nodes())
-	mux.Handle("/indices/", indices.Indices())
-	mux.Handle("/replicas/indices/", replicatedIndices.Indices())
+	mux.Handle("/cluster/object_ttl/", objectTTL.Expired())
+	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
+	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
+	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
 
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 
+	mux.Handle("/exports/prepare", exportsHandler.Prepare())
+	mux.Handle("/exports/commit", exportsHandler.Commit())
+	mux.Handle("/exports/abort", exportsHandler.Abort())
+	mux.Handle("/exports/status", exportsHandler.Status())
+
 	mux.Handle("/", index())
 
+	grpcServer := grpc.NewServer(appState)
+
 	var handler http.Handler
-	handler = mux
+	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r) // Route to gRPC
+			return
+		}
+		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
+	})
+
+	handler = addClusterHandlerMiddleware(handler, appState)
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
@@ -89,12 +127,19 @@ func NewServer(appState *state.State) *Server {
 		)
 	}
 
+	protocols := http.Protocols{}
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
 	return &Server{
 		server: &http.Server{
-			Addr:    fmt.Sprintf(":%d", port),
-			Handler: handler,
+			Addr:      fmt.Sprintf(":%d", port),
+			Handler:   handler,
+			Protocols: &protocols,
 		},
-		appState: appState,
+		appState:          appState,
+		replicatedIndices: replicatedIndices,
+		grpc:              grpcServer,
 	}
 }
 
@@ -110,13 +155,40 @@ func (s *Server) Close(ctx context.Context) error {
 	s.appState.Logger.WithField("action", "cluster_api_shutdown").
 		Info("server is shutting down")
 
-	if err := s.server.Shutdown(ctx); err != nil {
+	// Close the replicatedIndices first to drain the queue and wait for workers
+	// This ensures all pending replication requests are processed before stopping the server
+	if s.replicatedIndices != nil {
 		s.appState.Logger.WithField("action", "cluster_api_shutdown").
-			WithError(err).
-			Error("could not stop server gracefully")
-		return s.server.Close()
+			Info("shutting down replicated indices")
+		if err := s.replicatedIndices.Close(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Warn("error shutting down replicated indices")
+		}
 	}
-	return nil
+
+	// Now shutdown the servers after the replicated indices have been closed
+	eg := enterrors.NewErrorGroupWrapper(s.appState.Logger)
+	eg.Go(func() error {
+		if err := s.server.Shutdown(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Error("could not stop server gracefully")
+			return s.server.Close()
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		if err := s.grpc.Close(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Error("could not stop grpc server gracefully")
+			return err
+		}
+		return nil
+	})
+
+	return eg.Wait()
 }
 
 // Serve is kept for backward compatibility
@@ -160,4 +232,23 @@ func staticRoute(mux *http.ServeMux) monitoring.StaticRouteLabel {
 		}
 		return r, route
 	}
+}
+
+// clusterv1Regexp is used to intercept requests and redirect them to a dedicated http server independent of swagger
+var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
+
+// addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
+// If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
+// If the request doesn't match, it will continue to the next handler.
+func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
+	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
+	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case clusterv1Regexp.MatchString(r.URL.Path):
+			raftRouter.ServeHTTP(w, r)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
 }

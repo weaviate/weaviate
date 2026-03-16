@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,37 +14,35 @@ package vectorizer
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type fakeClient struct {
-	lastInput  []string
-	lastConfig ent.VectorizationConfig
+	lastInput []string
 }
 
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig, titlePropertyValue string,
-) (*ent.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &ent.VectorizationResult{
-		Vectors:    [][]float32{{0, 1, 2, 3}},
+func (c *fakeClient) VectorizeWithTitleProperty(ctx context.Context,
+	input []string, titlePropertyValue string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], error) {
+	c.lastInput = input
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
-		Texts:      text,
+		Text:       input,
 	}, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &ent.VectorizationResult{
-		Vectors:    [][]float32{{0.1, 1.1, 2.1, 3.1}},
+	input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], error) {
+	c.lastInput = input
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
-		Texts:      text,
+		Text:       input,
 	}, nil
 }
 

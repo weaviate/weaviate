@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,8 +20,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	moduleadditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -878,7 +878,7 @@ func extractFragmentSpread(class string, spread *ast.FragmentSpread,
 }
 
 // It seems there's no proper way to extract this info unfortunately:
-// https://github.com/tailor-inc/graphql/issues/455
+// https://github.com/tailor-platform/graphql/issues/455
 func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string, error) {
 	loc := def.GetLoc()
 	raw := loc.Source.Body[loc.Start:loc.End]

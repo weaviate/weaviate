@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,13 +21,6 @@ import (
 const (
 	modelProperty = "model"
 )
-
-var availableVoyageAIModels = []string{
-	"rerank-2",
-	"rerank-2-lite",
-	"rerank-lite-1",
-	"rerank-1",
-}
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
@@ -49,8 +42,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 	model := ic.getStringProperty(modelProperty, DefaultVoyageAIModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong VoyageAI model name, available model names are: %v", availableVoyageAIModels)
+	if model == nil {
+		return errors.Errorf("no model provided")
 	}
 
 	return nil
@@ -61,19 +54,6 @@ func (ic *classSettings) getStringProperty(name string, defaultValue string) *st
 	return &asString
 }
 
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableVoyageAIModels, model)
-}
-
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultVoyageAIModel)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

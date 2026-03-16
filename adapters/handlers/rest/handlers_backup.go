@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package rest
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -40,25 +41,19 @@ func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
 			cfg.CPUPercentage = ubak.DefaultCPUPercentage
 		}
 
-		if cfg.ChunkSize == 0 {
-			cfg.ChunkSize = ubak.DefaultChunkSize
-		}
-
 		if cfg.CompressionLevel == "" {
 			cfg.CompressionLevel = models.BackupConfigCompressionLevelDefaultCompression
 		}
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
-			ChunkSize:     int(cfg.ChunkSize),
 			Level:         parseCompressionLevel(cfg.CompressionLevel),
 		}
 	}
 
 	return ubak.Compression{
-		Level:         ubak.DefaultCompression,
+		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 
@@ -70,26 +65,32 @@ func compressionFromRCfg(cfg *models.RestoreConfig) ubak.Compression {
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
-			Level:         ubak.DefaultCompression,
-			ChunkSize:     ubak.DefaultChunkSize,
+			Level:         ubak.GzipDefaultCompression,
 		}
 	}
 
 	return ubak.Compression{
-		Level:         ubak.DefaultCompression,
+		Level:         ubak.GzipDefaultCompression,
 		CPUPercentage: ubak.DefaultCPUPercentage,
-		ChunkSize:     ubak.DefaultChunkSize,
 	}
 }
 
 func parseCompressionLevel(l string) ubak.CompressionLevel {
 	switch l {
 	case models.BackupConfigCompressionLevelBestSpeed:
-		return ubak.BestSpeed
+		return ubak.GzipBestSpeed
 	case models.BackupConfigCompressionLevelBestCompression:
-		return ubak.BestCompression
+		return ubak.GzipBestCompression
+	case models.BackupConfigCompressionLevelZstdBestSpeed:
+		return ubak.ZstdBestSpeed
+	case models.BackupConfigCompressionLevelZstdDefaultCompression:
+		return ubak.ZstdDefaultCompression
+	case models.BackupConfigCompressionLevelZstdBestCompression:
+		return ubak.ZstdBestCompression
+	case models.BackupConfigCompressionLevelNoCompression:
+		return ubak.NoCompression
 	default:
-		return ubak.DefaultCompression
+		return ubak.GzipDefaultCompression
 	}
 }
 
@@ -102,14 +103,24 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		overrideBucket = params.Body.Config.Bucket
 		overridePath = params.Body.Config.Path
 	}
+	baseBackupID := ""
+	if params.Body.IncrementalBaseBackupID != nil {
+		baseBackupID = *params.Body.IncrementalBaseBackupID
+	}
+	if params.Body.ID == baseBackupID {
+		return backups.NewBackupsCreateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupID)))
+	}
+
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:          params.Body.ID,
-		Backend:     params.Backend,
-		Bucket:      overrideBucket,
-		Path:        overridePath,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
-		Compression: compressionFromBCfg(params.Body.Config),
+		ID:           params.Body.ID,
+		Backend:      params.Backend,
+		Bucket:       overrideBucket,
+		Path:         overridePath,
+		Include:      params.Body.Include,
+		Exclude:      params.Body.Exclude,
+		Compression:  compressionFromBCfg(params.Body.Config),
+		BaseBackupID: baseBackupID,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -169,6 +180,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		Error:       status.Err,
 		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
 		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
+		Size:        status.Size,
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
@@ -302,11 +314,43 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	return backups.NewBackupsCancelNoContent()
 }
 
+func (s *backupHandlers) cancelRestore(params backups.BackupsRestoreCancelParams,
+	principal *models.Principal,
+) middleware.Responder {
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	err := s.manager.CancelRestore(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+	if err != nil {
+		s.metricRequestsTotal.logError("", err)
+		switch {
+		case errors.As(err, &authzerrors.Forbidden{}):
+			return backups.NewBackupsRestoreCancelForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &backup.ErrUnprocessable{}):
+			return backups.NewBackupsRestoreCancelUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return backups.NewBackupsRestoreCancelInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk("")
+	return backups.NewBackupsRestoreCancelNoContent()
+}
+
 func (s *backupHandlers) list(params backups.BackupsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	payload, err := s.manager.List(
-		params.HTTPRequest.Context(), principal, params.Backend)
+		params.HTTPRequest.Context(), principal, params.Backend, params.Order,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
@@ -340,6 +384,7 @@ func setupBackupHandlers(api *operations.WeaviateAPI,
 	api.BackupsBackupsRestoreStatusHandler = backups.
 		BackupsRestoreStatusHandlerFunc(h.restoreBackupStatus)
 	api.BackupsBackupsCancelHandler = backups.BackupsCancelHandlerFunc(h.cancel)
+	api.BackupsBackupsRestoreCancelHandler = backups.BackupsRestoreCancelHandlerFunc(h.cancelRestore)
 	api.BackupsBackupsListHandler = backups.BackupsListHandlerFunc(h.list)
 }
 

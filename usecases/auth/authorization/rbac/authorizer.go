@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,6 +44,9 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	if !m.rbacConf.IpInAuditDisabled {
 		sourceIp := ctx.Value("sourceIp")
 		logger = logger.WithField("source_ip", sourceIp)
+	}
+	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
+		logger = logger.WithField("client_identifier", clientIdentifier)
 	}
 
 	if len(principal.Groups) > 0 {
@@ -126,6 +129,9 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		"component":      authorization.ComponentName,
 		"request_action": verb,
 	})
+	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
+		logger = logger.WithField("client_identifier", clientIdentifier)
+	}
 
 	if len(principal.Groups) > 0 {
 		logger = logger.WithField("groups", principal.Groups)

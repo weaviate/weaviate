@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,7 @@
 package interval
 
 import (
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -50,9 +50,7 @@ func TestBackoffInterval(t *testing.T) {
 		)
 
 		copy(sorted, durations)
-		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i] < sorted[j]
-		})
+		slices.Sort(sorted)
 
 		boff := NewBackoffTimer(durations...)
 		assert.Equal(t, boff.backoffs, sorted)

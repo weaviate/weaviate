@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -76,35 +76,14 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("projectId cannot be empty"),
 		},
 		{
-			name: "wrong modelId",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "projectId",
-					"modelId":   "wrong-model",
-				},
-			},
-			wantErr: errors.Errorf("wrong modelId available model names are: " +
-				"[textembedding-gecko@001 textembedding-gecko@latest " +
-				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
-				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409 " +
-				"gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
-		},
-		{
-			name: "all wrong",
+			name: "empty projectId",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"projectId": "",
 					"modelId":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("projectId cannot be empty, " +
-				"wrong modelId available model names are: " +
-				"[textembedding-gecko@001 textembedding-gecko@latest " +
-				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
-				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409 " +
-				"gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
+			wantErr: errors.Errorf("projectId cannot be empty"),
 		},
 		{
 			name: "Generative AI",
@@ -134,16 +113,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
 			wantErr:         nil,
-		},
-		{
-			name: "Generative AI with wrong model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-					"modelId":     "textembedding-gecko@001",
-				},
-			},
-			wantErr: errors.Errorf("wrong modelId available AI Studio model names are: [embedding-001 text-embedding-004 gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
 		},
 		{
 			name: "wrong properties",

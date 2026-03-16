@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Version of backup structure
@@ -67,6 +68,7 @@ type Status struct {
 	CompletedAt time.Time
 	Status      backup.Status
 	Err         string
+	Size        float64
 }
 
 type Handler struct {
@@ -81,6 +83,7 @@ type Handler struct {
 
 func NewHandler(
 	logger logrus.FieldLogger,
+	cfg config.Backup,
 	authorizer authorization.Authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
@@ -94,7 +97,7 @@ func NewHandler(
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
-		backupper: newBackupper(node, logger,
+		backupper: newBackupper(node, logger, cfg,
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
@@ -107,14 +110,8 @@ func NewHandler(
 
 // Compression is the compression configuration.
 type Compression struct {
-	// Level is one of DefaultCompression, BestSpeed, BestCompression
+	// Level is one of GzipDefaultCompression, GzipBestSpeed, GzipBestCompression
 	Level CompressionLevel
-
-	// ChunkSize represents the desired size for chunks between 1 - 512  MB
-	// However, during compression, the chunk size might
-	// slightly deviate from this value, being either slightly
-	// below or above the specified size
-	ChunkSize int
 
 	// CPUPercentage desired CPU core utilization (1%-80%), default: 50%
 	CPUPercentage int
@@ -149,6 +146,8 @@ type BackupRequest struct {
 
 	RbacRestoreOption string
 	UserRestoreOption string
+
+	BaseBackupID string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -278,7 +277,7 @@ func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucke
 	if err != nil {
 		return nodeStore{}, err
 	}
-	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path}}
+	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path, node: node}}
 	return ns, nil
 }
 

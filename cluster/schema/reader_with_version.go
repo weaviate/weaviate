@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -70,7 +70,7 @@ func (rs SchemaReader) ShardOwnerWithVersion(ctx context.Context, class, shard s
 		owner, _, err = s.ShardOwner(class, shard)
 		return err
 	})
-	return
+	return owner, err
 }
 
 // ShardFromUUID returns shard name of the provided uuid
@@ -84,7 +84,7 @@ func (rs SchemaReader) ShardFromUUIDWithVersion(ctx context.Context, class strin
 		}
 		return nil
 	})
-	return
+	return shard, err
 }
 
 // ShardReplicas returns the replica nodes of a shard
@@ -96,7 +96,7 @@ func (rs SchemaReader) ShardReplicasWithVersion(ctx context.Context, class, shar
 		nodes, _, err = s.ShardReplicas(class, shard)
 		return err
 	})
-	return
+	return nodes, err
 }
 
 // TenantsShardsWithVersion returns shard name for the provided tenant and its activity status
@@ -112,5 +112,5 @@ func (rs SchemaReader) TenantsShardsWithVersion(ctx context.Context, version uin
 		return nil
 	})
 
-	return
+	return tenantShards, err
 }

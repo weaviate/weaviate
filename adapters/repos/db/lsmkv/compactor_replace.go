@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,8 +31,7 @@ import (
 type compactorReplace struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1 *segmentCursorReplace
-	c2 *segmentCursorReplace
+	c1, c2 innerCursorReplaceAllKeys
 
 	// the level matching those of the cursors
 	currentLevel uint16
@@ -54,7 +53,7 @@ type compactorReplace struct {
 }
 
 func newCompactorReplace(w io.WriteSeeker,
-	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
+	c1, c2 innerCursorReplaceAllKeys, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorReplace {

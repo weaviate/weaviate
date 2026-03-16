@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 type retryClient struct {
@@ -85,7 +87,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		return false, nil
 	}
-	return code, c.retry(ctx, 9, try)
+	return code, c.retry(ctx, MAX_RETRIES, try)
 }
 
 type retryer struct {
@@ -96,34 +98,29 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 250,
-		maxBackOff:  time.Second * 30,
+		minBackOff:  time.Millisecond * 100,
+		maxBackOff:  time.Second * 10,
 		timeoutUnit: time.Second, // used by unit tests
 	}
 }
 
-// n is the number of retries, work will always be called at least once.
+// n is the maximum number of retries (work will always be called at least once, so total attempts = n).
+//
+//	The retry uses exponential backoff with a maximum attempt limit. A safety MaxElapsedTime is also set
+//	to prevent retries from running indefinitely if operations take a very long time.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
-	delay := r.minBackOff
-	for {
-		keepTrying, err := work(ctx)
-		if !keepTrying || n < 1 || err == nil {
-			return err
-		}
+	exp := backoff.NewExponentialBackOff()
+	exp.InitialInterval = r.minBackOff
+	exp.MaxInterval = r.maxBackOff
+	exp.MaxElapsedTime = time.Duration(n) * r.maxBackOff
 
-		n--
-		if delay = backOff(delay); delay > r.maxBackOff {
-			delay = r.maxBackOff
+	return backoff.Retry(func() error {
+		keepTrying, err := work(ctx)
+		if !keepTrying || err == nil {
+			return backoff.Permanent(err)
 		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("%w: %w", err, ctx.Err())
-		case <-timer.C:
-		}
-		timer.Stop()
-	}
+		return err
+	}, backoff.WithContext(backoff.WithMaxRetries(exp, uint64(n)), ctx))
 }
 
 func successCode(code int) bool {

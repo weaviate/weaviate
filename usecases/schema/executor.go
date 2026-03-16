@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,13 +19,13 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"golang.org/x/exp/slices"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -76,7 +76,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
 				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
-				err := fmt.Errorf("failed to reload local index %q: %w", i, err)
+				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
 				errList = errors.Join(errList, err)
@@ -146,17 +146,6 @@ func (e *executor) ShutdownShard(class string, shard string) {
 	}
 }
 
-func (e *executor) DropShard(class string, shard string) {
-	ctx := context.Background()
-	if err := e.migrator.DropShard(ctx, class, shard); err != nil {
-		e.logger.WithFields(logrus.Fields{
-			"action": "drop_shard",
-			"class":  class,
-			"shard":  shard,
-		}).WithError(err).Warn("migrator")
-	}
-}
-
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 // This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
 func (e *executor) RestoreClassDir(class string) error {
@@ -191,14 +180,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
-	ctx := context.Background()
-	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (e *executor) DeleteClass(cls string, hasFrozen bool) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls, hasFrozen); err != nil {
@@ -226,6 +207,19 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 		"action": "add_property",
 		"class":  className,
 	}).Debug("adding property")
+	return nil
+}
+
+func (e *executor) UpdateProperty(className string, req api.UpdatePropertyRequest) error {
+	ctx := context.Background()
+	if err := e.migrator.UpdateProperty(ctx, className, req.Property); err != nil {
+		return err
+	}
+
+	e.logger.WithFields(logrus.Fields{
+		"action": "update_property",
+		"class":  className,
+	}).Debug("updating property")
 	return nil
 }
 
@@ -298,7 +292,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates, false); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, true); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

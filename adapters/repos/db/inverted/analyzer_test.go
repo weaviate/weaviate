@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,7 +23,7 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	a := NewAnalyzer(nil)
+	a := NewAnalyzer(nil, "")
 
 	countable := func(data []string, freq []int) []Countable {
 		countable := make([]Countable, len(data))
@@ -408,7 +408,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		return countable
 	}
 
-	a := NewAnalyzer(nil)
+	a := NewAnalyzer(nil, "")
 	input := "Hello you-beautiful_World"
 
 	t.Run("with text", func(t *testing.T) {

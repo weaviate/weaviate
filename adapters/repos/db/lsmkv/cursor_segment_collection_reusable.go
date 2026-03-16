@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,11 +21,13 @@ import (
 type segmentCursorCollectionReusable struct {
 	cache   *cacheReader
 	nodeBuf segmentCollectionNode
+	keyBuf  []byte
 }
 
 func (s *segment) newCollectionCursorReusable() *segmentCursorCollectionReusable {
 	return &segmentCursorCollectionReusable{
-		cache: newCacheReader(s),
+		cache:  newCacheReader(s),
+		keyBuf: make([]byte, 9),
 	}
 }
 
@@ -45,7 +47,7 @@ func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
 }
 
 func (s *segmentCursorCollectionReusable) parseCollectionNodeInto() ([]byte, []value, error) {
-	err := ParseCollectionNodeInto(s.cache, &s.nodeBuf)
+	err := ParseCollectionNodeInto(s.cache, &s.nodeBuf, s.keyBuf[:])
 	if err != nil {
 		return s.nodeBuf.primaryKey, nil, err
 	}

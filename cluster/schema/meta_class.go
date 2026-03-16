@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,12 +74,12 @@ func (m *metaClass) version() uint64 {
 
 func (m *metaClass) MultiTenancyConfig() (mc models.MultiTenancyConfig, v uint64) {
 	if m == nil {
-		return
+		return mc, v
 	}
 	m.RLock()
 	defer m.RUnlock()
 	if m.Class.MultiTenancyConfig == nil {
-		return
+		return mc, v
 	}
 
 	return *m.Class.MultiTenancyConfig, m.version()
@@ -152,6 +152,17 @@ func (m *metaClass) TenantsShards(class string, tenants ...string) (map[string]s
 }
 
 func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
+	return m.upsertProperty(v, props...)
+}
+
+func (m *metaClass) UpdateProperty(v uint64, property *models.Property) error {
+	return m.upsertProperty(v, property)
+}
+
+// upsertProperty method takes properties and merges them with existing class
+// if property doesn't exist then it will be added
+// if property exists then it will be merged with existing property
+func (m *metaClass) upsertProperty(v uint64, props ...*models.Property) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -207,6 +218,8 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 			mergedProps = append(mergedProps, new[idx])
 		} else {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
+			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
+			mergedProps[oldIdx].IndexSearchable = new[idx].IndexSearchable
 
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
 				mergedProps[oldIdx].NestedProperties,
@@ -378,6 +391,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 		case types.TenantActivityStatusUNFREEZING:
 			// ignore multiple unfreezing
+			req.ImplicitUpdateRequest = true
 			var statusInProgress string
 			processes, exists := m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)]
 			if exists {

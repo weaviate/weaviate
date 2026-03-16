@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,17 +40,16 @@ func TestText2VecMorph(t *testing.T) {
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,
-) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules(apiKey).
+) (*docker.DockerCompose, error) {
+	compose, err := composeModules(apiKey).
 		WithWeaviate().
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", fmt.Sprintf("%.0fs", companies.DefaultTimeout.Seconds())).
 		Start(ctx)
-	return
+	return compose, err
 }
 
-func composeModules(apiKey string) (composeModules *docker.Compose) {
-	composeModules = docker.New().
+func composeModules(apiKey string) *docker.Compose {
+	return docker.New().
 		WithText2VecMorph(apiKey)
-	return
 }

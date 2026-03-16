@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -269,11 +269,11 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 	for i, nodeName := range nodes {
 		i, nodeName := i, nodeName
 		enterrors.GoWrapper(func() {
+			defer wg.Done()
 			status, err := h.remoteUser.GetAndUpdateLastUsedTime(ctx, nodeName, usersWithTime, true)
 			if err == nil {
 				userStatuses[i] = status
 			}
-			wg.Done()
 		}, h.logger)
 	}
 	wg.Wait()
@@ -300,9 +300,9 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 		for _, nodeName := range nodes {
 			nodeName := nodeName
 			enterrors.GoWrapper(func() {
+				defer wg.Done()
 				// dont care about returns or errors
 				_, _ = h.remoteUser.GetAndUpdateLastUsedTime(ctx2, nodeName, usersWithTime, false)
-				wg.Done()
 			}, h.logger)
 		}
 		wg.Wait() // wait so cancelFunc2 is not executed too early
@@ -460,6 +460,10 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
+	if params.UserID == principal.Username {
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("cannot delete its own user %q", params.UserID)))
+	}
+
 	if h.isRootUser(params.UserID) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
 	}
@@ -505,7 +509,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 	}
 
 	if params.UserID == principal.Username {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' cannot self-deactivate", params.UserID)))
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("cannot deactivate its own user %q", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {

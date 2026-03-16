@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,9 +18,10 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
+
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -55,6 +56,7 @@ type Store struct {
 	// Prevent concurrent manipulations to the same Bucket, specially if there is
 	// action on the bucket in the meantime.
 	bucketsLocks *wsync.KeyLocker
+	loadLimiter  *loadlimiter.LoadLimiter
 
 	closeLock sync.RWMutex
 	closed    bool
@@ -63,7 +65,7 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadLimiter *loadlimiter.LoadLimiter,
 	shardCompactionCallbacks, shardCompactionAuxCallbacks,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
@@ -75,6 +77,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
+		loadLimiter:   loadLimiter,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
@@ -122,6 +125,10 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
 }
 
+func (s *Store) GetDir() string {
+	return s.dir
+}
+
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk
 // exists for this bucket it is loaded, otherwise created. Pass [BucketOptions]
 // to configure the strategy of a bucket. The strategy defaults to "replace".
@@ -158,8 +165,15 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 				"bucket":   bucketName,
 			}).
 			WithError(err).Errorf("unexpected error loading shard")
-		debug.PrintStack()
+		enterrors.PrintStack(s.logger)
 	}()
+
+	if s.loadLimiter != nil {
+		if err := s.loadLimiter.Acquire(ctx); err != nil {
+			return errors.Wrapf(err, "acquire load limiter for bucket %q", bucketName)
+		}
+		defer s.loadLimiter.Release()
+	}
 
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -356,12 +370,12 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 		wg.Add(1)
 		b := bucket
 		f := func() {
+			defer wg.Done()
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
-			wg.Done()
 		}
 		enterrors.GoWrapper(f, s.logger)
 	}
@@ -369,7 +383,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	wg.Wait()
 	close(resultQueue)
 
-	var errs errorcompounder.ErrorCompounder
+	errs := errorcompounder.New()
 	for _, err := range status.buckets {
 		errs.Add(err)
 	}
@@ -382,7 +396,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 		for b, jobErr := range status.buckets {
 			if jobErr != nil && rollbackFunc != nil {
 				if rollbackErr := rollbackFunc(ctx, b); rollbackErr != nil {
-					errs.AddWrap(rollbackErr, "bucket job rollback")
+					errs.AddWrapf(rollbackErr, "bucket job rollback")
 				}
 			}
 		}
@@ -527,10 +541,11 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 	replacementBucket.dir = newReplacementBucketDir
 
-	err = replacementBucket.setNewActiveMemtable()
+	mt, err := replacementBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	replacementBucket.active = mt
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
@@ -578,10 +593,11 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 
 	currBucket.dir = newBucketDir
 
-	err := currBucket.setNewActiveMemtable()
+	mt, err := currBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	currBucket.active = mt
 
 	s.bucketsByName[newBucketName] = currBucket
 	delete(s.bucketsByName, bucketName)
@@ -600,7 +616,7 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	segments, release := bucket.disk.getAndLockSegments()
+	segments, release := bucket.disk.getConsistentViewOfSegments()
 	defer release()
 
 	bucket.disk.dir = newBucketDir

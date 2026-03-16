@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,9 +20,10 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
@@ -69,10 +71,15 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
@@ -143,7 +150,12 @@ func TestHnswPqNilVectors(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	require.NoError(t, err)

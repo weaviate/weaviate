@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -69,7 +70,12 @@ func (sq *BaseSlowReporter) LogIfSlow(ctx context.Context, startTime time.Time, 
 	}
 
 	took := time.Since(startTime)
-	if took > threshold {
+
+	slowQuery := took > threshold
+
+	sampledQuery := rand.Float64() < 0.01 // 1% sampling
+
+	if slowQuery || sampledQuery {
 		if fields == nil {
 			fields = map[string]any{}
 		}
@@ -79,6 +85,11 @@ func (sq *BaseSlowReporter) LogIfSlow(ctx context.Context, startTime time.Time, 
 			maps.Copy(fields, detailFields)
 		}
 		fields["took"] = took
-		sq.logger.WithFields(fields).Warn(fmt.Sprintf("Slow query detected (%s)", took.Round(time.Millisecond)))
+		if slowQuery {
+			sq.logger.WithFields(fields).Warn(fmt.Sprintf("Slow query detected (%s)", took.Round(time.Millisecond)))
+		} else {
+			sq.logger.WithFields(fields).Info(fmt.Sprintf("Sampled query (%s)", took.Round(time.Millisecond)))
+		}
+		return
 	}
 }

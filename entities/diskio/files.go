@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,8 +13,11 @@ package diskio
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 func FileExists(file string) (bool, error) {
@@ -26,6 +29,17 @@ func FileExists(file string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func DirExists(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return fi.IsDir(), nil
 }
 
 func IsDirEmpty(dir string) (bool, error) {
@@ -54,25 +68,70 @@ func Fsync(path string) error {
 }
 
 // GetFileWithSizes gets all files in a directory including their filesize
-func GetFileWithSizes(dirPath string) (map[string]int64, error) {
+func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	dir, err := os.Open(dirPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer dir.Close()
 
 	// Read all entries at once including file sizes
 	fileInfos, err := dir.Readdir(-1)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	fileSizes := make(map[string]int64)
+	var dirs []string
 	for _, info := range fileInfos {
 		if !info.IsDir() { // Skip directories
 			fileSizes[info.Name()] = info.Size()
+		} else {
+			dirs = append(dirs, info.Name())
 		}
 	}
 
-	return fileSizes, nil
+	return fileSizes, dirs, nil
+}
+
+// GetDirSize calculates the total size of a directory recursively
+func GetDirSize(dirPath string) (uint64, error) {
+	var totalSize uint64
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			totalSize += uint64(info.Size())
+		}
+		return nil
+	})
+	return totalSize, err
+}
+
+// SanitizeFilePathJoin joins a root path and a relative file path, ensuring that the resulting path is within the root
+// path. It assumes that the relativeFilePath is attacker controlled.
+func SanitizeFilePathJoin(rootPath string, relativeFilePath string) (string, error) {
+	// Resolve symlinks in root path
+	rootPath, err := filepath.EvalSymlinks(rootPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks for root path %q: %w", rootPath, err)
+	}
+
+	// clean the path to remove any ../ or ./ sequences
+	cleanFilePath := filepath.Clean(relativeFilePath)
+	if filepath.IsAbs(cleanFilePath) {
+		return "", fmt.Errorf("relative file path %q is an absolute path", relativeFilePath)
+	}
+	combinedPath := filepath.Join(rootPath, cleanFilePath)
+	finalPath := filepath.Clean(combinedPath)
+
+	rel, err := filepath.Rel(rootPath, finalPath)
+	if err != nil {
+		return "", fmt.Errorf("make %q relative to %q: %w", finalPath, rootPath, err)
+	}
+	if strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("file path %q is outside shard root %q", finalPath, rootPath)
+	}
+	return finalPath, nil
 }

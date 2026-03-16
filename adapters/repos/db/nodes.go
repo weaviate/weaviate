@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,14 +16,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/pkg/errors"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
@@ -109,13 +108,14 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 	}
 
 	status := models.NodeStatus{
-		Name:       db.schemaGetter.NodeName(),
-		Version:    db.config.ServerVersion,
-		GitHash:    db.config.GitHash,
-		Status:     &clusterHealthStatus,
-		Shards:     shards,
-		Stats:      nodeStats,
-		BatchStats: db.localNodeBatchStats(),
+		Name:            db.schemaGetter.NodeName(),
+		Version:         db.config.ServerVersion,
+		GitHash:         db.config.GitHash,
+		Status:          &clusterHealthStatus,
+		Shards:          shards,
+		Stats:           nodeStats,
+		BatchStats:      db.localNodeBatchStats(),
+		OperationalMode: db.config.OperationalMode.Get(),
 	}
 
 	return &status
@@ -158,7 +158,8 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 func (db *DB) localNodeBatchStats() *models.BatchStats {
 	rate := db.ratePerSecond.Load()
 	stats := &models.BatchStats{RatePerSecond: rate}
-	if !asyncEnabled() {
+	if !db.AsyncIndexingEnabled {
+
 		ql := int64(len(db.jobQueueCh))
 		stats.QueueLength = &ql
 	}
@@ -195,7 +196,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					Loaded:               false,
 					ReplicationFactor:    replicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
-					Compressed:           isAnyVectorIndexCompressed(shard),
+					// don't add compression status as this would trigger loading the shard
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
@@ -244,14 +245,14 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		shardCount++
 		return nil
 	})
-	return
+	return totalCount, shardCount
 }
 
 func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
 	var numberOfReplicas int64
 	var replicationFactor int64
 	class := i.Config.ClassName.String()
-	err := i.schemaReader.Read(class, func(class *models.Class, state *sharding.State) error {
+	err := i.schemaReader.Read(class, true, func(class *models.Class, state *sharding.State) error {
 		var err error
 		replicationFactor = state.ReplicationFactor
 		numberOfReplicas, err = state.NumberOfReplicas(shardName)

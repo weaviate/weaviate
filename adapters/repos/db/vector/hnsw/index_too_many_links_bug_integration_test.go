@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest && !race
-// +build integrationTest,!race
 
 package hnsw
 
@@ -23,11 +22,17 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type tooManyLinksNoopBucketView struct{}
+
+func (n *tooManyLinksNoopBucketView) ReleaseView() {}
 
 // The !race build tag makes sure that this test is EXCLUDED from running with
 // the race detector on, but now we also need to make sure that it runs in the
@@ -84,6 +89,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
 				return original, nil
 			},
@@ -94,6 +100,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &tooManyLinksNoopBucketView{} },
 		}, ent.UserConfig{
 			MaxConnections:         m,
 			EFConstruction:         128,
@@ -105,7 +112,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorCacheMaxObjects: 2 * n,
 		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
-		idx.PostStartup()
+		idx.PostStartup(context.Background())
 		index = idx
 	})
 
@@ -220,6 +227,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("create a new one from the disk files", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: MakeNoopCommitLogger, // no longer need a real one
 			ID:                    "too_many_links_test",
 			RootPath:              rootPath,
@@ -228,6 +236,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &tooManyLinksNoopBucketView{} },
 		}, ent.UserConfig{
 			MaxConnections:         m,
 			EFConstruction:         128,
@@ -239,7 +248,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorCacheMaxObjects: 2 * n,
 		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
-		idx.PostStartup()
+		idx.PostStartup(context.Background())
 		index = idx
 	})
 
@@ -262,7 +271,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		require.Nil(t, index.Drop(context.Background()))
+		require.Nil(t, index.Drop(context.Background(), false))
 		require.Nil(t, commitLoggerCallbacksCtrl.Unregister(ctx))
 		require.Nil(t, tombstoneCleanupCallbacksCtrl.Unregister(ctx))
 	})

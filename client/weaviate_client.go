@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/client/classifications"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/distributed_tasks"
+	"github.com/weaviate/weaviate/client/export"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -86,6 +87,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Cluster = cluster.New(transport, formats)
 	cli.DistributedTasks = distributed_tasks.New(transport, formats)
+	cli.Export = export.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
 	cli.Nodes = nodes.New(transport, formats)
@@ -151,6 +153,8 @@ type Weaviate struct {
 
 	DistributedTasks distributed_tasks.ClientService
 
+	Export export.ClientService
+
 	Graphql graphql.ClientService
 
 	Meta meta.ClientService
@@ -181,6 +185,7 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Classifications.SetTransport(transport)
 	c.Cluster.SetTransport(transport)
 	c.DistributedTasks.SetTransport(transport)
+	c.Export.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)
 	c.Nodes.SetTransport(transport)

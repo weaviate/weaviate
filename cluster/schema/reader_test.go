@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,8 +74,7 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 				require.NoError(t, err)
 				return "PartitionedNilPhysical"
 			},
-			readerCalled:  false,
-			expectedError: "invalid sharding state: physical map is nil (partitioned)",
+			readerCalled: true,
 		},
 		{
 			name: "non-partitioned with nil physical",
@@ -170,7 +169,7 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 			}
 
 			// WHEN
-			err := reader.Read(className, readerCallback)
+			err := reader.Read(className, true, readerCallback)
 
 			// THEN
 			if tt.expectedError != "" {

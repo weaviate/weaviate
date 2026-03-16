@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// BackupCreateRequest Request body for creating a backup of a set of classes
+// BackupCreateRequest Request body for creating a backup for a set of collections.
 //
 // swagger:model BackupCreateRequest
 type BackupCreateRequest struct {
@@ -40,6 +40,9 @@ type BackupCreateRequest struct {
 
 	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`.
 	Include []string `json:"include"`
+
+	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.
+	IncrementalBaseBackupID *string `json:"incremental_base_backup_id,omitempty"`
 }
 
 // Validate validates this backup create request

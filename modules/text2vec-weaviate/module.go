@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modweaviateembed
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -99,8 +98,7 @@ func (m *WeaviateEmbedModule) InitExtension(modules []modulecapabilities.Module)
 func (m *WeaviateEmbedModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("WEAVIATE_APIKEY")
-	client := clients.New(apiKey, timeout, logger)
+	client := clients.New(timeout)
 
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
@@ -146,6 +144,15 @@ func (m *WeaviateEmbedModule) AdditionalProperties() map[string]modulecapabiliti
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *WeaviateEmbedModule) MigrateProperties() []modulecapabilities.MigrateProperty {
+	return []modulecapabilities.MigrateProperty{
+		{Name: "baseUrl", NewName: "baseURL"},
+		{Name: "baseURL"},
+		{Name: "model"},
+		{Name: "truncate"},
+	}
+}
+
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer[[]float32](New())
@@ -153,4 +160,5 @@ var (
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
+	_ = modulecapabilities.MigrateProperties(New())
 )

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ type indexCycleCallbacks struct {
 }
 
 func (index *Index) initCycleCallbacks() {
-	routinesN := concurrency.TimesNUMCPU(index.Config.CycleManagerRoutinesFactor)
+	routinesN := concurrency.TimesGOMAXPROCS(index.Config.CycleManagerRoutinesFactor)
 
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
 	if hnswUserConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig); ok {

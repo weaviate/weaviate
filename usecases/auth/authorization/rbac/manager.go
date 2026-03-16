@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,11 +38,11 @@ const (
 )
 
 type Manager struct {
-	casbin     *casbin.SyncedCachedEnforcer
-	logger     logrus.FieldLogger
-	authNconf  config.Authentication
-	rbacConf   rbacconf.Config
-	backupLock sync.RWMutex
+	casbin      *casbin.SyncedCachedEnforcer
+	logger      logrus.FieldLogger
+	authNconf   config.Authentication
+	rbacConf    rbacconf.Config
+	restoreLock sync.RWMutex
 }
 
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
@@ -56,20 +56,23 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
 func (m *Manager) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	return m.upsertRolesPermissions(roles)
 }
 
 func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy) error {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	return m.upsertRolesPermissions(roles)
 }
 
 func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authentication.AuthType) ([]string, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
 	roles, err := m.casbin.GetAllSubjects()
 	if err != nil {
 		return nil, err
@@ -81,7 +84,10 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authenticatio
 			return nil, err
 		}
 		for _, userOrGroup := range users {
-			name, _ := conv.GetUserAndPrefix(userOrGroup)
+			name, _, err := conv.GetUserAndPrefix(userOrGroup)
+			if err != nil {
+				return nil, fmt.Errorf("GetUserAndPrefix: %w", err)
+			}
 			if isGroup {
 				// groups are only supported for OIDC
 				if authType == authentication.AuthTypeOIDC && strings.HasPrefix(userOrGroup, conv.OIDC_GROUP_NAME_PREFIX) {
@@ -132,8 +138,8 @@ func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 }
 
 func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	var (
 		casbinStoragePolicies    [][][]string
@@ -186,8 +192,8 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 }
 
 func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	for _, permission := range permissions {
 		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
@@ -208,8 +214,8 @@ func (m *Manager) RemovePermissions(roleName string, permissions []*authorizatio
 }
 
 func (m *Manager) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	policy, err := m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 	if err != nil {
@@ -219,8 +225,8 @@ func (m *Manager) HasPermission(roleName string, permission *authorization.Polic
 }
 
 func (m *Manager) DeleteRoles(roles ...string) error {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	for _, roleName := range roles {
 		// remove role
@@ -250,8 +256,8 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 // AddRolesFroUser NOTE: user has to be prefixed by user:, group:, key: etc.
 // see func PrefixUserName(user) it will prefix username and nop-op if already prefixed
 func (m *Manager) AddRolesForUser(user string, roles []string) error {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	if !conv.NameHasPrefix(user) {
 		return errors.New("user does not contain a prefix")
@@ -272,8 +278,8 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 }
 
 func (m *Manager) GetRolesForUserOrGroup(userName string, authType authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	var rolesNames []string
 	var err error
@@ -299,8 +305,8 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, authType authenticatio
 }
 
 func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authentication.AuthType, isGroup bool) ([]string, error) {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
@@ -308,7 +314,10 @@ func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authenticatio
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		userOrGroup, prefix := conv.GetUserAndPrefix(pusers[idx])
+		userOrGroup, prefix, err := conv.GetUserAndPrefix(pusers[idx])
+		if err != nil {
+			return nil, fmt.Errorf("GetUserAndPrefix: %w", err)
+		}
 		if userOrGroup == conv.InternalPlaceHolder {
 			continue
 		}
@@ -326,8 +335,8 @@ func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authenticatio
 }
 
 func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
 
 	if !conv.NameHasPrefix(userName) {
 		return errors.New("user does not contain a prefix")
@@ -363,6 +372,9 @@ func (m *Manager) Snapshot() ([]byte, error) {
 		return nil, nil
 	}
 
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
 	policy, err := m.casbin.GetPolicy()
 	if err != nil {
 		return nil, err
@@ -394,6 +406,13 @@ func (m *Manager) Restore(b []byte) error {
 	if err := json.Unmarshal(b, &snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
+
+	// Hold the write lock only for the casbin mutation and cache invalidation
+	// so that concurrent Enforce() calls (which hold RLock) are blocked.
+	// Unmarshalling is done above without the lock since it doesn't touch
+	// shared state and can be expensive for large snapshots.
+	m.restoreLock.Lock()
+	defer m.restoreLock.Unlock()
 
 	// we need to clear the policies before adding the new ones
 	m.casbin.ClearPolicy()
@@ -428,6 +447,13 @@ func (m *Manager) Restore(b []byte) error {
 		return fmt.Errorf("load policies: %w", err)
 	}
 
+	// Invalidate the cache so the first Enforce() after the lock is released
+	// evaluates against the freshly loaded policies. ClearPolicy() is not
+	// overridden by SyncedCachedEnforcer and does not invalidate on its own.
+	if err := m.casbin.InvalidateCache(); err != nil {
+		return fmt.Errorf("restore snapshot: InvalidateCache: %w", err)
+	}
+
 	return nil
 }
 
@@ -436,6 +462,9 @@ func (m *Manager) Restore(b []byte) error {
 // source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
 // issue https://github.com/casbin/casbin/issues/710
 func (m *Manager) checkPermissions(principal *models.Principal, resource, verb string) (bool, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
 	// first check group permissions
 	for _, group := range principal.Groups {
 		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)

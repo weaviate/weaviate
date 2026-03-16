@@ -1,12 +1,9 @@
-import uuid
-
 import pytest
 import weaviate
 import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
 from weaviate.collections.classes.data import DataReference
 from weaviate.rbac.models import Permissions
-from weaviate.rbac.roles import _flatten_permissions
 
 from .conftest import _sanitize_role_name, generate_missing_permissions, RoleWrapperProtocol
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,30 +18,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/mock"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -221,12 +223,12 @@ func getRandomSeed() *rand.Rand {
 
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, indexOpts...)
+		false, false, false, indexOpts...)
 }
 
 func testShardMultiTenant(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, indexOpts...)
+		false, false, false, indexOpts...)
 }
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
@@ -239,7 +241,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	shardState := singleShardState()
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
 			if className == class.Class {
 				return readFunc(class, shardState)
@@ -248,6 +250,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		return nil
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -260,7 +264,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
+		EnableLazyLoadShards:      true,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 
@@ -302,7 +307,7 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 }
 
 func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -321,9 +326,12 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	}
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(name string) *models.Class {
+		return &models.Class{Class: name}
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -338,7 +346,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		EnableLazyLoadShards:      true,
+		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	sch := schema.Schema{
@@ -366,12 +376,45 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	metrics, err := NewMetrics(logger, nil, class.Class, "")
 	require.NoError(t, err)
 
+	localNodeName := "node1"
+
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.WriteReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+
+	getDeletionStrategy := func() string {
+		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
+	repClient := &FakeReplicationClient{}
+	replicator, err := replica.NewReplicator(
+		class.Class,
+		mockRouter,
+		nodeResolver,
+		localNodeName,
+		getDeletionStrategy,
+		repClient,
+		monitoring.GetMetrics(),
+		logger,
+	)
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
-			RootPath:            tmpDir,
-			ClassName:           schema.ClassName(class.Class),
-			QueryMaximumResults: maxResults,
-			ReplicationFactor:   1,
+			EnableLazyLoadShards: true,
+			RootPath:             tmpDir,
+			ClassName:            schema.ClassName(class.Class),
+			QueryMaximumResults:  maxResults,
+			ReplicationFactor:    1,
 		},
 		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
@@ -380,24 +423,30 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
 		logger:                 logger,
 		getSchema:              schemaGetter,
+		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
 		indexCheckpoints:       checkpts,
 		allocChecker:           memwatch.NewDummyMonitor(),
-		shardCreateLocks:       esync.NewKeyLocker(),
+		shardCreateLocks:       esync.NewKeyRWLocker(),
+		backupLock:             esync.NewKeyRWLocker(),
 		scheduler:              repo.scheduler,
-		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
+		HFreshEnabled:          true,
+		replicator:             replicator,
+		router:                 mockRouter,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
 	for _, opt := range indexOpts {
 		opt(idx)
 	}
+	idx.AsyncIndexingEnabled = withAsyncIndexingEnabled
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards, true)
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.EnableLazyLoadShards, true)
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)
@@ -407,15 +456,15 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 // Simplified functions that delegate to the common helper
 func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, withAsyncIndexingEnabled, indexOpts...)
 }
 
 func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)
 }
 
 func testObject(className string) *storobj.Object {

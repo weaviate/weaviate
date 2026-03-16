@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -108,6 +108,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 
 	t.Run("GetMetadataFails", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, errors.New("can not be read"))
@@ -126,6 +127,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 	})
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id})
@@ -200,10 +202,13 @@ func TestSchedulerBackupStatus(t *testing.T) {
 				StartedAt: starTime, CompletedAt: completedAt,
 				Nodes:  map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"C1"}}},
 				Status: backup.Success,
+				// 2.5Gb
+				PreCompressionSizeBytes: 2684354560,
 			})
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
+		want.Size = 2.5
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
@@ -214,10 +219,19 @@ func TestSchedulerBackupStatus(t *testing.T) {
 	t.Run("ReadFromOldMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		completedAt := starTime.Add(time.Hour)
-		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: string(backup.Success)})
+		bytes := marshalMeta(
+			backup.BackupDescriptor{
+				StartedAt:   starTime,
+				CompletedAt: completedAt,
+				Status:      backup.Success,
+				// 1.5Gb
+				PreCompressionSizeBytes: 1610612736,
+			},
+		)
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
+		want.Size = 1.5
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -277,7 +291,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 	t.Run("ReadFromMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		completedAt := starTime.Add(time.Hour)
-		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: backup.Success})
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
@@ -305,7 +319,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Backend: backendName,
 		}
 		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", ""}
+		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
 
@@ -318,6 +332,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		// first
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req1.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
 
@@ -369,6 +384,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 	t.Run("InitMetadata", func(t *testing.T) {
 		classes := []string{cls}
 		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return(classes)
 		fs.selector.On("Backupable", ctx, classes).Return(nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
@@ -389,6 +405,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
 		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
 		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
 
@@ -401,7 +418,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.client.On("Commit", any, node, sReq).Return(nil)
 		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
 		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
 		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil)
 
 		s := fs.scheduler()
@@ -443,7 +460,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		keyNodeA    = backupID + "/" + nodeA
 		keyNodeB    = backupID + "/" + nodeB
 		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", ""}
+		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 	meta := backup.DistributedBackupDescriptor{
@@ -471,7 +488,7 @@ func TestSchedulerRestoration(t *testing.T) {
 	rawClassBytes, _ := json.Marshal(&models.Class{Class: cls})
 	meta1 := backup.BackupDescriptor{
 		ID:     backupID,
-		Status: string(backup.Success),
+		Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
@@ -480,7 +497,7 @@ func TestSchedulerRestoration(t *testing.T) {
 	}
 	meta2 := backup.BackupDescriptor{
 		ID:     backupID,
-		Status: string(backup.Success),
+		Status: backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
@@ -500,6 +517,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		bytes := marshalCoordinatorMeta(meta)
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
 		fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
 		fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
 
@@ -542,19 +560,18 @@ func TestSchedulerRestoration(t *testing.T) {
 			bytes := marshalCoordinatorMeta(meta)
 			fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
 			fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
 			fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-			// first for initial "STARTED", second for updated participant status
-			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
-			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
+			// PutMeta is called 3 times: initial (TRANSFERRING), Finalizing, and final (SUCCESS)
+			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil).Times(3)
 			fs.client.On("CanCommit", any, nodeA, any).Return(cResp, nil)
 			fs.client.On("Commit", any, nodeA, sReq).Return(nil)
 			fs.client.On("Status", any, nodeA, sReq).Return(sresp, nil)
 			fs.client.On("CanCommit", any, nodeB, any).Return(cResp, nil)
 			fs.client.On("Commit", any, nodeB, sReq).Return(nil)
 			fs.client.On("Status", any, nodeB, sReq).Return(sresp, nil)
-			fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 			s := fs.scheduler()
 			resp, err := s.Restore(ctx, nil, &req, false)
 			assert.Nil(t, err)
@@ -589,6 +606,98 @@ func TestSchedulerRestoration(t *testing.T) {
 		restore(fs)
 		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
 		assert.Contains(t, fs.backend.glMeta.Error, "")
+	})
+
+	t.Run("NodeMappingPassedCorrectly", func(t *testing.T) {
+		oldNodeA := "Old-Node-A"
+		oldNodeB := "Old-Node-B"
+		newNodeA := "New-Node-A"
+		newNodeB := "New-Node-B"
+		nodeMapping := map[string]string{
+			oldNodeA: newNodeA,
+			oldNodeB: newNodeB,
+		}
+
+		// Create meta with old node names
+		metaWithOldNodes := backup.DistributedBackupDescriptor{
+			ID:            backupID,
+			StartedAt:     timePt,
+			Version:       "1",
+			ServerVersion: "1",
+			Status:        backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{
+				oldNodeA: {Classes: []string{cls}},
+				oldNodeB: {Classes: []string{cls}},
+			},
+		}
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{newNodeA, newNodeB}))
+		bytes := marshalCoordinatorMeta(metaWithOldNodes)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeA, BackupFile).Return(metaBytes1, nil)
+		fs.backend.On("GetObject", ctx, backupID+"/"+oldNodeB, BackupFile).Return(metaBytes2, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil).Twice()
+		fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+
+		// Verify CanCommit is called with new node names and Request contains NodeMapping
+		fs.client.On("CanCommit", any, newNodeA, mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpRestore && r.ID == backupID && r.Backend == backendName &&
+				len(r.Classes) == 1 && r.Classes[0] == cls &&
+				len(r.NodeMapping) == 2 &&
+				r.NodeMapping[oldNodeA] == newNodeA &&
+				r.NodeMapping[oldNodeB] == newNodeB
+		})).Return(cResp, nil)
+		fs.client.On("CanCommit", any, newNodeB, mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpRestore && r.ID == backupID && r.Backend == backendName &&
+				len(r.Classes) == 1 && r.Classes[0] == cls &&
+				len(r.NodeMapping) == 2 &&
+				r.NodeMapping[oldNodeA] == newNodeA &&
+				r.NodeMapping[oldNodeB] == newNodeB
+		})).Return(cResp, nil)
+		fs.client.On("Commit", any, newNodeA, sReq).Return(nil)
+		fs.client.On("Commit", any, newNodeB, sReq).Return(nil)
+		fs.client.On("Status", any, newNodeA, sReq).Return(sresp, nil)
+		fs.client.On("Status", any, newNodeB, sReq).Return(sresp, nil)
+
+		// Ensure RestoreClass succeeds so we can verify NodeMapping was passed
+		fs.schema.errRestoreClass = nil
+
+		s := fs.scheduler()
+		req := BackupRequest{
+			ID:          backupID,
+			Include:     []string{cls},
+			Backend:     backendName,
+			NodeMapping: nodeMapping,
+		}
+		resp, err := s.Restore(ctx, nil, &req, false)
+		assert.Nil(t, err)
+		status1 := string(backup.Started)
+		want1 := &models.BackupRestoreResponse{
+			Backend: backendName,
+			Classes: req.Include,
+			ID:      backupID,
+			Status:  &status1,
+			Path:    path,
+		}
+		assert.Equal(t, resp, want1)
+
+		// Wait for restore to complete
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Millisecond * 60)
+			if i > 0 && s.restorer.lastOp.get().Status == "" {
+				break
+			}
+		}
+
+		// Verify node mapping was applied to meta descriptor
+		// The meta should have new node names after ApplyNodeMapping
+		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
+		assert.Equal(t, fs.backend.glMeta.NodeMapping, nodeMapping)
+		assert.Equal(t, nodeMapping, fs.schema.lastNodeMapping)
+		fs.client.AssertExpectations(t)
 	})
 }
 
@@ -678,7 +787,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("FailedBackup", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Failed})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -712,7 +821,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -724,7 +833,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	t.Run("WrongBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 
-		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: backup.Success})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
@@ -759,25 +868,26 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 func TestSchedulerList(t *testing.T) {
 	t.Parallel()
 	var (
-		backendName = "s3"
-		ctx         = context.Background()
-		backupID1   = "backup-1"
-		backupID2   = "backup-2"
-		cls1        = "Class1"
-		cls2        = "Class2"
+		backendName         = "s3"
+		ctx                 = context.Background()
+		backupID1           = "backup-1"
+		backupID2           = "backup-2"
+		cls1                = "Class1"
+		cls2                = "Class2"
+		defaultListOrdering = func(s string) *string { return &s }("desc")
 	)
 
 	t.Run("BackendNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().List(ctx, nil, backendName)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("AllBackupsFails", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return(nil, ErrAny)
-		_, err := fs.scheduler().List(ctx, nil, backendName)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.NotNil(t, err)
 		assert.Equal(t, ErrAny, err)
 	})
@@ -791,6 +901,7 @@ func TestSchedulerList(t *testing.T) {
 				Nodes: map[string]*backup.NodeDescriptor{
 					"node1": {Classes: []string{cls1}},
 				},
+				PreCompressionSizeBytes: 16106127360, // 15 GB
 			},
 			{
 				ID:     backupID2,
@@ -798,11 +909,12 @@ func TestSchedulerList(t *testing.T) {
 				Nodes: map[string]*backup.NodeDescriptor{
 					"node2": {Classes: []string{cls2}},
 				},
+				PreCompressionSizeBytes: 2147483648, // 2 GB
 			},
 		}
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 2)
@@ -811,21 +923,100 @@ func TestSchedulerList(t *testing.T) {
 		assert.Equal(t, backupID1, (*resp)[0].ID)
 		assert.Equal(t, string(backup.Success), (*resp)[0].Status)
 		assert.Equal(t, []string{cls1}, (*resp)[0].Classes)
+		assert.Equal(t, float64(15), (*resp)[0].Size)
 
 		// Check second backup
 		assert.Equal(t, backupID2, (*resp)[1].ID)
 		assert.Equal(t, string(backup.Failed), (*resp)[1].Status)
 		assert.Equal(t, []string{cls2}, (*resp)[1].Classes)
+		assert.Equal(t, float64(2), (*resp)[1].Size)
 	})
 
 	t.Run("EmptyList", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{}, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 0)
+	})
+
+	t.Run("SortedList", func(t *testing.T) {
+		timestamp := time.Now()
+
+		fs := newFakeScheduler(nil)
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:                      "mock-backup-0",
+				Status:                  backup.Success,
+				PreCompressionSizeBytes: 100,
+				StartedAt:               timestamp.Add(-5 * time.Minute),
+			},
+			{
+				ID:                      "mock-backup-4",
+				Status:                  backup.Started,
+				PreCompressionSizeBytes: 10,
+				StartedAt:               timestamp.Add(-1 * time.Minute),
+			},
+			{
+				ID:                      "mock-backup-2",
+				Status:                  backup.Failed,
+				PreCompressionSizeBytes: 0,
+				StartedAt:               timestamp.Add(-3 * time.Minute),
+			},
+			{
+				ID:                      "mock-backup-1",
+				Status:                  backup.Failed,
+				PreCompressionSizeBytes: 0,
+				StartedAt:               timestamp.Add(-4 * time.Minute),
+			},
+			{
+				ID:                      "mock-backup-3",
+				Status:                  backup.Success,
+				PreCompressionSizeBytes: 120,
+				StartedAt:               timestamp.Add(-2 * time.Minute),
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		t.Run("return results sorted by default (desc)", func(t *testing.T) {
+			resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+			assert.Nil(t, err)
+			assert.NotNil(t, resp)
+			assert.Len(t, *resp, 5)
+
+			expectedOrder := []string{
+				"mock-backup-4",
+				"mock-backup-3",
+				"mock-backup-2",
+				"mock-backup-1",
+				"mock-backup-0",
+			}
+
+			for i, backup := range *resp {
+				assert.Equal(t, expectedOrder[i], backup.ID, "backups are not in expected order")
+			}
+		})
+
+		t.Run("return results sorted (asc)", func(t *testing.T) {
+			resp, err := fs.scheduler().List(ctx, nil, backendName, func(s string) *string { return &s }("asc"))
+			assert.Nil(t, err)
+			assert.NotNil(t, resp)
+			assert.Len(t, *resp, 5)
+
+			expectedOrder := []string{
+				"mock-backup-0",
+				"mock-backup-1",
+				"mock-backup-2",
+				"mock-backup-3",
+				"mock-backup-4",
+			}
+
+			for i, backup := range *resp {
+				assert.Equal(t, expectedOrder[i], backup.ID, "backups are not in expected order")
+			}
+		})
 	})
 }
 
@@ -908,7 +1099,7 @@ func TestCancellingBackup(t *testing.T) {
 	t.Run("CancellingSucceeded", func(t *testing.T) {
 		fakeScheduler := newFakeScheduler(nil)
 		ds := backup.BackupDescriptor{
-			Status: string(backup.Success),
+			Status: backup.Success,
 		}
 		b, err := json.Marshal(ds)
 		assert.Nil(t, err)
@@ -920,5 +1111,235 @@ func TestCancellingBackup(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Equal(t, fmt.Sprintf("backup %q already succeeded", backupID), err.Error())
 		fakeScheduler.backend.AssertExpectations(t)
+	})
+}
+
+func TestWildcardExpansion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("MatchesWildcard", func(t *testing.T) {
+		tests := []struct {
+			pattern   string
+			className string
+			expected  bool
+		}{
+			{"data-202212*", "data-20221223", true},
+			{"data-202212*", "data-20221122", false},
+			{"data-*", "data-20221223", true},
+			{"*-December", "Backup-December", true},
+			{"Class?", "ClassA", true},
+			{"Class?", "ClassAB", false},
+			{"ExactMatch", "ExactMatch", true},
+			{"ExactMatch", "NotMatch", false},
+		}
+		for _, tc := range tests {
+			got := matchesWildcard(tc.pattern, tc.className)
+			assert.Equal(t, tc.expected, got, "pattern=%s class=%s", tc.pattern, tc.className)
+		}
+	})
+
+	t.Run("ExpandWildcards", func(t *testing.T) {
+		candidates := []string{
+			"data-20221122",
+			"data-20221223",
+			"data-20221224",
+			"data-20221225",
+			"Article",
+			"Blog",
+		}
+
+		tests := []struct {
+			patterns []string
+			expected []string
+		}{
+			// Empty patterns returns empty
+			{[]string{}, []string{}},
+			// Exact match, no wildcards
+			{[]string{"Article"}, []string{"Article"}},
+			// Wildcard matching December dates
+			{[]string{"data-202212*"}, []string{"data-20221223", "data-20221224", "data-20221225"}},
+			// Wildcard matching all data classes
+			{[]string{"data-*"}, []string{"data-20221122", "data-20221223", "data-20221224", "data-20221225"}},
+			// Mixed: exact and wildcard
+			{[]string{"Article", "data-202212*"}, []string{"Article", "data-20221223", "data-20221224", "data-20221225"}},
+			// Pattern that matches nothing (stays as-is for non-wildcard)
+			{[]string{"NonExistent"}, []string{"NonExistent"}},
+			// Wildcard that matches nothing returns empty for that pattern
+			{[]string{"nothing-*"}, []string{}},
+		}
+		for _, tc := range tests {
+			got := expandWildcards(tc.patterns, candidates)
+			assert.ElementsMatch(t, tc.expected, got, "patterns=%v", tc.patterns)
+		}
+	})
+}
+
+func TestCancellingRestore(t *testing.T) {
+	var (
+		ctx           = context.Background()
+		backendName   = "s3"
+		backupID      = "abc"
+		fakeScheduler = newFakeScheduler(nil)
+		scheduler     = fakeScheduler.scheduler()
+	)
+
+	t.Run("ValidateEmptyID-Cancellation", func(t *testing.T) {
+		assert.NotNil(t, scheduler.CancelRestore(ctx, nil, backendName, "", "", ""))
+	})
+
+	t.Run("ValidateID", func(t *testing.T) {
+		assert.NotNil(t, scheduler.CancelRestore(ctx, nil, backendName, "A*:", "", ""))
+	})
+
+	t.Run("CancellingSucceeded", func(t *testing.T) {
+		fakeScheduler := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Success,
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.NotNil(t, err)
+		assert.Equal(t, fmt.Sprintf("restore %q already succeeded", backupID), err.Error())
+		fakeScheduler.backend.AssertExpectations(t)
+	})
+
+	t.Run("CancellingAlreadyCancelled", func(t *testing.T) {
+		fakeScheduler := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Cancelled,
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err) // Should return nil for already cancelled
+		fakeScheduler.backend.AssertExpectations(t)
+	})
+
+	t.Run("CancellingFinalizing", func(t *testing.T) {
+		fakeScheduler := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Finalizing,
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.NotNil(t, err)
+		assert.Equal(t, fmt.Sprintf("restore %q is applying schema changes and cannot be cancelled", backupID), err.Error())
+		fakeScheduler.backend.AssertExpectations(t)
+	})
+
+	t.Run("CancellingInProgress", func(t *testing.T) {
+		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Transferring,
+			ID:     backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"node1": {Classes: []string{"Class1"}},
+			},
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+		fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+		fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err)
+		fakeScheduler.backend.AssertExpectations(t)
+	})
+
+	t.Run("CancellingAlreadyInCancellingState", func(t *testing.T) {
+		// When status is already CANCELLING, another coordinator is handling it - return early
+		fakeScheduler := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Cancelling,
+			ID:     backupID,
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err) // Should return nil - another coordinator is handling
+		fakeScheduler.backend.AssertExpectations(t)
+		// Verify no PutObject was called - we should NOT try to write when already CANCELLING
+		fakeScheduler.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("CancellingWritesCANCELLINGFirst", func(t *testing.T) {
+		// Verify that CancelRestore writes CANCELLING status before proceeding
+		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Transferring,
+			ID:     backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"node1": {Classes: []string{"Class1"}},
+			},
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		var putObjectCalls []backup.Status
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.selector.On("ListClasses", ctx).Return([]string{"Class1"})
+		fakeScheduler.selector.On("Shards", ctx, "Class1").Return([]string{"node1"}, nil)
+		fakeScheduler.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Run(func(args mock.Arguments) {
+			data := args.Get(3).([]byte)
+			var desc backup.DistributedBackupDescriptor
+			json.Unmarshal(data, &desc)
+			putObjectCalls = append(putObjectCalls, desc.Status)
+		}).Return(nil)
+
+		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err)
+		// Verify CANCELLING was written first, then CANCELLED
+		assert.Len(t, putObjectCalls, 2)
+		assert.Equal(t, backup.Cancelling, putObjectCalls[0], "First write should be CANCELLING")
+		assert.Equal(t, backup.Cancelled, putObjectCalls[1], "Second write should be CANCELLED")
+	})
+
+	t.Run("CancellingPutMetaFailsExitsEarly", func(t *testing.T) {
+		// When PutMeta fails to write CANCELLING (e.g., storage contention),
+		// we should exit early without calling Abort - another coordinator may be handling it
+		fakeScheduler := newFakeScheduler(newFakeNodeResolver([]string{"node1"}))
+		ds := backup.DistributedBackupDescriptor{
+			Status: backup.Transferring,
+			ID:     backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"node1": {Classes: []string{"Class1"}},
+			},
+		}
+		b, _ := json.Marshal(ds)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		// PutObject fails - simulating storage contention or another coordinator winning
+		fakeScheduler.backend.On("PutObject", mock.Anything, backupID, GlobalRestoreFile, mock.Anything).Return(fmt.Errorf("storage write failed")).Once()
+
+		err := fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
+		assert.Nil(t, err) // Should return nil - let another coordinator handle it
+		// Should NOT call Abort since we couldn't claim cancellation
+		fakeScheduler.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
 	})
 }

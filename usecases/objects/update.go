@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,14 +15,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -72,18 +72,29 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
+	maxSchemaVersion := fetchedClasses[className].Version
+	if updates.Tenant != "" {
+		// Ensure tenant is active before read when AutoTenantActivation is enabled.
+		// Otherwise replicas with loading shards can fail QUORUM reads.
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, className, updates.Tenant)
+		if err != nil {
+			return nil, err
+		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
+	}
+
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	maxSchemaVersion := fetchedClasses[className].Version
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
+	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
-	}
-	if schemaVersion > maxSchemaVersion {
-		maxSchemaVersion = schemaVersion
 	}
 
 	m.logger.
@@ -113,14 +124,12 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
-
 	vectors, multiVectors, err := dto.GetVectors(updates.Vectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
 	}
+
+	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)

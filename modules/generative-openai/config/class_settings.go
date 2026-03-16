@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,20 +38,6 @@ const (
 var availableOpenAILegacyModels = []string{
 	"text-davinci-002",
 	"text-davinci-003",
-}
-
-var availableOpenAIModels = []string{
-	"gpt-3.5-turbo",
-	"gpt-3.5-turbo-16k",
-	"gpt-3.5-turbo-1106",
-	"gpt-4",
-	"gpt-4-32k",
-	"gpt-4-1106-preview",
-	"gpt-4o",
-	"gpt-4o-mini",
-	"gpt-5",
-	"gpt-5-mini",
-	"gpt-5-nano",
 }
 
 var availableReasoningEffortValues = []string{
@@ -155,16 +141,12 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
-	}
-
 	temperature := ic.Temperature()
 	if temperature != nil && (*temperature < 0 || *temperature > 1) {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
+	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
 	maxTokens := ic.MaxTokens()
 	maxTokensForModel := GetMaxTokensForModel(*model)
 	if maxTokens != nil && (*maxTokens < 0 || (maxTokensForModel != nil && *maxTokens > *maxTokensForModel)) {
@@ -231,10 +213,6 @@ func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
 	wrongVal := float64(-1.0)
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableOpenAIModels, model) || contains(availableOpenAILegacyModels, model)
 }
 
 func (ic *classSettings) validateApiVersion(apiVersion string) bool {

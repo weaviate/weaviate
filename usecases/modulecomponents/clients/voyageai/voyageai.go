@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,7 @@ type multimodalType string
 const (
 	text        multimodalType = "text"
 	imageBase64 multimodalType = "image_base64"
+	videoBase64 multimodalType = "video_base64"
 )
 
 type multimodalInput struct {
@@ -45,14 +46,23 @@ type multimodalContent struct {
 	MultimodalType multimodalType `json:"type,omitempty"`
 	Text           string         `json:"text,omitempty"`
 	ImageBase64    string         `json:"image_base64,omitempty"`
+	VideoBase64    string         `json:"video_base64,omitempty"`
 }
 
 type embeddingsRequest struct {
-	Input      []string          `json:"input,omitempty"`
-	Inputs     []multimodalInput `json:"inputs,omitempty"`
-	Model      string            `json:"model"`
-	Truncation bool              `json:"truncation,omitempty"`
-	InputType  InputType         `json:"input_type,omitempty"`
+	Input           []string          `json:"input,omitempty"`
+	Inputs          []multimodalInput `json:"inputs,omitempty"`
+	Model           string            `json:"model"`
+	Truncation      bool              `json:"truncation,omitempty"`
+	InputType       InputType         `json:"input_type,omitempty"`
+	OutputDimension *int64            `json:"output_dimension,omitempty"`
+}
+
+type contextualEmbeddingsRequest struct {
+	Inputs          [][]string `json:"inputs"`
+	InputType       InputType  `json:"input_type"`
+	Model           string     `json:"model"`
+	OutputDimension *int64     `json:"output_dimension,omitempty"`
 }
 
 type embeddingsDataResponse struct {
@@ -66,8 +76,34 @@ type embeddingsResponse struct {
 	Usage  *modulecomponents.Usage  `json:"usage,omitempty"`
 }
 
+type contextualEmbeddingsDataResponse struct {
+	Object    string    `json:"object"`
+	Embedding []float32 `json:"embedding"`
+	Index     int       `json:"index,omitempty"`
+}
+
+type contextualEmbeddingsInnerResponse struct {
+	Object string                             `json:"object"`
+	Data   []contextualEmbeddingsDataResponse `json:"data"`
+	Index  int                                `json:"index,omitempty"`
+}
+
+type contextualEmbeddingsResponse struct {
+	Object string                              `json:"object"`
+	Data   []contextualEmbeddingsInnerResponse `json:"data"`
+	Model  string                              `json:"model,omitempty"`
+	Detail string                              `json:"detail,omitempty"`
+	Usage  *modulecomponents.Usage             `json:"usage,omitempty"`
+}
+
 type UrlBuilder interface {
-	URL(baseURL string) string
+	URL(baseURL, model string) string
+}
+
+// IsContextualModel checks if the model is a contextual model
+func IsContextualModel(model string) bool {
+	// Contextual models have "context" in their name (e.g., voyage-context-3)
+	return strings.Contains(model, "context")
 }
 
 type Client struct {
@@ -85,10 +121,11 @@ const (
 )
 
 type Settings struct {
-	BaseURL   string
-	Model     string
-	Truncate  bool
-	InputType InputType
+	BaseURL    string
+	Model      string
+	Truncate   bool
+	InputType  InputType
+	Dimensions *int64
 }
 
 type VoyageRLModel struct {
@@ -109,12 +146,32 @@ func New(apiKey string, timeout time.Duration, urlBuilder UrlBuilder, logger log
 
 func (c *Client) Vectorize(ctx context.Context, input []string, settings Settings,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
-	resBody, err := c.vectorize(ctx, settings.BaseURL, embeddingsRequest{
-		Input:      input,
-		Model:      settings.Model,
-		Truncation: settings.Truncate,
-		InputType:  Document,
-	})
+	var resBody *embeddingsResponse
+	var err error
+
+	if IsContextualModel(settings.Model) {
+		// Use contextual API format - each input is wrapped in its own array
+		inputs2D := make([][]string, len(input))
+		for i, v := range input {
+			inputs2D[i] = []string{v}
+		}
+		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, contextualEmbeddingsRequest{
+			Inputs:          inputs2D,
+			InputType:       Document,
+			Model:           settings.Model,
+			OutputDimension: settings.Dimensions,
+		})
+	} else {
+		// Use regular embeddings API format
+		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, embeddingsRequest{
+			Input:           input,
+			Model:           settings.Model,
+			Truncation:      settings.Truncate,
+			InputType:       Document,
+			OutputDimension: settings.Dimensions,
+		})
+	}
+
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -124,12 +181,32 @@ func (c *Client) Vectorize(ctx context.Context, input []string, settings Setting
 
 func (c *Client) VectorizeQuery(ctx context.Context, input []string, settings Settings,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
-	resBody, err := c.vectorize(ctx, settings.BaseURL, embeddingsRequest{
-		Input:      input,
-		Model:      settings.Model,
-		Truncation: settings.Truncate,
-		InputType:  Query,
-	})
+	var resBody *embeddingsResponse
+	var err error
+
+	if IsContextualModel(settings.Model) {
+		// Use contextual API format - each input is wrapped in its own array
+		inputs2D := make([][]string, len(input))
+		for i, v := range input {
+			inputs2D[i] = []string{v}
+		}
+		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, contextualEmbeddingsRequest{
+			Inputs:          inputs2D,
+			InputType:       Query,
+			Model:           settings.Model,
+			OutputDimension: settings.Dimensions,
+		})
+	} else {
+		// Use regular embeddings API format
+		resBody, err = c.vectorize(ctx, settings.BaseURL, settings.Model, embeddingsRequest{
+			Input:           input,
+			Model:           settings.Model,
+			Truncation:      settings.Truncate,
+			InputType:       Query,
+			OutputDimension: settings.Dimensions,
+		})
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -137,34 +214,39 @@ func (c *Client) VectorizeQuery(ctx context.Context, input []string, settings Se
 	return res, err
 }
 
-func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images []string,
+func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images, videos []string,
 	settings Settings,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
-	request := c.getMultiModalEmbeddingsRequest(texts, images, settings)
-	resBody, err := c.vectorize(ctx, settings.BaseURL, request)
+	request := c.getMultiModalEmbeddingsRequest(texts, images, videos, settings)
+	resBody, err := c.vectorize(ctx, settings.BaseURL, settings.Model, request)
 	if err != nil {
 		return nil, err
 	}
 
-	var textVectors, imageVectors [][]float32
+	var textVectors, imageVectors, videoVectors [][]float32
+	textEnd := len(texts)
+	imageEnd := textEnd + len(images)
 	for i := range resBody.Data {
-		if i < len(texts) {
+		if i < textEnd {
 			textVectors = append(textVectors, resBody.Data[i].Embedding)
-		} else {
+		} else if i < imageEnd {
 			imageVectors = append(imageVectors, resBody.Data[i].Embedding)
+		} else {
+			videoVectors = append(videoVectors, resBody.Data[i].Embedding)
 		}
 	}
 
 	res := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
+		VideoVectors: videoVectors,
 	}
 	return res, nil
 }
 
-func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings Settings,
+func (c *Client) getMultiModalEmbeddingsRequest(texts, images, videos []string, settings Settings,
 ) embeddingsRequest {
-	inputs := make([]multimodalInput, len(texts)+len(images))
+	inputs := make([]multimodalInput, len(texts)+len(images)+len(videos))
 	for i := range texts {
 		inputs[i] = multimodalInput{Content: []multimodalContent{{Text: texts[i], MultimodalType: text}}}
 	}
@@ -176,6 +258,14 @@ func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings
 			inputs[offset+i] = multimodalInput{Content: []multimodalContent{{ImageBase64: images[i], MultimodalType: imageBase64}}}
 		}
 	}
+	offset = len(texts) + len(images)
+	for i := range videos {
+		if !strings.HasPrefix(videos[i], "data:") {
+			inputs[offset+i] = multimodalInput{Content: []multimodalContent{{VideoBase64: fmt.Sprintf("data:video/mp4;base64,%s", videos[i]), MultimodalType: videoBase64}}}
+		} else {
+			inputs[offset+i] = multimodalInput{Content: []multimodalContent{{VideoBase64: videos[i], MultimodalType: videoBase64}}}
+		}
+	}
 	return embeddingsRequest{
 		Inputs:     inputs,
 		Model:      settings.Model,
@@ -184,14 +274,15 @@ func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings
 	}
 }
 
-func (c *Client) vectorize(ctx context.Context, baseURL string, request interface{},
+func (c *Client) vectorize(ctx context.Context, baseURL, model string, request interface{},
 ) (*embeddingsResponse, error) {
+	// Marshal the request body
 	body, err := json.Marshal(request)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	url := c.getVoyageAIUrl(ctx, baseURL)
+	url := c.getVoyageAIUrl(ctx, baseURL, model)
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
 	if err != nil {
@@ -214,20 +305,55 @@ func (c *Client) vectorize(ctx context.Context, baseURL string, request interfac
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}
-	var resBody embeddingsResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrapf(err, "unmarshal response body. got: %v", string(bodyBytes))
-	}
 
-	if res.StatusCode != 200 {
-		return nil, errors.New(c.getErrorMessage(res.StatusCode, resBody.Detail))
+	// Handle different response formats for contextual vs regular embeddings
+	var resBody *embeddingsResponse
+
+	if IsContextualModel(model) {
+		// Parse contextual embeddings response (nested structure)
+		var ctxResBody contextualEmbeddingsResponse
+		if err := json.Unmarshal(bodyBytes, &ctxResBody); err != nil {
+			return nil, errors.Wrapf(err, "unmarshal contextual response body. got: %v", string(bodyBytes))
+		}
+
+		if res.StatusCode != 200 {
+			return nil, errors.New(c.getErrorMessage(res.StatusCode, ctxResBody.Detail))
+		}
+
+		// Convert nested structure to flat structure
+		flatData := make([]embeddingsDataResponse, len(ctxResBody.Data))
+		for i, innerData := range ctxResBody.Data {
+			if len(innerData.Data) > 0 {
+				flatData[i] = embeddingsDataResponse{
+					Embedding: innerData.Data[0].Embedding,
+				}
+			}
+		}
+		resBody = &embeddingsResponse{
+			Data:   flatData,
+			Model:  ctxResBody.Model,
+			Detail: ctxResBody.Detail,
+			Usage:  ctxResBody.Usage,
+		}
+	} else {
+		// Parse regular embeddings response
+		var regularResBody embeddingsResponse
+		if err := json.Unmarshal(bodyBytes, &regularResBody); err != nil {
+			return nil, errors.Wrapf(err, "unmarshal regular response body. got: %v", string(bodyBytes))
+		}
+
+		if res.StatusCode != 200 {
+			return nil, errors.New(c.getErrorMessage(res.StatusCode, regularResBody.Detail))
+		}
+
+		resBody = &regularResBody
 	}
 
 	if len(resBody.Data) == 0 || len(resBody.Data[0].Embedding) == 0 {
 		return nil, errors.New("empty embeddings response")
 	}
 
-	return &resBody, nil
+	return resBody, nil
 }
 
 func (c *Client) getVectorizationResult(input []string, resBody *embeddingsResponse,
@@ -244,12 +370,12 @@ func (c *Client) getVectorizationResult(input []string, resBody *embeddingsRespo
 	}, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }
 
-func (c *Client) getVoyageAIUrl(ctx context.Context, baseURL string) string {
+func (c *Client) getVoyageAIUrl(ctx context.Context, baseURL, model string) string {
 	passedBaseURL := baseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Voyageai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return c.urlBuilder.URL(passedBaseURL)
+	return c.urlBuilder.URL(passedBaseURL, model)
 }
 
 func (c *Client) getErrorMessage(statusCode int, resBodyError string) string {

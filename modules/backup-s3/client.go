@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -141,14 +142,17 @@ func (s *s3Client) AllBackups(ctx context.Context,
 			return nil, fmt.Errorf("get object %q: %w", info.Key, err)
 		}
 
-		// Ensure object is closed to prevent connection leaks
-		defer obj.Close()
-
 		// Use a buffer to limit memory usage
 		var buf bytes.Buffer
 		_, err = io.Copy(&buf, obj)
 		if err != nil {
+			obj.Close()
 			return nil, fmt.Errorf("read object %q: %w", info.Key, err)
+		}
+
+		// Ensure object is closed to prevent connection leaks
+		if err := obj.Close(); err != nil {
+			return nil, fmt.Errorf("close object %q: %w", info.Key, err)
 		}
 
 		// Unmarshal the backup metadata
@@ -299,8 +303,13 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 	return nil
 }
 
-func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
+	start := time.Now()
 	client, err := s.getClient(ctx)
 	if err != nil {
 		return -1, errors.Wrap(err, "write: cannot get client")
@@ -324,7 +333,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 
 	info, err := client.PutObject(ctx, bucket, remotePath, r, -1, opt)
 	if err != nil {
-		return info.Size, fmt.Errorf("write object %q", remotePath)
+		return info.Size, fmt.Errorf("write object %q failed after %v seconds with: %w", remotePath, time.Since(start).Seconds(), err)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.

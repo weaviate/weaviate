@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,7 +62,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 
 	valuePrimary, err := b2.Get([]byte("hello"))
 	require.Nil(t, err)
-	valueSecondary, err := b2.GetBySecondary(0, []byte("bonjour"))
+	valueSecondary, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	require.Nil(t, err)
 
 	assert.Equal(t, []byte("world"), valuePrimary)
@@ -230,18 +230,18 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	defer b2.Shutdown(ctx)
 
 	value := make([]byte, 5)
-	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	value, _, err = b2.GetBySecondaryWithBuffer(ctx, 0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 
-	err = b2.Delete([]byte("hello"))
+	err = b2.Delete([]byte("hello"), WithSecondaryKey(0, []byte("bonjour")))
 	assert.Nil(t, err)
 
 	v, err := b2.Get([]byte("hello"))
 	assert.Nil(t, err)
 	assert.Nil(t, v)
 
-	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	value, _, err = b2.GetBySecondaryWithBuffer(ctx, 0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Nil(t, value)
 }
@@ -279,7 +279,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
-	value, err := b2.GetBySecondary(0, []byte("bonjour"))
+	value, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 }
@@ -316,7 +316,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
-	value, err := b2.GetBySecondary(0, []byte("bonjour"))
+	value, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 }
@@ -435,7 +435,7 @@ func dontCreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("search", func(t *testing.T) {
 		valuePrimary, err := b.Get([]byte("hello"))
 		require.NoError(t, err)
-		valueSecondary, err := b.GetBySecondary(0, []byte("bonjour"))
+		valueSecondary, err := b.GetBySecondary(ctx, 0, []byte("bonjour"))
 		require.NoError(t, err)
 
 		assert.Equal(t, []byte("world"), valuePrimary)
@@ -478,7 +478,7 @@ func dontRecreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("search", func(t *testing.T) {
 		valuePrimary, err := b2.Get([]byte("hello"))
 		require.NoError(t, err)
-		valueSecondary, err := b2.GetBySecondary(0, []byte("bonjour"))
+		valueSecondary, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 		require.NoError(t, err)
 
 		assert.Equal(t, []byte("world"), valuePrimary)
@@ -523,11 +523,11 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 	t.Run("search", func(t *testing.T) {
 		valuePrimary, err := b.Get([]byte("hello"))
 		require.NoError(t, err)
-		valueSecondary, err := b.GetBySecondary(0, []byte("bonjour"))
+		valueSecondary, err := b.GetBySecondary(ctx, 0, []byte("bonjour"))
 		require.NoError(t, err)
 		value2Primary, err := b.Get([]byte("hello2"))
 		require.NoError(t, err)
-		value2Secondary, err := b.GetBySecondary(0, []byte("bonjour2"))
+		value2Secondary, err := b.GetBySecondary(ctx, 0, []byte("bonjour2"))
 		require.NoError(t, err)
 
 		assert.Equal(t, []byte("world"), valuePrimary)
@@ -585,7 +585,7 @@ func corruptBloomFileByTruncatingIt(fname string) error {
 		return err
 	}
 
-	data = data[:2]
+	data = data[:len(data)-2]
 
 	f, err = os.Create(fname)
 	if err != nil {

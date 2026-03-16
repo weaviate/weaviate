@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -159,11 +159,9 @@ func (s *SortedDocPointerWithScoreMerger) Do(ctx context.Context, segments [][]D
 		return nil, errors.Wrap(err, "init sorted map decoder")
 	}
 
+	done := ctx.Done()
 	i := 0
 	for {
-		if i%100 == 0 && ctx.Err() != nil {
-			return nil, fmt.Errorf("sortedDocPointerWithScoreMerger do: %w", ctx.Err())
-		}
 
 		match, ok := s.findSegmentWithLowestKey()
 		if !ok {
@@ -177,6 +175,14 @@ func (s *SortedDocPointerWithScoreMerger) Do(ctx context.Context, segments [][]D
 
 		s.output[i] = match
 		i++
+
+		if i%100 == 0 {
+			select {
+			case <-done:
+				return nil, fmt.Errorf("sortedDocPointerWithScoreMerger do: %w", ctx.Err())
+			default:
+			}
+		}
 	}
 
 	return s.output[:i], nil
@@ -416,10 +422,6 @@ func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool
 	var cumScore float64
 
 	matchedTerms := 0
-
-	if len(t.T)-pos < minimumOrTokensMatch {
-		return 0, 0, docInfos, false
-	}
 
 	for i := pos; i < len(t.T); i++ {
 		if t.T[i].IdPointer() != id || t.T[i].Exhausted() {

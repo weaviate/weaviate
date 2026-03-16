@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,8 +21,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
-	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -51,6 +51,13 @@ type fakeSchemaManager struct {
 	GetschemaErr      error
 	tenantsEnabled    bool
 	resolveAliasTo    string
+	// test controls
+	AddTenantsSchemaVersion uint64
+	AutoSchemaVersion       uint64
+	// observed
+	WaitedSchemaVersion    uint64
+	MaxWaitedSchemaVersion uint64
+	WaitedVersions         []uint64
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -152,7 +159,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
-	return class, 0, nil
+	return class, f.AutoSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
@@ -181,17 +188,22 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return class, 0, nil
+	return class, f.AutoSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 	principal *models.Principal, class string, tenants []*models.Tenant,
 ) (uint64, error) {
 	f.tenantsEnabled = true
-	return 0, nil
+	return f.AddTenantsSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	f.WaitedSchemaVersion = schemaVersion
+	if schemaVersion > f.MaxWaitedSchemaVersion {
+		f.MaxWaitedSchemaVersion = schemaVersion
+	}
+	f.WaitedVersions = append(f.WaitedVersions, schemaVersion)
 	return nil
 }
 
@@ -203,8 +215,13 @@ func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 	return f.resolveAliasTo
 }
 
+func (f *fakeSchemaManager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
+	return 0, nil
+}
+
 type fakeVectorRepo struct {
 	mock.Mock
+	CapturedSchemaVersion uint64
 }
 
 func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
@@ -251,6 +268,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
 	vectors map[string][]float32, multiVectors map[string][][]float32, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }

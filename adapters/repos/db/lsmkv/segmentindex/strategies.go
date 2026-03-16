@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,8 @@ func (s Strategy) String() string {
 		return "roaringset"
 	case StrategyRoaringSetRange:
 		return "roaringsetrange"
+	case StrategyInverted:
+		return "inverted"
 	default:
 		return "n/a"
 	}
@@ -67,9 +69,9 @@ func CheckExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) er
 		return nil
 	}
 	if len(expectedStrategies) == 1 {
-		return fmt.Errorf("strategy %v expected, got %v", expectedStrategies[0], strategy)
+		return fmt.Errorf("strategy %s expected, got %s", expectedStrategies[0], strategy)
 	}
-	return fmt.Errorf("one of strategies %v expected, got %v", expectedStrategies, strategy)
+	return fmt.Errorf("one of strategies %s expected, got %s", expectedStrategies, strategy)
 }
 
 func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {

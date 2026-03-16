@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,26 +19,24 @@ import (
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
@@ -90,8 +88,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	}}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
-		return readFunc(class, shardState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
+		return readerFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -106,7 +104,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -225,9 +223,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
-			return readFunc(class, shardState)
+			return readerFunc(class, shardState)
 		}).Maybe()
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
@@ -244,7 +242,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
@@ -510,9 +508,9 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
-			return readFunc(class, shardState)
+			return readerFunc(class, shardState)
 		}).Maybe()
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -528,7 +526,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
@@ -881,9 +879,9 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
-			return readFunc(class, shardState)
+			return readerFunc(class, shardState)
 		}).Maybe()
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -899,7 +897,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)

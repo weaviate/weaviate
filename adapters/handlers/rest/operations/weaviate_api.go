@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
@@ -95,6 +96,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaAliasesUpdateHandler: schema.AliasesUpdateHandlerFunc(func(params schema.AliasesUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.AliasesUpdate has not yet been implemented")
 		}),
+		ReplicationApplyReplicationScalePlanHandler: replication.ApplyReplicationScalePlanHandlerFunc(func(params replication.ApplyReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ApplyReplicationScalePlan has not yet been implemented")
+		}),
 		AuthzAssignRoleToGroupHandler: authz.AssignRoleToGroupHandlerFunc(func(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AssignRoleToGroup has not yet been implemented")
 		}),
@@ -115,6 +119,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		BackupsBackupsRestoreHandler: backups.BackupsRestoreHandlerFunc(func(params backups.BackupsRestoreParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsRestore has not yet been implemented")
+		}),
+		BackupsBackupsRestoreCancelHandler: backups.BackupsRestoreCancelHandlerFunc(func(params backups.BackupsRestoreCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsRestoreCancel has not yet been implemented")
 		}),
 		BackupsBackupsRestoreStatusHandler: backups.BackupsRestoreStatusHandlerFunc(func(params backups.BackupsRestoreStatusParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsRestoreStatus has not yet been implemented")
@@ -164,6 +171,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
 		}),
+		ExportExportCancelHandler: export.ExportCancelHandlerFunc(func(params export.ExportCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCancel has not yet been implemented")
+		}),
+		ExportExportCreateHandler: export.ExportCreateHandlerFunc(func(params export.ExportCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCreate has not yet been implemented")
+		}),
+		ExportExportStatusHandler: export.ExportStatusHandlerFunc(func(params export.ExportStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportStatus has not yet been implemented")
+		}),
 		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
 		}),
@@ -178,6 +194,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
+		}),
+		ReplicationGetReplicationScalePlanHandler: replication.GetReplicationScalePlanHandlerFunc(func(params replication.GetReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.GetReplicationScalePlan has not yet been implemented")
 		}),
 		AuthzGetRoleHandler: authz.GetRoleHandlerFunc(func(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRole has not yet been implemented")
@@ -317,6 +336,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsPropertiesAddHandler: schema.SchemaObjectsPropertiesAddHandlerFunc(func(params schema.SchemaObjectsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesAdd has not yet been implemented")
 		}),
+		SchemaSchemaObjectsPropertiesDeleteHandler: schema.SchemaObjectsPropertiesDeleteHandlerFunc(func(params schema.SchemaObjectsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesDelete has not yet been implemented")
+		}),
 		SchemaSchemaObjectsShardsGetHandler: schema.SchemaObjectsShardsGetHandlerFunc(func(params schema.SchemaObjectsShardsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsGet has not yet been implemented")
 		}),
@@ -362,22 +384,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*
-WeaviateAPI # Introduction
-
-	Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.
-	### Base Path
-
-The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively.
-
-	### Questions?
-
-If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/).
-### Issues?
-If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate).
-### Want more documentation?
-For a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).
-*/
+/*WeaviateAPI # Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate). */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
@@ -436,6 +443,8 @@ type WeaviateAPI struct {
 	SchemaAliasesGetAliasHandler schema.AliasesGetAliasHandler
 	// SchemaAliasesUpdateHandler sets the operation handler for the aliases update operation
 	SchemaAliasesUpdateHandler schema.AliasesUpdateHandler
+	// ReplicationApplyReplicationScalePlanHandler sets the operation handler for the apply replication scale plan operation
+	ReplicationApplyReplicationScalePlanHandler replication.ApplyReplicationScalePlanHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
 	AuthzAssignRoleToGroupHandler authz.AssignRoleToGroupHandler
 	// AuthzAssignRoleToUserHandler sets the operation handler for the assign role to user operation
@@ -450,6 +459,8 @@ type WeaviateAPI struct {
 	BackupsBackupsListHandler backups.BackupsListHandler
 	// BackupsBackupsRestoreHandler sets the operation handler for the backups restore operation
 	BackupsBackupsRestoreHandler backups.BackupsRestoreHandler
+	// BackupsBackupsRestoreCancelHandler sets the operation handler for the backups restore cancel operation
+	BackupsBackupsRestoreCancelHandler backups.BackupsRestoreCancelHandler
 	// BackupsBackupsRestoreStatusHandler sets the operation handler for the backups restore status operation
 	BackupsBackupsRestoreStatusHandler backups.BackupsRestoreStatusHandler
 	// BatchBatchObjectsCreateHandler sets the operation handler for the batch objects create operation
@@ -482,6 +493,12 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
 	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
+	// ExportExportCancelHandler sets the operation handler for the export cancel operation
+	ExportExportCancelHandler export.ExportCancelHandler
+	// ExportExportCreateHandler sets the operation handler for the export create operation
+	ExportExportCreateHandler export.ExportCreateHandler
+	// ExportExportStatusHandler sets the operation handler for the export status operation
+	ExportExportStatusHandler export.ExportStatusHandler
 	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
@@ -492,6 +509,8 @@ type WeaviateAPI struct {
 	AuthzGetGroupsForRoleHandler authz.GetGroupsForRoleHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
+	// ReplicationGetReplicationScalePlanHandler sets the operation handler for the get replication scale plan operation
+	ReplicationGetReplicationScalePlanHandler replication.GetReplicationScalePlanHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
@@ -584,6 +603,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsGetHandler schema.SchemaObjectsGetHandler
 	// SchemaSchemaObjectsPropertiesAddHandler sets the operation handler for the schema objects properties add operation
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
+	// SchemaSchemaObjectsPropertiesDeleteHandler sets the operation handler for the schema objects properties delete operation
+	SchemaSchemaObjectsPropertiesDeleteHandler schema.SchemaObjectsPropertiesDeleteHandler
 	// SchemaSchemaObjectsShardsGetHandler sets the operation handler for the schema objects shards get operation
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
@@ -716,6 +737,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaAliasesUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.AliasesUpdateHandler")
 	}
+	if o.ReplicationApplyReplicationScalePlanHandler == nil {
+		unregistered = append(unregistered, "replication.ApplyReplicationScalePlanHandler")
+	}
 	if o.AuthzAssignRoleToGroupHandler == nil {
 		unregistered = append(unregistered, "authz.AssignRoleToGroupHandler")
 	}
@@ -736,6 +760,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.BackupsBackupsRestoreHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsRestoreHandler")
+	}
+	if o.BackupsBackupsRestoreCancelHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsRestoreCancelHandler")
 	}
 	if o.BackupsBackupsRestoreStatusHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsRestoreStatusHandler")
@@ -785,6 +812,15 @@ func (o *WeaviateAPI) Validate() error {
 	if o.DistributedTasksDistributedTasksGetHandler == nil {
 		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
 	}
+	if o.ExportExportCancelHandler == nil {
+		unregistered = append(unregistered, "export.ExportCancelHandler")
+	}
+	if o.ExportExportCreateHandler == nil {
+		unregistered = append(unregistered, "export.ExportCreateHandler")
+	}
+	if o.ExportExportStatusHandler == nil {
+		unregistered = append(unregistered, "export.ExportStatusHandler")
+	}
 	if o.ReplicationForceDeleteReplicationsHandler == nil {
 		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
 	}
@@ -799,6 +835,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
+	}
+	if o.ReplicationGetReplicationScalePlanHandler == nil {
+		unregistered = append(unregistered, "replication.GetReplicationScalePlanHandler")
 	}
 	if o.AuthzGetRoleHandler == nil {
 		unregistered = append(unregistered, "authz.GetRoleHandler")
@@ -937,6 +976,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesAddHandler")
+	}
+	if o.SchemaSchemaObjectsPropertiesDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesDeleteHandler")
 	}
 	if o.SchemaSchemaObjectsShardsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsGetHandler")
@@ -1109,6 +1151,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/replication/scale"] = replication.NewApplyReplicationScalePlan(o.context, o.ReplicationApplyReplicationScalePlanHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/groups/{id}/assign"] = authz.NewAssignRoleToGroup(o.context, o.AuthzAssignRoleToGroupHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1134,6 +1180,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestoreCancel(o.context, o.BackupsBackupsRestoreCancelHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1198,6 +1248,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/tasks"] = distributed_tasks.NewDistributedTasksGet(o.context, o.DistributedTasksDistributedTasksGetHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/export/{backend}/{id}"] = export.NewExportCancel(o.context, o.ExportExportCancelHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/export/{backend}"] = export.NewExportCreate(o.context, o.ExportExportCreateHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/export/{backend}/{id}"] = export.NewExportStatus(o.context, o.ExportExportStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1218,6 +1280,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/users/own-info"] = users.NewGetOwnInfo(o.context, o.UsersGetOwnInfoHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/replication/scale"] = replication.NewGetReplicationScalePlan(o.context, o.ReplicationGetReplicationScalePlanHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1402,6 +1468,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/{className}/properties/{propertyName}/index/{indexName}"] = schema.NewSchemaObjectsPropertiesDelete(o.context, o.SchemaSchemaObjectsPropertiesDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

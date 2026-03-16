@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,23 +19,22 @@ import (
 	"strings"
 	"testing"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestBM25FJourneyBlock(t *testing.T) {
@@ -50,7 +49,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -68,14 +67,14 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "none")
 
 	idx := repo.GetIndex("MyClass")
 
@@ -330,7 +329,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -347,14 +346,14 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -371,7 +370,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 			}
 			require.Nil(t, err)
 			// Check results in correct order
-			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(4), res[0].DocID)
 			require.Equal(t, uint64(3), res[3].DocID)
 
 			// Check scores
@@ -401,7 +400,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -418,14 +417,14 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -521,7 +520,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -538,7 +537,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -609,7 +608,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -626,14 +625,14 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -654,7 +653,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			require.Nil(t, err)
 
 			// Check results in correct order
-			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(4), res[0].DocID)
 			require.Equal(t, uint64(6), res[2].DocID)
 
 			// Print results
@@ -691,7 +690,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -708,14 +707,14 @@ func TestBM25FCompareBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -755,19 +754,19 @@ func TestBM25FCompareBlock(t *testing.T) {
 				}
 
 				// Not all the scores are unique and the search is not stable, so pick ones that don't move
-				require.Equal(t, uint64(1), objs[0].DocID)
-				require.Equal(t, uint64(2), objs[1].DocID)
-				require.Equal(t, uint64(0), objs[2].DocID)
-				require.Equal(t, uint64(6), objs[3].DocID)
-				require.Equal(t, uint64(5), objs[4].DocID)
-				require.Equal(t, uint64(4), objs[5].DocID)
+				require.Equal(t, uint64(4), objs[0].DocID)
+				require.Equal(t, uint64(5), objs[1].DocID)
+				require.Equal(t, uint64(6), objs[2].DocID)
+				require.Equal(t, uint64(0), objs[3].DocID)
+				require.Equal(t, uint64(2), objs[4].DocID)
+				require.Equal(t, uint64(1), objs[5].DocID)
 
-				require.Equal(t, uint64(1), withBM25Fobjs[0].DocID)
-				require.Equal(t, uint64(2), withBM25Fobjs[1].DocID)
-				require.Equal(t, uint64(0), withBM25Fobjs[2].DocID)
-				require.Equal(t, uint64(6), withBM25Fobjs[3].DocID)
-				require.Equal(t, uint64(5), withBM25Fobjs[4].DocID)
-				require.Equal(t, uint64(4), withBM25Fobjs[5].DocID)
+				require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
+				require.Equal(t, uint64(5), withBM25Fobjs[1].DocID)
+				require.Equal(t, uint64(6), withBM25Fobjs[2].DocID)
+				require.Equal(t, uint64(0), withBM25Fobjs[3].DocID)
+				require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
+				require.Equal(t, uint64(1), withBM25Fobjs[5].DocID)
 
 			}
 		})
@@ -799,7 +798,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -816,7 +815,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -912,7 +911,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -929,7 +928,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -1005,7 +1004,7 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -1022,14 +1021,14 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -1045,7 +1044,18 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 						Property: schema.PropertyName("title"),
 					},
 					Value: &filters.Value{
-						Value: "unrelated",
+						Value: "An unrelated title",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "An unrelated title",
 						Type:  schema.DataType("text"),
 					},
 				},
@@ -1079,4 +1089,214 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 	}
 	assert.Equal(t, resultIds[0], resultIds[1], "Result IDs should be the same for memory and disk")
 	assert.Equal(t, resultScores[0], resultScores[1], "Result scores should be the same for memory and disk")
+}
+
+func TestBM25FWithFiltersNotEquals(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 0.5, 1, "none")
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	notEqualClause := filters.Clause{
+		Operator: filters.OperatorNotEqual,
+		On: &filters.Path{
+			Class:    schema.ClassName("MyClass"),
+			Property: schema.PropertyName("description"),
+		},
+		Value: &filters.Value{
+			Value: "journey",
+			Type:  schema.DataType("text"),
+		},
+	}
+	equalClause := filters.Clause{
+		Operator: filters.OperatorEqual,
+		On: &filters.Path{
+			Class:    schema.ClassName("MyClass"),
+			Property: schema.PropertyName("title"),
+		},
+		Value: &filters.Value{
+			Value: "unrelated",
+			Type:  schema.DataType("text"),
+		},
+	}
+
+	tests := []struct {
+		name           string
+		filter         *filters.LocalFilter
+		expectedDocIDs []uint64
+	}{
+		{
+			name:           "no filter",
+			filter:         nil,
+			expectedDocIDs: []uint64{2, 3, 7, 4, 5, 6, 0, 1},
+		},
+		{
+			name: "not equal only",
+			filter: &filters.LocalFilter{
+				Root: &notEqualClause,
+			},
+			expectedDocIDs: []uint64{7, 0, 1},
+		},
+		{
+			name: "or with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{equalClause, notEqualClause},
+				},
+			},
+			expectedDocIDs: []uint64{3, 7, 0, 1},
+		},
+		{
+			name: "and with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{equalClause, notEqualClause},
+				},
+			},
+			expectedDocIDs: []uint64{7},
+		},
+		{
+			name: "or with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{notEqualClause, equalClause},
+				},
+			},
+			expectedDocIDs: []uint64{3, 7, 0, 1},
+		},
+		{
+			name: "and with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{notEqualClause, equalClause},
+				},
+			},
+			expectedDocIDs: []uint64{7},
+		},
+		{
+			name: "NOT and with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{equalClause, notEqualClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 3, 4, 5, 6, 0, 1},
+		},
+		{
+			name: "NOT and with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{notEqualClause, equalClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 3, 4, 5, 6, 0, 1},
+		},
+		{
+			name: "NOT or with not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorOr,
+						Operands: []filters.Clause{equalClause, notEqualClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 4, 5, 6},
+		},
+		{
+			name: "NOT or with not equal reverse order",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNot,
+					Operands: []filters.Clause{{
+						Operator: filters.OperatorOr,
+						Operands: []filters.Clause{notEqualClause, equalClause},
+					}},
+				},
+			},
+			expectedDocIDs: []uint64{2, 4, 5, 6},
+		},
+	}
+
+	for i, location := range []string{"memory", "disk"} {
+		t.Run(location, func(t *testing.T) {
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "my unrelated journey", AdditionalExplanations: true}
+					addit := additional.Properties{}
+					res, scores, err := idx.objectSearch(context.TODO(), 1000, tc.filter, kwr, nil, nil, addit, nil, "", 0, props)
+
+					require.Nil(t, err)
+
+					for j, r := range res {
+						_ = scores[j]
+						t.Logf("Result id: %v, score: %v, additional: %v\n", r.DocID, r.ExplainScore(), r.Object.Additional)
+					}
+
+					require.Len(t, res, len(tc.expectedDocIDs))
+					for j, expectedID := range tc.expectedDocIDs {
+						require.Equal(t, expectedID, res[j].DocID)
+					}
+				})
+			}
+		})
+
+		if i == 0 {
+			for _, index := range repo.indices {
+				index.ForEachShard(func(name string, shard ShardLike) error {
+					err := shard.Store().FlushMemtables(context.Background())
+					require.Nil(t, err)
+					return nil
+				})
+			}
+		}
+	}
 }

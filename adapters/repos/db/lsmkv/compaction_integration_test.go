@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package lsmkv
 
@@ -515,7 +514,8 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 // - doing some checksum corruptions to ensure that the ValidateChecksum function detects them correctly for all segment types in all possible scenarios
 func assertChecksum(t *testing.T, bucket *Bucket) {
 	require.Len(t, bucket.disk.segments, 1)
-	segment := bucket.disk.segments[0].getSegment()
+	segment, ok := bucket.disk.segments[0].(*segment)
+	require.True(t, ok)
 
 	if !bucket.enableChecksumValidation {
 		return

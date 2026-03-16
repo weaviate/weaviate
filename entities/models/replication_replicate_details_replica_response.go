@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -66,12 +66,12 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// Required: true
 	TargetNode *string `json:"targetNode"`
 
-	// Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).
+	// Indicates whether the operation is a `COPY` (source replica remains) or a `MOVE` (source replica is removed after successful transfer).
 	// Required: true
 	// Enum: [COPY MOVE]
 	Type *string `json:"type"`
 
-	// Whether the replica operation is uncancelable.
+	// Whether the replica operation can't be cancelled.
 	Uncancelable bool `json:"uncancelable,omitempty"`
 
 	// The UNIX timestamp in ms when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.

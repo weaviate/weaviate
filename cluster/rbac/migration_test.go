@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -302,6 +302,7 @@ func TestMigrateRevokeRoles(t *testing.T) {
 		name           string
 		input          *cmd.RevokeRolesForUserRequest
 		expectedOutput []*cmd.RevokeRolesForUserRequest
+		expectError    bool
 	}{
 		{
 			name:           "current request",
@@ -328,12 +329,26 @@ func TestMigrateRevokeRoles(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Request to update, but missing user prefix",
+			input: &cmd.RevokeRolesForUserRequest{
+				Version: cmd.RBACAssignRevokeCommandPolicyVersionV0,
+				Roles:   []string{"something"},
+				User:    "some-user",
+			},
+			expectError: true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			output := migrateRevokeRoles(test.input)
-			require.Equal(t, test.expectedOutput, output)
+			output, err := migrateRevokeRoles(test.input)
+			if test.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, test.expectedOutput, output)
+			}
 		})
 	}
 }
@@ -428,7 +443,8 @@ func TestMigrateAssignRoles(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			output := migrateAssignRoles(test.input, test.authNconfig)
+			output, err := migrateAssignRoles(test.input, test.authNconfig)
+			require.NoError(t, err)
 			require.Equal(t, test.expectedOutput, output)
 		})
 	}

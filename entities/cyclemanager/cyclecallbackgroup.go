@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -178,6 +178,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 	i := 0
 	for r := 0; r < routinesLimit; r++ {
 		f := func() {
+			defer wg.Done()
 			for callbackId := range ch {
 				if shouldAbort() {
 					// keep reading from channel until it is closed
@@ -231,7 +232,6 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 					}
 				}()
 			}
-			wg.Done()
 		}
 		enterrors.GoWrapper(f, c.logger)
 	}
@@ -271,6 +271,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		entsentry.Recover(r)
+		enterrors.PrintStack(c.logger)
 		c.logger.WithFields(logrus.Fields{
 			"action":       "cyclemanager",
 			"callback_id":  callbackCustomId,
@@ -443,7 +444,7 @@ func trace() string {
 	pcs = pcs[:n]
 	for i := range pcs {
 		f := errors.Frame(pcs[i])
-		sb.WriteString(fmt.Sprintf("%n@%s:%d", f, f, f))
+		fmt.Fprintf(&sb, "%n@%s:%d", f, f, f)
 		if i < n-1 {
 			sb.WriteString(";")
 		}

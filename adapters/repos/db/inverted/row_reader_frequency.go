@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,32 +19,28 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
-	value         []byte
-	bucket        *lsmkv.Bucket
-	operator      filters.Operator
-	keyOnly       bool
-	shardVersion  uint16
-	bitmapFactory *roaringset.BitmapFactory
+	value        []byte
+	bucket       *lsmkv.Bucket
+	operator     filters.Operator
+	keyOnly      bool
+	shardVersion uint16
+	isDenyList   bool
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
-		bucket:        bucket,
-		value:         value,
-		operator:      operator,
-		keyOnly:       keyOnly,
-		shardVersion:  shardVersion,
-		bitmapFactory: bitmapFactory,
+		bucket:       bucket,
+		value:        value,
+		operator:     operator,
+		keyOnly:      keyOnly,
+		shardVersion: shardVersion,
 	}
 }
 
@@ -82,16 +78,8 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error {
-	v, err := rr.equalHelper(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Invert the Equal results for an efficient NotEqual
-	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotConc(rr.transformToBitmap(v), concurrency.SROAR_MERGE)
-	_, err = readFn(rr.value, inverted, release)
-	return err
+	rr.isDenyList = true
+	return rr.equal(ctx, readFn)
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
@@ -99,7 +87,10 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error
 func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c, err := rr.newCursor()
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	for k, v := c.Seek(ctx, rr.value); k != nil; k, v = c.Next(ctx) {
@@ -130,7 +121,11 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c, err := rr.newCursor()
+	if err != nil {
+		return err
+	}
+
 	defer c.Close()
 
 	for k, v := c.First(ctx); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next(ctx) {
@@ -163,7 +158,10 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 
 	// TODO: don't we need to check here if this is a doc id vs a object search?
 	// Or is this not a problem because the latter removes duplicates anyway?
-	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
+	c, err := rr.newCursor(lsmkv.MapListAcceptDuplicates())
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	var (
@@ -216,7 +214,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 // keyOnly==true
 func (rr *RowReaderFrequency) newCursor(
 	opts ...lsmkv.MapListOption,
-) *lsmkv.CursorMap {
+) (*lsmkv.CursorMap, error) {
 	if rr.shardVersion < 2 {
 		opts = append(opts, lsmkv.MapListLegacySortingRequired())
 	}
@@ -245,20 +243,20 @@ func (rr *RowReaderFrequency) transformToBitmap(pairs []lsmkv.MapPair) *sroar.Bi
 // equalHelper exists, because the Equal and NotEqual operators share this functionality
 func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPair, err error) {
 	if err = ctx.Err(); err != nil {
-		return
+		return v, err
 	}
 
 	if rr.shardVersion < 2 {
 		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates(),
 			lsmkv.MapListLegacySortingRequired())
 		if err != nil {
-			return
+			return v, err
 		}
 	} else {
 		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates())
 		if err != nil {
-			return
+			return v, err
 		}
 	}
-	return
+	return v, err
 }

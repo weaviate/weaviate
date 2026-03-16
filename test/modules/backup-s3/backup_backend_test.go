@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,15 +26,26 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-s3"
-	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
-func Test_S3Backend_Start(t *testing.T) {
-	s3Backend_Backup(t, false, "backups", "", "")
+// Environment variable names for S3 module configuration
+const (
+	envAwsRegion     = "AWS_REGION"
+	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
+	envS3SecretKey   = "AWS_SECRET_ACCESS_KEY"
+	envS3Bucket      = "BACKUP_S3_BUCKET"
+	envMinioEndpoint = "MINIO_ENDPOINT"
+	envS3UseSSL      = "BACKUP_S3_USE_SSL"
+	envS3Endpoint    = "BACKUP_S3_ENDPOINT"
+)
 
-	s3Backend_Backup(t, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+func Test_S3Backend_Start(t *testing.T) {
+	// Uses the shared MinIO from TestMain
+	s3Backend_Backup(t, false, "backend-test-bucket", "", "")
+
+	s3Backend_Backup(t, true, "backend-test-bucket-override", "backend-test-bucket-override", "testBucketPathOverride")
 }
 
 func s3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket, overridePath string) {
@@ -43,20 +53,21 @@ func s3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket
 
 	ctx := context.Background()
 
+	// Use the shared MinIO endpoint from TestMain
+	endpoint := GetMinioURI()
+	region := GetS3Region()
+
 	t.Log("setup env")
-	region := "eu-west-1"
 	t.Setenv(envAwsRegion, region)
 	t.Setenv(envS3AccessKey, "aws_access_key")
 	t.Setenv(envS3SecretKey, "aws_secret_key")
 	t.Setenv(envS3Bucket, bucketName)
+	t.Setenv(envMinioEndpoint, endpoint)
 
-	t.Logf("Starting test with bucket: %s, %s\n", bucketName, region)
-	compose, err := docker.New().WithBackendS3(bucketName, region).Start(ctx)
-	if err != nil {
-		t.Fatal(errors.Wrapf(err, "cannot start"))
-	}
-
-	t.Setenv(envMinioEndpoint, compose.GetMinIO().URI())
+	// Create the bucket for this test
+	t.Logf("Creating bucket: %s at endpoint: %s\n", bucketName, endpoint)
+	moduleshelper.CreateS3Bucket(ctx, t, endpoint, region, bucketName)
+	defer moduleshelper.DeleteS3Bucket(ctx, t, endpoint, region, bucketName)
 
 	t.Logf("running tests with bucket %v and path overrides: %v\n", bucketName, override)
 	t.Run("store backup meta",
@@ -69,10 +80,6 @@ func s3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket
 	t.Run("copy files", func(t *testing.T) {
 		moduleLevelCopyFiles(t, override, containerName, overrideBucket, overridePath)
 	})
-
-	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
-	}
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, overrideBucket, overridePath string) {
@@ -120,7 +127,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 						Name: className,
 					},
 				},
-				Status:  string(backup.Started),
+				Status:  backup.Started,
 				Version: ubak.Version,
 			}
 
@@ -149,7 +156,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
-			assert.Equal(t, meta.Status, string(backup.Started))
+			assert.Equal(t, meta.Status, backup.Started)
 			assert.Empty(t, meta.Error)
 			assert.Len(t, meta.Classes, 1)
 			assert.Equal(t, meta.Classes[0].Name, className)

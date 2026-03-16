@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -236,10 +236,10 @@ func (n *BinarySearchNode) get(key []byte) (BitmapLayer, error) {
 func BinarySearchNodeFromRB(rbNode rbtree.Node) (bsNode *BinarySearchNode) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*BinarySearchNode)
-	return
+	return bsNode
 }
 
 func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
@@ -254,18 +254,19 @@ func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
 		right = n.right.flattenInOrder()
 	}
 
-	key := make([]byte, len(n.Key))
-	copy(key, n.Key)
-
 	// Node's Value has to be copied, not to be mutated when BST is updated.
-	// Since memtable flush needs condensing, Condense here serves as cloning here
+	// Since memtable flush needs condensing, Condense serves as cloning here
 	// instead of separate clone + optional condense calls
-	right = append([]*BinarySearchNode{{
-		Key: key,
+	right = append([]*BinarySearchNode{n.shallowCopy()}, right...)
+	return append(left, right...)
+}
+
+func (n *BinarySearchNode) shallowCopy() *BinarySearchNode {
+	return &BinarySearchNode{
+		Key: n.Key,
 		Value: BitmapLayer{
 			Additions: Condense(n.Value.Additions),
 			Deletions: Condense(n.Value.Deletions),
 		},
-	}}, right...)
-	return append(left, right...)
+	}
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,6 +38,9 @@ type Property struct {
 	// Description of the property.
 	Description string `json:"description,omitempty"`
 
+	// If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.
+	DisableDuplicatedReferences *bool `json:"disableDuplicatedReferences,omitempty"`
+
 	// Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. <br/><br/>Note: Unrelated to vectorization behavior.
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 
@@ -50,7 +53,7 @@ type Property struct {
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules
 	IndexSearchable *bool `json:"indexSearchable,omitempty"`
 
-	// Configuration specific to modules this Weaviate instance has installed
+	// Configuration specific to modules in a collection context.
 	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
 
 	// The name of the property (required). Multiple words should be concatenated in camelCase, e.g. `nameOfAuthor`.
@@ -59,7 +62,7 @@ type Property struct {
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
-	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
+	// Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:<br/><br/>- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.<br/>- `lowercase`: Splits the text on whitespace and lowercases the tokens.<br/>- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.<br/>- `field`: Indexes the entire property value as a single token after trimming whitespace.<br/>- `trigram`: Splits the property into rolling trigrams (three-character sequences).<br/>- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).<br/>- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/>- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/><br/>See [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.
 	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
 	Tokenization string `json:"tokenization,omitempty"`
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,13 +17,16 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -32,61 +35,47 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaEnt "github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-var _NUMCPU = runtime.GOMAXPROCS(0)
+var NUMCPU = runtime.GOMAXPROCS(0)
 
 type Service struct {
 	pb.UnimplementedWeaviateServer
 	traverser            *traverser.Traverser
 	authComposer         composer.TokenFunc
 	allowAnonymousAccess bool
-	schemaManager        *schemaManager.Manager
+	schemaManager        *schema.Manager
 	batchManager         *objects.BatchManager
 	config               *config.Config
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 
-	authenticator      *authHandler
+	authenticator      *auth.Handler
 	batchHandler       *batch.Handler
-	batchQueuesHandler *batch.QueuesHandler
+	batchStreamHandler *batch.StreamHandler
 }
 
-func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
-	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger, shutdown *batch.Shutdown,
-) *Service {
-	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
-	internalQueue := batch.NewBatchInternalQueue()
-	batchWriteQueues := batch.NewBatchWriteQueues()
-	batchReadQueues := batch.NewBatchReadQueues()
-
-	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
-
-	numWorkers := _NUMCPU
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
-
+func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
+	authenticator := auth.NewHandler(allowAnonymous, authComposer)
+	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, state.SchemaManager, prometheus.DefaultRegisterer, NUMCPU, state.Logger)
 	return &Service{
-		traverser:            traverser,
+		traverser:            state.Traverser,
 		authComposer:         authComposer,
-		allowAnonymousAccess: allowAnonymousAccess,
-		schemaManager:        schemaManager,
-		batchManager:         batchManager,
-		config:               config,
-		logger:               logger,
-		authorizer:           authorization,
+		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
+		schemaManager:        state.SchemaManager,
+		batchManager:         state.BatchManager,
+		config:               &state.ServerConfig.Config,
+		logger:               state.Logger,
+		authorizer:           state.Authorizer,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
-		batchQueuesHandler:   batchQueuesHandler,
-	}
+		batchStreamHandler:   batchStreamHandler,
+	}, batchDrain
 }
 
 func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
@@ -256,30 +245,7 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 	return result, errInner
 }
 
-// BatchSend is similar in concept to the BatchObjects and BatchReferences methods in that it accepts N objects or references
-// in a single gRPC invocation call. However, it differs in that it does not wait for the objects/references to be fully
-// inserted into the database before returning a response. Instead, it simply adds the objects/references to the internal
-// queueing system and then returns immediately.
-//
-// In addition, in order to assign the objects/references to the correct internal queue, it requires the stream ID to be
-// specified in the request. This stream ID is only available to clients once they have opened a stream using the BatchStream method.
-//
-// This method therefore does not work in isolation, it has to be used in conjunction with other methods.
-// It should be used as part of the automatic batching process provided in clients.
-func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
-	var result *pb.BatchSendReply
-	var errInner error
-
-	if err := enterrors.GoWrapperWithBlock(func() {
-		result, errInner = s.batchQueuesHandler.Send(ctx, req)
-	}, s.logger); err != nil {
-		return nil, err
-	}
-
-	return result, errInner
-}
-
-// BatchStream defines a UnaryStream gRPC method whereby the server streams messages back to the client in order to
+// BatchStream defines a StreamStream gRPC method whereby the server streams messages back to the client in order to
 // asynchronously report on any errors that have occurred during the automatic batching process.
 //
 // The initial request contains the consistency level that is desired when batch inserting in this processing context.
@@ -295,15 +261,8 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 // reconnect to a different available node. At that point, the batching process resumes on the other node as if nothing happened.
 //
 // It should be used as part of the automatic batching process provided in clients.
-func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_BatchStreamServer) error {
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return fmt.Errorf("stream ID generation failed: %w", err)
-	}
-	streamId := id.String()
-	s.batchQueuesHandler.Setup(streamId, req)
-	defer s.batchQueuesHandler.Teardown(streamId)
-	return s.batchQueuesHandler.Stream(stream.Context(), streamId, stream)
+func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
+	return s.batchStreamHandler.Handle(stream)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
@@ -368,7 +327,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	}
 
 	for _, prop := range searchParams.Properties {
-		_, err := schema.GetPropertyByName(class, prop.Name)
+		_, err := schemaEnt.GetPropertyByName(class, prop.Name)
 		if err != nil {
 			return err
 		}

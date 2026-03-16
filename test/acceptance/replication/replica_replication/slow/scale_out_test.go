@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,6 +41,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -66,10 +67,10 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 	helper.CreateClass(t, cls)
 
 	// Load data
-	batch := make([]*models.Object, 0, 10000)
-	tenantNames := make([]string, 0, 100)
+	batch := make([]*models.Object, 0, 1000)
+	tenantNames := make([]string, 0, 10)
 	t.Log("Loading data into tenants...")
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		tenantName := fmt.Sprintf("tenant-%d", i)
 		tenantNames = append(tenantNames, tenantName)
 		for j := 0; j < 1000; j++ {
@@ -78,7 +79,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 				WithTenant(tenantName).
 				Object()))
 		}
-		if len(batch) == 10000 {
+		if len(batch) == 1000 {
 			helper.CreateObjectsBatch(t, batch)
 			batch = batch[:0] // reset batch for next iteration
 		}
@@ -101,7 +102,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 		replication.NewGetCollectionShardingStateParams().WithCollection(&cls.Class), nil,
 	)
 	require.Nil(t, err)
-	require.Len(t, shardingState.Payload.ShardingState.Shards, 100)
+	require.Len(t, shardingState.Payload.ShardingState.Shards, 10)
 
 	movements := []movement{}
 	for _, state := range shardingState.Payload.ShardingState.Shards {

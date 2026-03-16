@@ -16,6 +16,8 @@ from weaviate.collections.classes.config import (
     _VectorIndexConfigCreate,
     _RerankerProvider,
 )
+from weaviate.collections.classes.config_object_ttl import _ObjectTTLConfigCreate
+from weaviate.collections.classes.config_vectors import _VectorConfigCreate
 from weaviate.collections.classes.types import Properties
 from weaviate.config import AdditionalConfig
 
@@ -34,8 +36,12 @@ class CollectionFactory(Protocol):
         vectorizer_config: Optional[
             Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
         ] = None,
+        vector_config: Optional[
+            Optional[Union[_VectorConfigCreate, List[_VectorConfigCreate]]]
+        ] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
+        object_ttl: Optional[_ObjectTTLConfigCreate] = None,
         generative_config: Optional[_GenerativeProvider] = None,
         headers: Optional[Dict[str, str]] = None,
         ports: Tuple[int, int] = (8080, 50051),
@@ -74,8 +80,12 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         vectorizer_config: Optional[
             Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
         ] = None,
+        vector_config: Optional[
+            Optional[Union[_VectorConfigCreate, List[_VectorConfigCreate]]]
+        ] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
+        object_ttl: Optional[_ObjectTTLConfigCreate] = None,
         generative_config: Optional[_GenerativeProvider] = None,
         headers: Optional[Dict[str, str]] = None,
         ports: Tuple[int, int] = (8080, 50051),
@@ -100,8 +110,10 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
             name=name_fixture,
             description=description,
             vectorizer_config=vectorizer_config,
+            vector_config=vector_config,
             properties=properties,
             references=references,
+            object_ttl_config=object_ttl,
             inverted_index_config=inverted_index_config,
             multi_tenancy_config=multi_tenancy_config,
             generative_config=generative_config,

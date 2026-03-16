@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -56,6 +57,9 @@ type Searcher struct {
 	bitmapFactory       *roaringset.BitmapFactory
 }
 
+var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
+	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
+
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
@@ -83,7 +87,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
@@ -104,6 +108,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
 		it = allowList.Iterator()
+		defer it.Stop()
 	}
 
 	beforeObjects := time.Now()
@@ -179,7 +184,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		loop++
 
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, err := bucket.GetBySecondary(0, docIDBytes)
+		res, err := bucket.GetBySecondary(ctx, 0, docIDBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -223,8 +228,15 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
+}
+
+func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
+	additional additional.Properties, className schema.ClassName, limit int,
+) (helpers.AllowList, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
@@ -243,6 +255,14 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
+	// invert once at the end if it's a deny list, to avoid multiple inversions in case of nested ORs
+	if dbm.isDenyList {
+		universe, universeRelease := s.bitmapFactory.GetBitmap()
+		universe.AndNotConc(dbm.docIDs, concurrency.SROAR_MERGE)
+		dbm.release()
+		return helpers.NewAllowListCloseableFromBitmap(universe, universeRelease), nil
+	}
+
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
@@ -259,7 +279,7 @@ func (s *Searcher) extractPropValuePair(
 	}
 	if filter.Operands != nil {
 		// nested filter
-		children, err := s.extractPropValuePairs(ctx, filter.Operands, className)
+		children, err := s.extractPropValuePairs(ctx, filter.Operands, filter.Operator, className)
 		if err != nil {
 			return nil, err
 		}
@@ -331,11 +351,11 @@ func (s *Searcher) extractPropValuePair(
 }
 
 func (s *Searcher) extractPropValuePairs(ctx context.Context,
-	operands []filters.Clause, className schema.ClassName,
+	operands []filters.Clause, operator filters.Operator, className schema.ClassName,
 ) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	eg.SetLimit(outerConcurrencyLimit)
 
 	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
@@ -343,18 +363,45 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
 			child, err := s.extractPropValuePair(ctx, &clause, className)
+			// check for stopword errors on ContainsAny operator only at the end
+			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
+				return nil
+			}
 			if err != nil {
 				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
 			children[i] = child
-
 			return nil
 		}, clause)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
+	}
+	i := 0
+	for _, c := range children {
+		if c != nil {
+			children[i] = c
+			i++
+		}
+	}
+	children = children[:i]
+
+	// if all children were stopwords and the operator is ContainsAny,
+	// we return the stopword error anyway for consistency with other
+	// filter behaviors
+	// The logic is, if at least one of the provided terms is a valid
+	// search term (i.e., not a stopword), we proceed with the search,
+	// as we can still match on that term.
+	// However, if all provided terms are stopwords, we return an error
+	// for consistency with other filter behaviors.
+	//
+	// TODO(amourao): the stopword logic should be rethought globally,
+	// as returning errors for specific filter values may generate unexpected
+	// results for the end user
+	if len(children) == 0 && operator == filters.ContainsAny {
+		return nil, ErrOnlyStopwords
 	}
 	return children, nil
 }
@@ -557,19 +604,27 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		}
 		byteValue = []byte(v)
 	case schema.DataTypeDate:
-		v, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
-		}
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+		var asInt64 int64
+
+		switch t := value.(type) {
+		case string:
+			parsed, err := time.Parse(time.RFC3339, t)
+			if err != nil {
+				return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+			}
+			asInt64 = parsed.UnixMilli()
+
+		case time.Time:
+			asInt64 = t.UnixMilli()
+
+		default:
+			return nil, fmt.Errorf("expected value to be string or time.Time, got '%T'", value)
 		}
 
 		// if propType is a `valueDate`, we need to convert
 		// it to ms before fetching. this is the format by
 		// which our timestamps are indexed
-		byteValue = []byte(strconv.FormatInt(t.UnixMilli(), 10))
+		byteValue = []byte(strconv.FormatInt(asInt64, 10))
 	default:
 		return nil, fmt.Errorf(
 			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName)
@@ -600,9 +655,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = tokenizer.TokenizeWithWildcards(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, valueString, class.Class)
 		} else {
-			terms = tokenizer.Tokenize(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeForClass(prop.Tokenization, valueString, class.Class)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -618,7 +673,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) {
+		if s.stopwords.IsStopword(term) && prop.Tokenization == models.PropertyTokenizationWord {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
@@ -638,8 +693,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	if len(propValuePairs) == 1 {
 		return propValuePairs[0], nil
 	}
-	return nil, fmt.Errorf("invalid search term, only stopwords provided. " +
-		"Stopwords can be configured in class.invertedIndexConfig.stopwords")
+	return nil, ErrOnlyStopwords
 }
 
 func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,
@@ -736,7 +790,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}
 
-	children, err := s.extractPropValuePairs(ctx, operands, schema.ClassName(class.Class))
+	children, err := s.extractPropValuePairs(ctx, operands, operator, schema.ClassName(class.Class))
 	if err != nil {
 		return nil, err
 	}
@@ -912,6 +966,7 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 type docIDsIterator interface {
 	Next() (uint64, bool)
 	Len() int
+	Stop()
 }
 
 type sliceDocIDsIterator struct {
@@ -932,13 +987,18 @@ func (it *sliceDocIDsIterator) Next() (uint64, bool) {
 	return it.docIDs[pos], true
 }
 
+func (it *sliceDocIDsIterator) Stop() {
+	// No-op for slice iterator as there's no cleanup needed
+}
+
 func (it *sliceDocIDsIterator) Len() int {
 	return len(it.docIDs)
 }
 
 type docBitmap struct {
-	docIDs  *sroar.Bitmap
-	release func()
+	docIDs     *sroar.Bitmap
+	isDenyList bool
+	release    func()
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
@@ -948,7 +1008,7 @@ func newUninitializedDocBitmap() docBitmap {
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}}
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: false}
 }
 
 func (dbm *docBitmap) count() int {
@@ -979,4 +1039,8 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	}
 
 	return out
+}
+
+func (dbm *docBitmap) IsDenyList() bool {
+	return dbm.isDenyList
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -252,10 +252,7 @@ func Fp64SliceToBytes(floats []float64) []byte {
 
 func Fp32SliceFromBytes(vector []byte) []float32 {
 	floats := make([]float32, len(vector)/Uint32Len)
-	for i := 0; i < len(floats); i++ {
-		asUint := binary.LittleEndian.Uint32(vector[i*Uint32Len : (i+1)*Uint32Len])
-		floats[i] = math.Float32frombits(asUint)
-	}
+	CopyBytesToSlice(floats, vector)
 	return floats
 }
 

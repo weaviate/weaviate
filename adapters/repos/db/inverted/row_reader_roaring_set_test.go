@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -199,9 +199,8 @@ func TestRowReaderRoaringSet(t *testing.T) {
 			assert.Len(t, result, len(tc.expected))
 			for i, expectedKV := range tc.expected {
 				assert.Equal(t, []byte(expectedKV.k), result[i].k)
-				assert.Equal(t, len(expectedKV.v), result[i].v.GetCardinality())
 				for _, expectedV := range expectedKV.v {
-					assert.True(t, result[i].v.Contains(expectedV))
+					assert.True(t, result[i].v.Contains(expectedV) != rowReader.isDenyList)
 				}
 				result[i].r()
 			}
@@ -227,9 +226,8 @@ func TestRowReaderRoaringSet(t *testing.T) {
 			assert.Len(t, result, len(expected))
 			for i, expectedKV := range expected {
 				assert.Equal(t, []byte(expectedKV.k), result[i].k)
-				assert.Equal(t, len(expectedKV.v), result[i].v.GetCardinality())
 				for _, expectedV := range expectedKV.v {
-					assert.True(t, result[i].v.Contains(expectedV))
+					assert.True(t, result[i].v.Contains(expectedV) != rowReader.isDenyList)
 				}
 				result[i].r()
 			}
@@ -296,6 +294,5 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			}
 			return nil, noopRelease, entlsmkv.NotFound
 		},
-		bitmapFactory: roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), func() uint64 { return maxDocID }),
 	}
 }

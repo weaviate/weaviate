@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,30 +14,37 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	entBackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	backupUC "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestBackup_DBLevel(t *testing.T) {
@@ -79,7 +86,7 @@ func TestBackup_DBLevel(t *testing.T) {
 		expectedPropLength, err := os.ReadFile(testShd.GetPropertyLengthTracker().FileName())
 		require.Nil(t, err)
 		var expectedShardState []byte
-		err = testShd.Index().schemaReader.Read(className, func(class *models.Class, state *sharding.State) error {
+		err = testShd.Index().schemaReader.Read(className, true, func(class *models.Class, state *sharding.State) error {
 			var jsonErr error
 			expectedShardState, jsonErr = state.JSON()
 			return jsonErr
@@ -89,7 +96,11 @@ func TestBackup_DBLevel(t *testing.T) {
 			Objects.Classes[0].MarshalBinary()
 		require.Nil(t, err)
 
-		classes := db.ListBackupable()
+		classes := make([]string, 0, len(db.indices))
+		for _, idx := range db.indices {
+			cls := string(idx.Config.ClassName)
+			classes = append(classes, cls)
+		}
 
 		t.Run("doesn't fail on casing permutation of existing class", func(t *testing.T) {
 			err := db.Backupable(ctx, []string{"DBLeVELBackupClass"})
@@ -101,7 +112,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 
-			ch := db.BackupDescriptors(ctx, backupID, classes)
+			ch := db.BackupDescriptors(ctx, backupID, classes, nil)
 
 			for d := range ch {
 				assert.Equal(t, className, d.Name)
@@ -170,7 +181,11 @@ func TestBackup_DBLevel(t *testing.T) {
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {
-			classes := db.ListBackupable()
+			classes := make([]string, 0, len(db.indices))
+			for _, idx := range db.indices {
+				cls := string(idx.Config.ClassName)
+				classes = append(classes, cls)
+			}
 
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
@@ -178,7 +193,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
 			defer cancel()
 
-			ch := db.BackupDescriptors(timeoutCtx, backupID, classes)
+			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil)
 			for d := range ch {
 				require.NotNil(t, d.Error)
 				assert.Contains(t, d.Error.Error(), "context deadline exceeded")
@@ -221,7 +236,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
-			assert.Len(t, files, 5)
+			assert.Len(t, files, 4)
 
 			// build regex to get very close approximation to the expected
 			// contents of the ListFiles result. the only thing we can't
@@ -275,12 +290,18 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, version uint64) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return nil
+	}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -292,7 +313,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
@@ -331,8 +352,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -362,8 +383,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -403,8 +424,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -444,8 +465,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -473,8 +494,8 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardState)
 			},
@@ -497,7 +518,7 @@ func TestDB_Shards(t *testing.T) {
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		expectedErrorMsg := "invalid sharding state: state is nil"
 		mockSchemaReader.EXPECT().
-			Read(className, mock.Anything).
+			Read(className, mock.Anything, mock.Anything).
 			Return(fmt.Errorf("%s", expectedErrorMsg))
 
 		db := &DB{
@@ -515,7 +536,7 @@ func TestDB_Shards(t *testing.T) {
 		className := "ErrorClass"
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).Return(
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).Return(
 			fmt.Errorf("schema read failed"),
 		)
 
@@ -530,6 +551,293 @@ func TestDB_Shards(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to read sharding state")
 		assert.Contains(t, err.Error(), "schema read failed")
 	})
+}
+
+// TestBackup_CompressRestoreWithSplitting is an end-to-end integration test that
+// creates a real database with objects, obtains backup descriptors, compresses
+// shards into chunks (with file splitting), restores from those chunks, and
+// verifies every file matches the original.
+func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
+	ctx := testCtx()
+	dirName := t.TempDir()
+	className := "SplitFileBackupClass"
+	backupID := "backup-split"
+	now := time.Now()
+
+	db := setupTestDB(t, dirName, makeTestClass(className))
+	defer func() {
+		require.Nil(t, db.Shutdown(context.Background()))
+	}()
+
+	// Insert several objects to produce shard files on disk.
+	for i := 0; i < 20; i++ {
+		vec := []float32{float32(i), float32(i + 1), float32(i + 2)}
+		require.Nil(t, db.PutObject(ctx, &models.Object{
+			Class:              className,
+			CreationTimeUnix:   now.UnixNano(),
+			ID:                 strfmt.UUID(fmt.Sprintf("ff9fcae5-57b8-431c-b8e2-%012d", i)),
+			LastUpdateTimeUnix: now.UnixNano(),
+			Vector:             vec,
+			VectorWeights:      nil,
+		}, vec, nil, nil, nil, 0))
+	}
+
+	classes := []string{className}
+	require.Nil(t, db.Backupable(ctx, classes))
+
+	var classDescs []entBackup.ClassDescriptor
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	for d := range ch {
+		require.Nil(t, d.Error)
+		classDescs = append(classDescs, d)
+	}
+	require.Len(t, classDescs, 1)
+	require.NotEmpty(t, classDescs[0].Shards)
+
+	sourceDataPath := db.config.RootPath
+
+	// Use very small chunk/split sizes to force file splitting even on small test data.
+	const chunkSize = 512     // 512 bytes
+	const splitFileSize = 256 // 256 bytes
+
+	result := backupWithSizes(t, ctx, sourceDataPath, classDescs, chunkSize, splitFileSize)
+	t.Logf("backup produced %d chunks from %d shards", len(result.chunks), len(classDescs[0].Shards))
+	require.Greater(t, len(result.chunks), 1, "expected multiple chunks due to small chunk/split sizes")
+
+	restoreAndVerify(t, sourceDataPath, classDescs, result.chunks)
+
+	for _, class := range classes {
+		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
+	}
+}
+
+// backupChunkResult holds the result of a single backup pass.
+type backupChunkResult struct {
+	chunks    [][]byte // raw chunk data
+	fileSizes []int64  // per-file sizes (from stat) across all shards
+}
+
+// backupWithSizes performs a backup using the given chunk/split sizes and returns the chunks and file sizes.
+func backupWithSizes(
+	t *testing.T,
+	ctx context.Context,
+	sourceDataPath string,
+	classDescs []entBackup.ClassDescriptor,
+	chunkSize, splitFileSize int64,
+) backupChunkResult {
+	t.Helper()
+
+	var result backupChunkResult
+
+	for _, sd := range classDescs[0].Shards {
+		fileSizes := make(map[string]int64, len(sd.Files))
+		for _, relPath := range sd.Files {
+			info, err := os.Stat(filepath.Join(sourceDataPath, relPath))
+			if err == nil && info.Mode().IsRegular() {
+				fileSizes[relPath] = info.Size()
+				result.fileSizes = append(result.fileSizes, info.Size())
+			}
+		}
+		filesInShard := &entBackup.FileList{Files: append([]string{}, sd.Files...), FileSizes: fileSizes}
+
+		var fileSizeExceeded *backupUC.SplitFile
+		firstChunk := true
+
+		for {
+			var buf bytes.Buffer
+			z, rc, err := backupUC.NewZip(sourceDataPath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
+			require.NoError(t, err)
+
+			type writeResult struct {
+				split *backupUC.SplitFile
+				err   error
+			}
+			resultCh := make(chan writeResult, 1)
+
+			go func() {
+				preComp := atomic.Int64{}
+				var sr *backupUC.SplitFile
+				var we error
+				if fileSizeExceeded != nil {
+					sr, we = z.WriteSplitFile(ctx, sd, fileSizeExceeded, &preComp, "")
+				} else {
+					_, sr, we = z.WriteShard(ctx, sd, filesInShard, firstChunk, &preComp, "")
+				}
+				z.Close()
+				resultCh <- writeResult{split: sr, err: we}
+			}()
+
+			_, err = io.Copy(&buf, rc)
+			require.NoError(t, err)
+			require.NoError(t, rc.Close())
+			res := <-resultCh
+			require.NoError(t, res.err)
+
+			result.chunks = append(result.chunks, buf.Bytes())
+			fileSizeExceeded = res.split
+			firstChunk = false
+
+			if filesInShard.Len() == 0 && fileSizeExceeded == nil {
+				break
+			}
+		}
+	}
+	return result
+}
+
+// restoreAndVerify restores all chunks into a temp dir and verifies every shard file matches the original.
+func restoreAndVerify(
+	t *testing.T,
+	sourceDataPath string,
+	classDescs []entBackup.ClassDescriptor,
+	chunks [][]byte,
+) {
+	t.Helper()
+
+	restoreDir := t.TempDir()
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(chunks))
+	for i, c := range chunks {
+		wg.Add(1)
+		go func(idx int, chunk []byte) {
+			defer wg.Done()
+			uz, wc := backupUC.NewUnzip(restoreDir, entBackup.CompressionNone)
+			go func() {
+				_, _ = io.Copy(wc, bytes.NewReader(chunk))
+				wc.Close()
+			}()
+			_, errs[idx] = uz.ReadChunk()
+			uz.Close()
+		}(i, c)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		require.NoError(t, err, "chunk %d restore failed", i)
+	}
+
+	for _, sd := range classDescs[0].Shards {
+		for _, relPath := range sd.Files {
+			originalPath := filepath.Join(sourceDataPath, relPath)
+			restoredPath := filepath.Join(restoreDir, relPath)
+
+			original, err := os.ReadFile(originalPath)
+			require.NoError(t, err, "read original %s", relPath)
+			restored, err := os.ReadFile(restoredPath)
+			require.NoError(t, err, "read restored %s", relPath)
+			require.Equal(t, original, restored, "file content mismatch for %s", relPath)
+		}
+
+		restoredCounter, err := os.ReadFile(filepath.Join(restoreDir, sd.DocIDCounterPath))
+		require.NoError(t, err)
+		require.Equal(t, sd.DocIDCounter, restoredCounter, "DocIDCounter mismatch")
+
+		restoredPropLength, err := os.ReadFile(filepath.Join(restoreDir, sd.PropLengthTrackerPath))
+		require.NoError(t, err)
+		require.Equal(t, sd.PropLengthTracker, restoredPropLength, "PropLengthTracker mismatch")
+
+		restoredVersion, err := os.ReadFile(filepath.Join(restoreDir, sd.ShardVersionPath))
+		require.NoError(t, err)
+		require.Equal(t, sd.Version, restoredVersion, "Version mismatch")
+	}
+}
+
+// TestBackup_SplitSizeReducesChunkSize starts with a large split file size (no splitting),
+// measures chunk sizes, then sets the split size below the biggest files and verifies that
+// more chunks are produced while the restore still succeeds.
+func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
+	ctx := testCtx()
+	dirName := t.TempDir()
+	className := "SplitSizeChunkClass"
+	backupID := "backup-split-size"
+	now := time.Now()
+
+	db := setupTestDB(t, dirName, makeTestClass(className))
+	defer func() {
+		require.Nil(t, db.Shutdown(context.Background()))
+	}()
+
+	// Insert enough objects so shard files are non-trivial.
+	for i := 0; i < 50; i++ {
+		vec := []float32{float32(i), float32(i + 1), float32(i + 2)}
+		require.Nil(t, db.PutObject(ctx, &models.Object{
+			Class:              className,
+			CreationTimeUnix:   now.UnixNano(),
+			ID:                 strfmt.UUID(fmt.Sprintf("ff9fcae5-57b8-431c-b8e2-%012d", i)),
+			LastUpdateTimeUnix: now.UnixNano(),
+			Vector:             vec,
+			VectorWeights:      nil,
+		}, vec, nil, nil, nil, 0))
+	}
+
+	classes := []string{className}
+	require.Nil(t, db.Backupable(ctx, classes))
+
+	var classDescs []entBackup.ClassDescriptor
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	for d := range ch {
+		require.Nil(t, d.Error)
+		classDescs = append(classDescs, d)
+	}
+	require.Len(t, classDescs, 1)
+	require.NotEmpty(t, classDescs[0].Shards)
+
+	sourceDataPath := db.config.RootPath
+
+	// --- Pass 1: backup with a large split file size (effectively no splitting) ---
+	const largeChunkSize = 512               // small chunk target to get multiple chunks
+	const largeSplitSize = 100 * 1024 * 1024 // 100 MB — no file will be this big
+
+	pass1 := backupWithSizes(t, ctx, sourceDataPath, classDescs, largeChunkSize, largeSplitSize)
+	t.Logf("pass 1 (no splitting): %d chunks", len(pass1.chunks))
+	require.Greater(t, len(pass1.chunks), 1, "expected multiple chunks with small chunk target")
+
+	// Verify pass 1 restore works.
+	restoreAndVerify(t, sourceDataPath, classDescs, pass1.chunks)
+
+	// Find the sizes of the 3 biggest files and set splitFileSize below the biggest.
+	sortedSizes := append([]int64{}, pass1.fileSizes...)
+	sort.Slice(sortedSizes, func(i, j int) bool { return sortedSizes[i] > sortedSizes[j] })
+
+	// We need at least 3 files bigger than our intended split size for this test to be meaningful.
+	require.GreaterOrEqual(t, len(sortedSizes), 3, "need at least 3 files")
+	// Set split size to half the size of the 3rd biggest file so that at least the top 3 files
+	// get split, producing extra chunks.
+	splitSize := sortedSizes[2] / 2
+	require.Greater(t, splitSize, int64(0), "3rd biggest file must be > 0 bytes")
+
+	t.Logf("top 3 file sizes: %d, %d, %d; using splitFileSize=%d",
+		sortedSizes[0], sortedSizes[1], sortedSizes[2], splitSize)
+
+	// --- Pass 2: backup with the reduced split file size ---
+	// Release pass 1 backup and re-acquire so we can create a new descriptor.
+	for _, class := range classes {
+		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
+	}
+	require.Nil(t, db.Backupable(ctx, classes))
+
+	var classDescs2 []entBackup.ClassDescriptor
+	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil)
+	for d := range ch2 {
+		require.Nil(t, d.Error)
+		classDescs2 = append(classDescs2, d)
+	}
+
+	pass2 := backupWithSizes(t, ctx, sourceDataPath, classDescs2, largeChunkSize, splitSize)
+	t.Logf("pass 2 (splitFileSize=%d): %d chunks", splitSize, len(pass2.chunks))
+
+	// The smaller split size should produce more chunks because large files are now split.
+	require.Greater(t, len(pass2.chunks), len(pass1.chunks),
+		"expected more chunks when split file size is reduced (pass1=%d, pass2=%d)",
+		len(pass1.chunks), len(pass2.chunks))
+
+	// Verify pass 2 restore produces identical files.
+	restoreAndVerify(t, sourceDataPath, classDescs2, pass2.chunks)
+
+	// Release pass 2 backup hold (pass 1 was already released above).
+	for _, class := range classes {
+		require.Nil(t, db.ReleaseBackup(ctx, backupID+"-2", class))
+	}
 }
 
 func makeTestClass(className string) *models.Class {

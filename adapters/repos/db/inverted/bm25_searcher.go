@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,14 +44,15 @@ import (
 )
 
 type BM25Searcher struct {
-	config         schema.BM25Config
-	store          *lsmkv.Store
-	getClass       func(string) *models.Class
-	classSearcher  ClassSearcher // to allow recursive searches on ref-props
-	propIndices    propertyspecific.Indices
-	propLenTracker propLengthRetriever
-	logger         logrus.FieldLogger
-	shardVersion   uint16
+	config           schema.BM25Config
+	store            *lsmkv.Store
+	getClass         func(string) *models.Class
+	classSearcher    ClassSearcher // to allow recursive searches on ref-props
+	propIndices      propertyspecific.Indices
+	propLenTracker   propLengthRetriever
+	logger           logrus.FieldLogger
+	shardVersion     uint16
+	stopWordDetector stopwords.StopwordDetector
 }
 
 type propLengthRetriever interface {
@@ -68,18 +69,19 @@ type termListRequest struct {
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
+	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
-		config:         config,
-		store:          store,
-		getClass:       getClass,
-		propIndices:    propIndices,
-		classSearcher:  classSearcher,
-		propLenTracker: propLenTracker,
-		logger:         logger.WithField("action", "bm25_search"),
-		shardVersion:   shardVersion,
+		config:           config,
+		store:            store,
+		getClass:         getClass,
+		propIndices:      propIndices,
+		classSearcher:    classSearcher,
+		propLenTracker:   propLenTracker,
+		logger:           logger.WithField("action", "bm25_search"),
+		shardVersion:     shardVersion,
+		stopWordDetector: stopwords,
 	}
 }
 
@@ -145,15 +147,6 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// which would require the old WAND implementation.
 	allBucketsAreInverted := true
 
-	var stopWordDetector *stopwords.Detector
-	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
-		var err error
-		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
-		if err != nil {
-			return false, 0, nil, nil, nil, nil, 0, err
-		}
-	}
-
 	// There are currently cases, for different tokenization:
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
@@ -164,14 +157,14 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	for _, tokenization := range tokenizer.Tokenizations {
-		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicates(tokenization, params.Query)
+		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tokenization, params.Query, class.Class)
 		queryTermsByTokenization[tokenization] = queryTerms
 		duplicateBoostsByTokenization[tokenization] = dupBoosts
 
 		// stopword filtering for word tokenization
 		if tokenization == models.PropertyTokenizationWord {
 			queryTerms, dupBoosts = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization],
-				duplicateBoostsByTokenization[tokenization], stopWordDetector)
+				duplicateBoostsByTokenization[tokenization])
 			queryTermsByTokenization[tokenization] = queryTerms
 			duplicateBoostsByTokenization[tokenization] = dupBoosts
 		}
@@ -304,8 +297,8 @@ func (b *BM25Searcher) wand(
 						WithField("query_term", term).
 						WithField("prop_names", propNames).
 						WithField("has_filter", filterDocIds != nil).
+						WithField("print_stack", string(debug.Stack())).
 						Errorf("panic: %v", p)
-					debug.PrintStack()
 					err = fmt.Errorf("an internal error occurred during BM25 search")
 				}
 			}()
@@ -352,7 +345,7 @@ func (b *BM25Searcher) wand(
 	termSearchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 	start = time.Now()
-	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch)
+	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch, b.logger)
 
 	wandTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_wand_time", wandTime)
@@ -370,10 +363,8 @@ func (b *BM25Searcher) wand(
 	return objects, scores, err
 }
 
-func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
-	duplicateBoost []int, detector *stopwords.Detector,
-) ([]string, []int) {
-	if detector == nil || len(queryTerms) == 0 {
+func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string, duplicateBoost []int) ([]string, []int) {
+	if b.stopWordDetector == nil || len(queryTerms) == 0 {
 		return queryTerms, duplicateBoost
 	}
 
@@ -384,7 +375,7 @@ WordLoop:
 			return queryTerms, duplicateBoost
 		}
 		queryTerm := queryTerms[i]
-		if detector.IsStopword(queryTerm) {
+		if b.stopWordDetector.IsStopword(queryTerm) {
 			queryTerms[i] = queryTerms[len(queryTerms)-1]
 			queryTerms = queryTerms[:len(queryTerms)-1]
 			duplicateBoost[i] = duplicateBoost[len(duplicateBoost)-1]
@@ -411,28 +402,23 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		explanations = append(explanations, res.Value)
 	}
 
-	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional, nil, b.logger)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids, additional, nil, b.logger)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}
 
 	// handle case that an object was removed
-	if len(objs) != len(scores) {
-		idsTmp := make([]uint64, len(objs))
-		j := 0
-		for i := range scores {
-			if j >= len(objs) {
-				break
-			}
-			if objs[j].DocID != ids[i] {
-				continue
-			}
-			scores[j] = scores[i]
-			idsTmp[j] = ids[i]
-			j++
+	j := 0
+	for i := range scores {
+		if objs[i] == nil || objs[i].DocID != ids[i] {
+			continue
 		}
-		scores = scores[:j]
+		scores[j] = scores[i]
+		objs[j] = objs[i]
+		j++
 	}
+	scores = scores[:j]
+	objs = objs[:j]
 
 	if additionalExplanations {
 		for k := range objs {
@@ -450,6 +436,8 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 			}
 		}
 	}
+
+	objs, scores = b.sortResultsByExternalId(objs, scores)
 
 	return objs, scores, nil
 }

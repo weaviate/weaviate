@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,21 +27,21 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// WhereFilter Filter search results using a where filter
+// WhereFilter Filter search results using a where filter.
 //
 // swagger:model WhereFilter
 type WhereFilter struct {
 
-	// combine multiple where filters, requires 'And' or 'Or' operator
+	// Combine multiple where filters, requires 'And' or 'Or' operator.
 	Operands []*WhereFilter `json:"operands"`
 
-	// operator to use
+	// Operator to use.
 	// Example: GreaterThanEqual
 	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull ContainsAny ContainsAll ContainsNone Not]
 	Operator string `json:"operator,omitempty"`
 
-	// path to the property currently being filtered
-	// Example: ["inCity","City","name"]
+	// Path to the property currently being filtered.
+	// Example: ["inCity","city","name"]
 	Path []string `json:"path"`
 
 	// value as boolean

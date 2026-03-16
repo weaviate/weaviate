@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,15 +12,13 @@
 package hnsw
 
 import (
-	"os"
 	"sync/atomic"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -63,14 +61,6 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 		{
 			name:     "muvera enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
-		},
-		{
-			name:     "skipDefaultQuantization",
-			accessor: func(c ent.UserConfig) interface{} { return c.SkipDefaultQuantization },
-		},
-		{
-			name:     "trackDefaultQuantization",
-			accessor: func(c ent.UserConfig) interface{} { return c.TrackDefaultQuantization },
 		},
 	}
 
@@ -132,16 +122,23 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		}
 	}
 
+	h.compressActionLock.Lock()
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
 	h.rqConfig = parsed.RQ
-	if asyncEnabled() {
+	h.compressActionLock.Unlock()
+	if h.asyncIndexingEnabled {
 		callback()
 		return nil
 	}
 
 	if !h.compressed.Load() {
+		// Defer compression until the cache is fully prefilled.
+		if !h.cachePrefilled.Load() {
+			callback()
+			return nil
+		}
 		// the compression will fire the callback once it's complete
 		return h.Upgrade(callback)
 	} else {
@@ -151,12 +148,13 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	}
 }
 
-func asyncEnabled() bool {
-	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
-}
-
 func (h *hnsw) Upgrade(callback func()) error {
-	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
+	h.logger.WithFields(logrus.Fields{
+		"action":       "compress",
+		"shard":        h.shardName,
+		"collection":   h.className,
+		"targetVector": h.getTargetVector(),
+	}).Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
 	if err != nil {
@@ -185,8 +183,18 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		RQ: h.rqConfig,
 	}
 	if err := h.compress(uc); err != nil {
-		h.logger.Error(err)
+		h.logger.WithFields(logrus.Fields{
+			"action":       "compress",
+			"shard":        h.shardName,
+			"collection":   h.className,
+			"targetVector": h.getTargetVector(),
+		}).WithError(err).Error("vector compression failed")
 		return
 	}
-	h.logger.WithField("action", "compress").Info("vector compression complete")
+	h.logger.WithFields(logrus.Fields{
+		"action":       "compress",
+		"shard":        h.shardName,
+		"collection":   h.className,
+		"targetVector": h.getTargetVector(),
+	}).Info("vector compression complete")
 }

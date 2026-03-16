@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -75,19 +75,19 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 	t := suite.T()
 	mainCtx := context.Background()
 
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	defer cancel()
+
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		Start(mainCtx)
+		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()

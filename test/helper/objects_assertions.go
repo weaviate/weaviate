@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -110,6 +110,18 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 		return nil, err
 	}
 	return getResp.Payload, nil
+}
+
+func GetObjects(t *testing.T, class string, include ...string) ([]*models.Object, error) {
+	req := objects.NewObjectsListParams().WithClass(&class)
+	if len(include) > 0 {
+		req.WithInclude(&include[0])
+	}
+	getResp, err := Client(t).Objects.ObjectsList(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload.Objects, nil
 }
 
 func AssertCreateObjectTenantVector(t *testing.T, className string, schema map[string]interface{}, tenant string, vector []float32) strfmt.UUID {
@@ -224,6 +236,23 @@ func GetTenantObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, noden
 	return getResp.Payload, nil
 }
 
+func GetObjectFromNodeWithVector(t *testing.T, class string, uuid strfmt.UUID, nodename string) (*models.Object, error) {
+	include := "vector"
+	req := objects.NewObjectsClassGetParams().WithID(uuid)
+	if class != "" {
+		req.WithClassName(class)
+	}
+	if nodename != "" {
+		req.WithNodeName(&nodename)
+	}
+	req.WithInclude(&include)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
 func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteOK, error) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
@@ -244,6 +273,19 @@ func ListObjects(t *testing.T, class string) (*models.ObjectsListResponse, error
 	}
 
 	resp, err := Client(t).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func ListObjectsAuth(t *testing.T, class string, key string) (*models.ObjectsListResponse, error) {
+	params := objects.NewObjectsListParams()
+	if class != "" {
+		params.WithClass(&class)
+	}
+
+	resp, err := Client(t).Objects.ObjectsList(params, CreateAuth(key))
 	if err != nil {
 		return nil, err
 	}

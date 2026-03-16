@@ -7,7 +7,7 @@ help:
 
 .DEFAULT_GOAL := weaviate
 
-GO_VERSION         := 1.24.0
+GO_VERSION         := 1.26.0
 
 # Git tags
 GIT_REVISION       := $(shell git rev-parse --short HEAD)
@@ -104,5 +104,12 @@ banner: ## Add Weaviate banner with license details
 
 .PHONY: mocks
 mocks: ## Regenerate test mocks
-	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.2
+	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.6
 	$(MAKE) banner
+
+.PHONY: grpc
+grpc:
+	./tools/dev/grpc_regenerate.sh
+
+deps:
+	@echo "Sync go deps in Weaviate, e2e with Go client and benchmark_bm25" && go mod tidy && go mod vendor && cd test/acceptance_with_go_client/ && go mod tidy && go mod vendor && cd ../benchmark_bm25/ && go mod tidy && go mod vendor && cd ../.. && echo "Success" || echo "Failed"

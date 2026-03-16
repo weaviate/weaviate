@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,14 +32,6 @@ type Sourcer interface { // implemented by the index
 	// If an error happens a descriptor with an error will be written to the channel just before closing it.
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
-	BackupDescriptors(_ context.Context, bakid string, classes []string,
+	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
 	) <-chan backup.ClassDescriptor
-
-	// ClassExists checks whether a class exits or not
-	ClassExists(name string) bool
-
-	// ListBackupable returns a list of all classes which can be backed up.
-	//
-	// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
-	ListBackupable() []string
 }

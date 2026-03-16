@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"runtime/debug"
 	"syscall"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
@@ -52,7 +52,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 		// This was not expected, so we want to print the stack, this will help us
 		// find the source of the issue if the user sends their logs
 		metricRequestsTotal.logServerError("", fmt.Errorf("%v", recovered))
-		debug.PrintStack()
+		enterrors.PrintStack(logger)
 		return
 	}
 
@@ -82,7 +82,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 
 	entsentry.Recover(r)
 
-	debug.PrintStack()
+	enterrors.PrintStack(logger)
 }
 
 func handleBrokenPipe(err error, logger logrus.FieldLogger, r *http.Request) {

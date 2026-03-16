@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -341,7 +341,7 @@ func NewGetGroupsUnprocessableEntity() *GetGroupsUnprocessableEntity {
 /*
 GetGroupsUnprocessableEntity describes a response with status code 422, with default header values.
 
-The request syntax is correct, but the server couldn't process it due to semantic issues.
+The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.
 */
 type GetGroupsUnprocessableEntity struct {
 	Payload *models.ErrorResponse

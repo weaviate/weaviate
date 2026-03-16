@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,23 +24,22 @@ type segmentCursorMap struct {
 	nextOffset uint64
 }
 
-func (s *segment) newMapCursor() *segmentCursorMap {
+func (s *segment) newMapCursor() innerCursorMap {
 	return &segmentCursorMap{
 		segment: s,
 	}
 }
 
 func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorMap, len(segments))
 
 	for i, segment := range segments {
-		sgm := segment.getSegment()
-		if sgm.getStrategy() == segmentindex.StrategyInverted {
-			out[i] = sgm.newInvertedCursorReusable()
+		if segment.getStrategy() == segmentindex.StrategyInverted {
+			out[i] = segment.newInvertedCursorReusable()
 		} else {
-			out[i] = sgm.newMapCursor()
+			out[i] = segment.newMapCursor()
 		}
 	}
 
