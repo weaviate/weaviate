@@ -34,15 +34,15 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params aggregation.Pa
 		return nil, nil
 	}
 
+	class := i.getClass(params.ClassName.String())
+	if class == nil {
+		return nil, fmt.Errorf("could not find class %s in schema", params.ClassName)
+	}
+
 	for _, prop := range params.Properties {
 		if !i.hasTypeAggregator(prop.Aggregators) {
 			// nothing to do for us
 			continue
-		}
-
-		class := i.getClass(params.ClassName.String())
-		if class == nil {
-			return nil, fmt.Errorf("could not find class %s in schema", params.ClassName)
 		}
 
 		schemaProp, err := schema.GetPropertyByName(class, prop.Name.String())
@@ -70,15 +70,15 @@ func (i *typeInspector) hasTypeAggregator(aggs []aggregation.Aggregator) bool {
 }
 
 func (i *typeInspector) extendResWithType(res *aggregation.Result, propName string, dataType []string) error {
+	propType, err := schema.FindPropertyDataTypeWithRefs(i.getClass, dataType, false, "")
+	if err != nil {
+		return err
+	}
+
 	for groupIndex, group := range res.Groups {
 		prop, ok := group.Properties[propName]
 		if !ok {
 			prop = aggregation.Property{}
-		}
-
-		propType, err := schema.FindPropertyDataTypeWithRefs(i.getClass, dataType, false, "")
-		if err != nil {
-			return err
 		}
 
 		if propType.IsPrimitive() {
