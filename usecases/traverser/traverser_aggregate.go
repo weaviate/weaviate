@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -23,13 +24,9 @@ import (
 )
 
 // Aggregate resolves meta queries
-func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
-	params *aggregation.Params,
-) (interface{}, error) {
+func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal, params *aggregation.Params) (any, error) {
 	t.metrics.QueriesAggregateInc(params.ClassName.String())
 	defer t.metrics.QueriesAggregateDec(params.ClassName.String())
-
-	inspector := newTypeInspector(t.schemaGetter.ReadOnlyClass)
 
 	if cls := t.schemaGetter.ResolveAlias(params.ClassName.String()); cls != "" {
 		params.ClassName = schema.ClassName(cls)
@@ -115,5 +112,71 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	return inspector.WithTypes(res, *params)
+	if err := addTypeInformation(res, params, t.schemaGetter.ReadOnlyClass); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// addTypeInformation traverses the list of requested aggregations and supplies property type information
+// for properties which request that via [aggregation.TypeAggregator].
+func addTypeInformation(r *aggregation.Result, params *aggregation.Params, getClass func(string) *models.Class) error {
+	if r == nil {
+		return nil
+	}
+
+	c := getClass(params.ClassName.String())
+	if c == nil {
+		return fmt.Errorf("could not find class %s in schema", params.ClassName)
+	}
+
+	for _, requested := range params.Properties {
+		if !slices.Contains(requested.Aggregators, aggregation.TypeAggregator) {
+			continue
+		}
+
+		property, err := schema.GetPropertyByName(c, requested.Name.String())
+		if err != nil {
+			return err
+		}
+
+		pdt, err := schema.FindPropertyDataTypeWithRefs(getClass, property.DataType, false, "")
+		if err != nil {
+			return err
+		}
+
+		var dt schema.DataType
+		switch {
+		case pdt.IsPrimitive():
+			dt = pdt.AsPrimitive()
+		case pdt.IsNested():
+			dt = pdt.AsNested() // TODO: check if sufficient just schematype
+		case pdt.IsReference():
+			dt = schema.DataTypeCRef
+		}
+
+		for i := range r.Groups {
+			out, ok := r.Groups[i].Properties[property.Name]
+			if !ok {
+				out = aggregation.Property{}
+			}
+
+			out.SchemaType = string(dt)
+
+			if pdt.IsReference() {
+				out.Type = aggregation.PropertyTypeReference
+				out.ReferenceAggregation.PointingTo = property.DataType
+
+				// TODO(dyma): if this were ever nil, the first statement of the for-loop
+				// would panic with a nil pointer dereference. I don't think this can actually happen.
+				if r.Groups[i].Properties == nil { // prevent nil pointer dereference
+					r.Groups[i].Properties = map[string]aggregation.Property{}
+				}
+
+			}
+			r.Groups[i].Properties[property.Name] = out
+		}
+	}
+
+	return nil
 }
