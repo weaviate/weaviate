@@ -166,7 +166,7 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// node2 is dead and has no status file → overall status should be FAILED
@@ -371,7 +371,7 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
@@ -446,7 +446,7 @@ func TestScheduler_LivenessReReadResolvesRace(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, allTerminal, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
+	status, allTerminal, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Success), status.Status, "re-read should resolve the race to Success")
@@ -503,7 +503,7 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// Overall status stays Transferring
@@ -560,7 +560,7 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
@@ -752,7 +752,7 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, nil, "test-export", "", "", meta)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// Overall status is Success — skipped shards don't block completion

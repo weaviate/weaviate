@@ -233,7 +233,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	default:
 	}
 
-	assembled, _, err := s.assembleStatusFromMetadata(ctx, backendStore, principal, id, bucket, path, meta)
+	assembled, _, err := s.assembleStatusFromMetadata(ctx, backendStore, id, bucket, path, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +305,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	default:
 	}
 
-	assembled, allTerminal, assembleErr := s.assembleStatusFromMetadata(ctx, backendStore, principal, id, bucket, path, meta)
+	assembled, allTerminal, assembleErr := s.assembleStatusFromMetadata(ctx, backendStore, id, bucket, path, meta)
 	if assembleErr == nil {
 		switch export.Status(assembled.Status) {
 		case export.Success:
@@ -478,14 +478,9 @@ func assembleNodeStatuses(
 func (s *Scheduler) assembleStatusFromMetadata(
 	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
-	principal *models.Principal,
 	id, bucket, path string,
 	meta *ExportMetadata,
 ) (_ *models.ExportStatusResponse, allTerminal bool, _ error) {
-	if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(meta.Classes...)...); err != nil {
-		return nil, false, fmt.Errorf("authorization failed: %w", err)
-	}
-
 	homePath := backend.HomeDir(id, bucket, path)
 
 	// Read per-node statuses and apply liveness overrides for non-terminal nodes.
