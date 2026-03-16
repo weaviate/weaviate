@@ -26,6 +26,29 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 )
 
+func TestParticipant_PrepareValidation(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	p := NewParticipant(
+		context.Background(),
+		&blockingSelector{blockCh: make(chan struct{})},
+		&fakeBackendProvider{backend: &fakeBackend{}},
+		logger,
+	)
+
+	t.Run("nil request", func(t *testing.T) {
+		err := p.Prepare(context.Background(), nil)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrExportValidation)
+	})
+
+	t.Run("empty ID", func(t *testing.T) {
+		err := p.Prepare(context.Background(), &ExportRequest{})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrExportValidation)
+	})
+}
+
 func TestParticipant_RejectsSecondExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -57,6 +80,7 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 
 	err = p.Prepare(context.Background(), req2)
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrExportAlreadyActive)
 	assert.Contains(t, err.Error(), "already in progress")
 
 	// Clean up
@@ -132,6 +156,8 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			successes++
+		} else {
+			assert.ErrorIs(t, err, ErrExportAlreadyActive)
 		}
 	}
 
@@ -307,47 +333,58 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 	p.Abort("export-1")
 }
 
-func TestParticipant_CommitWithoutPrepare(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	p := NewParticipant(
-		context.Background(),
-		&blockingSelector{blockCh: make(chan struct{})},
-		&fakeBackendProvider{backend: &fakeBackend{}},
-		logger,
-	)
-
-	err := p.Commit(context.Background(), "nonexistent")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "No export prepared")
-}
-
-func TestParticipant_CommitWrongID(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	p := NewParticipant(
-		context.Background(),
-		&blockingSelector{blockCh: make(chan struct{})},
-		&fakeBackendProvider{backend: &fakeBackend{}},
-		logger,
-	)
-
-	req := &ExportRequest{
-		ID:       "export-1",
-		Backend:  "s3",
-		Classes:  []string{"TestClass"},
-		Shards:   map[string][]string{"TestClass": {"shard0"}},
-		NodeName: "node1",
+func TestParticipant_CommitErrors(t *testing.T) {
+	tests := []struct {
+		name         string
+		prepareID    string // empty means no Prepare call
+		commitID     string
+		wantContains string
+		slotReleased bool // whether the slot should be released after the failed commit
+	}{
+		{
+			name:         "without prepare",
+			commitID:     "nonexistent",
+			wantContains: "No export prepared",
+		},
+		{
+			name:         "wrong ID",
+			prepareID:    "export-1",
+			commitID:     "wrong-id",
+			wantContains: "mismatch",
+			slotReleased: true,
+		},
 	}
 
-	require.NoError(t, p.Prepare(context.Background(), req))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewParticipant(
+				context.Background(),
+				&blockingSelector{blockCh: make(chan struct{})},
+				&fakeBackendProvider{backend: &fakeBackend{}},
+				logger,
+			)
 
-	err := p.Commit(context.Background(), "wrong-id")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mismatch")
+			if tc.prepareID != "" {
+				req := &ExportRequest{
+					ID:       tc.prepareID,
+					Backend:  "s3",
+					Classes:  []string{"TestClass"},
+					Shards:   map[string][]string{"TestClass": {"shard0"}},
+					NodeName: "node1",
+				}
+				require.NoError(t, p.Prepare(context.Background(), req))
+			}
 
-	// The failed commit should have released the slot
-	assert.False(t, p.IsRunning("export-1"))
+			err := p.Commit(context.Background(), tc.commitID)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantContains)
+
+			if tc.slotReleased {
+				assert.False(t, p.IsRunning(tc.prepareID))
+			}
+		})
+	}
 }
 
 func TestParticipant_AbortRunningExport(t *testing.T) {
@@ -397,7 +434,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	assert.Equal(t, export.Failed, nodeStatus.Status)
 }
 
-func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
+func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
@@ -441,62 +478,6 @@ func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
 
 	// The status writer goroutine should detect the sibling failure and
 	// auto-cancel the export without an explicit Abort call.
-	require.Eventually(t, func() bool {
-		return !p.IsRunning("test-export")
-	}, 5*time.Second, 10*time.Millisecond, "expected export to stop after sibling failure")
-
-	// Verify failed status was written for the local node
-	written := backend.getWritten("node_node1_status.json")
-	require.NotNil(t, written, "expected node status to be written")
-
-	var nodeStatus NodeStatus
-	require.NoError(t, json.Unmarshal(written, &nodeStatus))
-	assert.Equal(t, export.Failed, nodeStatus.Status)
-}
-
-func TestParticipant_SiblingFailureSetsStatusFailed(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
-	}
-
-	p := &Participant{
-		shutdownCtx:    context.Background(),
-		selector:       selector,
-		backends:       &fakeBackendProvider{backend: backend},
-		logger:         logger,
-		statusInterval: 50 * time.Millisecond,
-	}
-
-	// Write a Failed status for the sibling node
-	siblingStatus := &NodeStatus{
-		NodeName: "node2",
-		Status:   export.Failed,
-		Error:    "disk full",
-	}
-	sibData, err := json.Marshal(siblingStatus)
-	require.NoError(t, err)
-	_, err = backend.Write(context.Background(), "test-export", "node_node2_status.json", "", "", newBytesReadCloser(sibData))
-	require.NoError(t, err)
-
-	req := &ExportRequest{
-		ID:           "test-export",
-		Backend:      "s3",
-		Classes:      []string{"TestClass"},
-		Shards:       map[string][]string{"TestClass": {"shard0"}},
-		NodeName:     "node1",
-		SiblingNodes: []string{"node2"},
-	}
-
-	require.NoError(t, p.Prepare(context.Background(), req))
-	require.NoError(t, p.Commit(context.Background(), "test-export"))
-
-	// Wait for the export goroutine to start
-	selector.waitForCall(t)
-
-	// Wait for the export to stop after sibling failure detection
 	require.Eventually(t, func() bool {
 		return !p.IsRunning("test-export")
 	}, 5*time.Second, 10*time.Millisecond, "expected export to stop after sibling failure")

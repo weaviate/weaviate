@@ -13,6 +13,7 @@ package export
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,37 +26,19 @@ func TestNodeStatus_SnapshotMatchesOriginal(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	ns := &NodeStatus{
-		NodeName:    "node-1",
-		Status:      export.Transferring,
-		Error:       "some error",
-		CompletedAt: now,
-		ShardProgress: map[string]map[string]*ShardProgress{
-			"ClassA": {
-				"shard0": {
-					Status:          export.ShardTransferring,
-					ObjectsExported: 100,
-					Error:           "",
-					SkipReason:      "",
-				},
-				"shard1": {
-					Status:          export.ShardFailed,
-					ObjectsExported: 50,
-					Error:           "disk full",
-					SkipReason:      "",
-				},
-			},
-			"ClassB": {
-				"shard0": {
-					Status:          export.ShardSkipped,
-					ObjectsExported: 0,
-					Error:           "",
-					SkipReason:      "tenant is COLD",
-				},
-			},
-		},
+		NodeName:      "node-1",
+		Status:        export.Transferring,
+		Error:         "some error",
+		CompletedAt:   now,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
+	ns.SetShardProgress("ClassA", "shard0", export.ShardTransferring, "", "")
+	ns.AddShardExported("ClassA", "shard0", 100)
+	ns.SetShardProgress("ClassA", "shard1", export.ShardFailed, "disk full", "")
+	ns.AddShardExported("ClassA", "shard1", 50)
+	ns.SetShardProgress("ClassB", "shard0", export.ShardSkipped, "", "tenant is COLD")
 
-	snap := ns.snapshot()
+	snap := ns.SyncAndSnapshot()
 
 	// JSON output must be identical.
 	origJSON, err := json.Marshal(ns)
@@ -77,26 +60,25 @@ func TestNodeStatus_SnapshotMatchesOriginal(t *testing.T) {
 		require.Equal(t, len(shards), len(snap.ShardProgress[className]))
 		for shardName, sp := range shards {
 			require.Contains(t, snap.ShardProgress[className], shardName)
-			assert.Equal(t, *sp, *snap.ShardProgress[className][shardName])
+			snapSP := snap.ShardProgress[className][shardName]
+			assert.Equal(t, sp.Status, snapSP.Status)
+			assert.Equal(t, sp.ObjectsExported, snapSP.ObjectsExported)
+			assert.Equal(t, sp.Error, snapSP.Error)
+			assert.Equal(t, sp.SkipReason, snapSP.SkipReason)
 		}
 	}
 }
 
 func TestNodeStatus_SnapshotIsDeepCopy(t *testing.T) {
 	ns := &NodeStatus{
-		NodeName: "node-1",
-		Status:   export.Transferring,
-		ShardProgress: map[string]map[string]*ShardProgress{
-			"ClassA": {
-				"shard0": {
-					Status:          export.ShardTransferring,
-					ObjectsExported: 100,
-				},
-			},
-		},
+		NodeName:      "node-1",
+		Status:        export.Transferring,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
 	}
+	ns.SetShardProgress("ClassA", "shard0", export.ShardTransferring, "", "")
+	ns.AddShardExported("ClassA", "shard0", 100)
 
-	snap := ns.snapshot()
+	snap := ns.SyncAndSnapshot()
 
 	// Mutate the original after snapshot.
 	ns.ShardProgress["ClassA"]["shard0"].ObjectsExported = 999
@@ -117,9 +99,75 @@ func TestNodeStatus_SnapshotEmptyProgress(t *testing.T) {
 		Status:   export.Success,
 	}
 
-	snap := ns.snapshot()
+	snap := ns.SyncAndSnapshot()
 
 	assert.Equal(t, ns.NodeName, snap.NodeName)
 	assert.Equal(t, ns.Status, snap.Status)
 	assert.Nil(t, snap.ShardProgress)
+}
+
+func TestSyncLiveCounts(t *testing.T) {
+	t.Parallel()
+
+	ns := &NodeStatus{
+		NodeName:      "node1",
+		Status:        export.Transferring,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
+	}
+
+	ns.SetShardProgress("Article", "shard0", export.ShardTransferring, "", "")
+
+	// Simulate workers incrementing the atomic counter.
+	ns.AddShardExported("Article", "shard0", 100)
+	ns.AddShardExported("Article", "shard0", 50)
+
+	// SyncAndSnapshot should copy atomics and return a consistent snapshot.
+	snap := ns.SyncAndSnapshot()
+	assert.Equal(t, int64(150), snap.ShardProgress["Article"]["shard0"].ObjectsExported)
+}
+
+func TestAddShardExported_Concurrent(t *testing.T) {
+	t.Parallel()
+
+	ns := &NodeStatus{
+		NodeName:      "node1",
+		Status:        export.Transferring,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
+	}
+
+	ns.SetShardProgress("Article", "shard0", export.ShardTransferring, "", "")
+
+	const goroutines = 10
+	const incrementsPerGoroutine = 1000
+
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range incrementsPerGoroutine {
+				ns.AddShardExported("Article", "shard0", 1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	ns.mu.Lock()
+	sp := ns.ShardProgress["Article"]["shard0"]
+	ns.mu.Unlock()
+
+	require.Equal(t, int64(goroutines*incrementsPerGoroutine), sp.objectsWritten.Load())
+}
+
+func TestAddShardExported_MissingShard(t *testing.T) {
+	t.Parallel()
+
+	ns := &NodeStatus{
+		NodeName:      "node1",
+		Status:        export.Transferring,
+		ShardProgress: make(map[string]map[string]*ShardProgress),
+	}
+
+	// Should not panic when shard doesn't exist.
+	ns.AddShardExported("NonExistent", "shard0", 100)
 }

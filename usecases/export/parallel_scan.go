@@ -41,7 +41,6 @@ type scanJob struct {
 	writerCfg  *rangeWriterConfig
 	wg         *sync.WaitGroup // per-shard WaitGroup, Done() called after scan
 	setErr     func(error)
-	addWritten func(int64)
 }
 
 func (j *scanJob) execute() {
@@ -55,13 +54,9 @@ func (j *scanJob) execute() {
 
 	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer)
 
-	written, shutdownErr := pipeline.Shutdown(scanErr)
-	if shutdownErr != nil {
+	if shutdownErr := pipeline.Shutdown(scanErr); shutdownErr != nil {
 		j.setErr(shutdownErr)
-		return
 	}
-
-	j.addWritten(written)
 }
 
 const (
@@ -124,6 +119,9 @@ func computeNumRanges(count, parallelism int) int {
 
 // scanRangeToWriter scans [startKey, endKey) using a Cursor and writes
 // rows directly to a ParquetWriter. If endKey is nil, scans to the end.
+//
+// Progress reporting is handled by the writer's onFlush callback, which
+// fires after each batch of rows is flushed to the underlying io.Writer.
 func scanRangeToWriter(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
@@ -184,6 +182,7 @@ type rangeWriterConfig struct {
 	shardName string
 	isMT      bool
 	logger    logrus.FieldLogger
+	onFlush   func(int64) // called after each successful ParquetWriter flush
 }
 
 // rangePipeline bundles a per-range ParquetWriter, io.Pipe, and upload goroutine.
@@ -194,31 +193,35 @@ type rangePipeline struct {
 }
 
 // Shutdown closes the writer pipeline and waits for the upload to finish.
-// If scanErr is non-nil, the pipeline is torn down and scanErr is returned.
-func (rp *rangePipeline) Shutdown(scanErr error) (int64, error) {
+// If scanErr is non-nil, the onFlush callback is suppressed before teardown
+// so that progress is not reported for objects that will not reach the backend.
+// On writer.Close or pw.Close errors, onFlush may still fire during the
+// final flush since those rows were written to the pipe successfully.
+func (rp *rangePipeline) Shutdown(scanErr error) error {
 	if scanErr != nil {
+		rp.writer.onFlush = nil
 		_ = rp.writer.Close()
 		rp.pw.CloseWithError(scanErr)
 		<-rp.uploadDone
-		return 0, scanErr
+		return scanErr
 	}
 
 	if err := rp.writer.Close(); err != nil {
 		rp.pw.CloseWithError(err)
 		<-rp.uploadDone
-		return 0, err
+		return err
 	}
 
 	if err := rp.pw.Close(); err != nil {
 		<-rp.uploadDone
-		return 0, err
+		return err
 	}
 
 	if uploadErr := <-rp.uploadDone; uploadErr != nil {
-		return 0, uploadErr
+		return uploadErr
 	}
 
-	return rp.writer.ObjectsWritten(), nil
+	return nil
 }
 
 // startRangeWriter creates a rangePipeline for a single key range.
@@ -243,6 +246,7 @@ func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex in
 		<-uploadDone
 		return nil, fmt.Errorf("create parquet writer: %w", err)
 	}
+	writer.onFlush = cfg.onFlush
 
 	writer.SetFileMetadata("collection", cfg.className)
 	if cfg.isMT {
