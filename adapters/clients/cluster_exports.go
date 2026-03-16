@@ -60,6 +60,9 @@ func (c *ClusterExports) Prepare(ctx context.Context, host string, req *export.E
 		return fmt.Errorf("prepare request: %w", err)
 	}
 
+	if statusCode == http.StatusConflict {
+		return fmt.Errorf("%w: %s", export.ErrExportAlreadyActive, respBody)
+	}
 	if statusCode != http.StatusOK {
 		return fmt.Errorf("prepare failed: status %d (%s)", statusCode, respBody)
 	}

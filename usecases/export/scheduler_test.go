@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/export"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
@@ -35,6 +36,16 @@ type errorBackend struct {
 
 func (b *errorBackend) GetObject(context.Context, string, string, string, string) ([]byte, error) {
 	return nil, b.err
+}
+
+// failInitBackend embeds fakeBackend but overrides Initialize to return an error.
+type failInitBackend struct {
+	fakeBackend
+	err error
+}
+
+func (b *failInitBackend) Initialize(context.Context, string, string, string) error {
+	return b.err
 }
 
 func TestScheduler_ResolveClasses(t *testing.T) {
@@ -86,73 +97,84 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 	})
 }
 
-func TestScheduler_StatusReturnsNotFoundWhenNothingExists(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-
-	s := &Scheduler{
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+func TestScheduler_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name         string
+		backend      modulecapabilities.BackupBackend
+		method       string // "status" or "cancel"
+		wantIs       error  // nil means no ErrorIs check
+		wantNotIs    error  // nil means no NotErrorIs check
+		wantContains string // substring the error must contain
+	}{
+		{
+			name:         "status returns not found when nothing exists",
+			backend:      &fakeBackend{},
+			method:       "status",
+			wantContains: "not found",
+		},
+		{
+			name:    "status init failure wraps validation",
+			backend: &failInitBackend{err: fmt.Errorf("permission denied")},
+			method:  "status",
+			wantIs:  ErrExportValidation,
+		},
+		{
+			name:    "cancel init failure wraps validation",
+			backend: &failInitBackend{err: fmt.Errorf("permission denied")},
+			method:  "cancel",
+			wantIs:  ErrExportValidation,
+		},
+		{
+			name:         "status propagates backend error",
+			backend:      &errorBackend{err: fmt.Errorf("connection refused")},
+			method:       "status",
+			wantContains: "connection refused",
+		},
+		{
+			name:      "cancel propagates backend error",
+			backend:   &errorBackend{err: fmt.Errorf("permission denied")},
+			method:    "cancel",
+			wantNotIs: ErrExportNotFound,
+		},
+		{
+			name:    "cancel returns not found when metadata missing",
+			backend: &fakeBackend{},
+			method:  "cancel",
+			wantIs:  ErrExportNotFound,
+		},
 	}
 
-	_, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			s := &Scheduler{
+				logger:       logger,
+				authorizer:   mocks.NewMockAuthorizer(),
+				backends:     &fakeBackendProvider{backend: tc.backend},
+				client:       &fakeExportClient{},
+				nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+			}
 
-func TestScheduler_StatusPropagatesBackendError(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &errorBackend{err: fmt.Errorf("connection refused")}
+			var err error
+			switch tc.method {
+			case "status":
+				_, err = s.Status(context.Background(), nil, "s3", "test-export", "", "")
+			case "cancel":
+				err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+			}
 
-	s := &Scheduler{
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+			require.Error(t, err)
+			if tc.wantIs != nil {
+				assert.ErrorIs(t, err, tc.wantIs)
+			}
+			if tc.wantNotIs != nil {
+				assert.NotErrorIs(t, err, tc.wantNotIs)
+			}
+			if tc.wantContains != "" {
+				assert.Contains(t, err.Error(), tc.wantContains)
+			}
+		})
 	}
-
-	_, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection refused")
-	assert.NotContains(t, err.Error(), "not found")
-}
-
-func TestScheduler_CancelPropagatesBackendError(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &errorBackend{err: fmt.Errorf("permission denied")}
-
-	s := &Scheduler{
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
-	}
-
-	err := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "permission denied")
-	assert.NotErrorIs(t, err, ErrExportNotFound)
-}
-
-func TestScheduler_CancelReturnsNotFoundWhenMetadataMissing(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-
-	s := &Scheduler{
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
-	}
-
-	err := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
-	require.ErrorIs(t, err, ErrExportNotFound)
 }
 
 // TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed verifies that

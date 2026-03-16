@@ -91,7 +91,7 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 		}
 
 		if p.activeExport != "" {
-			return fmt.Errorf("active export %q already in progress", p.activeExport)
+			return fmt.Errorf("%w: export %q already in progress", ErrExportAlreadyActive, p.activeExport)
 		}
 
 		p.activeExport = req.ID
