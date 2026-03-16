@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
@@ -29,28 +31,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
-
-// ReplicationServer is the interface that the gRPC replication service requires.
-// It combines the Replicator interface with FindUUIDs which is served via a different
-// REST path but is part of the RClient contract.
-type ReplicationServer interface {
-	replicaTypes.Replicator
-	FindUUIDs(ctx context.Context, indexName, shardName string,
-		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
-}
 
 // ReplicationService implements the gRPC ReplicationServiceServer.
 type ReplicationService struct {
 	pb.UnimplementedReplicationServiceServer
 
-	server ReplicationServer
+	server replicaTypes.Replicator
 }
 
 // NewReplicationService creates a new ReplicationService.
-func NewReplicationService(server ReplicationServer) *ReplicationService {
+func NewReplicationService(server replicaTypes.Replicator) *ReplicationService {
 	return &ReplicationService{server: server}
 }
 
