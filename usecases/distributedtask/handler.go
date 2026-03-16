@@ -49,52 +49,64 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 	for namespace, tasks := range tasksByNamespace {
 		resp[namespace] = make([]models.DistributedTask, 0, len(tasks))
 		for _, task := range tasks {
-			var finishedNodes []string
-			for node := range task.FinishedNodes {
-				finishedNodes = append(finishedNodes, node)
+			apiTask, err := toAPITask(task)
+			if err != nil {
+				return nil, err
 			}
-			// sort so it would be more deterministic and easier to test
-			sort.Strings(finishedNodes)
-
-			// Try to unmarshal the raw payload into a generic JSON object.
-			// If we introduce sensitive information to the payload, we can
-			// add another method to Provider to unmarshal the payload and strip all the sensitive data.
-			var payload map[string]interface{}
-			if err = json.Unmarshal(task.Payload, &payload); err != nil {
-				return nil, fmt.Errorf("unmarshal payload: %w", err)
-			}
-
-			apiTask := models.DistributedTask{
-				ID:            task.ID,
-				Version:       int64(task.Version),
-				Status:        task.Status.String(),
-				Error:         task.Error,
-				StartedAt:     strfmt.DateTime(task.StartedAt),
-				FinishedAt:    strfmt.DateTime(task.FinishedAt),
-				FinishedNodes: finishedNodes,
-				Payload:       payload,
-			}
-
-			if task.SubUnits != nil {
-				apiTask.SubUnits = make([]models.DistributedTaskSubUnit, 0, len(task.SubUnits))
-				for _, su := range task.SubUnits {
-					apiTask.SubUnits = append(apiTask.SubUnits, models.DistributedTaskSubUnit{
-						ID:        su.ID,
-						Status:    string(su.Status),
-						Progress:  su.Progress,
-						NodeID:    su.NodeID,
-						Error:     su.Error,
-						UpdatedAt: strfmt.DateTime(su.UpdatedAt),
-					})
-				}
-				sort.Slice(apiTask.SubUnits, func(i, j int) bool {
-					return apiTask.SubUnits[i].ID < apiTask.SubUnits[j].ID
-				})
-			}
-
 			resp[namespace] = append(resp[namespace], apiTask)
 		}
 	}
 
 	return resp, nil
+}
+
+func toAPITask(task *distributedtask.Task) (models.DistributedTask, error) {
+	var finishedNodes []string
+	for node := range task.FinishedNodes {
+		finishedNodes = append(finishedNodes, node)
+	}
+	sort.Strings(finishedNodes)
+
+	// Try to unmarshal the raw payload into a generic JSON object.
+	// If we introduce sensitive information to the payload, we can
+	// add another method to Provider to unmarshal the payload and strip all the sensitive data.
+	var payload map[string]interface{}
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		return models.DistributedTask{}, fmt.Errorf("unmarshal payload: %w", err)
+	}
+
+	apiTask := models.DistributedTask{
+		ID:            task.ID,
+		Version:       int64(task.Version),
+		Status:        task.Status.String(),
+		Error:         task.Error,
+		StartedAt:     strfmt.DateTime(task.StartedAt),
+		FinishedAt:    strfmt.DateTime(task.FinishedAt),
+		FinishedNodes: finishedNodes,
+		Payload:       payload,
+	}
+
+	if task.SubUnits != nil {
+		apiTask.SubUnits = toAPISubUnits(task.SubUnits)
+	}
+
+	return apiTask, nil
+}
+
+func toAPISubUnits(subUnits map[string]*distributedtask.SubUnit) []models.DistributedTaskSubUnit {
+	result := make([]models.DistributedTaskSubUnit, 0, len(subUnits))
+	for _, su := range subUnits {
+		result = append(result, models.DistributedTaskSubUnit{
+			ID:        su.ID,
+			Status:    string(su.Status),
+			Progress:  su.Progress,
+			NodeID:    su.NodeID,
+			Error:     su.Error,
+			UpdatedAt: strfmt.DateTime(su.UpdatedAt),
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
+	return result
 }

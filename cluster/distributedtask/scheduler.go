@@ -132,60 +132,58 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for namespace, provider := range s.providers {
-		provider.SetCompletionRecorder(s.completionRecorder)
-
-		// Wire up sub-unit recorder for providers that support it.
-		if s.subUnitRecorder != nil {
-			if suProvider, ok := provider.(SubUnitAwareProvider); ok {
-				suProvider.SetSubUnitRecorder(s.subUnitRecorder)
-			}
+		if err = s.initNamespaceWithLock(namespace, provider, tasksByNamespace[namespace]); err != nil {
+			return err
 		}
-
-		// Seed lastObservedStatuses so that already-finished tasks on startup
-		// do not trigger spurious OnTaskCompleted callbacks.
-		if _, exists := s.lastObservedStatuses[namespace]; !exists {
-			s.lastObservedStatuses[namespace] = make(map[TaskDescriptor]TaskStatus)
-		}
-		for desc, task := range tasksByNamespace[namespace] {
-			s.lastObservedStatuses[namespace][desc] = task.Status
-		}
-
-		var (
-			tasks         = tasksByNamespace[namespace]
-			startedTasks  = s.filterStartedTasks(tasks)
-			localTaskDesc = provider.GetLocalTasks()
-		)
-		for _, taskDesc := range localTaskDesc {
-			if _, ok := startedTasks[taskDesc]; ok {
-				continue
-			}
-
-			if err = provider.CleanupTask(taskDesc); err != nil {
-				s.loggerWithTask(namespace, taskDesc).WithError(err).
-					Error("failed to clean up local distributed task state")
-				continue
-			}
-
-			s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
-		}
-
-		for desc, task := range startedTasks {
-			handle, err := provider.StartTask(task)
-			if err != nil {
-				return fmt.Errorf("provider %s start task %v: %w", namespace, desc, err)
-			}
-
-			s.setRunningTaskHandleWithLock(namespace, desc, handle)
-			s.loggerWithTask(namespace, desc).Info("started distributed task execution")
-		}
-
-		s.tasksRunning.
-			WithLabelValues(namespace).
-			Set(float64(len(startedTasks)))
 	}
 
 	enterrors.GoWrapper(s.loop, s.logger)
 
+	return nil
+}
+
+func (s *Scheduler) initNamespaceWithLock(namespace string, provider Provider, tasks map[TaskDescriptor]*Task) error {
+	provider.SetCompletionRecorder(s.completionRecorder)
+
+	// Wire up sub-unit recorder for providers that support it.
+	if s.subUnitRecorder != nil {
+		if suProvider, ok := provider.(SubUnitAwareProvider); ok {
+			suProvider.SetSubUnitRecorder(s.subUnitRecorder)
+		}
+	}
+
+	// Seed lastObservedStatuses so that already-finished tasks on startup
+	// do not trigger spurious OnTaskCompleted callbacks.
+	if _, exists := s.lastObservedStatuses[namespace]; !exists {
+		s.lastObservedStatuses[namespace] = make(map[TaskDescriptor]TaskStatus)
+	}
+	for desc, task := range tasks {
+		s.lastObservedStatuses[namespace][desc] = task.Status
+	}
+
+	startedTasks := s.filterStartedTasks(tasks)
+	for _, taskDesc := range provider.GetLocalTasks() {
+		if _, ok := startedTasks[taskDesc]; ok {
+			continue
+		}
+		if err := provider.CleanupTask(taskDesc); err != nil {
+			s.loggerWithTask(namespace, taskDesc).WithError(err).
+				Error("failed to clean up local distributed task state")
+			continue
+		}
+		s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
+	}
+
+	for desc, task := range startedTasks {
+		handle, err := provider.StartTask(task)
+		if err != nil {
+			return fmt.Errorf("provider %s start task %v: %w", namespace, desc, err)
+		}
+		s.setRunningTaskHandleWithLock(namespace, desc, handle)
+		s.loggerWithTask(namespace, desc).Info("started distributed task execution")
+	}
+
+	s.tasksRunning.WithLabelValues(namespace).Set(float64(len(startedTasks)))
 	return nil
 }
 

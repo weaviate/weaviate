@@ -24,6 +24,13 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
+const (
+	testShard1 = "shard-1"
+	testShard2 = "shard-2"
+	testShard3 = "shard-3"
+	testNode1  = "node-1"
+)
+
 func TestManager_AddTask_Failures(t *testing.T) {
 	t.Run("add duplicate task", func(t *testing.T) {
 		var (
@@ -570,7 +577,7 @@ func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
 		Namespace:             namespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: now.UnixMilli(),
-		SubUnitIds:            []string{"shard-1", "shard-2"},
+		SubUnitIds:            []string{testShard1, testShard2},
 	}), version)
 	require.NoError(t, err)
 
@@ -579,8 +586,8 @@ func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
 	task := tasks[namespace][0]
 	require.NotNil(t, task.SubUnits)
 	require.Equal(t, TaskStatusStarted, task.Status)
-	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-1"].Status)
-	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-2"].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits[testShard1].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits[testShard2].Status)
 
 	// Complete shard-1.
 	completedAt := now.Add(time.Minute).Truncate(time.Millisecond)
@@ -588,8 +595,8 @@ func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
-		SubUnitId:            "shard-1",
-		NodeId:               "node-1",
+		SubUnitId:            testShard1,
+		NodeId:               testNode1,
 		FinishedAtUnixMillis: completedAt.UnixMilli(),
 	}))
 	require.NoError(t, err)
@@ -597,15 +604,15 @@ func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task = tasks[namespace][0]
 	require.Equal(t, TaskStatusStarted, task.Status, "task still running with one sub-unit pending")
-	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
-	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-2"].Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits[testShard1].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits[testShard2].Status)
 
 	// Complete shard-2 → task should transition to FINISHED.
 	err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletedRequest{
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
-		SubUnitId:            "shard-2",
+		SubUnitId:            testShard2,
 		NodeId:               "node-2",
 		FinishedAtUnixMillis: completedAt.UnixMilli(),
 	}))
@@ -614,8 +621,8 @@ func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task = tasks[namespace][0]
 	require.Equal(t, TaskStatusFinished, task.Status)
-	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
-	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-2"].Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits[testShard1].Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits[testShard2].Status)
 	require.Equal(t, completedAt.UTC(), task.FinishedAt.UTC())
 }
 
@@ -632,7 +639,7 @@ func TestManager_SubUnitTracking_FailureTransitionsTask(t *testing.T) {
 		Namespace:             namespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: now.UnixMilli(),
-		SubUnitIds:            []string{"shard-1", "shard-2", "shard-3"},
+		SubUnitIds:            []string{testShard1, testShard2, testShard3},
 	}), version))
 
 	// Complete shard-1 successfully.
@@ -640,8 +647,8 @@ func TestManager_SubUnitTracking_FailureTransitionsTask(t *testing.T) {
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
-		SubUnitId:            "shard-1",
-		NodeId:               "node-1",
+		SubUnitId:            testShard1,
+		NodeId:               testNode1,
 		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
 	})))
 
@@ -652,7 +659,7 @@ func TestManager_SubUnitTracking_FailureTransitionsTask(t *testing.T) {
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
-		SubUnitId:            "shard-2",
+		SubUnitId:            testShard2,
 		NodeId:               "node-2",
 		Error:                &errMsg,
 		FinishedAtUnixMillis: failedAt.UnixMilli(),
@@ -661,11 +668,11 @@ func TestManager_SubUnitTracking_FailureTransitionsTask(t *testing.T) {
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	task := tasks[namespace][0]
 	require.Equal(t, TaskStatusFailed, task.Status)
-	require.Contains(t, task.Error, "shard-2")
+	require.Contains(t, task.Error, testShard2)
 	require.Contains(t, task.Error, "disk full")
-	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
-	require.Equal(t, SubUnitStatusFailed, task.SubUnits["shard-2"].Status)
-	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-3"].Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits[testShard1].Status)
+	require.Equal(t, SubUnitStatusFailed, task.SubUnits[testShard2].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits[testShard3].Status)
 	require.Equal(t, failedAt.UTC(), task.FinishedAt.UTC())
 }
 
@@ -689,7 +696,7 @@ func TestManager_SubUnitTracking_ProgressThrottling(t *testing.T) {
 		Namespace:             namespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"shard-1"},
+		SubUnitIds:            []string{testShard1},
 	}), version))
 
 	// First progress update should be accepted (UpdatedAt.IsZero() initially).
@@ -697,26 +704,26 @@ func TestManager_SubUnitTracking_ProgressThrottling(t *testing.T) {
 		Namespace: namespace,
 		Id:        taskID,
 		Version:   version,
-		SubUnitId: "shard-1",
-		NodeId:    "node-1",
+		SubUnitId: testShard1,
+		NodeId:    testNode1,
 		Progress:  0.25,
 	})))
 
 	tasks, _ := m.ListDistributedTasks(context.Background())
-	require.InDelta(t, 0.25, tasks[namespace][0].SubUnits["shard-1"].Progress, 0.001)
-	require.Equal(t, SubUnitStatusInProgress, tasks[namespace][0].SubUnits["shard-1"].Status)
+	require.InDelta(t, 0.25, tasks[namespace][0].SubUnits[testShard1].Progress, 0.001)
+	require.Equal(t, SubUnitStatusInProgress, tasks[namespace][0].SubUnits[testShard1].Status)
 
 	// Rapid second update: should be silently dropped (within minInterval).
 	require.NoError(t, m.RecordSubUnitProgress(toCmd(t, &cmd.RecordDistributedTaskSubUnitProgressRequest{
 		Namespace: namespace,
 		Id:        taskID,
 		Version:   version,
-		SubUnitId: "shard-1",
-		NodeId:    "node-1",
+		SubUnitId: testShard1,
+		NodeId:    testNode1,
 		Progress:  0.50,
 	})))
 	tasks, _ = m.ListDistributedTasks(context.Background())
-	require.InDelta(t, 0.25, tasks[namespace][0].SubUnits["shard-1"].Progress, 0.001, "rapid update must be throttled")
+	require.InDelta(t, 0.25, tasks[namespace][0].SubUnits[testShard1].Progress, 0.001, "rapid update must be throttled")
 
 	// Advance clock past minInterval → update accepted.
 	clock.Advance(minInterval + time.Second)
@@ -724,12 +731,12 @@ func TestManager_SubUnitTracking_ProgressThrottling(t *testing.T) {
 		Namespace: namespace,
 		Id:        taskID,
 		Version:   version,
-		SubUnitId: "shard-1",
-		NodeId:    "node-1",
+		SubUnitId: testShard1,
+		NodeId:    testNode1,
 		Progress:  0.75,
 	})))
 	tasks, _ = m.ListDistributedTasks(context.Background())
-	require.InDelta(t, 0.75, tasks[namespace][0].SubUnits["shard-1"].Progress, 0.001, "update after interval must be applied")
+	require.InDelta(t, 0.75, tasks[namespace][0].SubUnits[testShard1].Progress, 0.001, "update after interval must be applied")
 }
 
 func TestManager_SubUnitTracking_SnapshotRestore(t *testing.T) {
@@ -745,7 +752,7 @@ func TestManager_SubUnitTracking_SnapshotRestore(t *testing.T) {
 		Namespace:             namespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: now.UnixMilli(),
-		SubUnitIds:            []string{"shard-1", "shard-2"},
+		SubUnitIds:            []string{testShard1, testShard2},
 	}), version))
 
 	// Complete shard-1 to get some state.
@@ -753,8 +760,8 @@ func TestManager_SubUnitTracking_SnapshotRestore(t *testing.T) {
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
-		SubUnitId:            "shard-1",
-		NodeId:               "node-1",
+		SubUnitId:            testShard1,
+		NodeId:               testNode1,
 		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
 	})))
 
@@ -770,8 +777,8 @@ func TestManager_SubUnitTracking_SnapshotRestore(t *testing.T) {
 	require.Len(t, tasks[namespace], 1)
 	task := tasks[namespace][0]
 	require.Equal(t, TaskStatusStarted, task.Status)
-	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
-	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-2"].Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits[testShard1].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits[testShard2].Status)
 }
 
 // addDistributedTaskRequestForTest mirrors AddDistributedTaskRequestWithSubUnits
