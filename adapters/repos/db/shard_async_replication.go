@@ -44,13 +44,13 @@ import (
 
 const (
 	defaultAsyncReplicationMaxWorkersSingleTenant = 3
-	defaultAsyncReplicationMaxWorkersMultiTenant  = 30
+	defaultAsyncReplicationMaxWorkersMultiTenant  = 5
 
-	defaultHashtreeHeightSingleTenant  = 16
+	defaultHashtreeHeightSingleTenant  = 20
 	defaultHashtreeHeightMultiTenant   = 10
 	defaultFrequency                   = 30 * time.Second
 	defaultFrequencyWhilePropagating   = 5 * time.Second
-	defaultAliveNodesCheckingFrequency = 5 * time.Second
+	defaultAliveNodesCheckingFrequency = 30 * time.Second
 	defaultLoggingFrequency            = 60 * time.Second
 	defaultDiffBatchSize               = 1_000
 	defaultDiffPerNodeTimeout          = 10 * time.Second
@@ -61,14 +61,17 @@ const (
 	defaultPropagationConcurrency      = 1
 	defaultPropagationBatchSize        = 100
 
+	minMaxWorkers = 1
+	maxMaxWorkers = 10
+
 	minHashtreeHeight = 0
-	maxHashtreeHeight = 20
+	maxHashtreeHeight = 22
 
 	minDiffBatchSize = 1
 	maxDiffBatchSize = 10_000
 
 	minPropagationLimit = 1
-	maxPropagationLimit = 1_000_000
+	maxPropagationLimit = 100_000
 
 	minPropagationConcurrency = 1
 	maxPropagationConcurrency = 20
@@ -257,7 +260,7 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(object *storobj.Object) error {
+	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -269,15 +272,12 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			prevProgressLogging = time.Now()
 		}
 
-		uuidBytes, err := parseBytesUUID(object.ID())
-		if err != nil {
-			return err
-		}
-
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
 
-		err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
+		obj := &storobj.Object{}
+		obj.Object.LastUpdateTimeUnix = updateTime
+		err := s.mayUpsertObjectHashTree(obj, uuidBytes, objectInsertStatus{})
 		if err != nil {
 			return err
 		}
