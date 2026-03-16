@@ -1146,3 +1146,19 @@ func Test_UserConfigFilterStrategy(t *testing.T) {
 		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
 	})
 }
+
+func TestValidatePQConfig_NegativeSegments(t *testing.T) {
+	t.Run("rejects negative segments", func(t *testing.T) {
+		cfg := PQConfig{Enabled: true, Segments: -128,
+			Encoder: PQEncoder{Type: DefaultPQEncoderType, Distribution: DefaultPQEncoderDistribution}}
+		err := ValidatePQConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "segments")
+	})
+
+	t.Run("accepts zero segments (auto)", func(t *testing.T) {
+		cfg := PQConfig{Enabled: true, Segments: 0,
+			Encoder: PQEncoder{Type: DefaultPQEncoderType, Distribution: DefaultPQEncoderDistribution}}
+		assert.NoError(t, ValidatePQConfig(cfg))
+	})
+}
