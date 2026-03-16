@@ -2582,6 +2582,50 @@
         "payload": {
           "description": "The payload of the task.",
           "type": "object"
+        },
+        "subUnits": {
+          "description": "Per-sub-unit execution state. Present only when the task was created with sub-unit IDs.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "$ref": "#/definitions/DistributedTaskSubUnit"
+          }
+        }
+      }
+    },
+    "DistributedTaskSubUnit": {
+      "description": "Execution state of a single sub-unit within a distributed task.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The identifier of this sub-unit within the task.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Lifecycle status: PENDING, IN_PROGRESS, COMPLETED, or FAILED.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "Fractional completion in [0.0, 1.0].",
+          "type": "number",
+          "format": "double",
+          "x-omitempty": true
+        },
+        "nodeID": {
+          "description": "The node that last reported on this sub-unit.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "error": {
+          "description": "Failure reason when status is FAILED.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "updatedAt": {
+          "description": "Time of the last state or progress update.",
+          "type": "string",
+          "format": "date-time",
+          "x-omitempty": true
         }
       }
     },

@@ -93,10 +93,10 @@ func toAPITask(task *distributedtask.Task) (models.DistributedTask, error) {
 	return apiTask, nil
 }
 
-func toAPISubUnits(subUnits map[string]*distributedtask.SubUnit) []models.DistributedTaskSubUnit {
-	result := make([]models.DistributedTaskSubUnit, 0, len(subUnits))
+func toAPISubUnits(subUnits map[string]*distributedtask.SubUnit) []*models.DistributedTaskSubUnit {
+	result := make([]*models.DistributedTaskSubUnit, 0, len(subUnits))
 	for _, su := range subUnits {
-		result = append(result, models.DistributedTaskSubUnit{
+		result = append(result, &models.DistributedTaskSubUnit{
 			ID:        su.ID,
 			Status:    string(su.Status),
 			Progress:  su.Progress,

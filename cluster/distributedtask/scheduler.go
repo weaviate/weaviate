@@ -51,12 +51,12 @@ type Scheduler struct {
 	// Used to detect STARTED → FINISHED transitions for the OnTaskCompleted callback.
 	lastObservedStatuses map[string]map[TaskDescriptor]TaskStatus
 
-	providers            map[string]Provider // namespace -> Provider
-	completionRecorder   TaskCompletionRecorder
-	subUnitRecorder      SubUnitCompletionRecorder
-	tasksLister          TasksLister
-	taskCleaner          TaskCleaner
-	clock                clockwork.Clock
+	providers          map[string]Provider // namespace -> Provider
+	completionRecorder TaskCompletionRecorder
+	subUnitRecorder    SubUnitCompletionRecorder
+	tasksLister        TasksLister
+	taskCleaner        TaskCleaner
+	clock              clockwork.Clock
 
 	localNode        string
 	completedTaskTTL time.Duration
@@ -74,12 +74,12 @@ type SchedulerParams struct {
 	CompletionRecorder TaskCompletionRecorder
 	// SubUnitRecorder is the recorder for sub-unit state transitions.
 	// When non-nil, it is forwarded to Providers that implement SubUnitAwareProvider.
-	SubUnitRecorder SubUnitCompletionRecorder
-	TasksLister     TasksLister
-	TaskCleaner     TaskCleaner
-	Providers       map[string]Provider
-	Clock           clockwork.Clock
-	Logger          logrus.FieldLogger
+	SubUnitRecorder   SubUnitCompletionRecorder
+	TasksLister       TasksLister
+	TaskCleaner       TaskCleaner
+	Providers         map[string]Provider
+	Clock             clockwork.Clock
+	Logger            logrus.FieldLogger
 	MetricsRegisterer prometheus.Registerer
 
 	LocalNode        string

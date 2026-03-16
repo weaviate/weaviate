@@ -536,8 +536,8 @@ func TestScheduler_OnTaskCompleted_CalledOnFinish(t *testing.T) {
 	defer h.scheduler.Close()
 
 	var (
-		taskID             = "1234"
-		version     uint64 = 10
+		taskID         = "1234"
+		version uint64 = 10
 	)
 
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -575,8 +575,8 @@ func TestScheduler_OnTaskCompleted_NotCalledForAlreadyFinishedOnStartup(t *testi
 	h = h.init(t)
 
 	var (
-		taskID             = "pre-existing"
-		version     uint64 = 5
+		taskID         = "pre-existing"
+		version uint64 = 5
 	)
 
 	// Add and finish a task before the scheduler starts.
