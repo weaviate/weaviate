@@ -47,6 +47,9 @@ type ManagerParameters struct {
 // defaultSubUnitProgressMinInterval is the default throttle interval for sub-unit progress updates.
 const defaultSubUnitProgressMinInterval = 30 * time.Second
 
+// errTaskNoLongerRunning is the format string used when an operation is attempted on a task that is not in STARTED state.
+const errTaskNoLongerRunning = "task %s/%s/%d is no longer running"
+
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
@@ -126,7 +129,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	}
 
 	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf(errTaskNoLongerRunning, r.Namespace, r.Id, task.Version)
 	}
 
 	if r.Error != nil {
@@ -165,7 +168,7 @@ func (m *Manager) RecordSubUnitCompletion(c *api.ApplyRequest) error {
 	}
 
 	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf(errTaskNoLongerRunning, r.Namespace, r.Id, task.Version)
 	}
 
 	if task.SubUnits == nil {
@@ -230,7 +233,7 @@ func (m *Manager) RecordSubUnitProgress(c *api.ApplyRequest) error {
 	}
 
 	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf(errTaskNoLongerRunning, r.Namespace, r.Id, task.Version)
 	}
 
 	if task.SubUnits == nil {
@@ -270,7 +273,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	}
 
 	if task.Status != TaskStatusStarted {
-		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf(errTaskNoLongerRunning, r.Namespace, r.Id, task.Version)
 	}
 
 	task.Status = TaskStatusCancelled
