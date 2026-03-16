@@ -41,7 +41,6 @@ const (
 )
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
-// If replicationServer is non-nil, the ReplicationService will be registered.
 func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
