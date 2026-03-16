@@ -545,6 +545,7 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "invalid encoder distribution lognormal",
 		},
 
+
 		{
 			// opposed to from the API
 			name: "with rounded vectorCacheMaxObjects that would otherwise overflow",
@@ -1147,18 +1148,26 @@ func Test_UserConfigFilterStrategy(t *testing.T) {
 	})
 }
 
-func TestValidatePQConfig_NegativeSegments(t *testing.T) {
-	t.Run("rejects negative segments", func(t *testing.T) {
-		cfg := PQConfig{Enabled: true, Segments: -128,
-			Encoder: PQEncoder{Type: DefaultPQEncoderType, Distribution: DefaultPQEncoderDistribution}}
-		err := ValidatePQConfig(cfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "segments")
-	})
-
-	t.Run("accepts zero segments (auto)", func(t *testing.T) {
-		cfg := PQConfig{Enabled: true, Segments: 0,
-			Encoder: PQEncoder{Type: DefaultPQEncoderType, Distribution: DefaultPQEncoderDistribution}}
-		assert.NoError(t, ValidatePQConfig(cfg))
-	})
+func TestValidatePQConfig(t *testing.T) {
+	validEncoder := PQEncoder{Type: DefaultPQEncoderType, Distribution: DefaultPQEncoderDistribution}
+	for _, tc := range []struct {
+		name      string
+		segments  int
+		expectErr bool
+	}{
+		{"negative segments rejected", -1, true},
+		{"zero segments accepted", 0, false},
+		{"positive segments accepted", 64, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidatePQConfig(PQConfig{Enabled: true, Segments: tc.segments, Encoder: validEncoder})
+			if tc.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "segments")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
+
