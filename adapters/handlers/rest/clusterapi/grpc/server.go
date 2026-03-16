@@ -78,10 +78,8 @@ func NewServer(state *state.State, replicator replicaTypes.Replicator, options .
 	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
-	if replicator != nil {
-		replicationService := NewReplicationService(replicator)
-		pb.RegisterReplicationServiceServer(s, replicationService)
-	}
+	replicationService := NewReplicationService(replicator)
+	pb.RegisterReplicationServiceServer(s, replicationService)
 
 	return &Server{Server: s, state: state}
 }
