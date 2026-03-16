@@ -261,11 +261,11 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 	return l.shard.ObjectByID(ctx, id, props, additional)
 }
 
-func (l *LazyLoadShard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+func (l *LazyLoadShard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
 	if err := l.Load(ctx); err != nil {
-		return nil, err
+		return types.RepairResponse{}, err
 	}
-	return l.shard.ObjectByIDErrDeleted(ctx, id, props, additional)
+	return l.shard.ObjectDigestErrDeleted(ctx, id)
 }
 
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
@@ -366,13 +366,19 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
+func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ObjectDigests(ctx, query)
+}
+
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) (objs []types.RepairResponse, err error) {
-	if !l.isLoaded() {
+	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-
 	return l.shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
