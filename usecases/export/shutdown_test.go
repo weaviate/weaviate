@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -256,8 +257,9 @@ func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ strin
 
 // fakeBackend captures Write calls so tests can verify what was written.
 type fakeBackend struct {
-	mu      sync.Mutex
-	written map[string][]byte
+	mu                 sync.Mutex
+	written            map[string][]byte
+	interceptGetObject func(key string) ([]byte, error, bool) // if set, called before default logic; return (data, err, handled)
 }
 
 func (b *fakeBackend) Write(_ context.Context, _, key, _, _ string, r backup.ReadCloserWithError) (int64, error) {
@@ -286,6 +288,11 @@ func (b *fakeBackend) Initialize(context.Context, string, string, string) error 
 }
 
 func (b *fakeBackend) GetObject(_ context.Context, _ string, key string, _, _ string) ([]byte, error) {
+	if b.interceptGetObject != nil {
+		if data, err, handled := b.interceptGetObject(key); handled {
+			return data, err
+		}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if data, ok := b.written[key]; ok {
@@ -385,6 +392,82 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 	assert.Equal(t, string(export.Failed), status.Status)
 	assert.Contains(t, status.Error, "node1")
 	assert.Contains(t, status.Error, "no longer running")
+}
+
+// TestScheduler_LivenessReReadResolvesRace verifies that when IsRunning
+// returns false but the status file was updated to Success between the
+// initial read and the liveness check, the re-read resolves the race and
+// the export is reported as successful (not failed).
+func TestScheduler_LivenessReReadResolvesRace(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	resolver := &fakeNodeResolver{
+		nodes: map[string]string{
+			"node1": "host1:8080",
+		},
+	}
+
+	// Simulate the race: the first GetObject (initial read) returns
+	// ErrNotFound, the second GetObject (re-read after liveness failure)
+	// returns a Success status. IsRunning returns false because the
+	// participant cleared its active export between the two reads.
+	var readCount atomic.Int32
+	successStatus := &NodeStatus{
+		NodeName:    "node1",
+		Status:      export.Success,
+		CompletedAt: time.Now().UTC(),
+		ShardProgress: map[string]map[string]*ShardProgress{
+			"TestClass": {
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 5},
+			},
+		},
+	}
+	successData, err := json.Marshal(successStatus)
+	require.NoError(t, err)
+
+	// Intercept reads: first call → not found, second call → Success.
+	backend.interceptGetObject = func(key string) ([]byte, error, bool) {
+		if key != "node_node1_status.json" {
+			return nil, nil, false // pass through
+		}
+		n := readCount.Add(1)
+		if n == 1 {
+			return nil, backup.NewErrNotFound(fmt.Errorf("not found")), true
+		}
+		return successData, nil, true
+	}
+
+	client := &fakeExportClient{
+		isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+			return false, nil // not running — goroutine finished
+		},
+	}
+
+	s := &Scheduler{
+		shutdownCtx:  context.Background(),
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		client:       client,
+		nodeResolver: resolver,
+	}
+
+	plan := &ExportPlan{
+		ID:      "test-export",
+		Backend: "s3",
+		Classes: []string{"TestClass"},
+		NodeAssignments: map[string]map[string][]string{
+			"node1": {"TestClass": {"shard0"}},
+		},
+		StartedAt: time.Now().UTC(),
+	}
+
+	status, allTerminal, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(export.Success), status.Status, "re-read should resolve the race to Success")
+	assert.True(t, allTerminal, "node reached terminal state via re-read")
+	assert.Empty(t, status.Error, "no error expected for successful re-read")
 }
 
 func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
