@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -515,6 +515,163 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 	startedTaskV2.Terminate()
 
 	require.Equal(t, startedTaskV1.TaskDescriptor, recvWithTimeout(t, h.provider.cleanedUpCh))
+}
+
+// ---- OnTaskCompleted / Sub-unit integration tests ----
+
+func TestScheduler_OnTaskCompleted_CalledOnFinish(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t)
+	// Use a provider that also implements TaskCompletedHandler.
+	completedCh := make(chan *Task, 10)
+	handlerProvider := newTestTaskProviderWithCompletedHandler(t, nil, completedCh)
+	h.registeredProviders = map[string]Provider{
+		h.tasksNamespace: handlerProvider,
+	}
+	h.provider = handlerProvider.testTaskProvider
+	h = h.init(t)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	var (
+		taskID             = "1234"
+		version     uint64 = 10
+	)
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), version))
+	h.advanceClock(h.schedulerTickInterval)
+
+	startedTask := recvWithTimeout(t, handlerProvider.startedCh)
+	require.Equal(t, taskID, startedTask.ID)
+
+	// Complete from this node (single-node cluster).
+	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, taskID, version)
+	startedTask.Complete()
+	recvWithTimeout(t, handlerProvider.completedCh)
+
+	// Scheduler tick: task is now FINISHED → OnTaskCompleted should fire.
+	h.advanceClock(h.schedulerTickInterval)
+	finishedTask := recvWithTimeout(t, completedCh)
+	require.Equal(t, taskID, finishedTask.ID)
+	require.Equal(t, TaskStatusFinished, finishedTask.Status)
+}
+
+func TestScheduler_OnTaskCompleted_NotCalledForAlreadyFinishedOnStartup(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t)
+	completedCh := make(chan *Task, 10)
+	handlerProvider := newTestTaskProviderWithCompletedHandler(t, nil, completedCh)
+	h.registeredProviders = map[string]Provider{
+		h.tasksNamespace: handlerProvider,
+	}
+	h.provider = handlerProvider.testTaskProvider
+	h = h.init(t)
+
+	var (
+		taskID             = "pre-existing"
+		version     uint64 = 5
+	)
+
+	// Add and finish a task before the scheduler starts.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), version))
+	require.NoError(t, h.manager.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
+		Namespace:            h.tasksNamespace,
+		Id:                   taskID,
+		Version:              version,
+		NodeId:               h.localNodeID,
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}), 1))
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	// Give the scheduler a couple of ticks.
+	h.advanceClock(2 * h.schedulerTickInterval)
+
+	// OnTaskCompleted must NOT fire for a task that was already FINISHED at startup.
+	require.Empty(t, completedCh, "callback must not fire for pre-existing finished task")
+}
+
+func TestScheduler_SubUnitAwareProvider_ReceivedRecorder(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t)
+	subUnitRecorder := NewMockSubUnitCompletionRecorder(t)
+	h.scheduler = nil // will be recreated below
+
+	handlerProvider := newTestTaskProviderWithSubUnitSupport(t, nil)
+	h.registeredProviders = map[string]Provider{
+		h.tasksNamespace: handlerProvider,
+	}
+	h.provider = handlerProvider.testTaskProvider
+	h = h.init(t)
+
+	// Override the scheduler to include the sub-unit recorder.
+	h.scheduler = NewScheduler(SchedulerParams{
+		CompletionRecorder: h.completionRecorder,
+		SubUnitRecorder:    subUnitRecorder,
+		TasksLister:        h.manager,
+		TaskCleaner:        h.cleaner,
+		Providers:          h.registeredProviders,
+		Clock:              h.clock,
+		Logger:             h.logger,
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          h.localNodeID,
+		CompletedTaskTTL:   h.completedTaskTTL,
+		TickInterval:       h.schedulerTickInterval,
+	})
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	require.Equal(t, subUnitRecorder, handlerProvider.subUnitRecorder,
+		"SubUnitAwareProvider should receive the SubUnitRecorder")
+}
+
+// testTaskProviderWithCompletedHandler wraps testTaskProvider and also implements
+// TaskCompletedHandler to capture OnTaskCompleted calls.
+type testTaskProviderWithCompletedHandler struct {
+	*testTaskProvider
+	completedTaskCh chan *Task
+}
+
+func newTestTaskProviderWithCompletedHandler(t *testing.T, initialLocalTaskIds []TaskDescriptor, completedTaskCh chan *Task) *testTaskProviderWithCompletedHandler {
+	return &testTaskProviderWithCompletedHandler{
+		testTaskProvider: newTestTaskProvider(t, initialLocalTaskIds),
+		completedTaskCh:  completedTaskCh,
+	}
+}
+
+func (p *testTaskProviderWithCompletedHandler) OnTaskCompleted(task *Task) error {
+	p.completedTaskCh <- task
+	return nil
+}
+
+// testTaskProviderWithSubUnitSupport wraps testTaskProvider and implements SubUnitAwareProvider.
+type testTaskProviderWithSubUnitSupport struct {
+	*testTaskProvider
+	subUnitRecorder SubUnitCompletionRecorder
+}
+
+func newTestTaskProviderWithSubUnitSupport(t *testing.T, initialLocalTaskIds []TaskDescriptor) *testTaskProviderWithSubUnitSupport {
+	return &testTaskProviderWithSubUnitSupport{
+		testTaskProvider: newTestTaskProvider(t, initialLocalTaskIds),
+	}
+}
+
+func (p *testTaskProviderWithSubUnitSupport) SetSubUnitRecorder(r SubUnitCompletionRecorder) {
+	p.subUnitRecorder = r
 }
 
 func recvWithTimeout[T any](t *testing.T, ch <-chan T) T {

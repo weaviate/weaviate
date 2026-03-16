@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,64 @@ import (
 	"maps"
 	"time"
 )
+
+// SubUnitStatus represents the lifecycle state of an individual sub-unit within a task.
+type SubUnitStatus string
+
+const (
+	// SubUnitStatusPending means the sub-unit has not yet been picked up by any node.
+	SubUnitStatusPending SubUnitStatus = "PENDING"
+	// SubUnitStatusInProgress means a node is currently executing this sub-unit.
+	SubUnitStatusInProgress SubUnitStatus = "IN_PROGRESS"
+	// SubUnitStatusCompleted means the sub-unit finished successfully.
+	SubUnitStatusCompleted SubUnitStatus = "COMPLETED"
+	// SubUnitStatusFailed means the sub-unit encountered a non-retryable error.
+	SubUnitStatusFailed SubUnitStatus = "FAILED"
+)
+
+// SubUnit tracks the execution state of a single independent work item within a task.
+// Sub-unit tracking is enabled by supplying SubUnitIds at task creation time.
+type SubUnit struct {
+	// ID is the identifier of this sub-unit within the task.
+	ID string `json:"id"`
+
+	// Status is the current lifecycle state of the sub-unit.
+	Status SubUnitStatus `json:"status"`
+
+	// Progress is a fraction in [0.0, 1.0] representing completion progress.
+	// Updated by the Provider; subject to throttling in the Manager.
+	Progress float64 `json:"progress,omitempty"`
+
+	// NodeID is the ID of the node that last reported on this sub-unit.
+	NodeID string `json:"nodeID,omitempty"`
+
+	// Error contains the failure reason when Status == SubUnitStatusFailed.
+	Error string `json:"error,omitempty"`
+
+	// UpdatedAt is the time of the last state or progress update.
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// SubUnitCompletionRecorder is an interface for recording sub-unit state transitions.
+// Providers operating in sub-unit mode receive this recorder via SubUnitAwareProvider.SetSubUnitRecorder.
+type SubUnitCompletionRecorder interface {
+	RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, subUnitID string) error
+	RecordDistributedTaskSubUnitFailure(ctx context.Context, namespace, taskID string, version uint64, subUnitID string, errMsg string) error
+	RecordDistributedTaskSubUnitProgress(ctx context.Context, namespace, taskID string, version uint64, subUnitID string, progress float64) error
+}
+
+// TaskCompletedHandler is an optional interface that a Provider may implement to receive a
+// callback when a task transitions from STARTED to FINISHED (i.e. all sub-units completed).
+// The callback is invoked by the Scheduler on every node; implementations must be idempotent.
+type TaskCompletedHandler interface {
+	OnTaskCompleted(task *Task) error
+}
+
+// SubUnitAwareProvider is an optional interface that a Provider may implement to receive a
+// SubUnitCompletionRecorder for reporting per-sub-unit state transitions and progress.
+type SubUnitAwareProvider interface {
+	SetSubUnitRecorder(recorder SubUnitCompletionRecorder)
+}
 
 // TasksLister is an interface for listing distributed tasks in the cluster.
 type TasksLister interface {
@@ -109,12 +167,26 @@ type Task struct {
 	Error string `json:"error,omitempty"`
 
 	// FinishedNodes is a map of nodeIDs that successfully finished the task.
+	// Used in node-completion mode (SubUnits == nil).
 	FinishedNodes map[string]bool `json:"finishedNodes"`
+
+	// SubUnits tracks per-sub-unit execution state.
+	// When non-nil, the task uses sub-unit tracking mode instead of FinishedNodes.
+	// The task transitions to FINISHED only when all sub-units reach COMPLETED.
+	// Old snapshots without this field unmarshal to nil, retaining node-completion behaviour.
+	SubUnits map[string]*SubUnit `json:"subUnits,omitempty"`
 }
 
 func (t *Task) Clone() *Task {
 	clone := *t
 	clone.FinishedNodes = maps.Clone(t.FinishedNodes)
+	if t.SubUnits != nil {
+		clone.SubUnits = make(map[string]*SubUnit, len(t.SubUnits))
+		for id, su := range t.SubUnits {
+			suCopy := *su
+			clone.SubUnits[id] = &suCopy
+		}
+	}
 	return &clone
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,6 +55,9 @@ type DistributedTask struct {
 
 	// The version of the task.
 	Version int64 `json:"version,omitempty"`
+
+	// Per-sub-unit execution state. Present only when the task was created with sub-unit IDs.
+	SubUnits []DistributedTaskSubUnit `json:"subUnits,omitempty"`
 }
 
 // Validate validates this distributed task

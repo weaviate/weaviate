@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,15 +37,26 @@ import (
 // 6. Scheduler polls the cluster for the task status and checks if it is still running. It cancels the local task if it is not marked as STARTED anymore.
 // 7. After completed task TTL has passed, the Scheduler issues the Manager.CleanUpDistributedTask request to remove the task from the cluster list.
 // 8. After a task is removed from the cluster list, the Scheduler instructs the Provider to clean up the local task state.
+//
+// For Providers that implement SubUnitAwareProvider, the Scheduler additionally wires up the
+// SubUnitCompletionRecorder so tasks can report per-sub-unit state transitions.
+//
+// For Providers that implement TaskCompletedHandler, the Scheduler fires OnTaskCompleted when a
+// task transitions from STARTED to FINISHED. The callback runs on every node and must be idempotent.
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
 
-	providers          map[string]Provider // namespace -> Provider
-	completionRecorder TaskCompletionRecorder
-	tasksLister        TasksLister
-	taskCleaner        TaskCleaner
-	clock              clockwork.Clock
+	// lastObservedStatuses tracks the last-seen status of each task per namespace.
+	// Used to detect STARTED → FINISHED transitions for the OnTaskCompleted callback.
+	lastObservedStatuses map[string]map[TaskDescriptor]TaskStatus
+
+	providers            map[string]Provider // namespace -> Provider
+	completionRecorder   TaskCompletionRecorder
+	subUnitRecorder      SubUnitCompletionRecorder
+	tasksLister          TasksLister
+	taskCleaner          TaskCleaner
+	clock                clockwork.Clock
 
 	localNode        string
 	completedTaskTTL time.Duration
@@ -61,12 +72,15 @@ type Scheduler struct {
 
 type SchedulerParams struct {
 	CompletionRecorder TaskCompletionRecorder
-	TasksLister        TasksLister
-	TaskCleaner        TaskCleaner
-	Providers          map[string]Provider
-	Clock              clockwork.Clock
-	Logger             logrus.FieldLogger
-	MetricsRegisterer  prometheus.Registerer
+	// SubUnitRecorder is the recorder for sub-unit state transitions.
+	// When non-nil, it is forwarded to Providers that implement SubUnitAwareProvider.
+	SubUnitRecorder SubUnitCompletionRecorder
+	TasksLister     TasksLister
+	TaskCleaner     TaskCleaner
+	Providers       map[string]Provider
+	Clock           clockwork.Clock
+	Logger          logrus.FieldLogger
+	MetricsRegisterer prometheus.Registerer
 
 	LocalNode        string
 	CompletedTaskTTL time.Duration
@@ -83,10 +97,12 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 
 	return &Scheduler{
-		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
+		runningTasks:         map[string]map[TaskDescriptor]TaskHandle{},
+		lastObservedStatuses: map[string]map[TaskDescriptor]TaskStatus{},
 
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
+		subUnitRecorder:    params.SubUnitRecorder,
 		tasksLister:        params.TasksLister,
 		taskCleaner:        params.TaskCleaner,
 		clock:              params.Clock,
@@ -117,6 +133,22 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	defer s.mu.Unlock()
 	for namespace, provider := range s.providers {
 		provider.SetCompletionRecorder(s.completionRecorder)
+
+		// Wire up sub-unit recorder for providers that support it.
+		if s.subUnitRecorder != nil {
+			if suProvider, ok := provider.(SubUnitAwareProvider); ok {
+				suProvider.SetSubUnitRecorder(s.subUnitRecorder)
+			}
+		}
+
+		// Seed lastObservedStatuses so that already-finished tasks on startup
+		// do not trigger spurious OnTaskCompleted callbacks.
+		if _, exists := s.lastObservedStatuses[namespace]; !exists {
+			s.lastObservedStatuses[namespace] = make(map[TaskDescriptor]TaskStatus)
+		}
+		for desc, task := range tasksByNamespace[namespace] {
+			s.lastObservedStatuses[namespace][desc] = task.Status
+		}
 
 		var (
 			tasks         = tasksByNamespace[namespace]
@@ -276,6 +308,34 @@ func (s *Scheduler) tick() {
 					s.loggerWithTask(namespace, desc).WithError(err).
 						Error("failed to clean up local distributed task state")
 				})
+			}
+		}
+
+		// Detect STARTED → FINISHED transitions and invoke OnTaskCompleted if the
+		// Provider implements TaskCompletedHandler.
+		if handler, ok := provider.(TaskCompletedHandler); ok {
+			for desc, task := range tasks {
+				prevStatus := s.lastObservedStatuses[namespace][desc]
+				if prevStatus == TaskStatusStarted && task.Status == TaskStatusFinished {
+					if cbErr := handler.OnTaskCompleted(task); cbErr != nil {
+						s.loggerWithTask(namespace, desc).WithError(cbErr).
+							Error("OnTaskCompleted callback failed")
+					}
+				}
+			}
+		}
+
+		// Update lastObservedStatuses for next tick.
+		if _, exists := s.lastObservedStatuses[namespace]; !exists {
+			s.lastObservedStatuses[namespace] = make(map[TaskDescriptor]TaskStatus)
+		}
+		for desc, task := range tasks {
+			s.lastObservedStatuses[namespace][desc] = task.Status
+		}
+		// Remove tasks that have been cleaned up from the cluster list.
+		for desc := range s.lastObservedStatuses[namespace] {
+			if _, ok := tasks[desc]; !ok {
+				delete(s.lastObservedStatuses[namespace], desc)
 			}
 		}
 	}

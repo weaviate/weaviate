@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,7 +64,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				return nil, fmt.Errorf("unmarshal payload: %w", err)
 			}
 
-			resp[namespace] = append(resp[namespace], models.DistributedTask{
+			apiTask := models.DistributedTask{
 				ID:            task.ID,
 				Version:       int64(task.Version),
 				Status:        task.Status.String(),
@@ -73,7 +73,26 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				FinishedAt:    strfmt.DateTime(task.FinishedAt),
 				FinishedNodes: finishedNodes,
 				Payload:       payload,
-			})
+			}
+
+			if task.SubUnits != nil {
+				apiTask.SubUnits = make([]models.DistributedTaskSubUnit, 0, len(task.SubUnits))
+				for _, su := range task.SubUnits {
+					apiTask.SubUnits = append(apiTask.SubUnits, models.DistributedTaskSubUnit{
+						ID:        su.ID,
+						Status:    string(su.Status),
+						Progress:  su.Progress,
+						NodeID:    su.NodeID,
+						Error:     su.Error,
+						UpdatedAt: strfmt.DateTime(su.UpdatedAt),
+					})
+				}
+				sort.Slice(apiTask.SubUnits, func(i, j int) bool {
+					return apiTask.SubUnits[i].ID < apiTask.SubUnits[j].ID
+				})
+			}
+
+			resp[namespace] = append(resp[namespace], apiTask)
 		}
 	}
 

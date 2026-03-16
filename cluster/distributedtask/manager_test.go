@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -524,4 +525,267 @@ func assertTask(t *testing.T, expected, actual *Task) {
 	assert.Equal(t, expected.FinishedAt.UTC(), actual.FinishedAt.UTC())
 	assert.Equal(t, expected.Error, actual.Error)
 	assert.Equal(t, expected.FinishedNodes, actual.FinishedNodes)
+	if expected.SubUnits == nil {
+		assert.Nil(t, actual.SubUnits)
+	} else {
+		require.NotNil(t, actual.SubUnits)
+		assert.Equal(t, len(expected.SubUnits), len(actual.SubUnits))
+		for id, expSU := range expected.SubUnits {
+			actSU, ok := actual.SubUnits[id]
+			require.True(t, ok, "sub-unit %s not found", id)
+			assert.Equal(t, expSU.ID, actSU.ID)
+			assert.Equal(t, expSU.Status, actSU.Status)
+			assert.Equal(t, expSU.Error, actSU.Error)
+		}
+	}
+}
+
+// ---- Sub-unit tracking tests ----
+
+func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
+	var (
+		h         = newTestHarness(t).init(t)
+		namespace = "ns"
+		taskID    = "task-1"
+		version   = uint64(10)
+		now       = h.clock.Now()
+	)
+
+	// Create task with two sub-units.
+	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: now.UnixMilli(),
+	}), version)
+	require.NoError(t, err)
+
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, tasks[namespace][0].SubUnits, "node-completion mode when no sub_unit_ids")
+
+	// Re-create with sub-unit IDs via the extended request.
+	h = newTestHarness(t).init(t)
+	now = h.clock.Now().Truncate(time.Millisecond)
+	err = h.manager.AddTask(toCmd(t, &addDistributedTaskRequestForTest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		SubUnitIds:            []string{"shard-1", "shard-2"},
+	}), version)
+	require.NoError(t, err)
+
+	tasks, err = h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	task := tasks[namespace][0]
+	require.NotNil(t, task.SubUnits)
+	require.Equal(t, TaskStatusStarted, task.Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-1"].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-2"].Status)
+
+	// Complete shard-1.
+	completedAt := now.Add(time.Minute).Truncate(time.Millisecond)
+	err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletedRequest{
+		Namespace:            namespace,
+		Id:                   taskID,
+		Version:              version,
+		SubUnitId:            "shard-1",
+		NodeId:               "node-1",
+		FinishedAtUnixMillis: completedAt.UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task = tasks[namespace][0]
+	require.Equal(t, TaskStatusStarted, task.Status, "task still running with one sub-unit pending")
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-2"].Status)
+
+	// Complete shard-2 → task should transition to FINISHED.
+	err = h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletedRequest{
+		Namespace:            namespace,
+		Id:                   taskID,
+		Version:              version,
+		SubUnitId:            "shard-2",
+		NodeId:               "node-2",
+		FinishedAtUnixMillis: completedAt.UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task = tasks[namespace][0]
+	require.Equal(t, TaskStatusFinished, task.Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-2"].Status)
+	require.Equal(t, completedAt.UTC(), task.FinishedAt.UTC())
+}
+
+func TestManager_SubUnitTracking_FailureTransitionsTask(t *testing.T) {
+	var (
+		h         = newTestHarness(t).init(t)
+		namespace = "ns"
+		taskID    = "task-fail"
+		version   = uint64(10)
+		now       = h.clock.Now().Truncate(time.Millisecond)
+	)
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &addDistributedTaskRequestForTest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		SubUnitIds:            []string{"shard-1", "shard-2", "shard-3"},
+	}), version))
+
+	// Complete shard-1 successfully.
+	require.NoError(t, h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletedRequest{
+		Namespace:            namespace,
+		Id:                   taskID,
+		Version:              version,
+		SubUnitId:            "shard-1",
+		NodeId:               "node-1",
+		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	})))
+
+	// Fail shard-2.
+	errMsg := "disk full"
+	failedAt := now.Add(2 * time.Minute).Truncate(time.Millisecond)
+	require.NoError(t, h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletedRequest{
+		Namespace:            namespace,
+		Id:                   taskID,
+		Version:              version,
+		SubUnitId:            "shard-2",
+		NodeId:               "node-2",
+		Error:                &errMsg,
+		FinishedAtUnixMillis: failedAt.UnixMilli(),
+	})))
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	task := tasks[namespace][0]
+	require.Equal(t, TaskStatusFailed, task.Status)
+	require.Contains(t, task.Error, "shard-2")
+	require.Contains(t, task.Error, "disk full")
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
+	require.Equal(t, SubUnitStatusFailed, task.SubUnits["shard-2"].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-3"].Status)
+	require.Equal(t, failedAt.UTC(), task.FinishedAt.UTC())
+}
+
+func TestManager_SubUnitTracking_ProgressThrottling(t *testing.T) {
+	const minInterval = 5 * time.Second
+
+	clock := h2clock()
+	m := NewManager(ManagerParameters{
+		Clock:                      clock,
+		CompletedTaskTTL:           24 * time.Hour,
+		SubUnitProgressMinInterval: minInterval,
+	})
+
+	var (
+		namespace = "ns"
+		taskID    = "task-progress"
+		version   = uint64(1)
+	)
+
+	require.NoError(t, m.AddTask(toCmd(t, &addDistributedTaskRequestForTest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: clock.Now().UnixMilli(),
+		SubUnitIds:            []string{"shard-1"},
+	}), version))
+
+	// First progress update should be accepted (UpdatedAt.IsZero() initially).
+	require.NoError(t, m.RecordSubUnitProgress(toCmd(t, &cmd.RecordDistributedTaskSubUnitProgressRequest{
+		Namespace: namespace,
+		Id:        taskID,
+		Version:   version,
+		SubUnitId: "shard-1",
+		NodeId:    "node-1",
+		Progress:  0.25,
+	})))
+
+	tasks, _ := m.ListDistributedTasks(context.Background())
+	require.InDelta(t, 0.25, tasks[namespace][0].SubUnits["shard-1"].Progress, 0.001)
+	require.Equal(t, SubUnitStatusInProgress, tasks[namespace][0].SubUnits["shard-1"].Status)
+
+	// Rapid second update: should be silently dropped (within minInterval).
+	require.NoError(t, m.RecordSubUnitProgress(toCmd(t, &cmd.RecordDistributedTaskSubUnitProgressRequest{
+		Namespace: namespace,
+		Id:        taskID,
+		Version:   version,
+		SubUnitId: "shard-1",
+		NodeId:    "node-1",
+		Progress:  0.50,
+	})))
+	tasks, _ = m.ListDistributedTasks(context.Background())
+	require.InDelta(t, 0.25, tasks[namespace][0].SubUnits["shard-1"].Progress, 0.001, "rapid update must be throttled")
+
+	// Advance clock past minInterval → update accepted.
+	clock.Advance(minInterval + time.Second)
+	require.NoError(t, m.RecordSubUnitProgress(toCmd(t, &cmd.RecordDistributedTaskSubUnitProgressRequest{
+		Namespace: namespace,
+		Id:        taskID,
+		Version:   version,
+		SubUnitId: "shard-1",
+		NodeId:    "node-1",
+		Progress:  0.75,
+	})))
+	tasks, _ = m.ListDistributedTasks(context.Background())
+	require.InDelta(t, 0.75, tasks[namespace][0].SubUnits["shard-1"].Progress, 0.001, "update after interval must be applied")
+}
+
+func TestManager_SubUnitTracking_SnapshotRestore(t *testing.T) {
+	var (
+		h         = newTestHarness(t).init(t)
+		namespace = "ns"
+		taskID    = "task-snap"
+		version   = uint64(10)
+		now       = h.clock.Now().Truncate(time.Millisecond)
+	)
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &addDistributedTaskRequestForTest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		SubUnitIds:            []string{"shard-1", "shard-2"},
+	}), version))
+
+	// Complete shard-1 to get some state.
+	require.NoError(t, h.manager.RecordSubUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskSubUnitCompletedRequest{
+		Namespace:            namespace,
+		Id:                   taskID,
+		Version:              version,
+		SubUnitId:            "shard-1",
+		NodeId:               "node-1",
+		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	})))
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	// Restore into a fresh manager.
+	h2 := newTestHarness(t).init(t)
+	require.NoError(t, h2.manager.Restore(snap))
+
+	tasks, err := h2.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tasks[namespace], 1)
+	task := tasks[namespace][0]
+	require.Equal(t, TaskStatusStarted, task.Status)
+	require.Equal(t, SubUnitStatusCompleted, task.SubUnits["shard-1"].Status)
+	require.Equal(t, SubUnitStatusPending, task.SubUnits["shard-2"].Status)
+}
+
+// addDistributedTaskRequestForTest mirrors AddDistributedTaskRequestWithSubUnits
+// with JSON tags matching the protobuf encoding so it can be passed to toCmd.
+type addDistributedTaskRequestForTest struct {
+	Namespace             string   `json:"namespace,omitempty"`
+	Id                    string   `json:"id,omitempty"`
+	Payload               []byte   `json:"payload,omitempty"`
+	SubmittedAtUnixMillis int64    `json:"submitted_at_unix_millis,omitempty"`
+	SubUnitIds            []string `json:"sub_unit_ids,omitempty"`
+}
+
+// h2clock returns a fake clock helper for tests that need to be independent of
+// the shared testHarness clock.
+func h2clock() *clockwork.FakeClock {
+	return clockwork.NewFakeClock()
 }
