@@ -64,6 +64,7 @@ message Hybrid {
   Targets targets = 10;
   optional SearchOperatorOptions bm25_search_operator = 11;
   optional float alpha_param = 12;
+  bool use_alpha_param = 13; // if true, alpha_param is used instead of alpha. This is for backward compatibility, as alpha was used before alpha_param was introduced.
 
   // only vector distance, but keep it extendable
   oneof threshold {
