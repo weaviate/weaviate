@@ -62,10 +62,10 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
 		o = append(o, grpc.ChainUnaryInterceptor(
-			multiServiceBasicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
+			basicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 		o = append(o, grpc.ChainStreamInterceptor(
-			multiServiceBasicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
+			basicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
 	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
@@ -109,7 +109,7 @@ func (s *Server) Close(ctx context.Context) error {
 	}
 }
 
-func multiServiceBasicAuthUnaryInterceptor(servicePrefixes []string, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
+func basicAuthUnaryInterceptor(servicePrefixes []string, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
@@ -126,7 +126,7 @@ func multiServiceBasicAuthUnaryInterceptor(servicePrefixes []string, expectedUse
 	}
 }
 
-func multiServiceBasicAuthStreamInterceptor(servicePrefixes []string, expectedUsername, expectedPassword string) grpc.StreamServerInterceptor {
+func basicAuthStreamInterceptor(servicePrefixes []string, expectedUsername, expectedPassword string) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
 		ss grpc.ServerStream,

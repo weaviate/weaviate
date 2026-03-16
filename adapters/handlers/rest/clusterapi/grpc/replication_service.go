@@ -227,7 +227,7 @@ func (s *ReplicationService) FindUUIDs(ctx context.Context, req *pb.FindUUIDsReq
 		return nil, replicationErrorToGRPC(err)
 	}
 
-	return &pb.FindUUIDsResponse{Uuids: shared.UuidsToStrings(uuids)}, nil
+	return &pb.FindUUIDsResponse{Uuids: shared.UUIDsToStrings(uuids)}, nil
 }
 
 func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTreeLevelRequest) (*pb.HashTreeLevelResponse, error) {

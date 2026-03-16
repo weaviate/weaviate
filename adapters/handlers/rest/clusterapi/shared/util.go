@@ -36,7 +36,7 @@ func StringsToUUIDs(ss []string) []strfmt.UUID {
 	return uuids
 }
 
-func UuidsToStrings(uuids []strfmt.UUID) []string {
+func UUIDsToStrings(uuids []strfmt.UUID) []string {
 	ss := make([]string, len(uuids))
 	for i, u := range uuids {
 		ss[i] = u.String()
