@@ -14,12 +14,10 @@ package test
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/exporttest"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	pqexport "github.com/weaviate/weaviate/usecases/export"
 )
 
@@ -105,7 +104,7 @@ func TestExport_SingleShard(t *testing.T) {
 		expVec, ok := expectedVecs[row.ID]
 		require.True(t, ok)
 		require.NotNil(t, row.Vector, "expected vector for object %s", row.ID)
-		actualVec := decodeFloat32Vector(t, row.Vector)
+		actualVec := byteops.Fp32SliceFromBytes(row.Vector)
 		require.InDeltaSlice(t, []float32(expVec), actualVec, 1e-6,
 			"vector mismatch for object %s", row.ID)
 		verifyRowTimestamps(t, row, startedAt)
@@ -539,17 +538,6 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 	}
 
 	require.Empty(t, expected, "some objects were not found in parquet export")
-}
-
-func decodeFloat32Vector(t *testing.T, data []byte) []float32 {
-	t.Helper()
-	require.Equal(t, 0, len(data)%4, "vector byte length must be multiple of 4")
-	vec := make([]float32, len(data)/4)
-	for i := range vec {
-		bits := binary.LittleEndian.Uint32(data[i*4 : (i+1)*4])
-		vec[i] = math.Float32frombits(bits)
-	}
-	return vec
 }
 
 func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
