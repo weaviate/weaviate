@@ -150,7 +150,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	exportUsecase "github.com/weaviate/weaviate/usecases/export"
+	exportusecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -678,7 +678,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.BackupManager = backupManager
 
 	// Create export participant early so the cluster API server can register it
-	appState.ExportParticipant = exportUsecase.NewParticipant(serverShutdownCtx, appState.DB, appState.Modules, appState.Logger)
+	appState.ExportParticipant = exportusecase.NewParticipant(serverShutdownCtx, appState.DB, appState.Modules, appState.Logger)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
@@ -1115,8 +1115,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	return backupScheduler
 }
 
-func startExportScheduler(appState *state.State) *exportUsecase.Scheduler {
-	return exportUsecase.NewScheduler(
+func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
+	return exportusecase.NewScheduler(
 		appState.Authorizer,
 		appState.ServerConfig.Config.Authorization.Rbac,
 		appState.DB,
