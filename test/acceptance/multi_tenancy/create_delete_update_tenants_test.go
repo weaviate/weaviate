@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/nodes"
 	eschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -83,10 +84,7 @@ func TestCreateTenants(t *testing.T) {
 		var foundTenants []string
 		for _, found := range resp.Payload.Nodes[0].Shards {
 			assert.Equal(t, testClass.Class, found.Class)
-			// Creating a tenant alone should not result in a loaded shard.
-			// This check also ensures that the nods api did not cause a
-			// force load.
-			assert.False(t, found.Loaded)
+			assert.True(t, found.Loaded)
 			foundTenants = append(foundTenants, found.Name)
 		}
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
@@ -227,10 +225,7 @@ func TestDeleteTenants(t *testing.T) {
 		require.NotNil(t, resp.Payload.Nodes)
 		require.Len(t, resp.Payload.Nodes, 1)
 		for _, shard := range resp.Payload.Nodes[0].Shards {
-			// Creating a tenant alone should not result in a loaded shard.
-			// This check also ensures that the nods api did not cause a
-			// force load.
-			assert.False(t, shard.Loaded)
+			assert.True(t, shard.Loaded)
 			assert.NotEqual(t, "tenant4", shard.Name)
 		}
 		respExist, errExist := helper.TenantExists(t, testClass.Class, "tenant4")

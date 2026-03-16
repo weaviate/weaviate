@@ -221,7 +221,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		classLabel = "n/a"
 	}
 	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel)
-	if err != nil {
+	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
