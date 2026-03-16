@@ -155,13 +155,18 @@ func (ns *NodeStatus) SetSuccess() {
 	ns.CompletedAt = time.Now().UTC()
 }
 
+// getShardProgress returns the ShardProgress for the given class/shard pair,
+// or nil if it does not exist. The mutex is held only for the map lookup.
+func (ns *NodeStatus) getShardProgress(className, shardName string) *ShardProgress {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	return ns.ShardProgress[className][shardName]
+}
+
 // AddShardExported atomically increments a shard's written-objects counter.
 // The mutex is held only for the map lookup; the counter itself is lock-free.
 func (ns *NodeStatus) AddShardExported(className, shardName string, delta int64) {
-	ns.mu.Lock()
-	sp := ns.ShardProgress[className][shardName]
-	ns.mu.Unlock()
-	if sp != nil {
+	if sp := ns.getShardProgress(className, shardName); sp != nil {
 		sp.objectsWritten.Add(delta)
 	}
 }
@@ -169,10 +174,7 @@ func (ns *NodeStatus) AddShardExported(className, shardName string, delta int64)
 // GetShardWritten returns the current value of a shard's atomic written-objects
 // counter. The mutex is held only for the map lookup.
 func (ns *NodeStatus) GetShardWritten(className, shardName string) int64 {
-	ns.mu.Lock()
-	sp := ns.ShardProgress[className][shardName]
-	ns.mu.Unlock()
-	if sp != nil {
+	if sp := ns.getShardProgress(className, shardName); sp != nil {
 		return sp.objectsWritten.Load()
 	}
 	return 0
