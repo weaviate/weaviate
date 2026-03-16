@@ -28,7 +28,6 @@ import (
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
 
 type Server struct {
@@ -43,7 +42,7 @@ const (
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
 // If replicationServer is non-nil, the ReplicationService will be registered.
-func NewServer(state *state.State, replicator replicaTypes.Replicator, options ...grpc.ServerOption) *Server {
+func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
 	maxSize := GetMaxMessageSize(state)
@@ -78,7 +77,7 @@ func NewServer(state *state.State, replicator replicaTypes.Replicator, options .
 	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
-	replicationService := NewReplicationService(replicator)
+	replicationService := NewReplicationService(state.DB)
 	pb.RegisterReplicationServiceServer(s, replicationService)
 
 	return &Server{Server: s, state: state}

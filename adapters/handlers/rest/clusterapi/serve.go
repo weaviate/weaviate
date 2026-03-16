@@ -93,8 +93,7 @@ func NewServer(appState *state.State) *Server {
 
 	mux.Handle("/", index())
 
-	replServer := appState.DB
-	grpcServer := grpc.NewServer(appState, replServer)
+	grpcServer := grpc.NewServer(appState)
 
 	var handler http.Handler
 	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
