@@ -254,6 +254,9 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	// Promote: if all nodes reached a terminal state, persist the final
 	// metadata so future Status() calls (and Cancel()) see it directly
 	// without re-assembling from per-node files.
+	// NOTE: this may race with Participant.tryPromoteMetadata which does the
+	// same write. Both paths assemble from the same per-node status files so
+	// the result is identical — last writer wins with the same data.
 	switch export.Status(assembled.Status) {
 	case export.Success, export.Failed:
 		promotedMeta := &ExportMetadata{

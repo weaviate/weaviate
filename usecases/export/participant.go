@@ -424,6 +424,9 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 // terminal status and, if so, writes the final export metadata file. This
 // promotes the multi-node export to a terminal state without requiring a
 // Status() API call.
+// NOTE: this may race with Scheduler.Status which does the same promotion.
+// Both paths assemble from the same per-node status files so the result is
+// identical — last writer wins with the same data.
 func (p *Participant) tryPromoteMetadata(backend modulecapabilities.BackupBackend, req *ExportRequest, ownStatus *NodeStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
