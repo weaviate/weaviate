@@ -59,6 +59,27 @@ func TestShards(t *testing.T) {
 		assert.Equal(t, float64(2), loadedCount)  // inc
 	})
 
+	t.Run("fail_loading_shard", func(t *testing.T) {
+		// invariant:
+		// 1. `shards_loading` should be decremented
+		// 2. `shards_unloaded` should be incremented
+
+		// Setting base values
+		mv := m.ShardsLoading
+		mv.Set(1)
+
+		mv = m.ShardsUnloaded
+		mv.Set(1)
+
+		m.FailLoadingShard()
+
+		loadingCount := testutil.ToFloat64(m.ShardsLoading)
+		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
+
+		assert.Equal(t, float64(0), loadingCount)  // dec
+		assert.Equal(t, float64(2), unloadedCount) // inc
+	})
+
 	t.Run("start_unloading_shard", func(t *testing.T) {
 		// invariant:
 		// 1. `shards_loaded` should be decremented
@@ -114,5 +135,50 @@ func TestShards(t *testing.T) {
 		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
 
 		assert.Equal(t, float64(2), unloadedCount) // inc
+	})
+
+	t.Run("new_loaded_shard", func(t *testing.T) {
+		// invariant:
+		// 1. `shards_loaded` should be incremented
+
+		// Setting base values
+		mv := m.ShardsLoaded
+		mv.Set(1)
+
+		m.NewLoadedShard()
+
+		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
+
+		assert.Equal(t, float64(2), loadedCount) // inc
+	})
+
+	t.Run("delete_loaded_shard", func(t *testing.T) {
+		// invariant:
+		// 1. `shards_loaded` should be decremented
+
+		// Setting base values
+		mv := m.ShardsLoaded
+		mv.Set(2)
+
+		m.DeleteLoadedShard()
+
+		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
+
+		assert.Equal(t, float64(1), loadedCount) // dec
+	})
+
+	t.Run("delete_unloaded_shard", func(t *testing.T) {
+		// invariant:
+		// 1. `shards_unloaded` should be decremented
+
+		// Setting base values
+		mv := m.ShardsUnloaded
+		mv.Set(2)
+
+		m.DeleteUnloadedShard()
+
+		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
+
+		assert.Equal(t, float64(1), unloadedCount) // dec
 	})
 }

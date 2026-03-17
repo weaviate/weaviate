@@ -171,6 +171,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
 		}),
+		ExportExportCancelHandler: export.ExportCancelHandlerFunc(func(params export.ExportCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCancel has not yet been implemented")
+		}),
 		ExportExportCreateHandler: export.ExportCreateHandlerFunc(func(params export.ExportCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation export.ExportCreate has not yet been implemented")
 		}),
@@ -490,6 +493,8 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
 	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
+	// ExportExportCancelHandler sets the operation handler for the export cancel operation
+	ExportExportCancelHandler export.ExportCancelHandler
 	// ExportExportCreateHandler sets the operation handler for the export create operation
 	ExportExportCreateHandler export.ExportCreateHandler
 	// ExportExportStatusHandler sets the operation handler for the export status operation
@@ -806,6 +811,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.DistributedTasksDistributedTasksGetHandler == nil {
 		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
+	}
+	if o.ExportExportCancelHandler == nil {
+		unregistered = append(unregistered, "export.ExportCancelHandler")
 	}
 	if o.ExportExportCreateHandler == nil {
 		unregistered = append(unregistered, "export.ExportCreateHandler")
@@ -1240,6 +1248,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/tasks"] = distributed_tasks.NewDistributedTasksGet(o.context, o.DistributedTasksDistributedTasksGetHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/export/{backend}/{id}"] = export.NewExportCancel(o.context, o.ExportExportCancelHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

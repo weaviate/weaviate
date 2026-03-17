@@ -722,12 +722,17 @@
         "status": {
           "type": "string",
           "description": "Current status of the export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "SKIPPED"]
+          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "CANCELED"]
         },
         "startedAt": {
           "type": "string",
           "format": "date-time",
           "description": "When the export started"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export completed (successfully, with failure, or was canceled)"
         },
         "tookInMs": {
           "type": "integer",
@@ -764,7 +769,7 @@
         "status": {
           "type": "string",
           "description": "Status of this shard's export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "SKIPPED"]
+          "enum": ["TRANSFERRING", "SUCCESS", "FAILED", "SKIPPED"]
         },
         "objectsExported": {
           "type": "integer",
@@ -1024,10 +1029,10 @@
         }
       }
     },
-    "ObjectTtlConfig":{
+    "ObjectTtlConfig": {
       "description": "Configuration of objects' time-to-live",
       "properties": {
-         "enabled": {
+        "enabled": {
           "description": "Whether or not object ttl is enabled for this collection (default: `false`).",
           "type": "boolean",
           "x-omitempty": false
@@ -9422,6 +9427,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Invalid export request",
             "schema": {
@@ -9500,8 +9511,93 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "Internal server error occurred while retrieving export status",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel an export",
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "operationId": "export.cancel",
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
+        ],
+        "tags": [
+          "export"
+        ],
+        "parameters": [
+          {
+            "name": "backend",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The backend storage system where the export is stored."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The unique identifier of the export to cancel."
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional bucket name where the export is stored."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional path prefix within the bucket."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

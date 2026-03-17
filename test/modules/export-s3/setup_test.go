@@ -67,6 +67,7 @@ func TestMain(m *testing.M) {
 func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 	compose, err := docker.New().
 		WithBackendS3(s3Bucket, defaultS3Region).
+		WithOffloadS3(s3Bucket, defaultS3Region).
 		WithWeaviateEnv("AWS_REGION", defaultS3Region).
 		WithWeaviateCluster(3).
 		Start(ctx)

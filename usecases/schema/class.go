@@ -1032,6 +1032,29 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 			continue
 		}
 
+		// SkipDefaultQuantization and TrackDefaultQuantization must be effectively immutable
+		// without enforcing that on the client. We just set these fields to their initial values.
+		switch cfg := v.VectorIndexConfig.(type) {
+		case hnsw.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(hnsw.UserConfig)
+			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
+			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		case flat.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(flat.UserConfig)
+			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
+			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		case dynamic.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(dynamic.UserConfig)
+			cfg.HnswUC.SkipDefaultQuantization = cfgInitial.HnswUC.SkipDefaultQuantization
+			cfg.HnswUC.TrackDefaultQuantization = cfgInitial.HnswUC.TrackDefaultQuantization
+			cfg.FlatUC.SkipDefaultQuantization = cfgInitial.FlatUC.SkipDefaultQuantization
+			cfg.FlatUC.TrackDefaultQuantization = cfgInitial.FlatUC.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		}
+		updated.VectorConfig[k] = v
+
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings

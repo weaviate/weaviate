@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -31,10 +32,10 @@ type ExportShardLike = interface {
 }
 
 // ShardOwnership returns a map of node name to shard names for a given class.
-// Only the primary owner (BelongsToNodes[0]) is included for each shard,
-// ensuring replicated shards are never exported twice.
+// Shards are distributed across their replica nodes using a least-loaded
+// strategy so that export work is balanced across the cluster.
 func (db *DB) ShardOwnership(ctx context.Context, className string) (map[string][]string, error) {
-	result := make(map[string][]string)
+	shardNodes := make(map[string][]string)
 
 	err := db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
@@ -45,8 +46,19 @@ func (db *DB) ShardOwnership(ctx context.Context, className string) (map[string]
 			if len(shard.BelongsToNodes) == 0 {
 				return fmt.Errorf("shard %s of class %s has no assigned nodes", shardName, className)
 			}
-			primaryNode := shard.BelongsToNodes[0]
-			result[primaryNode] = append(result[primaryNode], shardName)
+
+			// Filter out empty node names to avoid assigning shards to an invalid node.
+			validNodes := make([]string, 0, len(shard.BelongsToNodes))
+			for _, node := range shard.BelongsToNodes {
+				if node != "" {
+					validNodes = append(validNodes, node)
+				}
+			}
+			if len(validNodes) == 0 {
+				return fmt.Errorf("shard %s of class %s has only empty assigned nodes", shardName, className)
+			}
+
+			shardNodes[shardName] = validNodes
 		}
 
 		return nil
@@ -55,32 +67,44 @@ func (db *DB) ShardOwnership(ctx context.Context, className string) (map[string]
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
 
-	return result, nil
+	return assignShardsToNodes(shardNodes), nil
 }
 
-// ExportShardNames returns all shard names for a class and whether the class is MT.
-// Activity status is not checked here — callers must handle COLD tenants in
-// AcquireShardForExport, which is resilient to tenants going COLD between
-// listing and acquiring.
-func (db *DB) ExportShardNames(className string) ([]string, bool, error) {
-	idx := db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return nil, false, fmt.Errorf("index not found for class %s", className)
+// assignShardsToNodes distributes shards across their replica nodes using a
+// least-loaded strategy. For each shard (processed in sorted order for
+// determinism), it picks the replica node with the fewest already-assigned
+// shards. Ties are broken by lexicographic node name order.
+func assignShardsToNodes(shards map[string][]string) map[string][]string {
+	result := make(map[string][]string)
+	if len(shards) == 0 {
+		return result
 	}
 
-	class := idx.getClass()
-	if class == nil {
-		return nil, false, fmt.Errorf("class not found for index %s", className)
+	// Process shards in sorted order for determinism.
+	shardNames := make([]string, 0, len(shards))
+	for name := range shards {
+		shardNames = append(shardNames, name)
+	}
+	sort.Strings(shardNames)
+
+	for _, shardName := range shardNames {
+		nodes := shards[shardName]
+
+		// Pick the node with the least load; break ties lexicographically.
+		best := nodes[0]
+		bestLoad := len(result[best])
+		for _, node := range nodes[1:] {
+			nl := len(result[node])
+			if nl < bestLoad || (nl == bestLoad && node < best) {
+				best = node
+				bestLoad = nl
+			}
+		}
+
+		result[best] = append(result[best], shardName)
 	}
 
-	isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
-
-	allShards, err := idx.schemaReader.Shards(class.Class)
-	if err != nil {
-		return nil, false, fmt.Errorf("get shards for class %s: %w", className, err)
-	}
-
-	return allShards, isMT, nil
+	return result
 }
 
 // AcquireShardForExport returns the shard handle and a release function.
@@ -237,6 +261,31 @@ func (db *DB) IsMultiTenant(_ context.Context, className string) bool {
 	}
 	class := idx.getClass()
 	return class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
+}
+
+// IsAsyncReplicationEnabled returns true if async replication is either
+// enabled or not required for correctness. Classes with a replication
+// factor ≤ 1 have no replicas, so async replication is irrelevant and
+// the method returns true. For RF > 1 the class must have async
+// replication enabled and it must not be globally disabled at the
+// cluster level.
+func (db *DB) IsAsyncReplicationEnabled(_ context.Context, className string) bool {
+	idx := db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return false
+	}
+	class := idx.getClass()
+	if class == nil {
+		return false
+	}
+	// No replicas → async replication is not needed for correctness.
+	if class.ReplicationConfig == nil || class.ReplicationConfig.Factor <= 1 {
+		return true
+	}
+	if db.config.Replication.AsyncReplicationDisabled.Get() {
+		return false
+	}
+	return class.ReplicationConfig.AsyncEnabled
 }
 
 // ListClasses returns all class names (already exists on DB, this is a convenience alias comment).

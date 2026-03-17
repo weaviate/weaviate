@@ -41,11 +41,54 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	ExportCancel(params *ExportCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ExportCancelNoContent, error)
+
 	ExportCreate(params *ExportCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ExportCreateOK, error)
 
 	ExportStatus(params *ExportStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ExportStatusOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+ExportCancel cancels an export
+
+Cancels an ongoing export operation identified by its ID.
+*/
+func (a *Client) ExportCancel(params *ExportCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ExportCancelNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewExportCancelParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "export.cancel",
+		Method:             "DELETE",
+		PathPattern:        "/export/{backend}/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ExportCancelReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ExportCancelNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for export.cancel: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
