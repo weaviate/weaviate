@@ -227,7 +227,7 @@ func TestDefaultShardingCountRuntimeOverride(t *testing.T) {
 		defer func() {
 			for _, cn := range createdClasses {
 				dp := schema.NewSchemaObjectsDeleteParams().WithClassName(cn)
-				helper.Client(t).Schema.SchemaObjectsDelete(dp, nil) //nolint:errcheck
+				_, _ = helper.Client(t).Schema.SchemaObjectsDelete(dp, nil)
 			}
 		}()
 
@@ -241,7 +241,7 @@ func TestDefaultShardingCountRuntimeOverride(t *testing.T) {
 
 			// Use client directly to avoid t.Fatal inside the polling loop.
 			delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
-			helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil) //nolint:errcheck
+			_, _ = helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 
 			createParams := schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{
 				Class: className,
