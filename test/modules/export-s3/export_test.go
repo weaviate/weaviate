@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/exporttest"
@@ -69,7 +70,7 @@ func TestExport_SingleShard(t *testing.T) {
 		}
 	}
 	startedAt := time.Now()
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
 	require.NoError(t, err)
@@ -135,7 +136,7 @@ func TestExport_MultiShard(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 
 	objects := makeObjects(className, "", 50)
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
 	require.NoError(t, err)
@@ -192,7 +193,7 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			Vector: models.C11yVector{float32(i) * 0.1, float32(i) * 0.2},
 		}
 	}
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	// Delete every other object, update the rest with new values
 	var surviving []*models.Object
@@ -310,9 +311,9 @@ func TestExport_MultipleClasses(t *testing.T) {
 	defer helper.DeleteClass(t, classNameB)
 
 	objectsA := makeObjects(classNameA, "", 15)
-	helper.CreateObjectsBatch(t, objectsA)
+	helper.CreateObjectsBatchCL(t, objectsA, types.ConsistencyLevelAll)
 	objectsB := makeObjects(classNameB, "", 10)
-	helper.CreateObjectsBatch(t, objectsB)
+	helper.CreateObjectsBatchCL(t, objectsB, types.ConsistencyLevelAll)
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{classNameA, classNameB})
 	require.NoError(t, err)
@@ -352,7 +353,7 @@ func TestExport_MultiTenant_SingleShard(t *testing.T) {
 	var allObjects []*models.Object
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 		allObjects = append(allObjects, objects...)
 	}
 
@@ -394,7 +395,7 @@ func TestExport_MultiTenant_MultiShard(t *testing.T) {
 	var allObjects []*models.Object
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 		allObjects = append(allObjects, objects...)
 	}
 
@@ -406,7 +407,7 @@ func TestExport_MultiTenant_MultiShard(t *testing.T) {
 	// appear in the export.
 	helper.CreateTenants(t, className, []*models.Tenant{{Name: "tenantLate"}})
 	lateObjects := makeObjects(className, "tenantLate", 10)
-	helper.CreateObjectsBatch(t, lateObjects)
+	helper.CreateObjectsBatchCL(t, lateObjects, types.ConsistencyLevelAll)
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
@@ -457,7 +458,7 @@ func TestExport_NamedVectorAndMultiVector(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 
 	objects := makeNamedVectorObjects(className, 10)
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
 	require.NoError(t, err)
@@ -595,7 +596,7 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	var activeObjects []*models.Object
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 		if tenant.Name == "tenantA" || tenant.Name == "tenantC" {
 			activeObjects = append(activeObjects, objects...)
 		}
@@ -669,7 +670,7 @@ func TestExport_MultiTenant_AutoActivation(t *testing.T) {
 	var allObjects []*models.Object
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 		allObjects = append(allObjects, objects...)
 	}
 
@@ -729,7 +730,7 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 	}
 
 	// Set both tenants to COLD
@@ -952,7 +953,7 @@ func TestExport_Validation(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 
 	objects := makeObjects(className, "", 5)
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	t.Run("invalid export ID format", func(t *testing.T) {
 		fileFormat := models.ExportCreateRequestFileFormatParquet
@@ -1039,9 +1040,9 @@ func TestExport_ExcludeFilter(t *testing.T) {
 	defer helper.DeleteClass(t, excludedClass)
 
 	includedObjects := makeObjects(includedClass, "", 10)
-	helper.CreateObjectsBatch(t, includedObjects)
+	helper.CreateObjectsBatchCL(t, includedObjects, types.ConsistencyLevelAll)
 	excludedObjects := makeObjects(excludedClass, "", 10)
-	helper.CreateObjectsBatch(t, excludedObjects)
+	helper.CreateObjectsBatchCL(t, excludedObjects, types.ConsistencyLevelAll)
 
 	t.Run("exclude one class", func(t *testing.T) {
 		exportID := strings.ToLower(sanitizeClassName(t.Name()))
@@ -1102,7 +1103,7 @@ func TestExport_CustomConfig(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 
 	objects := makeObjects(className, "", 10)
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	// Create a custom bucket in MinIO
 	_, err := s3Client.CreateBucket(context.Background(), &s3.CreateBucketInput{
@@ -1171,7 +1172,7 @@ func TestExport_DuplicateID(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 
 	objects := makeObjects(className, "", 5)
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	// First export — should succeed
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
@@ -1212,9 +1213,9 @@ func TestExport_ConcurrentExport(t *testing.T) {
 
 	// Insert enough objects so the first export takes a while
 	objectsA := makeObjects(classNameA, "", 200)
-	helper.CreateObjectsBatch(t, objectsA)
+	helper.CreateObjectsBatchCL(t, objectsA, types.ConsistencyLevelAll)
 	objectsB := makeObjects(classNameB, "", 5)
-	helper.CreateObjectsBatch(t, objectsB)
+	helper.CreateObjectsBatchCL(t, objectsB, types.ConsistencyLevelAll)
 
 	// Start first export
 	_, err := exporttest.CreateExport(t, "s3", exportIDA, []string{classNameA})
@@ -1258,7 +1259,7 @@ func TestExport_Cancel(t *testing.T) {
 
 		// Create enough objects to make the export take some time
 		objects := makeObjects(className, "", 200)
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
 		require.NoError(t, err)
@@ -1298,7 +1299,7 @@ func TestExport_Cancel(t *testing.T) {
 		defer helper.DeleteClass(t, className)
 
 		objects := makeObjects(className, "", 200)
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 		// Start and cancel the first export
 		_, err := exporttest.CreateExport(t, "s3", firstID, []string{className})
@@ -1346,7 +1347,7 @@ func TestExport_Cancel_AlreadyFinished(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 
 	objects := makeObjects(className, "", 5)
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
 	require.NoError(t, err)
@@ -1381,7 +1382,7 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 
 	objects := makeObjects(className, "", 5)
-	helper.CreateObjectsBatch(t, objects)
+	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
 	require.Error(t, err)
