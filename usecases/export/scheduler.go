@@ -569,6 +569,12 @@ func (s *Scheduler) assembleStatusFromMetadata(
 //  2. If all prepared successfully, commit all (start the export).
 //  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
+	// Bound the entire 2PC (Prepare all + metadata write + Commit all) to the
+	// reservation timeout. If the coordinator can't finish within this window
+	// participants will auto-release their reservations anyway.
+	ctx, cancel := context.WithTimeout(ctx, reservationTimeout)
+	defer cancel()
+
 	// Build node assignments: node → className → []shardName
 	nodeAssignments := make(map[string]map[string][]string)
 
