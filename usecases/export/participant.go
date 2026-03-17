@@ -877,6 +877,8 @@ func (p *Participant) startNodeStatusWriter(
 						p.mu.Unlock()
 						return
 					}
+				case <-exportCtx.Done():
+					return
 				case <-quit:
 					return
 				}
