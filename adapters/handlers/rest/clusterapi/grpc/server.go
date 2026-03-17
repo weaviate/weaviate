@@ -28,6 +28,7 @@ import (
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type Server struct {
@@ -70,6 +71,22 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	}
 	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+
+	replicationPrefixes := []string{"/clusterapi.ReplicationService"}
+	o = append(o, grpc.ChainUnaryInterceptor(
+		makeNodeReadyUnaryInterceptor(state.ClusterService.Ready, replicationPrefixes),
+	))
+
+	rqc := state.ServerConfig.Config.Cluster.RequestQueueConfig
+	if rqc.IsEnabled != nil && rqc.IsEnabled.Get() {
+		queueSize := rqc.QueueSize
+		if queueSize == 0 {
+			queueSize = cluster.DefaultRequestQueueSize
+		}
+		o = append(o, grpc.ChainUnaryInterceptor(
+			makeConcurrencyLimitUnaryInterceptor(queueSize, replicationPrefixes),
+		))
+	}
 
 	s := grpc.NewServer(o...)
 
@@ -203,5 +220,30 @@ func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost fun
 			return status.Error(codes.Unavailable, "server is in maintenance mode")
 		}
 		return handler(srv, ss)
+	}
+}
+
+func makeNodeReadyUnaryInterceptor(nodeReady func() bool, servicePrefixes []string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if matchesAnyPrefix(info.FullMethod, servicePrefixes) && !nodeReady() {
+			return nil, status.Error(codes.Unavailable, "node not ready")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeConcurrencyLimitUnaryInterceptor(limit int, servicePrefixes []string) grpc.UnaryServerInterceptor {
+	sem := make(chan struct{}, limit)
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if !matchesAnyPrefix(info.FullMethod, servicePrefixes) {
+			return handler(ctx, req)
+		}
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+			return handler(ctx, req)
+		default:
+			return nil, status.Error(codes.ResourceExhausted, "replication request queue full")
+		}
 	}
 }

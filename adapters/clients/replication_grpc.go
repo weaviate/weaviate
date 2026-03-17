@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
@@ -275,7 +276,7 @@ func (c *grpcReplicationClient) Abort(ctx context.Context, host, index, shard, r
 // ── Read operations (RClient) ────────────────────────────────────────────────
 
 func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, shard string,
-	id strfmt.UUID, _ search.SelectProperties, _ additional.Properties, _ int,
+	id strfmt.UUID, _ search.SelectProperties, _ additional.Properties, numRetries int,
 ) (replica.Replica, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -289,7 +290,7 @@ func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, sh
 		Index: index,
 		Shard: shard,
 		Uuid:  id.String(),
-	})
+	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return replica.Replica{}, fmt.Errorf("gRPC FetchObject: %w", err)
 	}
@@ -309,7 +310,9 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
+	// Use COMMIT_TIMEOUT_VALUE (90s) to match the REST transport, since FetchObjects
+	// is used for consistency repair and may need more time under load.
+	ctx, cancel := context.WithTimeout(ctx, COMMIT_TIMEOUT_VALUE*time.Second)
 	defer cancel()
 
 	resp, err := client.FetchObjects(ctx, &protocol.FetchObjectsRequest{
@@ -329,7 +332,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 }
 
 func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID, _ int,
+	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -343,7 +346,7 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 		Index: index,
 		Shard: shard,
 		Ids:   uuidsToStrings(ids),
-	})
+	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return nil, fmt.Errorf("gRPC DigestObjects: %w", err)
 	}
@@ -423,12 +426,14 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
 	defer cancel()
 
+	// Disable retries to match REST behavior, which had no retries for FindUUIDs.
+	// The 20s timeout (vs no timeout in REST) is kept as an intentional safety net.
 	resp, err := client.FindUUIDs(ctx, &protocol.FindUUIDsRequest{
 		Index:      index,
 		Shard:      shard,
 		FilterJson: filterJSON,
 		Limit:      int32(limit),
-	})
+	}, grpc_retry.Disable())
 	if err != nil {
 		return nil, fmt.Errorf("gRPC FindUUIDs: %w", err)
 	}
