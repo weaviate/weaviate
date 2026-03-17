@@ -30,7 +30,6 @@ func TestParticipant_PrepareValidation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
@@ -54,7 +53,6 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
@@ -93,7 +91,6 @@ func TestParticipant_IsRunning(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
@@ -127,7 +124,6 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
@@ -178,7 +174,6 @@ func TestParticipant_PrepareAfterAbort(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
@@ -222,7 +217,6 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 
 	p := NewParticipant(
-		context.Background(),
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
@@ -315,7 +309,6 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
@@ -368,7 +361,6 @@ func TestParticipant_CommitErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			p := NewParticipant(
-				context.Background(),
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: &fakeBackend{}},
 				logger,
@@ -407,7 +399,6 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	}
 
 	p := NewParticipant(
-		context.Background(),
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
@@ -488,9 +479,6 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 				},
 			}
 
-			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			defer shutdownCancel()
-
 			var sel Selector
 			if tc.failExport {
 				sel = &blockingSelector{blockCh: make(chan struct{})}
@@ -498,7 +486,7 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 				sel = &fakeSelector{classList: []string{"TestClass"}}
 			}
 
-			p := NewParticipant(shutdownCtx, sel, &fakeBackendProvider{backend: backend}, logger,
+			p := NewParticipant(sel, &fakeBackendProvider{backend: backend}, logger,
 				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1")
 
 			shards := map[string][]string{"TestClass": {"shard0"}}
@@ -520,7 +508,7 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 
 			if tc.failExport {
 				sel.(*blockingSelector).waitForCall(t)
-				shutdownCancel()
+				p.StartShutdown()
 			}
 
 			require.Eventually(t, func() bool {
@@ -703,7 +691,6 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			}
 
 			p := NewParticipant(
-				context.Background(),
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: backend},
 				logger,

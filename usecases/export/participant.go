@@ -45,6 +45,7 @@ const (
 //  3. Abort: releases the reservation immediately.
 type Participant struct {
 	shutdownCtx          context.Context
+	shutdownCancel       context.CancelFunc
 	selector             Selector
 	backends             BackendProvider
 	logger               logrus.FieldLogger
@@ -72,11 +73,10 @@ type Participant struct {
 }
 
 // NewParticipant creates a new export participant.
-// The shutdownCtx is canceled on graceful server shutdown, allowing in-flight
-// exports to detect the shutdown and write a failed status before exiting.
+// Call StartShutdown to signal in-flight exports to stop, then Shutdown to
+// wait for them to drain.
 // client and nodeResolver enable best-effort sibling aborts on failure.
 func NewParticipant(
-	shutdownCtx context.Context,
 	selector Selector,
 	backends BackendProvider,
 	logger logrus.FieldLogger,
@@ -90,20 +90,28 @@ func NewParticipant(
 	if nodeResolver == nil {
 		panic("export: participant requires a non-nil nodeResolver")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Participant{
-		shutdownCtx:  shutdownCtx,
-		selector:     selector,
-		backends:     backends,
-		logger:       logger,
-		client:       client,
-		nodeResolver: nodeResolver,
-		localNode:    localNode,
+		shutdownCtx:    ctx,
+		shutdownCancel: cancel,
+		selector:       selector,
+		backends:       backends,
+		logger:         logger,
+		client:         client,
+		nodeResolver:   nodeResolver,
+		localNode:      localNode,
 	}
+}
+
+// StartShutdown signals in-flight exports to stop. It returns immediately;
+// call Shutdown to wait for exports to finish their cleanup.
+func (p *Participant) StartShutdown() {
+	p.shutdownCancel()
 }
 
 // Shutdown waits for any in-flight export goroutine to finish its cleanup
 // (final status flush, sibling abort, metadata promotion). The caller should
-// cancel shutdownCtx first to signal exports to stop, then call Shutdown to
+// call StartShutdown first to signal exports to stop, then call Shutdown to
 // wait for them to drain. The provided context bounds how long we wait.
 func (p *Participant) Shutdown(ctx context.Context) error {
 	done := make(chan struct{})

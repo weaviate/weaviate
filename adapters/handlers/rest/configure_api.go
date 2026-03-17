@@ -682,7 +682,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
 	appState.ExportParticipant = exportusecase.NewParticipant(
-		serverShutdownCtx, appState.DB, appState.Modules, appState.Logger,
+		appState.DB, appState.Modules, appState.Logger,
 		exportClient, appState.Cluster, appState.Cluster.LocalName(),
 	)
 
@@ -1027,6 +1027,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		// Reject new export requests and signal in-flight exports to stop
+		// early, while the server can still serve other requests. The actual
+		// wait for export drain happens in ServerShutdown.
+		exportScheduler.StartShutdown()
+		appState.ExportParticipant.StartShutdown()
 		batchDrain()
 	}
 
@@ -1035,6 +1040,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
+
+		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
+		exportDone := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(exportDone)
+			exportCtx, exportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer exportCancel()
+			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
+				appState.Logger.
+					WithError(err).
+					WithField("action", "shutdown export participant").
+					Errorf("failed to gracefully shutdown")
+			}
+		}, appState.Logger)
 
 		// drain any ongoing operations
 		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
@@ -1058,24 +1077,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		serverShutdownCancel(fmt.Errorf("server shutdown"))
-
-		// Start draining in-flight exports. The export cleanup (status flush
-		// to backend, sibling abort, metadata promotion) depends on the
-		// cluster client and modules, so we wait for it before closing those
-		// components below. serverShutdownCancel above signals in-flight
-		// exports to stop so this does not block unnecessarily.
-		exportDone := make(chan struct{})
-		enterrors.GoWrapper(func() {
-			defer close(exportDone)
-			exportCtx, exportCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer exportCancel()
-			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
-				appState.Logger.
-					WithError(err).
-					WithField("action", "shutdown export participant").
-					Errorf("failed to gracefully shutdown")
-			}
-		}, appState.Logger)
 
 		if appState.DistributedTaskScheduler != nil {
 			appState.DistributedTaskScheduler.Close()

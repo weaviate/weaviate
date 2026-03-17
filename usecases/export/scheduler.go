@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -52,6 +53,10 @@ var (
 	// ErrExportAlreadyActive is returned when attempting to start an export
 	// while another export is already in progress on a participant node.
 	ErrExportAlreadyActive = errors.New("export already active")
+
+	// ErrExportShuttingDown is returned when a new export is rejected because
+	// the node is shutting down.
+	ErrExportShuttingDown = errors.New("server is shutting down")
 )
 
 const exportMetadataFile = "export_metadata.json"
@@ -89,6 +94,7 @@ type Scheduler struct {
 	nodeResolver NodeResolver
 	localNode    string
 	participant  *Participant
+	shuttingDown atomic.Bool
 }
 
 // NewScheduler creates a new export scheduler.
@@ -125,8 +131,17 @@ func NewScheduler(
 	}
 }
 
+// StartShutdown marks the scheduler as shutting down so new export requests
+// are rejected. Already-running exports are not affected.
+func (s *Scheduler) StartShutdown() {
+	s.shuttingDown.Store(true)
+}
+
 // Export starts a new export operation.
 func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
+	if s.shuttingDown.Load() {
+		return nil, ErrExportShuttingDown
+	}
 	if !regExpID.MatchString(id) {
 		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
 	}
