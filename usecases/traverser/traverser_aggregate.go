@@ -25,6 +25,8 @@ import (
 
 // Aggregate resolves meta queries
 func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal, params *aggregation.Params) (any, error) {
+	// TODO(dyma): if the collection is referenced by its alias, the metric may underestimate the true number of queries.
+	// Do we want to resolve the alias before recording this query?
 	t.metrics.QueriesAggregateInc(params.ClassName.String())
 	defer t.metrics.QueriesAggregateDec(params.ClassName.String())
 
