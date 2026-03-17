@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -52,6 +53,10 @@ var (
 	// ErrExportAlreadyActive is returned when attempting to start an export
 	// while another export is already in progress on a participant node.
 	ErrExportAlreadyActive = errors.New("export already active")
+
+	// ErrExportShuttingDown is returned when a new export is rejected because
+	// the node is shutting down.
+	ErrExportShuttingDown = errors.New("server is shutting down")
 )
 
 const exportMetadataFile = "export_metadata.json"
@@ -89,6 +94,7 @@ type Scheduler struct {
 	nodeResolver NodeResolver
 	localNode    string
 	participant  *Participant
+	shuttingDown atomic.Bool
 }
 
 // NewScheduler creates a new export scheduler.
@@ -125,8 +131,17 @@ func NewScheduler(
 	}
 }
 
+// StartShutdown marks the scheduler as shutting down so new export requests
+// are rejected. Already-running exports are not affected.
+func (s *Scheduler) StartShutdown() {
+	s.shuttingDown.Store(true)
+}
+
 // Export starts a new export operation.
 func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
+	if s.shuttingDown.Load() {
+		return nil, ErrExportShuttingDown
+	}
 	if !regExpID.MatchString(id) {
 		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
 	}
@@ -254,6 +269,9 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	// Promote: if all nodes reached a terminal state, persist the final
 	// metadata so future Status() calls (and Cancel()) see it directly
 	// without re-assembling from per-node files.
+	// NOTE: this may race with Participant.tryPromoteMetadata which does the
+	// same write. Both paths assemble from the same per-node status files so
+	// the result is identical — last writer wins with the same data.
 	switch export.Status(assembled.Status) {
 	case export.Success, export.Failed:
 		promotedMeta := &ExportMetadata{
@@ -566,6 +584,12 @@ func (s *Scheduler) assembleStatusFromMetadata(
 //  2. If all prepared successfully, commit all (start the export).
 //  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
+	// Bound the entire 2PC (Prepare all + metadata write + Commit all) to the
+	// reservation timeout. If the coordinator can't finish within this window
+	// participants will auto-release their reservations anyway.
+	ctx, cancel := context.WithTimeout(ctx, reservationTimeout)
+	defer cancel()
+
 	// Build node assignments: node → className → []shardName
 	nodeAssignments := make(map[string]map[string][]string)
 
@@ -665,7 +689,12 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 			initialMeta.Status = export.Failed
 			initialMeta.Error = fmt.Sprintf("commit node %s failed: %v", ni.req.NodeName, err)
 			initialMeta.CompletedAt = time.Now().UTC()
-			writeExportMetadata(backend, exportID, bucket, path, initialMeta, s.logger)
+			if writeErr := writeExportMetadata(backend, exportID, bucket, path, initialMeta, s.logger); writeErr != nil {
+				s.logger.WithField("action", "export_commit").
+					WithField("export_id", exportID).
+					Errorf("failed to persist failure metadata: %v", writeErr)
+				return fmt.Errorf("commit node %s: %w (follow-up: failed to persist failure metadata: %w)", ni.req.NodeName, err, writeErr)
+			}
 			return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
 		}
 	}
