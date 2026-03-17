@@ -485,6 +485,16 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultShardingCount := 0
+	if err := parseNonNegativeInt(
+		"DEFAULT_SHARDING_COUNT",
+		func(v int) { defaultShardingCount = v },
+		0,
+	); err != nil {
+		return err
+	}
+	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
+
 	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
 		config.HFreshEnabled = true
 	}
