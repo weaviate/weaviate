@@ -24,67 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 )
 
-func newTestNodeStatus(nodeName string) *NodeStatus {
-	return &NodeStatus{
-		NodeName:      nodeName,
-		Status:        export.Transferring,
-		ShardProgress: make(map[string]map[string]*ShardProgress),
-	}
-}
-
-// shardSelector is a test Selector that returns pre-configured testShard
-// instances from AcquireShardForExport.
-type shardSelector struct {
-	// shards maps className → shardName → testShard.
-	shards map[string]map[string]*testShard
-	// skipped maps className → shardName for shards that should be skipped.
-	skipped map[string]map[string]string
-	// mt tracks which classes are multi-tenant.
-	mt map[string]bool
-}
-
-func (s *shardSelector) ListClasses(context.Context) []string { return nil }
-
-func (s *shardSelector) ShardOwnership(context.Context, string) (map[string][]string, error) {
-	return nil, nil
-}
-
-func (s *shardSelector) IsMultiTenant(_ context.Context, className string) bool {
-	return s.mt[className]
-}
-
-func (s *shardSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bool {
-	return true
-}
-
-func (s *shardSelector) AcquireShardForExport(_ context.Context, className, shardName string) (ShardLike, func(), string, error) {
-	if s.skipped != nil {
-		if reasons, ok := s.skipped[className]; ok {
-			if reason, ok := reasons[shardName]; ok {
-				return nil, nil, reason, nil
-			}
-		}
-	}
-	if classShards, ok := s.shards[className]; ok {
-		if shard, ok := classShards[shardName]; ok {
-			return shard, func() {}, "", nil
-		}
-	}
-	return nil, nil, "shard not found", nil
-}
-
-// shardSpec defines a shard with its object count for table-driven tests.
-type shardSpec struct {
-	name       string
-	numObjects int
-}
-
-// expectedFile defines an expected parquet output file and its row count.
-type expectedFile struct {
-	key     string
-	numRows int
-}
-
 func TestDoExport(t *testing.T) {
 	t.Parallel()
 
@@ -164,7 +103,7 @@ func TestDoExport(t *testing.T) {
 			backend := &fakeBackend{}
 
 			// Build selector from class/shard specs.
-			sel := &shardSelector{
+			sel := &fakeSelector{
 				shards: make(map[string]map[string]*testShard),
 				mt:     tc.mt,
 			}
@@ -182,7 +121,7 @@ func TestDoExport(t *testing.T) {
 				}
 			}
 
-			p := NewParticipant(context.Background(), sel, nil, logger)
+			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 			req := &ExportRequest{
 				ID:       "test-export",
 				Backend:  "fake",
@@ -223,7 +162,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 	store0, _ := createTestStore(t, 100)
 	defer store0.Shutdown(context.Background())
 
-	selector := &shardSelector{
+	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
 				"shard0": {store: store0, name: "shard0"},
@@ -236,7 +175,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		},
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger)
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -276,7 +215,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 	store0, _ := createTestStore(t, 500)
 	defer store0.Shutdown(context.Background())
 
-	selector := &shardSelector{
+	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
 				"shard0": {store: store0, name: "shard0"},
@@ -287,7 +226,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
 
-	p := NewParticipant(context.Background(), selector, nil, logger)
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -308,7 +247,7 @@ func TestDoExport_NilStore(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	selector := &shardSelector{
+	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
 				"shard0": {store: nil, name: "shard0"},
@@ -316,7 +255,7 @@ func TestDoExport_NilStore(t *testing.T) {
 		},
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger)
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -346,7 +285,7 @@ func TestDoExport_NilBucket(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Shutdown(context.Background())
 
-	selector := &shardSelector{
+	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
 				"shard0": {store: store, name: "shard0"},
@@ -354,7 +293,7 @@ func TestDoExport_NilBucket(t *testing.T) {
 		},
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger)
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",

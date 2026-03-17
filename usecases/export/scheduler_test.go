@@ -49,7 +49,7 @@ func (b *failInitBackend) Initialize(context.Context, string, string, string) er
 }
 
 func TestScheduler_ResolveClasses(t *testing.T) {
-	selector := &emptySelector{classList: []string{"Article", "Product", "Author"}}
+	selector := &fakeSelector{classList: []string{"Article", "Product", "Author"}}
 
 	s := &Scheduler{selector: selector}
 	ctx := context.Background()
