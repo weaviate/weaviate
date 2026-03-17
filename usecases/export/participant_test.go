@@ -557,13 +557,13 @@ func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 	}
 
 	p := &Participant{
-		shutdownCtx:    context.Background(),
-		selector:       selector,
-		backends:       &fakeBackendProvider{backend: backend},
-		logger:         logger,
-		client:         &fakeExportClient{},
-		nodeResolver:   &fakeNodeResolver{},
-		statusInterval: 50 * time.Millisecond,
+		shutdownCtx:          context.Background(),
+		selector:             selector,
+		backends:             &fakeBackendProvider{backend: backend},
+		logger:               logger,
+		client:               &fakeExportClient{},
+		nodeResolver:         &fakeNodeResolver{},
+		siblingCheckInterval: 50 * time.Millisecond,
 	}
 
 	// Write a Failed status for the sibling node

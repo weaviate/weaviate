@@ -30,8 +30,9 @@ import (
 )
 
 const (
-	reservationTimeout    = 30 * time.Second
-	defaultStatusInterval = 30 * time.Second
+	reservationTimeout          = 30 * time.Second
+	defaultStatusFlushInterval  = 10 * time.Second
+	defaultSiblingCheckInterval = 1 * time.Minute
 )
 
 // Participant handles export requests on a single node.
@@ -43,11 +44,12 @@ const (
 //  2. Commit: cancels the timer and starts the actual export work.
 //  3. Abort: releases the reservation immediately.
 type Participant struct {
-	shutdownCtx    context.Context
-	selector       Selector
-	backends       BackendProvider
-	logger         logrus.FieldLogger
-	statusInterval time.Duration // interval for status writes and sibling checks; 0 uses defaultStatusInterval
+	shutdownCtx          context.Context
+	selector             Selector
+	backends             BackendProvider
+	logger               logrus.FieldLogger
+	statusFlushInterval  time.Duration // 0 uses defaultStatusFlushInterval
+	siblingCheckInterval time.Duration // 0 uses defaultSiblingCheckInterval
 
 	// Deps for best-effort sibling abort on failure.
 	client       ExportClient
@@ -794,19 +796,19 @@ func (p *Participant) logSiblingFailed(exportID, nodeName, reason string) {
 		Warn("sibling node failed, canceling local export")
 }
 
-// startNodeStatusWriter launches a background goroutine that periodically
-// snapshots nodeStatus under mu and writes it to S3. It also checks sibling
-// nodes' status and cancels the local export if any sibling has failed.
-// The returned stop function triggers one final flush and blocks until the
-// write completes.
+// startNodeStatusWriter launches two background goroutines: one that
+// periodically flushes nodeStatus to the storage backend, and one that
+// checks sibling node health and cancels the export if a sibling has
+// failed or become unreachable. The returned stop function triggers a
+// final flush and blocks until both goroutines exit.
 func (p *Participant) startNodeStatusWriter(
 	exportCtx context.Context,
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
 	nodeStatus *NodeStatus,
 ) (stop func()) {
-	done := make(chan struct{}) // closed when the goroutine exits. Blocks until status is fully flushed on stop.
 	quit := make(chan struct{})
+	var wg sync.WaitGroup
 	var once sync.Once
 
 	key := fmt.Sprintf("node_%s_status.json", nodeStatus.NodeName)
@@ -827,28 +829,26 @@ func (p *Participant) startNodeStatusWriter(
 		}
 	}
 
+	flushInterval := p.statusFlushInterval
+	if flushInterval == 0 {
+		flushInterval = defaultStatusFlushInterval
+	}
+	siblingInterval := p.siblingCheckInterval
+	if siblingInterval == 0 {
+		siblingInterval = defaultSiblingCheckInterval
+	}
+
+	// Goroutine 1: periodic status flush.
+	wg.Add(1)
 	enterrors.GoWrapper(func() {
-		defer close(done)
-		interval := p.statusInterval
-		if interval == 0 {
-			interval = defaultStatusInterval
-		}
-		ticker := time.NewTicker(interval)
+		defer wg.Done()
+		ticker := time.NewTicker(flushInterval)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
 				flush()
-				if failedSibling, siblingErr, failed := p.siblingHasFailed(exportCtx, backend, req); failed {
-					nodeStatus.SetNodeError(fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr))
-
-					p.mu.Lock()
-					if p.cancelExport != nil {
-						p.cancelExport()
-					}
-					p.mu.Unlock()
-				}
 			case <-quit:
 				flush()
 				return
@@ -856,10 +856,38 @@ func (p *Participant) startNodeStatusWriter(
 		}
 	}, p.logger)
 
+	// Goroutine 2: periodic sibling liveness check.
+	if len(req.SiblingNodes) > 0 {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			ticker := time.NewTicker(siblingInterval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					if failedSibling, siblingErr, failed := p.siblingHasFailed(exportCtx, backend, req); failed {
+						nodeStatus.SetNodeError(fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr))
+
+						p.mu.Lock()
+						if p.cancelExport != nil {
+							p.cancelExport()
+						}
+						p.mu.Unlock()
+						return
+					}
+				case <-quit:
+					return
+				}
+			}
+		}, p.logger)
+	}
+
 	return func() {
 		once.Do(func() {
 			close(quit)
-			<-done
+			wg.Wait()
 		})
 	}
 }
