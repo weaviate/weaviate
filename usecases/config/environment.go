@@ -54,6 +54,8 @@ const (
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
+	DefaultMaxShardingCount = 512
+
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
@@ -492,6 +494,10 @@ func FromEnv(config *Config) error {
 		0,
 	); err != nil {
 		return err
+	}
+	if defaultShardingCount > DefaultMaxShardingCount {
+		return fmt.Errorf("DEFAULT_SHARDING_COUNT must be <= %d, got %d",
+			DefaultMaxShardingCount, defaultShardingCount)
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 

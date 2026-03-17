@@ -223,12 +223,21 @@ func TestDefaultShardingCountRuntimeOverride(t *testing.T) {
 		// Poll until the runtime override takes effect.
 		// Use a manual loop because testify's Eventually runs in a goroutine
 		// which doesn't support t.Fatal (used by helper functions).
+		var createdClasses []string
+		defer func() {
+			for _, cn := range createdClasses {
+				dp := schema.NewSchemaObjectsDeleteParams().WithClassName(cn)
+				helper.Client(t).Schema.SchemaObjectsDelete(dp, nil) //nolint:errcheck
+			}
+		}()
+
 		deadline := time.Now().Add(60 * time.Second)
 		var lastDesiredCount int
 		for counter := 0; time.Now().Before(deadline); counter++ {
 			time.Sleep(3 * time.Second)
 
 			className := fmt.Sprintf("OverrideCheck%d", counter)
+			createdClasses = append(createdClasses, className)
 
 			// Use client directly to avoid t.Fatal inside the polling loop.
 			delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
@@ -259,8 +268,6 @@ func TestDefaultShardingCountRuntimeOverride(t *testing.T) {
 				lastDesiredCount = int(val)
 				t.Logf("attempt %d: desiredCount=%d", counter, lastDesiredCount)
 			}
-
-			helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil) //nolint:errcheck
 
 			if lastDesiredCount == 8 {
 				break

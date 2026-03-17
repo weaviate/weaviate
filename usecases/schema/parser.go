@@ -179,6 +179,9 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
+		// Override nodeCount with the configured default. This runs before RAFT
+		// proposal, so the resolved desiredCount is committed to the log and
+		// all nodes see the same value regardless of their local config.
 		nodeCount := p.clusterState.NodeCount()
 		if p.defaultShardingCount != nil {
 			if override := p.defaultShardingCount.Get(); override > 0 {
