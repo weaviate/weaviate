@@ -19,7 +19,6 @@ package compaction_test
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -156,7 +155,7 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 			}
 		}
 
-		fmt.Printf("  [poll] backup_done=%v segments=%d max_level=%d prev_segments=%d prev_max_level=%d\n",
+		t.Logf("  [poll] backup_done=%v segments=%d max_level=%d prev_segments=%d prev_max_level=%d\n",
 			backupDone, segCount, maxLevel, prevSegCount, prevMaxLevel)
 
 		// Detect compaction: new higher-level segments appeared, OR
