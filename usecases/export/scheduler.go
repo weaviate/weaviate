@@ -683,17 +683,28 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 // original request context has been canceled (e.g. client disconnect).
 // Remote aborts are retried up to 3 times on error.
 func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) error {
-	const maxRetries = 3
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	var returnErr error
+	var remoteNodes []exportNodeInfo
 	for _, ni := range nodes {
 		if ni.req.NodeName == s.localNode {
 			s.participant.Abort(exportID)
 			continue
 		}
+		remoteNodes = append(remoteNodes, ni)
+	}
+	return abortRemoteNodes(s.client, s.logger, exportID, remoteNodes)
+}
+
+// abortRemoteNodes sends best-effort abort requests to remote nodes with
+// retries. It uses a fresh context so requests succeed even when the original
+// context has been canceled.
+func abortRemoteNodes(client ExportClient, logger logrus.FieldLogger, exportID string, nodes []exportNodeInfo) error {
+	const maxRetries = 3
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var returnErr error
+	for _, ni := range nodes {
 		if ni.host == "" {
-			s.logger.WithField("action", "export_abort").
+			logger.WithField("action", "export_abort").
 				WithField("export_id", exportID).
 				WithField("node", ni.req.NodeName).
 				Warn("skipping abort: cannot resolve host for remote node")
@@ -701,12 +712,12 @@ func (s *Scheduler) abortAll(exportID string, nodes []exportNodeInfo) error {
 		}
 		var nodeErr error
 		for attempt := range maxRetries {
-			attemptErr := s.client.Abort(ctx, ni.host, exportID)
+			attemptErr := client.Abort(ctx, ni.host, exportID)
 			if attemptErr == nil {
 				nodeErr = nil
 				break
 			}
-			s.logger.WithField("action", "export_abort").
+			logger.WithField("action", "export_abort").
 				WithField("export_id", exportID).
 				WithField("node", ni.req.NodeName).
 				WithField("attempt", attempt+1).

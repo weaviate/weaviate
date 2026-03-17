@@ -37,14 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-type testShard struct {
-	store *lsmkv.Store
-	name  string
-}
-
-func (s *testShard) Store() *lsmkv.Store { return s.store }
-func (s *testShard) Name() string        { return s.name }
-
 func createTestStore(t *testing.T, numObjects int) (*lsmkv.Store, int) {
 	t.Helper()
 	dir := t.TempDir()
