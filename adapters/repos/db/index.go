@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -228,6 +229,7 @@ type Index struct {
 	schemaReader schemaUC.SchemaReader
 	logger       logrus.FieldLogger
 	remote       *sharding.RemoteIndex
+	remoteClient sharding.RemoteIndexClient
 	stopwords    *stopwords.Detector
 	replicator   *replica.Replicator
 
@@ -267,6 +269,7 @@ type Index struct {
 	shardCreateLocks *esync.KeyRWLocker
 
 	metrics          *Metrics
+	replicaMetrics   *replica.Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
@@ -360,6 +363,8 @@ func NewIndex(
 		return nil, fmt.Errorf("create metrics for index %q: %w", cfg.ClassName.String(), err)
 	}
 
+	replicaMetrics, err := replica.NewMetrics(promMetrics)
+
 	index := &Index{
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
@@ -374,7 +379,9 @@ func NewIndex(
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remoteClient:            remoteClient,
 		metrics:                 metrics,
+		replicaMetrics:          replicaMetrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
 		scheduler:               scheduler,
@@ -2574,10 +2581,85 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider, tenant string,
 ) (*aggregation.Result, error) {
+	// NOTE(dyma): calculating this is redundant: in absence of replProps and  defaultOverride,
+	// this is bound to always return the fallback value of QUORUM. However, the actual read is always
+	// performed with consistency level ONE, as we simply iterate over all existing shards; because of
+	// the plan's "local affinity" readPlan.Shards() will always return a list of local shards. There's
+	// no point in calculating the consistency level.
 	cl := i.consistencyLevel(replProps)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, err
+	}
+
+	// TODO(dyma): should there be a way for a user to specify the desired consistency level?
+	if aggregation.IsCountStar(&params) {
+		counts := make(map[string]int, len(readPlan.NodeNames()))
+		for _, shardName := range readPlan.Shards() {
+			c := replica.NewReadCoordinator[any](
+				i.router,
+				i.replicaMetrics,
+				params.ClassName.String(),
+				shardName,
+				i.DeletionStrategy(),
+				i.logger,
+			)
+
+			// NOTE(dyma): Why do we need to pass both the context and the timeout?
+			results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
+				func(ctx context.Context, host string, _ bool) (any, error) {
+					r, err := i.remoteClient.Aggregate(ctx, host, i.Config.ClassName.String(), shardName, params)
+					if err != nil {
+						return nil, err
+					}
+					for _, g := range r.Groups {
+						counts[host] += g.Count
+					}
+					return nil, nil
+				}, "", time.Minute)
+			if err != nil {
+				return nil, err
+			}
+
+			for r := range results {
+				if r.Err != nil {
+					return nil, r.Err
+				}
+			}
+
+			var mode int
+			var modeHits int
+			hits := make(map[int]int)
+
+			// If we can't calculate the mode, we fallback to median.
+			// However, we can only calculate the median correclty for
+			// an odd-numbered set. If a set has even number of elemets
+			// of which none is a mode, then the median would be calculated
+			// as an average. For such cases, we fallback to counts[i+1],
+			// hence the len%2 part.
+			var median int
+			medianIdx := len(counts)/2 + len(counts)%2
+
+			for i, count := range slices.Sorted(maps.Values(counts)) {
+				hits[count]++
+				if h := hits[count]; h > modeHits {
+					mode = count
+				}
+
+				if i == medianIdx {
+					median = count
+				}
+			}
+
+			var final int
+			if modeHits > 0 {
+				final = mode
+			} else {
+				final = median
+			}
+
+			return &aggregation.Result{Groups: []aggregation.Group{{Count: final}}}, nil
+		}
 	}
 
 	results := make([]*aggregation.Result, len(readPlan.Shards()))
@@ -2599,6 +2681,15 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 				}
 			}
 		}()
+
+		// If COUNT(*), then:
+		// - If ConsistencyLevel == ONE, do normal.
+		// - Else: do coordinator.Pull?
+		// Else: do normal.
+		//
+		// WAIT! Actually. It's already doing a "replicated query" -- we're not
+		// just going for a single shard. So it should be enough if we just adjust
+		// the result according to the consistency level?
 
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)
