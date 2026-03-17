@@ -360,6 +360,66 @@ func (_c *MockShardLike_ConvertQueue_Call) RunAndReturn(run func(string) error) 
 	return _c
 }
 
+// CreateBackupSnapshot provides a mock function with given fields: ctx, sd, stagingRoot
+func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+	ret := _m.Called(ctx, sd, stagingRoot)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateBackupSnapshot")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string) ([]string, error)); ok {
+		return rf(ctx, sd, stagingRoot)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *backup.ShardDescriptor, string) []string); ok {
+		r0 = rf(ctx, sd, stagingRoot)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *backup.ShardDescriptor, string) error); ok {
+		r1 = rf(ctx, sd, stagingRoot)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_CreateBackupSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateBackupSnapshot'
+type MockShardLike_CreateBackupSnapshot_Call struct {
+	*mock.Call
+}
+
+// CreateBackupSnapshot is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sd *backup.ShardDescriptor
+//   - stagingRoot string
+func (_e *MockShardLike_Expecter) CreateBackupSnapshot(ctx interface{}, sd interface{}, stagingRoot interface{}) *MockShardLike_CreateBackupSnapshot_Call {
+	return &MockShardLike_CreateBackupSnapshot_Call{Call: _e.mock.On("CreateBackupSnapshot", ctx, sd, stagingRoot)}
+}
+
+func (_c *MockShardLike_CreateBackupSnapshot_Call) Run(run func(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string)) *MockShardLike_CreateBackupSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*backup.ShardDescriptor), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_CreateBackupSnapshot_Call) Return(_a0 []string, _a1 error) *MockShardLike_CreateBackupSnapshot_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, string) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Counter provides a mock function with no fields
 func (_m *MockShardLike) Counter() *indexcounter.Counter {
 	ret := _m.Called()

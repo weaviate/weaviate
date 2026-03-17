@@ -204,6 +204,15 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 					"index":      name[len(backup.DeleteMarker):],
 				}).Info("removed partially deleted index directory: " + name + "Did Weaviate crash?")
 			}
+			if strings.HasPrefix(name, backup.BackupStagingPrefix) {
+				if err := os.RemoveAll(filepath.Join(config.RootPath, name)); err != nil {
+					return nil, err
+				}
+				logger.WithFields(logrus.Fields{
+					"action":    "startup",
+					"directory": name,
+				}).Info("removed orphaned backup staging directory")
+			}
 		}
 	}
 
