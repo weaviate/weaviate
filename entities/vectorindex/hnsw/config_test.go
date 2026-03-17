@@ -545,7 +545,6 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "invalid encoder distribution lognormal",
 		},
 
-
 		{
 			// opposed to from the API
 			name: "with rounded vectorCacheMaxObjects that would otherwise overflow",
