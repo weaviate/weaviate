@@ -62,8 +62,8 @@ func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitCompletion_C
 	return _c
 }
 
-func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitCompletion_Call) Return(_a0 error) *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitCompletion_Call {
-	_c.Call.Return(_a0)
+func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitCompletion_Call) Return(err error) *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitCompletion_Call {
+	_c.Call.Return(err)
 	return _c
 }
 
@@ -102,8 +102,8 @@ func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitFailure_Call
 	return _c
 }
 
-func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitFailure_Call) Return(_a0 error) *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitFailure_Call {
-	_c.Call.Return(_a0)
+func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitFailure_Call) Return(err error) *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitFailure_Call {
+	_c.Call.Return(err)
 	return _c
 }
 
@@ -142,8 +142,8 @@ func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitProgress_Cal
 	return _c
 }
 
-func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitProgress_Call) Return(_a0 error) *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitProgress_Call {
-	_c.Call.Return(_a0)
+func (_c *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitProgress_Call) Return(err error) *MockSubUnitCompletionRecorder_RecordDistributedTaskSubUnitProgress_Call {
+	_c.Call.Return(err)
 	return _c
 }
 

@@ -549,7 +549,7 @@ func assertTask(t *testing.T, expected, actual *Task) {
 
 // ---- Sub-unit tracking tests ----
 
-func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
+func TestManagerSubUnitTrackingAllComplete(t *testing.T) {
 	var (
 		h         = newTestHarness(t).init(t)
 		namespace = "ns"
@@ -626,7 +626,7 @@ func TestManager_SubUnitTracking_AllComplete(t *testing.T) {
 	require.Equal(t, completedAt.UTC(), task.FinishedAt.UTC())
 }
 
-func TestManager_SubUnitTracking_FailureTransitionsTask(t *testing.T) {
+func TestManagerSubUnitTrackingFailureTransitionsTask(t *testing.T) {
 	var (
 		h         = newTestHarness(t).init(t)
 		namespace = "ns"
@@ -676,7 +676,7 @@ func TestManager_SubUnitTracking_FailureTransitionsTask(t *testing.T) {
 	require.Equal(t, failedAt.UTC(), task.FinishedAt.UTC())
 }
 
-func TestManager_SubUnitTracking_ProgressThrottling(t *testing.T) {
+func TestManagerSubUnitTrackingProgressThrottling(t *testing.T) {
 	const minInterval = 5 * time.Second
 
 	clock := h2clock()
@@ -739,7 +739,7 @@ func TestManager_SubUnitTracking_ProgressThrottling(t *testing.T) {
 	require.InDelta(t, 0.75, tasks[namespace][0].SubUnits[testShard1].Progress, 0.001, "update after interval must be applied")
 }
 
-func TestManager_SubUnitTracking_SnapshotRestore(t *testing.T) {
+func TestManagerSubUnitTrackingSnapshotRestore(t *testing.T) {
 	var (
 		h         = newTestHarness(t).init(t)
 		namespace = "ns"

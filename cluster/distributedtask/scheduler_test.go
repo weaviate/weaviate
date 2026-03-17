@@ -519,7 +519,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 
 // ---- OnTaskCompleted / Sub-unit integration tests ----
 
-func TestScheduler_OnTaskCompleted_CalledOnFinish(t *testing.T) {
+func TestSchedulerOnTaskCompletedCalledOnFinish(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	h := newTestHarness(t)
@@ -562,7 +562,7 @@ func TestScheduler_OnTaskCompleted_CalledOnFinish(t *testing.T) {
 	require.Equal(t, TaskStatusFinished, finishedTask.Status)
 }
 
-func TestScheduler_OnTaskCompleted_NotCalledForAlreadyFinishedOnStartup(t *testing.T) {
+func TestSchedulerOnTaskCompletedNotCalledForAlreadyFinishedOnStartup(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	h := newTestHarness(t)
@@ -603,7 +603,7 @@ func TestScheduler_OnTaskCompleted_NotCalledForAlreadyFinishedOnStartup(t *testi
 	require.Empty(t, completedCh, "callback must not fire for pre-existing finished task")
 }
 
-func TestScheduler_SubUnitAwareProvider_ReceivedRecorder(t *testing.T) {
+func TestSchedulerSubUnitAwareProviderReceivedRecorder(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	h := newTestHarness(t)
