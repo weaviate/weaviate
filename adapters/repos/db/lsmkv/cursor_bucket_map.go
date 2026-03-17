@@ -94,7 +94,7 @@ func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
-	c.seekAll(key)
+	c.seekAll(ctx, key)
 	return c.serveCurrentStateAndAdvance(ctx)
 }
 
@@ -103,7 +103,7 @@ func (c *CursorMap) Next(ctx context.Context) ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) First(ctx context.Context) ([]byte, []MapPair) {
-	c.firstAll()
+	c.firstAll(ctx)
 	return c.serveCurrentStateAndAdvance(ctx)
 }
 
@@ -111,9 +111,13 @@ func (c *CursorMap) Close() {
 	c.unlock()
 }
 
-func (c *CursorMap) seekAll(target []byte) {
+func (c *CursorMap) seekAll(ctx context.Context, target []byte) {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
+		if ctx.Err() != nil {
+			break // remaining entries stay zero-valued; serveCurrentStateAndAdvance checks ctx before reading state
+		}
+
 		key, value, err := cur.seek(target)
 		if errors.Is(err, lsmkv.NotFound) {
 			state[i].err = err
@@ -133,9 +137,13 @@ func (c *CursorMap) seekAll(target []byte) {
 	c.state = state
 }
 
-func (c *CursorMap) firstAll() {
+func (c *CursorMap) firstAll(ctx context.Context) {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
+		if ctx.Err() != nil {
+			break // remaining entries stay zero-valued; serveCurrentStateAndAdvance checks ctx before reading state
+		}
+
 		key, value, err := cur.first()
 		if errors.Is(err, lsmkv.NotFound) {
 			state[i].err = err
@@ -157,6 +165,10 @@ func (c *CursorMap) firstAll() {
 
 func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []MapPair) {
 	for {
+		if ctx.Err() != nil {
+			return nil, nil
+		}
+
 		id, err := c.cursorWithLowestKey()
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
@@ -190,6 +202,9 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 
 		merged, err := newSortedMapMerger().do(ctx, perSegmentResults)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil
+			}
 			panic(fmt.Errorf("unexpected error decoding map values: %w", err))
 		}
 		if len(merged) == 0 {

@@ -21,9 +21,53 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	esync "github.com/weaviate/weaviate/entities/sync"
-
 	"github.com/weaviate/weaviate/entities/tenantactivity"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
+
+func TestPublishVectorMetrics_ExpiredContext(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	db := &DB{
+		logger:      logger,
+		indices:     map[string]*Index{},
+		promMetrics: &monitoring.PrometheusMetrics{},
+	}
+
+	o := newNodeWideMetricsObserver(db)
+
+	// An already-expired context should cause publishVectorMetrics to return false
+	// immediately and log a timeout error.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // expire immediately
+
+	result := o.publishVectorMetrics(ctx)
+	assert.False(t, result, "should return false when context is already expired")
+
+	// Verify the timeout error was logged.
+	found := false
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "dim_tracking_timeout" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "should log a dim_tracking_timeout error")
+}
+
+func TestPublishVectorMetrics_Success(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	db := &DB{
+		logger:      logger,
+		indices:     map[string]*Index{},
+		promMetrics: &monitoring.PrometheusMetrics{},
+	}
+
+	o := newNodeWideMetricsObserver(db)
+
+	// With no indices and a valid context, publishVectorMetrics should succeed.
+	result := o.publishVectorMetrics(context.Background())
+	assert.True(t, result, "should return true when context is not expired")
+}
 
 func TestShardActivity(t *testing.T) {
 	logger, _ := test.NewNullLogger()

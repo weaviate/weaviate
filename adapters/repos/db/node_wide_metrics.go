@@ -351,13 +351,7 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 		interval = o.db.config.TrackVectorDimensionsInterval
 	}
 
-	// This is a low-priority background process, which is not time-sensitive.
-	// Some downstream calls require a context, so we create one, but we needn't
-	// manage it beyond making sure it doesn't leak.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	o.publishVectorMetrics(ctx)
+	_ = o.publishVectorMetrics(context.Background())
 
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
@@ -367,12 +361,22 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 		case <-o.shutdown:
 			return
 		case <-tick.C:
-			o.publishVectorMetrics(ctx)
+			if !o.publishVectorMetrics(context.Background()) {
+				// Timed out — reset ticker to ensure a full interval before retrying,
+				// preventing an accumulated pending tick from triggering immediately.
+				tick.Reset(interval)
+			}
 		}
 	}
 }
 
-func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
+// publishVectorMetrics collects and publishes vector dimension metrics.
+// It returns true on success, false if the operation timed out.
+func (o *nodeWideMetricsObserver) publishVectorMetrics(parentCtx context.Context) bool {
+	const dimTrackingTimeout = 2 * time.Minute
+	ctx, cancel := context.WithTimeout(parentCtx, dimTrackingTimeout)
+	defer cancel()
+
 	var indices map[string]*Index
 	// We're a low-priority process, copy the index map to avoid blocking others.
 	// No new indices can be added while we're holding the lock anyways.
@@ -398,6 +402,10 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	}()
 
 	for _, index := range indices {
+		if ctx.Err() != nil {
+			break
+		}
+
 		func() {
 			index.dropIndex.RLock()
 			defer index.dropIndex.RUnlock()
@@ -410,6 +418,10 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 				// Avoid loading cold shards, as it may create I/O spikes.
 				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+
 					index.shardCreateLocks.RLock(shardName)
 					defer index.shardCreateLocks.RUnlock(shardName)
 
@@ -426,10 +438,17 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 		}()
 	}
 
+	if ctx.Err() != nil {
+		o.db.logger.WithField("action", "dim_tracking_timeout").
+			Error("vector dimension tracking timed out, skipping until next observation")
+		return false
+	}
+
 	// Report aggregate metrics for the node if grouping is enabled.
 	if o.db.promMetrics.Group {
 		o.sendVectorDimensions("n/a", "n/a", total)
 	}
+	return true
 }
 
 // Set vector_dimensions=DimensionMetrics.Uncompressed and vector_segments=DimensionMetrics.Compressed gauges.
