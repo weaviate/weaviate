@@ -416,7 +416,7 @@ func TestParticipant_NodeStatusWrittenWithSuccess(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// emptySelector returns no shards, so export succeeds immediately
+	// fakeSelector returns no shards, so export succeeds immediately
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 	backends := &fakeBackendProvider{backend: backend}
 	participant := NewParticipant(context.Background(), selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
