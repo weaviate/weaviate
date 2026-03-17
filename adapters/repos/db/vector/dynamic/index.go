@@ -553,6 +553,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		return err
 	}
 
+	// Start commit-log maintenance on the new HNSW index. The cache prefill
+	// is a no-op because cachePrefilled was already set during init (fresh
+	// index with no commit-log state) and the cache is populated by AddBatch.
+	index.PostStartup(dynamic.ctx)
+
 	// end of read-only zone
 	dynamic.RUnlock()
 
