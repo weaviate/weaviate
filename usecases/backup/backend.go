@@ -530,7 +530,7 @@ func (u *uploader) compress(ctx context.Context,
 	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
 	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
 	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
-	zip, reader, err := NewZip(u.backend.SourceDataPath(), u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
+	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}

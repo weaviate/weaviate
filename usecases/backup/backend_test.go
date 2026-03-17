@@ -413,7 +413,7 @@ func TestProcessShard(t *testing.T) {
 			}
 
 			var lastChunk atomic.Int32
-			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", "")
+			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 			require.NoError(t, err)
 			require.Len(t, results, tt.expectChunks, "expected %d chunks", tt.expectChunks)
 
@@ -468,7 +468,7 @@ func TestProcessShard(t *testing.T) {
 				PropLengthTrackerPath: "s1/p.bin", PropLengthTracker: inMemData,
 				ShardVersionPath: "s1/v.bin", Version: inMemData,
 			},
-			"TestClass", &lastChunk, "", "", "")
+			"TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 		require.NoError(t, err)
 
 		results2, err := u.processShard(context.Background(),
@@ -478,7 +478,7 @@ func TestProcessShard(t *testing.T) {
 				PropLengthTrackerPath: "s2/p.bin", PropLengthTracker: inMemData,
 				ShardVersionPath: "s2/v.bin", Version: inMemData,
 			},
-			"TestClass", &lastChunk, "", "", "")
+			"TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 		require.NoError(t, err)
 
 		assert.Equal(t, int32(1), results1[0].chunk)
@@ -581,7 +581,7 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 			}
 
 			var lastChunk atomic.Int32
-			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", "")
+			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 			require.NoError(t, err)
 
 			// First chunk has small files + in-memory data; skip it.
