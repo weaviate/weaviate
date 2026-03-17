@@ -889,11 +889,13 @@ func (p *Participant) startNodeStatusWriter(
 					if failedSibling, siblingErr, failed := p.siblingHasFailed(exportCtx, backend, req); failed {
 						nodeStatus.SetNodeError(fmt.Sprintf("sibling node %q failed: %s", failedSibling, siblingErr))
 
-						p.mu.Lock()
-						if p.cancelExport != nil {
-							p.cancelExport()
-						}
-						p.mu.Unlock()
+						func() {
+							p.mu.Lock()
+							defer p.mu.Unlock()
+							if p.cancelExport != nil {
+								p.cancelExport()
+							}
+						}()
 						return
 					}
 				case <-exportCtx.Done():
