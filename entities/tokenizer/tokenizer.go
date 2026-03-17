@@ -269,7 +269,7 @@ func tokenizetrigram(in string) []string {
 
 // tokenizeGSE uses the gse tokenizer to tokenise Japanese
 func tokenizeGSE(in string) []string {
-	if !UseGse {
+	if !UseGse || gseTokenizer == nil {
 		return []string{}
 	}
 	startTime := time.Now()
@@ -287,7 +287,7 @@ func tokenizeGSE(in string) []string {
 
 // tokenizeGSE uses the gse tokenizer to tokenise Chinese
 func tokenizeGseCh(in string) []string {
-	if !UseGseCh {
+	if !UseGseCh || gseTokenizerCh == nil {
 		return []string{}
 	}
 	gseLock.Lock()
