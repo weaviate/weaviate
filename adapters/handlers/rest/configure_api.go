@@ -1059,6 +1059,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		serverShutdownCancel(fmt.Errorf("server shutdown"))
 
+		// Start draining in-flight exports. The export cleanup (status flush
+		// to backend, sibling abort, metadata promotion) depends on the
+		// cluster client and modules, so we wait for it before closing those
+		// components below. serverShutdownCancel above signals in-flight
+		// exports to stop so this does not block unnecessarily.
+		exportDone := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(exportDone)
+			exportCtx, exportCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer exportCancel()
+			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
+				appState.Logger.
+					WithError(err).
+					WithField("action", "shutdown export participant").
+					Errorf("failed to gracefully shutdown")
+			}
+		}, appState.Logger)
+
 		if appState.DistributedTaskScheduler != nil {
 			appState.DistributedTaskScheduler.Close()
 		}
@@ -1072,6 +1090,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
 		}
+
+		// Ensure export cleanup finished before closing the infrastructure
+		// it depends on (internal server, cluster service, modules).
+		<-exportDone
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()

@@ -56,6 +56,11 @@ type Participant struct {
 	nodeResolver NodeResolver
 	localNode    string
 
+	// exportWg tracks in-flight export goroutines so Shutdown can wait for
+	// them to finish their cleanup (final status flush, sibling abort, metadata
+	// promotion) before the server process exits.
+	exportWg sync.WaitGroup
+
 	// mu guards preparedReq, abortTimer, and cancelExport, which are set
 	// during Prepare/Commit and consumed during Commit/Abort.
 	mu           sync.Mutex
@@ -93,6 +98,24 @@ func NewParticipant(
 		client:       client,
 		nodeResolver: nodeResolver,
 		localNode:    localNode,
+	}
+}
+
+// Shutdown waits for any in-flight export goroutine to finish its cleanup
+// (final status flush, sibling abort, metadata promotion). The caller should
+// cancel shutdownCtx first to signal exports to stop, then call Shutdown to
+// wait for them to drain. The provided context bounds how long we wait.
+func (p *Participant) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		p.exportWg.Wait()
+		close(done)
+	}, p.logger)
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -248,7 +271,9 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		WithField("classes", req.Classes).
 		Info("participant starting export")
 
+	p.exportWg.Add(1)
 	enterrors.GoWrapper(func() {
+		defer p.exportWg.Done()
 		p.executeExport(exportCtx, backendStore, req)
 	}, p.logger)
 
