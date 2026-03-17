@@ -64,6 +64,10 @@ const (
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
+// ErrReadOnly is returned by write operations on a read-only bucket (e.g. a
+// snapshot bucket opened via NewSnapshotBucket).
+var ErrReadOnly = errors.New("bucket is read-only")
+
 // memtableNames is used for error messages and metrics when iterating memtables
 var memtableNames = [2]string{"active_memtable", "flushing_memtable"}
 
@@ -194,6 +198,10 @@ type Bucket struct {
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
 	skipSecondaryKeyCheck bool
+
+	// readOnly prevents all write operations. Set via WithReadOnly, used by
+	// snapshot buckets to guarantee they never modify data.
+	readOnly bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -242,6 +250,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.strategy == unsetStrategy {
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
+	}
+
+	if !b.readOnly && IsSnapshotDir(dir) {
+		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
 
 	if b.memtableResizer != nil {
@@ -946,7 +958,10 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 		b.metrics.ObserveBucketWriteOpDuration("put", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.put(key, value, opts...)
@@ -959,7 +974,11 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // is ongoing, because the actual flush only happens once the writer count
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
-func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
+func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), err error) {
+	if b.readOnly {
+		return nil, nil, ErrReadOnly
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -970,7 +989,7 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 		active.decWriterCount()
 	}
 
-	return active, release
+	return active, release, nil
 }
 
 // SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
@@ -989,7 +1008,10 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 // SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
 // Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, newSetEncoder().Do(values))
@@ -1008,7 +1030,10 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 // [Bucket.Delete] to delete the entire row, for Maps use [Bucket.MapDeleteKey]
 // to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, []value{
@@ -1237,7 +1262,10 @@ func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, 
 //
 // MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.appendMapSorted(rowKey, kv)
@@ -1246,7 +1274,10 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 // MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
 // [MapPair] objects at the same time.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	for _, kv := range kvs {
@@ -1270,7 +1301,10 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 // MapDeleteKey is specific to the Map Strategy. For Replace, you can use
 // [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	pair := MapPair{
@@ -1312,7 +1346,10 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) (err error) {
 		b.metrics.ObserveBucketWriteOpDuration("delete", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstone(key, opts...)
@@ -1335,7 +1372,10 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstoneWith(key, deletionTime, opts...)
@@ -1675,6 +1715,10 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
+	if b.readOnly {
+		return ErrReadOnly
+	}
+
 	before := time.Now()
 	var err error
 

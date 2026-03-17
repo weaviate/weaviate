@@ -308,6 +308,10 @@ func (i *Index) path() string {
 	return path.Join(i.Config.RootPath, i.ID())
 }
 
+func (i *Index) snapshotsPath() string {
+	return path.Join(i.path(), lsmkv.SnapshotsRootDir)
+}
+
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
 func NewIndex(
@@ -419,6 +423,12 @@ func NewIndex(
 	if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
+
+	// Remove the snapshots root to clean up any bucket snapshots left behind
+	// by operations that were interrupted (e.g. server crash). This runs once
+	// at index creation time — not on every shard load — so it won't interfere
+	// with a snapshot that may be in use after a tenant re-activation.
+	os.RemoveAll(index.snapshotsPath())
 
 	if err := index.initAndStoreShards(ctx, class, promMetrics); err != nil {
 		return nil, err

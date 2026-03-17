@@ -293,3 +293,13 @@ func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 		return nil
 	}
 }
+
+// WithReadOnly marks the bucket as read-only. All write operations (Put,
+// Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrReadOnly.
+// Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
+func WithReadOnly(readOnly bool) BucketOption {
+	return func(b *Bucket) error {
+		b.readOnly = readOnly
+		return nil
+	}
+}
