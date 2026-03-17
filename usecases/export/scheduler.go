@@ -665,7 +665,12 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 			initialMeta.Status = export.Failed
 			initialMeta.Error = fmt.Sprintf("commit node %s failed: %v", ni.req.NodeName, err)
 			initialMeta.CompletedAt = time.Now().UTC()
-			writeExportMetadata(backend, exportID, bucket, path, initialMeta, s.logger)
+			if writeErr := writeExportMetadata(backend, exportID, bucket, path, initialMeta, s.logger); writeErr != nil {
+				s.logger.WithField("action", "export_commit").
+					WithField("export_id", exportID).
+					Errorf("failed to persist failure metadata: %v", writeErr)
+				return fmt.Errorf("commit node %s: %w (follow-up: failed to persist failure metadata: %w)", ni.req.NodeName, err, writeErr)
+			}
 			return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
 		}
 	}
