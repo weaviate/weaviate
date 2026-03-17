@@ -614,18 +614,22 @@ func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 func TestParticipant_CheckSiblingHealth(t *testing.T) {
 	tests := []struct {
 		name          string
-		siblingNodes  []string    // sibling node names in the request
+		siblingNodes  []string
 		siblingStatus *NodeStatus // nil means don't write a sibling status file
+		resolverNodes map[string]string
+		isRunning     bool // what IsRunning returns for known nodes
 		expectFailed  bool
 	}{
 		{
 			name:          "healthy sibling continues",
 			siblingNodes:  []string{"node2"},
 			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunning:     true,
 			expectFailed:  false,
 		},
 		{
-			name:          "failed sibling detected",
+			name:          "failed sibling detected via status file",
 			siblingNodes:  []string{"node2"},
 			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Failed, Error: "disk full"},
 			expectFailed:  true,
@@ -642,9 +646,25 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			expectFailed: false,
 		},
 		{
-			name:         "missing sibling status ignores error",
+			name:          "missing status but node alive and running",
+			siblingNodes:  []string{"node2"},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunning:     true,
+			expectFailed:  false,
+		},
+		{
+			name:         "missing status and node left cluster",
 			siblingNodes: []string{"node2"},
-			expectFailed: false,
+			// resolver has no entry for node2 → NodeHostname returns false
+			expectFailed: true,
+		},
+		{
+			name:          "non-terminal status and node not running",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunning:     false,
+			expectFailed:  true,
 		},
 	}
 
@@ -653,12 +673,18 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			backend := &fakeBackend{}
 
+			client := &fakeExportClient{
+				isRunningFn: func(context.Context, string, string) (bool, error) {
+					return tc.isRunning, nil
+				},
+			}
+
 			p := NewParticipant(
 				context.Background(),
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: backend},
 				logger,
-				&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1",
 			)
 
 			if tc.siblingStatus != nil {

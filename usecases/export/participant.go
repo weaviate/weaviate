@@ -676,52 +676,122 @@ rangeloop:
 	return submitErr
 }
 
-// siblingHasFailed checks whether any sibling node has reported a Failed
-// status by reading their status files from the storage backend. If a sibling
-// has failed it returns the sibling name and its error string so the caller
-// can surface an actionable message. Not-found errors are silently ignored
-// (sibling may not have written its status yet). Other backend errors are
-// logged at warn level but do not trigger cancellation to avoid false
-// positives during transient outages.
+// siblingHasFailed checks whether any sibling node has failed or become
+// unreachable by reading status files and performing liveness checks.
 func (p *Participant) siblingHasFailed(
 	ctx context.Context,
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
 ) (failedSibling string, siblingErr string, failed bool) {
 	for _, nodeName := range req.SiblingNodes {
-		readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		key := fmt.Sprintf("node_%s_status.json", nodeName)
-		data, err := backend.GetObject(readCtx, req.ID, key, req.Bucket, req.Path)
-		cancel()
-		if err != nil {
-			var errNotFound backup.ErrNotFound
-			if !errors.As(err, &errNotFound) {
-				p.logger.WithField("action", "export_sibling_check").
-					WithField("export_id", req.ID).
-					WithField("sibling", nodeName).
-					Warn(fmt.Errorf("read sibling status: %w", err))
-			}
-			continue
+		if reason, ok := p.hasSiblingDied(ctx, backend, req, nodeName); ok {
+			p.logSiblingFailed(req.ID, nodeName, reason)
+			return nodeName, reason, true
 		}
+	}
+	return "", "", false
+}
 
-		var siblingStatus NodeStatus
-		if err := json.Unmarshal(data, &siblingStatus); err != nil {
-			p.logger.WithField("action", "export_sibling_check").WithField("sibling", nodeName).
-				Error(fmt.Errorf("unmarshal sibling status: %w", err))
-			continue
-		}
+// hasSiblingDied returns (reason, true) if the sibling has failed or is
+// unreachable. It reads the status file, then falls back to a liveness
+// check for non-terminal or missing statuses. If IsRunning returns false,
+// the status file is re-read once to handle the race where the node wrote
+// its terminal status just before clearing activeExport.
+func (p *Participant) hasSiblingDied(
+	ctx context.Context,
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+	nodeName string,
+) (reason string, failed bool) {
+	if reason, failed, terminal := p.checkSiblingStatus(ctx, backend, req, nodeName); terminal {
+		return reason, failed
+	}
 
-		if siblingStatus.Status == export.Failed {
+	// Non-terminal or missing — check liveness.
+	host, alive := p.nodeResolver.NodeHostname(nodeName)
+	if !alive {
+		return fmt.Sprintf("node %s is no longer part of the cluster", nodeName), true
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	running, err := p.client.IsRunning(checkCtx, host, req.ID)
+	cancel()
+	if err == nil && running {
+		return "", false
+	}
+
+	// Re-read: the node may have written terminal status just before clearing activeExport (stopWriter flushes before
+	// clearAndRelease).
+	if reason, failed, terminal := p.checkSiblingStatus(ctx, backend, req, nodeName); terminal {
+		return reason, failed
+	}
+
+	return fmt.Sprintf("node %s is no longer running export %s", nodeName, req.ID), true
+}
+
+// checkSiblingStatus reads the sibling's status file and returns one of
+// three outcomes: terminal failure (reason, true, true), terminal success
+// ("", false, true), or non-terminal/missing ("", false, false).
+func (p *Participant) checkSiblingStatus(
+	ctx context.Context,
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+	nodeName string,
+) (reason string, failed bool, terminal bool) {
+	ns := p.readSiblingStatus(ctx, backend, req, nodeName)
+	if ns == nil {
+		return "", false, false
+	}
+	switch ns.Status {
+	case export.Failed, export.Canceled:
+		return ns.Error, true, true
+	case export.Success:
+		return "", false, true
+	default:
+		// non-terminal states
+		return "", false, false
+	}
+}
+
+// readSiblingStatus reads a sibling's status file from the backend.
+// Returns nil if the file does not exist or cannot be parsed.
+func (p *Participant) readSiblingStatus(
+	ctx context.Context,
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+	nodeName string,
+) *NodeStatus {
+	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	key := fmt.Sprintf("node_%s_status.json", nodeName)
+	data, err := backend.GetObject(readCtx, req.ID, key, req.Bucket, req.Path)
+	if err != nil {
+		var errNotFound backup.ErrNotFound
+		if !errors.As(err, &errNotFound) {
 			p.logger.WithField("action", "export_sibling_check").
 				WithField("export_id", req.ID).
 				WithField("sibling", nodeName).
-				WithField("sibling_error", siblingStatus.Error).
-				Warn("sibling node failed, canceling local export")
-			return nodeName, siblingStatus.Error, true
+				Warn(fmt.Errorf("read sibling status: %w", err))
 		}
+		return nil
 	}
 
-	return "", "", false
+	var status NodeStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		p.logger.WithField("action", "export_sibling_check").
+			WithField("sibling", nodeName).
+			Error(fmt.Errorf("unmarshal sibling status: %w", err))
+		return nil
+	}
+	return &status
+}
+
+func (p *Participant) logSiblingFailed(exportID, nodeName, reason string) {
+	p.logger.WithField("action", "export_sibling_check").
+		WithField("export_id", exportID).
+		WithField("sibling", nodeName).
+		WithField("reason", reason).
+		Warn("sibling node failed, canceling local export")
 }
 
 // startNodeStatusWriter launches a background goroutine that periodically
