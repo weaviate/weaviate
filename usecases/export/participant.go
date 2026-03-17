@@ -49,6 +49,11 @@ type Participant struct {
 	logger         logrus.FieldLogger
 	statusInterval time.Duration // interval for status writes and sibling checks; 0 uses defaultStatusInterval
 
+	// Deps for best-effort sibling abort on failure.
+	client       ExportClient
+	nodeResolver NodeResolver
+	localNode    string
+
 	// mu guards preparedReq, abortTimer, and cancelExport, which are set
 	// during Prepare/Commit and consumed during Commit/Abort.
 	mu           sync.Mutex
@@ -62,17 +67,30 @@ type Participant struct {
 // NewParticipant creates a new export participant.
 // The shutdownCtx is canceled on graceful server shutdown, allowing in-flight
 // exports to detect the shutdown and write a failed status before exiting.
+// client and nodeResolver enable best-effort sibling aborts on failure.
 func NewParticipant(
 	shutdownCtx context.Context,
 	selector Selector,
 	backends BackendProvider,
 	logger logrus.FieldLogger,
+	client ExportClient,
+	nodeResolver NodeResolver,
+	localNode string,
 ) *Participant {
+	if client == nil {
+		panic("export: participant requires a non-nil client")
+	}
+	if nodeResolver == nil {
+		panic("export: participant requires a non-nil nodeResolver")
+	}
 	return &Participant{
-		shutdownCtx: shutdownCtx,
-		selector:    selector,
-		backends:    backends,
-		logger:      logger,
+		shutdownCtx:  shutdownCtx,
+		selector:     selector,
+		backends:     backends,
+		logger:       logger,
+		client:       client,
+		nodeResolver: nodeResolver,
+		localNode:    localNode,
 	}
 }
 
@@ -297,6 +315,46 @@ func (p *Participant) IsRunning(id string) bool {
 	return p.activeExport == id
 }
 
+// abortSiblings sends best-effort, fire-and-forget abort requests to all
+// sibling nodes participating in the same export. This is called when the
+// local export fails so siblings stop quickly instead of waiting for the
+// next periodic sibling-health check.
+func (p *Participant) abortSiblings(exportID string, req *ExportRequest) {
+	if len(req.SiblingNodes) == 0 {
+		return
+	}
+
+	nodes := make([]exportNodeInfo, 0, len(req.SiblingNodes))
+	for _, nodeName := range req.SiblingNodes {
+		if nodeName == p.localNode {
+			continue
+		}
+		ni := exportNodeInfo{
+			req: &ExportRequest{ID: exportID, NodeName: nodeName},
+		}
+		if host, ok := p.nodeResolver.NodeHostname(nodeName); ok {
+			ni.host = host
+		}
+		nodes = append(nodes, ni)
+	}
+	if len(nodes) == 0 {
+		return
+	}
+
+	p.logger.WithField("action", "export_abort_siblings").
+		WithField("export_id", exportID).
+		WithField("siblings", len(nodes)).
+		Info("notifying sibling nodes to abort")
+
+	enterrors.GoWrapper(func() {
+		if err := abortRemoteNodes(p.client, p.logger, exportID, nodes); err != nil {
+			p.logger.WithField("action", "export_abort_siblings").
+				WithField("export_id", exportID).
+				Warnf("best-effort sibling abort encountered errors: %v", err)
+		}
+	}, p.logger)
+}
+
 func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) {
 	defer func() {
 		p.mu.Lock()
@@ -316,6 +374,9 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
 			Error(err)
+		// Best-effort: notify sibling nodes to abort so they stop quickly
+		// instead of waiting for the next periodic sibling-health check.
+		p.abortSiblings(req.ID, req)
 	} else {
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).

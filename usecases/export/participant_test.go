@@ -34,6 +34,7 @@ func TestParticipant_PrepareValidation(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	t.Run("nil request", func(t *testing.T) {
@@ -57,6 +58,7 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	req1 := &ExportRequest{
@@ -95,6 +97,7 @@ func TestParticipant_IsRunning(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	// Nothing running yet
@@ -128,6 +131,7 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	const n = 50
@@ -178,6 +182,7 @@ func TestParticipant_PrepareAfterAbort(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	req1 := &ExportRequest{
@@ -214,13 +219,14 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 	backend := &fakeBackend{}
 
 	// emptySelector returns no shards so executeExport completes immediately
-	selector := &emptySelector{classList: []string{"TestClass"}}
+	selector := &fakeSelector{classList: []string{"TestClass"}}
 
 	p := NewParticipant(
 		context.Background(),
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	req1 := &ExportRequest{
@@ -258,10 +264,12 @@ func TestParticipant_ReservationTimeoutReleasesSlot(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := &Participant{
-		shutdownCtx: context.Background(),
-		selector:    &blockingSelector{blockCh: make(chan struct{})},
-		backends:    &fakeBackendProvider{backend: &fakeBackend{}},
-		logger:      logger,
+		shutdownCtx:  context.Background(),
+		selector:     &blockingSelector{blockCh: make(chan struct{})},
+		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
+		logger:       logger,
+		client:       &fakeExportClient{},
+		nodeResolver: &fakeNodeResolver{},
 	}
 
 	req := &ExportRequest{
@@ -311,6 +319,7 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	req := &ExportRequest{
@@ -363,6 +372,7 @@ func TestParticipant_CommitErrors(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: &fakeBackend{}},
 				logger,
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 			)
 
 			if tc.prepareID != "" {
@@ -401,6 +411,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 	)
 
 	req := &ExportRequest{
@@ -434,6 +445,109 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	assert.Equal(t, export.Failed, nodeStatus.Status)
 }
 
+func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
+	tests := []struct {
+		name               string
+		siblingNodes       []string
+		resolverNodes      map[string]string
+		failExport         bool // true: cancel shutdownCtx; false: empty shards → success
+		expectedAbortHosts []string
+	}{
+		{
+			name:               "failed export aborts all siblings",
+			siblingNodes:       []string{"node2", "node3"},
+			resolverNodes:      map[string]string{"node2": "host2:8080", "node3": "host3:8080"},
+			failExport:         true,
+			expectedAbortHosts: []string{"host2:8080", "host3:8080"},
+		},
+		{
+			name:       "failed export without siblings sends no aborts",
+			failExport: true,
+		},
+		{
+			name:          "successful export does not abort siblings",
+			siblingNodes:  []string{"node2"},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			failExport:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			var abortMu sync.Mutex
+			var abortedHosts []string
+			client := &fakeExportClient{
+				abortFn: func(_ context.Context, host, _ string) error {
+					abortMu.Lock()
+					abortedHosts = append(abortedHosts, host)
+					abortMu.Unlock()
+					return nil
+				},
+			}
+
+			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+			defer shutdownCancel()
+
+			var sel Selector
+			if tc.failExport {
+				sel = &blockingSelector{blockCh: make(chan struct{})}
+			} else {
+				sel = &fakeSelector{classList: []string{"TestClass"}}
+			}
+
+			p := NewParticipant(shutdownCtx, sel, &fakeBackendProvider{backend: backend}, logger,
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1")
+
+			shards := map[string][]string{"TestClass": {"shard0"}}
+			if !tc.failExport {
+				shards = map[string][]string{}
+			}
+
+			req := &ExportRequest{
+				ID:           "test-export",
+				Backend:      "s3",
+				Classes:      []string{"TestClass"},
+				Shards:       shards,
+				NodeName:     "node1",
+				SiblingNodes: tc.siblingNodes,
+			}
+
+			require.NoError(t, p.Prepare(context.Background(), req))
+			require.NoError(t, p.Commit(context.Background(), "test-export"))
+
+			if tc.failExport {
+				sel.(*blockingSelector).waitForCall(t)
+				shutdownCancel()
+			}
+
+			require.Eventually(t, func() bool {
+				return !p.IsRunning("test-export")
+			}, 5*time.Second, 10*time.Millisecond)
+
+			if len(tc.expectedAbortHosts) > 0 {
+				require.Eventually(t, func() bool {
+					abortMu.Lock()
+					defer abortMu.Unlock()
+					return len(abortedHosts) == len(tc.expectedAbortHosts)
+				}, 5*time.Second, 10*time.Millisecond, "expected %d abort calls", len(tc.expectedAbortHosts))
+
+				abortMu.Lock()
+				defer abortMu.Unlock()
+				assert.ElementsMatch(t, tc.expectedAbortHosts, abortedHosts)
+			} else {
+				assert.Never(t, func() bool {
+					abortMu.Lock()
+					defer abortMu.Unlock()
+					return len(abortedHosts) > 0
+				}, 200*time.Millisecond, 10*time.Millisecond, "expected no abort calls")
+			}
+		})
+	}
+}
+
 func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
@@ -447,6 +561,8 @@ func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 		selector:       selector,
 		backends:       &fakeBackendProvider{backend: backend},
 		logger:         logger,
+		client:         &fakeExportClient{},
+		nodeResolver:   &fakeNodeResolver{},
 		statusInterval: 50 * time.Millisecond,
 	}
 
@@ -542,6 +658,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: backend},
 				logger,
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1",
 			)
 
 			if tc.siblingStatus != nil {

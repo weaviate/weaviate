@@ -680,7 +680,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.BackupManager = backupManager
 
 	// Create export participant early so the cluster API server can register it
-	appState.ExportParticipant = exportusecase.NewParticipant(serverShutdownCtx, appState.DB, appState.Modules, appState.Logger)
+	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
+	appState.ExportParticipant = exportusecase.NewParticipant(
+		serverShutdownCtx, appState.DB, appState.Modules, appState.Logger,
+		exportClient, appState.Cluster, appState.Cluster.LocalName(),
+	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
