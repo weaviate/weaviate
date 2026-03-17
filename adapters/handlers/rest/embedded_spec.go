@@ -7567,8 +7567,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELED",
-            "SKIPPED"
+            "CANCELED"
           ]
         },
         "tookInMs": {
@@ -9352,11 +9351,9 @@ func init() {
           "description": "Status of this shard's export",
           "type": "string",
           "enum": [
-            "STARTED",
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELED",
             "SKIPPED"
           ]
         }
@@ -17769,8 +17766,7 @@ func init() {
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELED",
-            "SKIPPED"
+            "CANCELED"
           ]
         },
         "tookInMs": {
@@ -19763,11 +19759,9 @@ func init() {
           "description": "Status of this shard's export",
           "type": "string",
           "enum": [
-            "STARTED",
             "TRANSFERRING",
             "SUCCESS",
             "FAILED",
-            "CANCELED",
             "SKIPPED"
           ]
         }
