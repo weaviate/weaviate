@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
@@ -232,6 +233,10 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 	m, err := setupTestManager(t, logger)
 	require.NoError(t, err)
 
+	principal := &models.Principal{
+		Username: "cache-user",
+		UserType: models.UserTypeInput(authentication.AuthTypeDb),
+	}
 	user := conv.UserNameWithTypeFromId("cache-user", authentication.AuthTypeDb)
 	role := conv.PrefixRoleName("cache-role")
 	resource := "collections/TestClass"
@@ -250,13 +255,13 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, m.casbin.InvalidateCache())
 
-	allowed, err := m.casbin.Enforce(user, resource, authorization.READ)
+	allowed, err := m.checkPermissions(principal, resource, authorization.READ)
 	require.NoError(t, err)
 	require.True(t, allowed)
 
-	// Hammer Enforce() concurrently during Restore(). Without the
-	// InvalidateCache() call in Restore(), a concurrent reader can re-cache
-	// a stale "true" after LoadPolicy() clears the cache at the end.
+	// Hammer checkPermissions() concurrently during Restore(). Without the
+	// restoreLock in Restore() and checkPermissions(), a concurrent reader can
+	// re-cache a stale "true" after LoadPolicy() clears the cache.
 	const concurrentReaders = 10
 	done := make(chan struct{})
 	var wg sync.WaitGroup
@@ -281,7 +286,9 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 					return
 				default:
 				}
-				m.casbin.Enforce(user, resource, authorization.READ)
+				// Return values are intentionally ignored — we only care that
+				// concurrent calls don't re-populate the cache with stale entries.
+				m.checkPermissions(principal, resource, authorization.READ)
 			}
 		}()
 	}
@@ -293,7 +300,7 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 
 	// After Restore and all concurrent readers have stopped, the user should
 	// not have access. If the cache still holds a stale "true", this fails.
-	allowed, err = m.casbin.Enforce(user, resource, authorization.READ)
+	allowed, err = m.checkPermissions(principal, resource, authorization.READ)
 	require.NoError(t, err)
 	assert.False(t, allowed, "enforce cache was not invalidated during Restore; stale cached result returned")
 }
