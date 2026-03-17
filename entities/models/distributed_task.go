@@ -59,9 +59,6 @@ type DistributedTask struct {
 
 	// The version of the task.
 	Version int64 `json:"version,omitempty"`
-
-	// Per-sub-unit execution state. Present only when the task was created with sub-unit IDs.
-	SubUnits []DistributedTaskSubUnit `json:"subUnits,omitempty"`
 }
 
 // Validate validates this distributed task
