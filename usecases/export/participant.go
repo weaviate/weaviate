@@ -718,12 +718,29 @@ func (p *Participant) hasSiblingDied(
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	running, err := p.client.IsRunning(checkCtx, host, req.ID)
 	cancel()
+
+	// Our own context is done — don't blame the sibling for our cancellation.
+	if ctx.Err() != nil {
+		return "", false
+	}
+
 	if err == nil && running {
 		return "", false
 	}
 
-	// Re-read: the node may have written terminal status just before clearing activeExport (stopWriter flushes before
-	// clearAndRelease).
+	// Transient error reaching sibling — log but treat as inconclusive. The
+	// next tick or cluster membership change will catch a real failure.
+	if err != nil {
+		p.logger.WithField("action", "export_sibling_liveness").
+			WithField("export_id", req.ID).
+			WithField("sibling", nodeName).
+			Warn(fmt.Errorf("IsRunning check failed: %w", err))
+		return "", false
+	}
+
+	// err == nil && !running — sibling explicitly confirmed it is not running
+	// this export. Re-read status: the node may have written terminal status
+	// just before clearing activeExport (stopWriter flushes before clearAndRelease).
 	if reason, failed, terminal := p.checkSiblingStatus(ctx, backend, req, nodeName); terminal {
 		return reason, failed
 	}

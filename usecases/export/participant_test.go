@@ -617,7 +617,8 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 		siblingNodes  []string
 		siblingStatus *NodeStatus // nil means don't write a sibling status file
 		resolverNodes map[string]string
-		isRunning     bool // what IsRunning returns for known nodes
+		isRunningFn   func(context.Context, string, string) (bool, error) // nil defaults to (false, nil)
+		cancelCtx     bool                                                // if true, pass an already-canceled context
 		expectFailed  bool
 	}{
 		{
@@ -625,8 +626,10 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			siblingNodes:  []string{"node2"},
 			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
 			resolverNodes: map[string]string{"node2": "host2:8080"},
-			isRunning:     true,
-			expectFailed:  false,
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return true, nil
+			},
+			expectFailed: false,
 		},
 		{
 			name:          "failed sibling detected via status file",
@@ -649,8 +652,10 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			name:          "missing status but node alive and running",
 			siblingNodes:  []string{"node2"},
 			resolverNodes: map[string]string{"node2": "host2:8080"},
-			isRunning:     true,
-			expectFailed:  false,
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return true, nil
+			},
+			expectFailed: false,
 		},
 		{
 			name:         "missing status and node left cluster",
@@ -663,8 +668,28 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			siblingNodes:  []string{"node2"},
 			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
 			resolverNodes: map[string]string{"node2": "host2:8080"},
-			isRunning:     false,
-			expectFailed:  true,
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return false, nil
+			},
+			expectFailed: true,
+		},
+		{
+			name:          "IsRunning error treated as inconclusive",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return false, fmt.Errorf("connection refused")
+			},
+			expectFailed: false,
+		},
+		{
+			name:          "canceled context does not blame sibling",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			cancelCtx:     true,
+			expectFailed:  false,
 		},
 	}
 
@@ -674,9 +699,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			backend := &fakeBackend{}
 
 			client := &fakeExportClient{
-				isRunningFn: func(context.Context, string, string) (bool, error) {
-					return tc.isRunning, nil
-				},
+				isRunningFn: tc.isRunningFn,
 			}
 
 			p := NewParticipant(
@@ -702,7 +725,14 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				SiblingNodes: tc.siblingNodes,
 			}
 
-			_, _, failed := p.siblingHasFailed(context.Background(), backend, req)
+			ctx := context.Background()
+			if tc.cancelCtx {
+				cctx, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cctx
+			}
+
+			_, _, failed := p.siblingHasFailed(ctx, backend, req)
 			assert.Equal(t, tc.expectFailed, failed)
 		})
 	}
