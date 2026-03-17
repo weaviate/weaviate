@@ -107,6 +107,17 @@ func TestAddTenants(t *testing.T) {
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
+			name:  "NilTenantInArray",
+			class: mtEnabledClass.Class,
+			tenants: []*models.Tenant{
+				{Name: "Aaaa"},
+				nil,
+				{Name: "Bbbb"},
+			},
+			errMsgs:   []string{"null"},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
+		},
+		{
 			name:  "InvalidActivityStatus",
 			class: mtEnabledClass.Class,
 			tenants: []*models.Tenant{
@@ -251,6 +262,17 @@ func TestUpdateTenants(t *testing.T) {
 				{Name: "", ActivityStatus: models.TenantActivityStatusCOLD},
 			},
 			errMsgs:         []string{"tenant"},
+			expectedTenants: tenants,
+			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
+		},
+		{
+			name:  "NilTenantInArray",
+			class: mtEnabledClass.Class,
+			updateTenants: []*models.Tenant{
+				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+				nil,
+			},
+			errMsgs:         []string{"null"},
 			expectedTenants: tenants,
 			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
 		},
