@@ -734,7 +734,7 @@ func (p *Participant) hasSiblingDied(
 		p.logger.WithField("action", "export_sibling_liveness").
 			WithField("export_id", req.ID).
 			WithField("sibling", nodeName).
-			Warn(fmt.Errorf("IsRunning check failed: %w", err))
+			Warnf("IsRunning check failed: %v", err)
 		return "", false
 	}
 
@@ -790,7 +790,7 @@ func (p *Participant) readSiblingStatus(
 			p.logger.WithField("action", "export_sibling_check").
 				WithField("export_id", req.ID).
 				WithField("sibling", nodeName).
-				Warn(fmt.Errorf("read sibling status: %w", err))
+				Warnf("read sibling status: %v", err)
 		}
 		return nil
 	}
@@ -799,7 +799,7 @@ func (p *Participant) readSiblingStatus(
 	if err := json.Unmarshal(data, &status); err != nil {
 		p.logger.WithField("action", "export_sibling_check").
 			WithField("sibling", nodeName).
-			Error(fmt.Errorf("unmarshal sibling status: %w", err))
+			Errorf("unmarshal sibling status: %v", err)
 		return nil
 	}
 	return &status
@@ -835,14 +835,14 @@ func (p *Participant) startNodeStatusWriter(
 		data, err := json.Marshal(snap)
 		if err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
-				Error(fmt.Errorf("marshal node status: %w", err))
+				Errorf("marshal node status: %v", err)
 			return
 		}
 		writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, err := backend.Write(writeCtx, req.ID, key, req.Bucket, req.Path, newBytesReadCloser(data)); err != nil {
 			p.logger.WithField("action", "export").WithField("node", nodeStatus.NodeName).
-				Error(fmt.Errorf("write node status: %w", err))
+				Errorf("write node status: %v", err)
 		}
 	}
 
