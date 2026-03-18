@@ -114,9 +114,9 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	if err := addTypeInformation(res, params, t.schemaGetter.ReadOnlyClass); err != nil {
-		return nil, err
-	}
+	// if err := addTypeInformation(res, params, t.schemaGetter.ReadOnlyClass); err != nil {
+	// 	return nil, err
+	// }
 	return res, nil
 }
 
