@@ -34,7 +34,7 @@ type fakeReplicator struct {
 func newFakeReplicator(useCommitBlock bool) *fakeReplicator {
 	return &fakeReplicator{
 		commitBlock:    make(chan struct{}),
-		startedChan:    make(chan struct{}),
+		startedChan:    make(chan struct{}, 1),
 		useCommitBlock: useCommitBlock,
 	}
 }
