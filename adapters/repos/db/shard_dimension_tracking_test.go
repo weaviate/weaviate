@@ -36,6 +36,7 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -469,6 +470,90 @@ func Test_DimensionTracking(t *testing.T) {
 			assert.Equal(t, 6400, qdim)
 			return nil
 		})
+	})
+}
+
+func Test_DisableDimensionTracking(t *testing.T) {
+	r := getRandomSeed()
+	dirName := t.TempDir()
+
+	shardState := singleShardState()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	db, err := New(logger, "node1", Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+		DisableDimensionMetrics:   runtime.NewDynamicValue(true),
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	db.SetSchemaGetter(schemaGetter)
+	require.Nil(t, db.WaitForStartup(testCtx()))
+	defer db.Shutdown(context.Background())
+
+	migrator := NewMigrator(db, logger, "node1")
+
+	t.Run("set schema", func(t *testing.T) {
+		class := &models.Class{
+			Class:               "Test",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		require.Nil(t, migrator.AddClass(context.Background(), class))
+
+		schemaGetter.schema = schema
+	})
+
+	t.Run("import objects with d=128", func(t *testing.T) {
+		dim := 128
+		for i := 0; i < 100; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = r.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "Test", ID: id}
+			err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
+			require.Nil(t, err)
+		}
+		dimAfter := getDimensionsFromRepo(context.Background(), db, "Test")
+		require.Equal(t, 12800, dimAfter, "dimensions are still tracked, expect 100*128 dims")
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), db, "Test", 64)
+		require.Equal(t, 6400, quantDimAfter, "quantized dimensions are still tracked, expect 100*64 dims")
+	})
+
+	publishVectorMetricsFromDB(t, db)
+	shardName := getSingleShardNameFromRepo(db, "Test")
+	t.Run("observe that dimension tracking metrics are not updated", func(t *testing.T) {
+		metric, err := db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues("Test", shardName)
+		require.NoError(t, err)
+		assert.Equal(t, 0.0, testutil.ToFloat64(metric), "dimensions should not be reported, expect 0")
 	})
 }
 
